@@ -10,9 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -61,13 +59,6 @@ func (s *Store) SetFaults(f Faults) {
 	s.f = f
 }
 
-// Faults returns the switches.
-func (s *Store) Faults() Faults {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.f
-}
-
 // Manifest returns key's stored manifest, if any (test inspection; no faults apply).
 func (s *Store) Manifest(key string) (durable.Manifest, bool) {
 	s.mu.Lock()
@@ -82,13 +73,6 @@ func (s *Store) Object(name string) ([]byte, bool) {
 	defer s.mu.Unlock()
 	b, ok := s.objects[name]
 	return bytes.Clone(b), ok
-}
-
-// Objects lists stored object names, sorted.
-func (s *Store) Objects() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Sorted(maps.Keys(s.objects))
 }
 
 // Counts returns how many uploads, publishes and fetches succeeded.
@@ -159,7 +143,9 @@ func DigestOf(data []byte) durable.Digest {
 
 // begin applies Delay and Down; it returns a snapshot of the switches.
 func (s *Store) begin(ctx context.Context) (Faults, error) {
-	f := s.Faults()
+	s.mu.Lock()
+	f := s.f
+	s.mu.Unlock()
 	if f.Delay > 0 {
 		select {
 		case <-time.After(f.Delay):

@@ -131,9 +131,6 @@ func GenObject(key string, gen uint64) string { return fmt.Sprintf("dbs/%s/gen/%
 // ManifestObject is the object name of key's manifest.
 func ManifestObject(key string) string { return "dbs/" + key + "/manifest.json" }
 
-// Prefix is the object prefix of everything stored for key.
-func Prefix(key string) string { return "dbs/" + key + "/" }
-
 // Encode is the manifest's JSON.
 func Encode(m Manifest) []byte {
 	b, _ := json.Marshal(m) // cannot fail: plain fields only
@@ -230,6 +227,18 @@ func CheckStamp(stored *Manifest, key string, epoch, gen uint64) error {
 	return nil
 }
 
+// Stamped is the manifest a stamp publishes: cur (nil: a new generation-0 manifest) at epoch.
+//
+//	pre: CheckStamp(cur, key, epoch, gen) == nil
+func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
+	next := Manifest{Key: key}
+	if cur != nil {
+		next = *cur
+	}
+	next.Epoch, next.WrittenAt = epoch, now.UTC()
+	return next
+}
+
 // Stamp re-publishes key's manifest at epoch, keeping generation gen (see CheckStamp). With no manifest and
 // gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Stamping at
 // the stored epoch again is a no-op that returns the stored manifest.
@@ -249,11 +258,7 @@ func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time
 	if cur != nil && cur.Epoch == epoch {
 		return stored, v, nil
 	}
-	next := Manifest{Key: key, Epoch: epoch, WrittenAt: now.UTC()}
-	if cur != nil {
-		next = *cur
-		next.Epoch, next.WrittenAt = epoch, now.UTC()
-	}
+	next := Stamped(cur, key, epoch, now)
 	nv, err := s.PublishManifest(ctx, next, v)
 	if err != nil {
 		if errors.Is(err, ErrStale) {

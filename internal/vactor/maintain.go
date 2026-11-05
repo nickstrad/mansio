@@ -52,7 +52,9 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		if h.opts.Store != nil {
 			c.Dirty, c.Stale = e.dirty(), e.stale.Load()
 			if ddb, ok := e.db.(DurableDB); ok {
-				c.Commits = ddb.Commits() - min(ddb.Commits(), e.pubCommits.Load())
+				if n, pub := ddb.Commits(), e.pubCommits.Load(); n > pub {
+					c.Commits = n - pub
+				}
 			}
 			if e.forceDirty.Load() {
 				c.Commits++

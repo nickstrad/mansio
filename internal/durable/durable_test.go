@@ -44,7 +44,7 @@ func TestLayout(t *testing.T) {
 	if got := durable.GenObject("a", 1<<64-1); got != "dbs/a/gen/18446744073709551615.db" { // 20 digits fit uint64
 		t.Fatal(got)
 	}
-	if durable.ManifestObject("t/a") != "dbs/t/a/manifest.json" || durable.Prefix("t/a") != "dbs/t/a/" {
+	if durable.ManifestObject("t/a") != "dbs/t/a/manifest.json" {
 		t.Fatal("manifest/prefix layout")
 	}
 }

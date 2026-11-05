@@ -159,7 +159,7 @@ func TestActivationWithoutManifest(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound and ErrNoManifest", err)
 	}
 	r2 := newDurable(t, nil) // CreateMissing: an empty database, published on first dirty write-back
-	if got := r2.local2(t, "t/new"); got != "" {
+	if got := r2.getLocal("t/new"); got != "" {
 		t.Fatalf("new database file = %q, want empty", got)
 	}
 	if err := r2.h.Passivate(ctx, "t/new"); err != nil {
@@ -170,7 +170,8 @@ func TestActivationWithoutManifest(t *testing.T) {
 	}
 }
 
-func (r *drig) local2(t *testing.T, key string) string { r.get(key); return r.local(key) }
+// getLocal activates key and returns its local contents.
+func (r *drig) getLocal(key string) string { r.get(key); return r.local(key) }
 
 func TestActivationRejectsBadKeysAndLowerEpochs(t *testing.T) {
 	r := newDurable(t, nil)
@@ -241,7 +242,7 @@ func TestPassivateWritesBackOnlyWhenDirty(t *testing.T) {
 	if s := r.h.Stats(); s.WriteBacks != 1 || s.BytesUploaded != 2 {
 		t.Fatalf("Stats %+v", s)
 	}
-	if got := r.local2(t, "t/a"); got != "v2" {
+	if got := r.getLocal("t/a"); got != "v2" {
 		t.Fatalf("reactivated %q", got)
 	}
 }
@@ -481,7 +482,7 @@ func TestRestartRecoversTheLastPublishedGeneration(t *testing.T) {
 	r.put("t/a", "v2-unpublished")
 	vactor.Crash(r.h)
 	r.restart()
-	if got := r.local2(t, "t/a"); got != "v1" {
+	if got := r.getLocal("t/a"); got != "v1" {
 		t.Fatalf("after a crash: %q, want the last published v1", got)
 	}
 }

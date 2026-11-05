@@ -465,8 +465,7 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 	if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
 		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s", key)
 	}
-	next := e.man
-	next.Key, next.Epoch, next.WrittenAt = key, epoch, h.opts.Now().UTC()
+	next := durable.Stamped(cur, key, epoch, h.opts.Now())
 	v, err := h.opts.Store.PublishManifest(ctx, next, e.ver)
 	if err != nil {
 		if errors.Is(err, durable.ErrStale) {
