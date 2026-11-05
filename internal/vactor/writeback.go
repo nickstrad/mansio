@@ -596,55 +596,6 @@ func (h *Host) parallel(keys []string, workers int, fn func(string) error) []err
 	return out
 }
 
-// Close cancels activations in flight, passivates everything (writing back first, in durable mode),
-// removes the cache directory, and makes later Gets return ErrClosed. If some write-backs fail, Close closes
-// those databases but keeps their local files and the cache directory (the only up-to-date copies) and
-// returns the failures.
-func (h *Host) Close() error {
-	h.mu.Lock()
-	h.closed = true
-	h.mu.Unlock()
-	h.cancel()
-	err := h.PassivateAll(h.opts.Workers)
-	kept := h.closeRemaining()
-	if err != nil {
-		return errs.Wrap(module, err, "host closed, but %d databases were not written back; their local copies are kept in %s (the only up-to-date copies)",
-			kept, h.opts.CacheDir)
-	}
-	return os.RemoveAll(h.opts.CacheDir)
-}
-
-// closeRemaining waits out passivations still running (e.g. a Tick's) and closes databases left warm by a
-// failed write-back, keeping their files. Returns how many it kept.
-func (h *Host) closeRemaining() int {
-	kept := 0
-	for {
-		h.mu.Lock()
-		var e *entry
-		var key string
-		for k, x := range h.entries {
-			key, e = k, x
-			break
-		}
-		if e == nil {
-			h.mu.Unlock()
-			return kept
-		}
-		if g := e.gone; g != nil {
-			h.mu.Unlock()
-			<-g
-			continue
-		}
-		delete(h.entries, key) // closed: no Get can find it again
-		h.mu.Unlock()
-		<-e.done
-		if e.db != nil {
-			e.db.Close()
-		}
-		kept++
-	}
-}
-
 // hashFile returns a file's size, sha256 and md5, in one read of the file.
 func hashFile(path string) (durable.Digest, error) {
 	f, err := os.Open(path)

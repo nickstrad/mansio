@@ -42,7 +42,8 @@ type Config struct {
 	MaxTimeout        load.Duration         `json:"max_timeout"`
 	StatementTimeout  load.Duration         `json:"statement_timeout"`
 	ReplyGrace        load.Duration         `json:"reply_grace"`
-	DrainTimeout      load.Duration         `json:"drain_timeout"`
+	DrainTimeout      load.Duration         `json:"drain_timeout"`   // front drain, the first part of shutdown_budget
+	ShutdownBudget    load.Duration         `json:"shutdown_budget"` // whole shutdown: drain, close databases; default 60 s
 	ReadHeaderTimeout load.Duration         `json:"read_header_timeout"`
 	BodyReadTimeout   load.Duration         `json:"body_read_timeout"` // whole request body; default 5 s
 	IdleTimeout       load.Duration         `json:"idle_timeout"`
@@ -59,7 +60,7 @@ func defaults() Config {
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
 		Limits:         front.Limits{}.WithDefaults(),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
-		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
+		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ShutdownBudget: d(time.Minute), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
 		IdleTimeout: d(2 * time.Minute), LogLevel: "info",
 	}
 }
@@ -115,6 +116,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	for name, d := range map[string]time.Duration{"default_timeout": c.DefaultTimeout.Duration, "max_timeout": c.MaxTimeout.Duration,
 		"statement_timeout": c.StatementTimeout.Duration, "reply_grace": c.ReplyGrace.Duration, "drain_timeout": c.DrainTimeout.Duration,
+		"shutdown_budget":     c.ShutdownBudget.Duration,
 		"read_header_timeout": c.ReadHeaderTimeout.Duration, "body_read_timeout": c.BodyReadTimeout.Duration, "idle_timeout": c.IdleTimeout.Duration} {
 		if d <= 0 {
 			bad("%s must be > 0", name)
@@ -122,6 +124,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.DefaultTimeout.Duration > c.MaxTimeout.Duration {
 		bad("default_timeout %v is over max_timeout %v", c.DefaultTimeout, c.MaxTimeout)
+	}
+	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
+		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)
 	}
 	if c.Limits.MaxBody <= 0 || c.Limits.MaxSQL <= 0 || c.Limits.MaxArgs <= 0 || c.Limits.MaxRows <= 0 {
 		bad("limits must all be > 0")

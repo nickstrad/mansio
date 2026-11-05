@@ -5,7 +5,8 @@
 //	agentd -config configs/agentd/local.json [-addr-file path] [-check]
 //
 // Exit codes: 0 stopped cleanly after SIGINT/SIGTERM (drained), 1 failed (message and log ID on stderr; this
-// includes a drain that did not finish within drain_timeout), 2 bad usage, 70 bug (report the log ID),
+// includes a shutdown that did not finish cleanly: a drain cut off at drain_timeout, or databases not closed within
+// shutdown_budget), 2 bad usage, 70 bug (report the log ID),
 // 130 interrupted before it started serving.
 package main
 
@@ -98,7 +99,6 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		}
 		return rep.report(err)
 	}
-	defer host.Close() // after the drain: queued work is answered (shed) and every database is closed
 
 	srv := front.NewServer(front.Config{
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
@@ -106,13 +106,17 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
 		depAdmitter{epochs(dbs, cfg)}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
-	return serve(ctx, cfg, srv, log, *addrFile, rep, stderr)
+	return serve(ctx, cfg, srv, host.Shutdown, log, *addrFile, rep, stderr)
 }
 
-// serve runs the listeners until ctx ends, then drains.
-func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger, addrFile string, rep reporter, stderr io.Writer) int {
+// serve runs the listeners until ctx ends, then shuts down within cfg.ShutdownBudget: drain the front (at most
+// drain_timeout), close the host with what is left, then close the lifecycle listener. closeHost runs even if
+// serve fails before serving.
+func serve(ctx context.Context, cfg *Config, srv *front.Server, closeHost func(context.Context) error, log *slog.Logger,
+	addrFile string, rep reporter, stderr io.Writer) int {
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
+		closeHost(context.Background())
 		return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.Listen))
 	}
 	protos := new(http.Protocols)
@@ -126,6 +130,7 @@ func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger
 		hl, err := net.Listen("tcp", cfg.HealthListen)
 		if err != nil {
 			ln.Close()
+			closeHost(context.Background())
 			return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
 		}
 		servers = append(servers, healthServer(cfg, srv))
@@ -141,6 +146,7 @@ func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger
 			for _, s := range servers {
 				s.Close()
 			}
+			closeHost(context.Background())
 			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
@@ -152,32 +158,49 @@ func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger
 	case <-ctx.Done():
 	case serveErr = <-errc:
 	}
-	idle := srv.Drain() // new requests are shed; /healthz says draining
-	dctx, cancel := context.WithTimeout(context.Background(), cfg.DrainTimeout.Duration)
-	defer cancel()
-	forced := hs.Shutdown(dctx) != nil // stops accepting, waits for in-flight requests (bounded)
-	if forced {
-		hs.Close()
-	}
-	for _, s := range servers[1:] {
-		s.Close()
-	}
-	select {
-	case <-idle:
-	case <-dctx.Done():
-		forced = true
-	}
-	left := srv.InFlight()
-	log.Info("stopped", "forced", forced, "in_flight_left", left)
+	log.Info("shutting down", "event", "AGENT.SHUTDOWN_START", "budget_ms", cfg.ShutdownBudget.Milliseconds(),
+		"drain_timeout_ms", cfg.DrainTimeout.Milliseconds(), "in_flight", srv.InFlight())
+	err = shutdown(log, cfg.ShutdownBudget.Duration, []phase{
+		{"front.drain", cfg.DrainTimeout.Duration, func(ctx context.Context) error { return drain(ctx, srv, hs, log) }},
+		{"host.close", 0, closeHost}, // queued work is answered (shed), then every database is closed
+		// CP-1 wiring point: the owner table needs no phase of its own (each of its transitions is durable when
+		// made), but a vactor host's Shutdown goes here: write back oldest-dirty first, keep the rest locally.
+		{"lifecycle.close", 0, func(context.Context) error {
+			for _, s := range servers[1:] {
+				s.Close()
+			}
+			return nil
+		}},
+	})
 	switch {
 	case serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed):
 		return rep.report(errs.Wrap(module, serveErr, "listener failed; stopped"))
-	case forced:
-		return rep.report(errs.Wrap(module, nil, "drain did not finish within %v; %d requests were cut off (writes among them may or may not have committed)",
-			cfg.DrainTimeout, left))
+	case err != nil:
+		return rep.report(err)
 	}
 	fmt.Fprintln(stderr, "agentd: stopped")
 	return exitOK
+}
+
+// drain stops the front: new requests are shed (and /healthz says draining), the query listener stops
+// accepting, and in-flight requests get until ctx ends to finish.
+func drain(ctx context.Context, srv *front.Server, hs *http.Server, log *slog.Logger) error {
+	idle := srv.Drain()
+	forced := hs.Shutdown(ctx) != nil // stops accepting, waits for in-flight requests (bounded)
+	if forced {
+		hs.Close()
+	}
+	select {
+	case <-idle:
+	case <-ctx.Done():
+		forced = true
+	}
+	left := srv.InFlight()
+	log.Info("stopped", "event", "AGENT.DRAIN_END", "forced", forced, "in_flight_left", left)
+	if forced {
+		return errs.Wrap(module, ctx.Err(), "drain did not finish in time; %d requests were cut off (writes among them may or may not have committed)", left)
+	}
+	return nil
 }
 
 // healthServer serves /healthz alone. Health requests have no body and a tiny answer, so plain server-wide

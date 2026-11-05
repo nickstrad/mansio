@@ -73,6 +73,11 @@ It touches neither admission nor actors; `health_listen` puts it on a second lis
 
 ## Shutdown (agentd)
 
-SIGINT/SIGTERM → `Server.Drain` (new requests `shed`, healthz 503) → `http.Server.Shutdown` bounded by
-`drain_timeout` → close listeners → close every actor (queued work is answered `shed`). Exit 0 when the drain
-finished; exit 1 with a log ID when it did not (requests cut, writes among them ambiguous).
+SIGINT/SIGTERM starts one `shutdown_budget` (default 60 s; Release It H3, RI-06), spent in phases, in order:
+`front.drain` — `Server.Drain` (new requests `shed`, healthz 503) and `http.Server.Shutdown`, at most
+`drain_timeout` (≤ the budget) → `host.close` with what is left — close every actor (queued work is answered
+`shed`); a vactor host's `Shutdown(ctx)` goes here at CP-1: dirty databases written back oldest-unpublished
+first, the rest closed with their local copies kept and counted → `lifecycle.close`. A phase that runs out does
+not skip the next. Each phase logs `AGENT.PHASE_DONE`/`AGENT.PHASE_FAILED`, then `AGENT.SHUTDOWN_DONE`. Exit 0
+when every phase finished; exit 1 with a log ID otherwise (requests cut — writes among them ambiguous — or
+databases not closed in time).

@@ -129,3 +129,16 @@ func (h *StaticHost) Close() {
 	}
 	wg.Wait()
 }
+
+// Shutdown is Close bounded by ctx (Release It H3). If ctx ends first it returns an error matching ctx.Err();
+// the actors finish closing in the background (each statement is bounded by its own timeout).
+func (h *StaticHost) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() { h.Close(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return errs.Wrap("front", ctx.Err(), "not every database closed in time; the rest finish closing in the background")
+	}
+}
