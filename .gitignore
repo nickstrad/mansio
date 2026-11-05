@@ -5,3 +5,14 @@ results/
 *.sqlite-shm
 results-*.log
 .locks/
+
+# binaries from `go build ./cmd/<name>` at the repo root
+/agentd
+/agentctl
+/controld
+/edge
+/coldload
+/dbtool
+/frontbench
+/sqlbench
+/wbbench

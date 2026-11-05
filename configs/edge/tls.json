@@ -1,0 +1,9 @@
+{
+  "listen": "127.0.0.1:7443",
+  "health_listen": "127.0.0.1:7444",
+  "tls": {"cert_file": "../../results/edge/tls/edge.crt", "key_file": "../../results/edge/tls/edge.key"},
+  "keys_file": "../../results/front/keys/keys.json",
+  "agents": {"vm-local": "https://127.0.0.1:7070"},
+  "agent_tls": {"ca_file": "../../results/edge/tls/ca.pem"},
+  "log_file": "../../results/edge/edge.log"
+}

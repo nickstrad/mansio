@@ -191,7 +191,7 @@ A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
   move; with the S3 breaker tripped, the first retry waits ≥ `Retry-After`; `configs/retry-storm.json` keeps
   retries/first ≤ ratio over every 1 s window.
 
-### CP-7. Edge and TLS
+### CP-7. Edge and TLS — **Done** (fc434e8; deferred: resolver from controld's VM registry (static `agents` now, `edge.Resolver` seam), TLS + unknown-API-key rate limiting for controld's `/v1/resolve` and `/v1/keys` (building blocks `tlsx`, `edge.SourceLimiter`), mTLS edge → agent, edge admin controls, numbers on separate hosts; notes in `knowledge/front/2026-11-05-edge.md`)
 
 Option 4 §3.6: a stateless proxy that routes on the ticket's `vm` claim, so agents stay private. Rate-limit
 garbage tickets there (each costs a 26 µs verify). TLS client → edge → agent.

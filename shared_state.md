@@ -563,3 +563,15 @@ Branch `cp/cp5`. Details: `knowledge/front/2026-11-05-locator.md`.
 - **API keys:** `tsdb_<16 hex>_<secret>`; admin `POST /v1/tenants/{t}/api-keys {"principal","perms"}` (key shown once), `POST /v1/api-keys/{id}/revoke`; CLI `controld create-key|revoke-key`. A key covers all databases of its tenant. Revocation takes `auth_ttl` (10 s) + ticket TTL.
 - **Ticket keys:** controld config **requires** `ticket_keys.dir` (0700; rotating Ed25519 ring). `GET /v1/keys` (unauthenticated) serves `ticket.PublicKeyFile`. agentd: `keys_url` (+ optional `keys_file` cache, `keys_refresh` 30 s, `keys_timeout` 3 s) or static `keys_file` as before; plain-HTTP `keys_url` needs `-dev`. CP-7 edge can verify the same way (`ticket.NewKeyRing` + `KeyRing.Replace`; `ticket.NewPublicKeyFile`, `KeyRing.Equal/Len`, `ticket.ParsePerm` are new).
 - **placement/pg:** migrations `0003_notify.sql` (`pg_notify('placement', key:epoch)` on insert/update/delete of placement) and `0004_api_keys.sql`; `Locate`, `GetAPIKey`, `CreateAPIKey`, `RevokeAPIKey`, `Listen(ctx, ListenConfig, ListenHooks)`. Secrets: optional `pg_replica_dsn` for controld.
+
+## 2026-11-05 15:18 — cp7: edge and TLS (CP-7): contract changes
+
+Branch `cp/cp7`. Details: `knowledge/front/2026-11-05-edge.md`.
+
+- **New: `internal/edge` + `cmd/edge`** (stateless TLS edge, option 4 §3.6). Routes `POST /v1/query` on the ticket's `vm` claim; verifies the ticket (signature, claims, time, `max_ticket_ttl`) for whichever VM it names; the agent still verifies audience/db/perm/epoch. Wire answers reuse contract 3 (`front.Response`, `front.Spec`): edge-made `shed` (draining, rate-limited, no verify slot, agent bulkhead full), `unavailable` (agent unreachable / breaker open, nothing ran), `expired` + `ambiguous: true` (sent, no answer by deadline + grace), `wrong_owner` (vm not routable: re-resolve), `ticket_invalid`, `bad_request`. Agent answers relayed unchanged (status, body, Retry-After).
+- **Seams for CP-5 and later:** `edge.Resolver` (VM → agent base URL; `edge.StaticRoutes` from config `agents` now; controld's VM registry later) and `ticket.KeySet` (`ticket.KeyRing` from `keys_file`; CP-5's key endpoint can `Replace` it).
+- **agentd:** optional `tls: {cert_file, key_file}` makes the query listener HTTPS (h2 + h1 by ALPN; `protocols` applies to plain only). **A non-loopback `listen` without `tls` is now refused unless `-dev`.**
+- **frontbench run:** `-ca <pem>` for https URLs, `-proto h2` (TLS); every request now sends `X-Timeout-Ms` = `-timeout`.
+- **Test helper:** `internal/edge/edgetest` — throwaway private CA (`NewCA`, `Issue`, `TLS`, `WriteFiles`, `Pool`).
+- **Edge keys:** `keys_url`/`keys_refresh`/`keys_timeout` as agentd. agentd's key fetcher moved to **`internal/keyfetch`** (`Open`, `LoadFile`, `Fetcher.Run/Fetch/Register(reg, prefix)`); agentd behavior and `agentd_*` metric names unchanged.
+- **Shared helpers:** `internal/tlsx` (`ServerConfig(cert, key)`, `LoadPool(ca)`); `metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker)` for breaker sets that change while serving (edge: `dep="agent:<vm>"`).
