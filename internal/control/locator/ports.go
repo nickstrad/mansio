@@ -15,6 +15,8 @@ type Placement struct {
 	// Intent is the database's registry state (control.StateCreating, …), or ""
 	// when the registry has no row (a placement row made outside controld, e.g. agentd's -dev create).
 	Intent string
+	// Target is the registry's move destination while Intent is control.StateMoving, else "".
+	Target string
 	Found  bool // a placement row exists; the fields below are set only then
 	VM     string
 	// Endpoint is the owner VM's query endpoint (host:port) from the VM registry.

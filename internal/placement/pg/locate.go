@@ -18,6 +18,7 @@ import (
 // Location is one database as the locator sees it: registry state, placement row and owner endpoint.
 type Location struct {
 	Intent   string // the registry state, "" without a registry row
+	Target   string // the registry's move target (Intent "moving"), else ""
 	Found    bool   // a placement row exists; the fields below are set only then
 	Place    owner.Place
 	Endpoint string // the owner VM's query endpoint
@@ -30,7 +31,7 @@ func (p *Placement) Locate(ctx context.Context, key string) (Location, error) {
 	err := p.call(ctx, "locate", key, retryRead, func(ctx context.Context) error {
 		var vm, endpoint, state *string
 		var epoch, gen *int64
-		if err := p.pool.QueryRow(ctx, q.locate, key).Scan(&l.Intent, &vm, &endpoint, &epoch, &gen, &state); err != nil {
+		if err := p.pool.QueryRow(ctx, q.locate, key).Scan(&l.Intent, &l.Target, &vm, &endpoint, &epoch, &gen, &state); err != nil {
 			return err
 		}
 		if vm == nil {

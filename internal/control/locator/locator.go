@@ -24,7 +24,10 @@ type Config struct {
 	AuthMax     int           // API keys cached; default 10 000
 	LoadTimeout time.Duration // one store read (placement or key); default 2.5 s
 	MovingRetry time.Duration // the retry hint while a database is moving or being created; default 1 s
-	Now         func() time.Time
+	// ClaimRetry is the retry hint while the placement already names the new owner but its Claim has not landed
+	// (the registry still says creating/moving): a few milliseconds of work left. Default 50 ms.
+	ClaimRetry time.Duration
+	Now        func() time.Time
 }
 
 func (c *Config) normalize() {
@@ -38,6 +41,7 @@ func (c *Config) normalize() {
 	def(&c.AuthTTL, 10*time.Second)
 	def(&c.LoadTimeout, 2500*time.Millisecond)
 	def(&c.MovingRetry, time.Second)
+	def(&c.ClaimRetry, 50*time.Millisecond)
 	if c.CacheMax <= 0 {
 		c.CacheMax = 100_000
 	}
@@ -152,6 +156,8 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 		return fail(ErrSuspended)
 	case !pl.Found || pl.Moving:
 		return fail(moving{l.cfg.MovingRetry})
+	case claimPending(pl):
+		return fail(moving{l.cfg.ClaimRetry})
 	}
 	now := l.cfg.Now()
 	c := ticket.Claims{TID: r.Tenant, DBID: key, VM: pl.VM, Epoch: pl.Epoch, Gen: pl.Gen, Sub: k.Principal, Perms: k.Perms,
@@ -163,6 +169,17 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	exp := time.Unix(c.EXP, 0)
 	return Route{DB: key, Tenant: r.Tenant, VM: pl.VM, Endpoint: pl.Endpoint, Epoch: pl.Epoch, Gen: pl.Gen, Ticket: tok,
 		Perms: k.Perms.String(), Expires: exp, TTL: exp.Sub(now)}, nil
+}
+
+// claimPending reports that pl's placement is ACTIVE on an owner whose Claim the registry has not confirmed: a
+// create's first owner, or a move's destination, before the registry flips to active. That owner answers
+// wrong_owner at the current epoch until its Claim lands, so a client sent there would learn nothing; it is told
+// "moving" instead, and the registry's flip (StateChannel) invalidates the cache when the Claim is done. A move
+// whose placement still names the source is routed there (the source serves until it is fenced).
+//
+//	pre: pl.Found && !pl.Moving
+func claimPending(pl Placement) bool {
+	return pl.Intent == control.StateCreating || pl.Intent == control.StateMoving && pl.VM == pl.Target
 }
 
 // authenticate checks an API key: its id names a row, the secret's hash matches in constant time, and it is
@@ -263,17 +280,33 @@ func (l *Locator) Invalidate(key string, epoch uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.stats.Notifications++
-	e := l.routes[key]
-	if e != nil && !e.dirty && e.pl.Epoch > epoch {
+	if e := l.routes[key]; e != nil && !e.dirty && e.pl.Epoch > epoch {
 		return
 	}
+	l.invalidate(key)
+}
+
+// InvalidateState applies one registry notification: key's lifecycle state changed. Its cached row (whatever its
+// epoch) becomes a tombstone and loads in flight are not cached: the registry flip does not change the epoch, so
+// Invalidate's late-notification rule cannot apply.
+func (l *Locator) InvalidateState(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.stats.Notifications++
+	l.invalidate(key)
+}
+
+// invalidate marks key's loads in flight stale and turns its cached row into a tombstone.
+//
+//	pre: l.mu held
+func (l *Locator) invalidate(key string) {
 	if f := l.loads[loadKey{key, false}]; f != nil {
 		f.stale = true
 	}
 	if f := l.loads[loadKey{key, true}]; f != nil {
 		f.stale = true
 	}
-	if e != nil {
+	if e := l.routes[key]; e != nil {
 		*e = entry{dirty: true, at: l.cfg.Now()}
 	}
 }

@@ -35,6 +35,7 @@ import (
 //	not_found    | 404    | no such database or vm
 //	suspended    | 409    | resolve: the database is suspended
 //	moving       | 503    | resolve: the database is moving or being created; resolve again after Retry-After
+//	             |        | (the body's retry_after_ms is the precise hint: ~50 ms while a new owner's claim lands)
 //	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation
 //	no_capacity  | 503    | no live vm under the policy's caps
 //	unavailable  | 503    | Postgres, S3 or an agent cannot do it now; the flow is recorded and resumes; Retry-After
@@ -222,7 +223,7 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
-	body := map[string]string{}
+	body := map[string]any{}
 	ae := classify(err)
 	if ae == nil {
 		id := logx.NewID()
@@ -232,19 +233,22 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 		d.log.Warn("control call refused", "event", "CONTROLD.REFUSED", "path", r.URL.Path, "code", ae.code, "error", err.Error())
 	}
 	if ae.status == http.StatusServiceUnavailable {
-		w.Header().Set("Retry-After", strconv.Itoa(retrySeconds(err)))
+		hint := retryHint(err)
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int((hint+time.Second-1)/time.Second))))
+		body["retry_after_ms"] = max(1, hint.Milliseconds())
 	}
 	body["code"], body["message"] = ae.code, ae.msg
 	w.WriteHeader(ae.status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// retrySeconds is 1 s, raised by a breaker's hint in the chain (front.RetryHint), capped at
-// front.MaxRetryAfter: the same rule as agentd's answers.
-func retrySeconds(err error) int {
+// retryHint is the hint in err's chain (front.RetryHint: a breaker's, the locator's moving), else 1 s, capped at
+// front.MaxRetryAfter. The Retry-After header rounds it up to whole seconds (at least 1); the body's
+// retry_after_ms keeps it precise, as agentd's answers do.
+func retryHint(err error) time.Duration {
 	var h front.RetryHint
-	if !errors.As(err, &h) {
-		return 1
+	if !errors.As(err, &h) || h.RetryAfter() <= 0 {
+		return time.Second
 	}
-	return max(1, int((min(h.RetryAfter(), front.MaxRetryAfter)+time.Second-1)/time.Second))
+	return min(h.RetryAfter(), front.MaxRetryAfter)
 }

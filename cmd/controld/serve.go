@@ -134,7 +134,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration})
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
 		c, err := agenthttp.New(agenthttp.Config{VM: a.VM, BaseURL: a.Lifecycle, Token: sec.ControlToken, Timeout: cfg.AgentTimeout.Duration,

@@ -30,7 +30,7 @@ func (s locStore) Locate(ctx context.Context, key string, primary bool) (locator
 		p = s.primary
 	}
 	l, err := p.Locate(ctx, key)
-	return locator.Placement{Intent: l.Intent, Found: l.Found, VM: l.Place.Owner, Endpoint: l.Endpoint, Epoch: uint64(l.Place.Epoch),
+	return locator.Placement{Intent: l.Intent, Target: l.Target, Found: l.Found, VM: l.Place.Owner, Endpoint: l.Endpoint, Epoch: uint64(l.Place.Epoch),
 		Gen: uint64(l.Place.Gen), Moving: l.Place.State == owner.PlaceMoving}, err
 }
 
@@ -43,7 +43,8 @@ func (s locStore) APIKey(ctx context.Context, id string) (locator.StoredKey, err
 }
 
 // listen runs the placement listener until ctx ends: each (re)connect resets the locator's cache, each
-// notification invalidates one key, a lost connection turns the cache off until the next connect.
+// notification (a placement change, or a registry state flip that ends a claim window) invalidates one key, a
+// lost connection turns the cache off until the next connect.
 func (d *daemon) listen(ctx context.Context) {
 	d.pg.Listen(ctx, pg.ListenConfig{Ping: d.cfg.Locator.ListenPing.Duration}, pg.ListenHooks{
 		Ready: func() {
@@ -51,6 +52,7 @@ func (d *daemon) listen(ctx context.Context) {
 			d.log.Info("placement listener connected; locator cache reset", "event", "LOCATOR.LISTENING")
 		},
 		Notify: d.loc.Invalidate,
+		State:  d.loc.InvalidateState,
 		Lost: func(err error) {
 			d.loc.Untrust()
 			d.log.Warn("placement listener lost; locator cache off until it reconnects", "event", "LOCATOR.LISTEN_LOST", "error", err.Error())

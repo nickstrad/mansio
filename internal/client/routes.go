@@ -178,10 +178,11 @@ func (c *routes) finish(db string, f *flight) {
 		return
 	}
 	if f.minEpoch > 0 && f.minEpoch >= s.minEpoch {
-		// The locator read the primary for this load: its epoch is the truth, even below what we asked for.
-		// Defence in depth: today the locator routes to a new owner before its claim lands (that owner answers
-		// wrong_owner at the current epoch for a few ms), a lost notification has the same effect, and the edge
-		// answers wrong_owner for a VM it cannot route; none of these means "the epoch is over".
+		// The locator read the primary for this load: its epoch is the truth, even below what we asked for, or
+		// the requirement could never be met. wrong_owner at the current epoch does not always mean "the epoch is
+		// over": an agent that restarted and lost its claim, a lost notification, or the edge not knowing a VM
+		// yet answer it too. The locator answers "moving" until a new owner's claim lands, so a move alone no
+		// longer gets here; MaxReroutes bounds what remains.
 		s.minEpoch = 0
 	}
 	if s.r != nil && s.r.Epoch > f.r.Epoch {

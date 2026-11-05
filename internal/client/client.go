@@ -33,7 +33,7 @@ const (
 	DefaultResolveTimeout = 3 * time.Second  // one resolve (the locator's own deadline)
 	DefaultDialTimeout    = 3 * time.Second  // TCP connect
 	DefaultHeaderTimeout  = 60 * time.Second // backstop only: every call's ctx deadline ends it first
-	DefaultMaxReroutes    = 5                // re-resolves in one call: the backoff then spans a new owner's claim (~375 ms)
+	DefaultMaxReroutes    = 5                // re-resolves in one call (a move costs ~2: fenced, then moving until the claim lands)
 	DefaultMaxRoutes      = 10_000           // cached databases
 	DefaultRefreshAhead   = 0.8              // refresh at 80% of the ticket TTL …
 	DefaultRefreshJitter  = 0.1              // … ±10% of the TTL
@@ -511,6 +511,7 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 	var out struct {
 		Code     string `json:"code"`
 		Message  string `json:"message"`
+		RetryMS  int    `json:"retry_after_ms"`
 		DB       string `json:"db"`
 		VM       string `json:"vm"`
 		Endpoint string `json:"endpoint"`
@@ -525,7 +526,7 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: fmt.Errorf("unreadable locator answer: %w", err)}
 	}
 	if out.Code != "ok" {
-		return Route{}, &resolveError{a: answer{Code: out.Code, RetryAfter: retryAfter(hres.Header.Get("Retry-After"), 0)}, msg: out.Message}
+		return Route{}, &resolveError{a: answer{Code: out.Code, RetryAfter: retryAfter(hres.Header.Get("Retry-After"), out.RetryMS)}, msg: out.Message}
 	}
 	if out.Endpoint == "" || out.Ticket == "" || out.TTLMs <= 0 || out.DB == "" {
 		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: errors.New("locator answer ok without endpoint, ticket, db or ttl")}

@@ -150,7 +150,7 @@ func TestResolveMintsATicketForTheOwner(t *testing.T) {
 }
 
 func TestResolveAnswers(t *testing.T) {
-	f := newFixture(t, Config{MovingRetry: 3 * time.Second})
+	f := newFixture(t, Config{MovingRetry: 3 * time.Second, ClaimRetry: 20 * time.Millisecond})
 	_, id, _, _ := NewAPIKey(bytes.NewReader(bytes.Repeat([]byte{1}, 64)))
 	revoked, rid, rhash, _ := NewAPIKey(bytes.NewReader(bytes.Repeat([]byte{2}, 64)))
 	f.st.keys[rid] = StoredKey{Tenant: "acme", Principal: "old", Perms: ticket.Read, Hash: rhash, Revoked: true}
@@ -166,25 +166,30 @@ func TestResolveAnswers(t *testing.T) {
 	f.st.set("acme:dropping", Placement{Intent: "dropping", Found: true, VM: "vm-a", Epoch: 2, Moving: true})
 	f.st.set("acme:dropped", Placement{Intent: "dropped"})
 	f.st.set("acme:bare", Placement{Found: true, VM: "vm-b", Epoch: 1}) // no registry row: still served
-	f.st.set("acme:flipped", Placement{Intent: "moving", Found: true, VM: "vm-b", Epoch: 4})
+	f.st.set("acme:flipped", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-b", Epoch: 4})
+	f.st.set("acme:unfenced", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-a", Epoch: 3})
+	f.st.set("acme:placed", Placement{Intent: "creating", Found: true, VM: "vm-a", Epoch: 1})
 	tests := []struct {
 		name, db, key string
 		err           error
+		hint          time.Duration // ErrMoving's
 	}{
-		{"ok", "db", f.key, nil},
-		{"malformed key", "db", "nope", ErrUnauthorized},
-		{"unknown key id", "db", "tsdb_" + id + "_" + f.key[len("tsdb_")+17:], ErrUnauthorized},
-		{"wrong secret", "db", wrongSecret, ErrUnauthorized},
-		{"revoked", "db", revoked, ErrUnauthorized},
-		{"other tenant's key", "db", other, ErrForbidden},
-		{"no such database", "nothing", f.key, ErrNotFound},
-		{"moving", "moving", f.key, ErrMoving},
-		{"creating (no placement row yet)", "creating", f.key, ErrMoving},
-		{"suspended", "suspended", f.key, ErrSuspended},
-		{"dropping", "dropping", f.key, ErrNotFound},
-		{"dropped", "dropped", f.key, ErrNotFound},
-		{"placement without a registry row", "bare", f.key, nil},
-		{"flipped, registry not yet active: route to the new owner", "flipped", f.key, nil},
+		{"ok", "db", f.key, nil, 0},
+		{"malformed key", "db", "nope", ErrUnauthorized, 0},
+		{"unknown key id", "db", "tsdb_" + id + "_" + f.key[len("tsdb_")+17:], ErrUnauthorized, 0},
+		{"wrong secret", "db", wrongSecret, ErrUnauthorized, 0},
+		{"revoked", "db", revoked, ErrUnauthorized, 0},
+		{"other tenant's key", "db", other, ErrForbidden, 0},
+		{"no such database", "nothing", f.key, ErrNotFound, 0},
+		{"moving", "moving", f.key, ErrMoving, 3 * time.Second},
+		{"creating (no placement row yet)", "creating", f.key, ErrMoving, 3 * time.Second},
+		{"suspended", "suspended", f.key, ErrSuspended, 0},
+		{"dropping", "dropping", f.key, ErrNotFound, 0},
+		{"dropped", "dropped", f.key, ErrNotFound, 0},
+		{"placement without a registry row", "bare", f.key, nil, 0},
+		{"flipped, registry not yet active: the claim is pending", "flipped", f.key, ErrMoving, 20 * time.Millisecond},
+		{"placed, registry still creating: the claim is pending", "placed", f.key, ErrMoving, 20 * time.Millisecond},
+		{"moving but not fenced yet: route to the source", "unfenced", f.key, nil, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,7 +199,7 @@ func TestResolveAnswers(t *testing.T) {
 			}
 			if errors.Is(err, ErrMoving) {
 				var h front.RetryHint
-				if !errors.As(err, &h) || h.RetryAfter() != 3*time.Second {
+				if !errors.As(err, &h) || h.RetryAfter() != tc.hint {
 					t.Fatalf("moving without its retry hint: %v", err)
 				}
 			}
@@ -278,6 +283,34 @@ func TestInvalidateSendsTheNextLoadToThePrimary(t *testing.T) {
 		t.Fatalf("the primary's row was not cached: replica %d primary %d", rep, pri)
 	}
 	f.l.Invalidate("acme:unknown", 1) // uncached keys leave nothing behind
+	if s := f.l.Stats(); s.Entries != 1 || s.Notifications != 3 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// A move: "moving" from the flip until the registry says active; its notification (InvalidateState) ends the
+// "moving" answers at once, whatever the cached epoch.
+func TestRegistryFlipEndsTheClaimWindow(t *testing.T) {
+	f := newFixture(t, Config{})
+	f.l.Reset()
+	f.resolve(t, "db", 0)
+	f.st.set("acme:db", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-b", Endpoint: "b", Epoch: 4})
+	f.l.Invalidate("acme:db", 4)
+	if _, err := f.resolve(t, "db", 0); !errors.Is(err, ErrMoving) {
+		t.Fatalf("claim pending: %v", err)
+	}
+	f.st.set("acme:db", Placement{Intent: "active", Found: true, VM: "vm-b", Endpoint: "b", Epoch: 4})
+	if _, err := f.resolve(t, "db", 0); !errors.Is(err, ErrMoving) {
+		t.Fatalf("the claim-pending row was not cached: %v", err)
+	}
+	f.l.InvalidateState("acme:db")
+	if r, err := f.resolve(t, "db", 0); err != nil || r.VM != "vm-b" || r.Epoch != 4 {
+		t.Fatalf("after the registry flip: %+v %v", r, err)
+	}
+	if rep, pri := f.st.counts(); rep != 1 || pri != 2 {
+		t.Fatalf("loads replica %d primary %d, want 1 and 2 (each notified key reads the primary)", rep, pri)
+	}
+	f.l.InvalidateState("acme:unknown")
 	if s := f.l.Stats(); s.Entries != 1 || s.Notifications != 3 {
 		t.Fatalf("%+v", s)
 	}

@@ -74,6 +74,7 @@ type Config struct {
 		Timeout     load.Duration `json:"timeout"`      // one resolve; default 3 s
 		Concurrency int           `json:"concurrency"`  // resolves at once; more are refused 503; default 256
 		MovingRetry load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
+		ClaimRetry  load.Duration `json:"claim_retry"`  // retry_after_ms while a new owner's claim is pending; default 50 ms
 		ListenPing  load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
 	} `json:"locator"`
 
@@ -114,7 +115,7 @@ func defaults() Config {
 	c.PG.MaxConns = 20
 	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
 	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
-	c.Locator.MovingRetry, c.Locator.ListenPing = d(time.Second), d(5*time.Second)
+	c.Locator.MovingRetry, c.Locator.ClaimRetry, c.Locator.ListenPing = d(time.Second), d(50*time.Millisecond), d(5*time.Second)
 	c.TicketKeys.Rotate, c.TicketKeys.Activate, c.TicketKeys.Check = d(24*time.Hour), d(5*time.Minute), d(time.Minute)
 	return c
 }
@@ -166,6 +167,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	lc, tk := c.Locator, c.TicketKeys
 	for name, d := range map[string]time.Duration{"locator.ticket_ttl": lc.TicketTTL.Duration, "locator.cache_ttl": lc.CacheTTL.Duration,
 		"locator.auth_ttl": lc.AuthTTL.Duration, "locator.timeout": lc.Timeout.Duration, "locator.moving_retry": lc.MovingRetry.Duration,
+		"locator.claim_retry": lc.ClaimRetry.Duration,
 		"locator.listen_ping": lc.ListenPing.Duration, "ticket_keys.rotate": tk.Rotate.Duration, "ticket_keys.check": tk.Check.Duration} {
 		if d <= 0 {
 			bad("%s must be > 0", name)

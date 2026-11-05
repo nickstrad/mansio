@@ -12,8 +12,12 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
-// Channel is the notification channel of 0003_notify.sql; payloads are database_id ':' epoch.
-const Channel = "placement"
+// The notification channels: Channel (0003_notify.sql) carries database_id ':' epoch for every placement change;
+// StateChannel (0005_state_notify.sql) carries database_id for every change of a database's registry state.
+const (
+	Channel      = "placement"
+	StateChannel = "database_state"
+)
 
 // ListenHooks receive a listener's events, in order, from one goroutine.
 type ListenHooks struct {
@@ -22,6 +26,8 @@ type ListenHooks struct {
 	Ready func()
 	// Notify is one change: key's row changed and is now at epoch.
 	Notify func(key string, epoch uint64)
+	// State is one registry change: key's lifecycle state (or move target) changed. Nil: not listened to.
+	State func(key string)
 	// Lost runs when the session fails: notifications may be missed until the next Ready.
 	Lost func(err error)
 }
@@ -35,7 +41,8 @@ type ListenConfig struct {
 	MaxBackoff time.Duration
 }
 
-// Listen keeps one dedicated connection (not from the pool) LISTENing on Channel until ctx ends, reconnecting
+// Listen keeps one dedicated connection (not from the pool) LISTENing on Channel (and StateChannel when h.State
+// is set) until ctx ends, reconnecting
 // with jittered backoff after any failure. Its application_name is AppName + "/listen". Payloads that do not
 // parse are skipped (they are not ours). It returns when ctx ends.
 func (p *Placement) Listen(ctx context.Context, cfg ListenConfig, h ListenHooks) {
@@ -88,6 +95,11 @@ func (p *Placement) listenOnce(ctx context.Context, cc *pgx.ConnConfig, cfg List
 	if err := p.exec(ctx, conn, "listen "+Channel); err != nil {
 		return err
 	}
+	if h.State != nil {
+		if err := p.exec(ctx, conn, "listen "+StateChannel); err != nil {
+			return err
+		}
+	}
 	h.Ready()
 	for {
 		wctx, cancel := context.WithTimeout(ctx, cfg.Ping)
@@ -97,9 +109,13 @@ func (p *Placement) listenOnce(ctx context.Context, cc *pgx.ConnConfig, cfg List
 		switch {
 		case ctx.Err() != nil:
 			return nil
-		case err == nil:
-			if key, epoch, ok := parsePayload(n.Payload); ok && n.Channel == Channel {
+		case err == nil && n.Channel == Channel:
+			if key, epoch, ok := parsePayload(n.Payload); ok {
 				h.Notify(key, epoch)
+			}
+		case err == nil:
+			if n.Channel == StateChannel && n.Payload != "" && h.State != nil {
+				h.State(n.Payload)
 			}
 		case silent && !conn.IsClosed():
 			if err := p.exec(ctx, conn, "select 1"); err != nil {
