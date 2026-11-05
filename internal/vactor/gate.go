@@ -12,17 +12,21 @@ import (
 // at most maxQueue activations waiting for a slot. Waiters are served in arrival order, so a large fetch is
 // not starved by a stream of small ones. A full queue sheds: acquire fails at once with ErrBusy.
 //
-// Invariant: n <= maxN; bytes <= maxBytes unless one fetch larger than maxBytes runs alone (n == 1);
+// maxN can change at run time (setMaxN, Release It C4): fetches already running when it is lowered finish
+// (excess counts them down), and no new one starts until n is below the new limit.
+//
+// Invariant: n <= maxN + excess; bytes <= maxBytes unless one fetch larger than maxBytes runs alone (n == 1);
 // len(queue) <= maxQueue; a queued waiter exists only while the head does not fit.
 type fetchGate struct {
-	maxN     int
 	maxBytes int64
 	maxQueue int
 
-	mu    sync.Mutex
-	n     int
-	bytes int64
-	queue []*waiter
+	mu     sync.Mutex
+	maxN   int
+	excess int // fetches running over maxN since it was lowered; each release while > 0 retires one
+	n      int
+	bytes  int64
+	queue  []*waiter
 }
 
 type waiter struct {
@@ -94,8 +98,32 @@ func (g *fetchGate) release(bytes int64) {
 	defer g.mu.Unlock()
 	g.n--
 	g.bytes -= bytes
+	if g.excess > 0 {
+		g.excess--
+	}
 	g.wake()
 	g.invariant()
+}
+
+// setMaxN changes the count limit. Raising it grants waiters at once; lowering it lets the running fetches
+// finish and holds new ones until fewer than n run.
+//
+//	pre: n >= 1
+func (g *fetchGate) setMaxN(n int) {
+	assert.That(n >= 1, "fetchGate.setMaxN(%d): limit not validated", n)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.maxN = n
+	g.excess = max(0, g.n-n)
+	g.wake()
+	g.invariant()
+}
+
+// limit is the current count limit.
+func (g *fetchGate) limit() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.maxN
 }
 
 // wake grants slots to waiters at the head of the line while they fit. pre: g.mu held.
@@ -110,11 +138,12 @@ func (g *fetchGate) wake() {
 }
 
 func (g *fetchGate) invariant() {
-	if !assert.Enabled || g.n >= 0 && g.n <= g.maxN && g.bytes >= 0 && (g.bytes <= g.maxBytes || g.n == 1) &&
+	if !assert.Enabled || g.n >= 0 && g.n <= g.maxN+g.excess && g.excess >= 0 && g.bytes >= 0 && (g.bytes <= g.maxBytes || g.n == 1) &&
 		len(g.queue) <= g.maxQueue && (len(g.queue) == 0 || !g.fits(g.queue[0].bytes)) {
 		return // checked without boxing the arguments below (this runs on every acquire and release)
 	}
-	assert.That(g.n >= 0 && g.n <= g.maxN && g.bytes >= 0, "fetchGate: n=%d bytes=%d (max %d)", g.n, g.bytes, g.maxN)
+	assert.That(g.n >= 0 && g.n <= g.maxN+g.excess && g.excess >= 0 && g.bytes >= 0, "fetchGate: n=%d bytes=%d (max %d + excess %d)",
+		g.n, g.bytes, g.maxN, g.excess)
 	assert.That(g.bytes <= g.maxBytes || g.n == 1, "fetchGate: %d bytes in flight over %d with %d fetches", g.bytes, g.maxBytes, g.n)
 	assert.That(len(g.queue) <= g.maxQueue, "fetchGate: queue %d over %d", len(g.queue), g.maxQueue)
 	assert.That(len(g.queue) == 0 || !g.fits(g.queue[0].bytes), "fetchGate: head of the queue fits but waits")
