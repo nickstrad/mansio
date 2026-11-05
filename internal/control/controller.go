@@ -39,8 +39,41 @@ func (c *Controller) pick(ctx context.Context, exclude ...string) (string, error
 	return c.Policy.Pick(loads, exclude...)
 }
 
-// agent returns vm's lifecycle client.
-func (c *Controller) agent(vm string) (Agent, error) {
+// picker reads the load once and then counts its own picks, so placing many keys (a restore) costs one
+// vm_load.sql query, not one per key. The authority's CAS keeps a stale count safe; counting locally spreads
+// a burst better than re-reading would.
+type picker struct {
+	c     *Controller
+	loads []VMLoad
+}
+
+func (p *picker) pick(ctx context.Context, exclude ...string) (string, error) {
+	if p.loads == nil {
+		loads, err := p.c.Registry.Load(ctx, p.c.loadLimit())
+		if err != nil {
+			return "", err
+		}
+		p.loads = loads
+	}
+	vm, err := p.c.Policy.Pick(p.loads, exclude...)
+	for i := range p.loads {
+		if p.loads[i].VM == vm {
+			p.loads[i].ActiveDBs++
+		}
+	}
+	return vm, err
+}
+
+// agent returns vm's lifecycle client, or, for a VM an operator attested dead (M5), a deadAgent that never
+// calls it: the one place the controller treats dead VMs differently.
+func (c *Controller) agent(ctx context.Context, vm string) (Agent, error) {
+	dead, err := c.dead(ctx, vm)
+	if err != nil {
+		return nil, err
+	}
+	if dead {
+		return deadAgent{c: c, vm: vm}, nil
+	}
 	a, err := c.Agents(vm)
 	if err != nil {
 		return nil, fmt.Errorf("%w %q: %w", ErrNoAgent, vm, err)
@@ -48,12 +81,44 @@ func (c *Controller) agent(vm string) (Agent, error) {
 	return a, nil
 }
 
+// deadAgent stands in for a VM attested dead. Its fence is the authority's own row: the Ack is the row's
+// epoch and generation, and the destination's Claim starts from whatever generation storage holds (≥ the
+// row's), stamping a higher epoch so a zombie's later publish fails (OS W). The dead VM's unpublished writes
+// are lost: the RPO the attestation accepts. Forget has nothing to do; Claim is refused.
+type deadAgent struct {
+	c  *Controller
+	vm string
+}
+
+func (d deadAgent) Fence(ctx context.Context, key string) (owner.Ack, error) {
+	p, err := d.c.Placement.Get(ctx, key)
+	if err != nil {
+		return owner.Ack{}, err
+	}
+	if p.Owner != d.vm || p.State != owner.PlaceMoving {
+		return owner.Ack{}, errs.Wrap(module, owner.ErrConflict, "cannot fence %s on dead vm %s: the row changed to %+v", key, d.vm, p)
+	}
+	return owner.Ack{Key: key, Epoch: p.Epoch, Gen: p.Gen}, nil
+}
+
+func (d deadAgent) Claim(context.Context, string) (owner.Local, error) {
+	return owner.Local{}, errs.Wrap(module, ErrNotDead, "cannot claim on vm %s: it is attested dead", d.vm)
+}
+
+func (d deadAgent) Forget(context.Context, string) error { return nil }
+
+// move runs owner.Mover for key towards dst.
+func (c *Controller) move(ctx context.Context, key, dst string) error {
+	_, err := (&owner.Mover{Placement: c.Placement, Agent: c.moverAgent}).Move(ctx, key, dst)
+	return err
+}
+
 // Create makes a new database tenant:name and places it (flow B). A retried Create resumes; creating a name
 // that exists returns its row; a name of a dropped database is ErrExists.
 //
 //	post: err == nil ⇒ the registry says active, the authority ACTIVE(vm, epoch ≥ 1), and vm claimed it
 func (c *Controller) Create(ctx context.Context, tenant, name string) (Database, error) {
-	d, _, err := c.Registry.CreateDatabase(ctx, tenant, name)
+	d, err := c.Registry.CreateDatabase(ctx, tenant, name)
 	if err != nil {
 		return d, errs.Wrap(module, err, "cannot create database %s:%s: not registered; safe to retry", tenant, name)
 	}
@@ -95,11 +160,7 @@ func (c *Controller) finishCreate(ctx context.Context, d Database) (Database, er
 }
 
 func (c *Controller) claim(ctx context.Context, vm, key string) error {
-	a, err := c.agent(vm)
-	if err != nil {
-		return err
-	}
-	_, err = a.Claim(ctx, key)
+	_, err := c.moverAgent(vm).Claim(ctx, key)
 	return err
 }
 
@@ -154,20 +215,14 @@ func (c *Controller) Move(ctx context.Context, key, dst string) (Database, error
 
 // finishMove runs owner.Mover towards d.Target, then marks the database active.
 func (c *Controller) finishMove(ctx context.Context, d Database) (Database, error) {
-	m := owner.Mover{Placement: c.Placement, Agent: c.moverAgent()}
-	if _, err := m.Move(ctx, d.Key, d.Target); err != nil {
+	if err := c.move(ctx, d.Key, d.Target); err != nil {
 		return d, errs.Wrap(module, err, "cannot move database %s to %s; still moving, resume later", d.Key, d.Target)
 	}
 	return c.setState(ctx, d, StateActive, "")
 }
 
-// moverAgent is owner.Mover's view of the agents. An agent the registry says is dead (an operator attested
-// it, M5) is fenced by the authority's own row: its Ack is the row's epoch and generation, and the
-// destination's Claim starts from whatever generation storage holds (≥ the row's). A dead VM's unpublished
-// writes are lost: that is the RPO, accepted by the attestation.
-func (c *Controller) moverAgent() func(vm string) owner.Agent {
-	return func(vm string) owner.Agent { return moverAgent{c: c, vm: vm} }
-}
+// moverAgent is owner.Mover's view of the agents: each call resolves vm through agent (live or dead).
+func (c *Controller) moverAgent(vm string) owner.Agent { return moverAgent{c: c, vm: vm} }
 
 type moverAgent struct {
 	c  *Controller
@@ -175,21 +230,7 @@ type moverAgent struct {
 }
 
 func (m moverAgent) Fence(ctx context.Context, key string) (owner.Ack, error) {
-	dead, err := m.c.dead(ctx, m.vm)
-	if err != nil {
-		return owner.Ack{}, err
-	}
-	if dead {
-		p, err := m.c.Placement.Get(ctx, key)
-		if err != nil {
-			return owner.Ack{}, err
-		}
-		if p.Owner != m.vm || p.State != owner.PlaceMoving {
-			return owner.Ack{}, errs.Wrap(module, owner.ErrConflict, "cannot fence %s on dead vm %s: the row changed to %+v", key, m.vm, p)
-		}
-		return owner.Ack{Key: key, Epoch: p.Epoch, Gen: p.Gen}, nil
-	}
-	a, err := m.c.agent(m.vm)
+	a, err := m.c.agent(ctx, m.vm)
 	if err != nil {
 		return owner.Ack{}, err
 	}
@@ -197,7 +238,7 @@ func (m moverAgent) Fence(ctx context.Context, key string) (owner.Ack, error) {
 }
 
 func (m moverAgent) Claim(ctx context.Context, key string) (owner.Local, error) {
-	a, err := m.c.agent(m.vm)
+	a, err := m.c.agent(ctx, m.vm)
 	if err != nil {
 		return owner.Local{}, err
 	}
@@ -255,9 +296,9 @@ func (c *Controller) Resume(ctx context.Context, key, dst string) (Database, err
 	return c.finishMove(ctx, d)
 }
 
-// stop makes key's row MOVING and fences its owner (a dead owner needs no fence). It returns the MOVING row,
-// or found false when the authority has no row.
-func (c *Controller) stop(ctx context.Context, key string) (row owner.Place, err error) {
+// stop makes key's row MOVING and fences its owner (a dead owner's fence is its row). It returns the MOVING
+// row; with no row, an error matching owner.ErrNotFound.
+func (c *Controller) stop(ctx context.Context, key string) (owner.Place, error) {
 	for range 4 {
 		p, err := c.Placement.Get(ctx, key)
 		if err != nil {
@@ -271,15 +312,7 @@ func (c *Controller) stop(ctx context.Context, key string) (row owner.Place, err
 			}
 			continue // read it again: ours, or someone else's change
 		}
-		dead, err := c.dead(ctx, p.Owner)
-		if err != nil || dead {
-			return p, err
-		}
-		a, err := c.agent(p.Owner)
-		if err != nil {
-			return p, err
-		}
-		if _, err := a.Fence(ctx, key); err != nil && !errors.Is(err, owner.ErrWrongOwner) {
+		if _, err := c.moverAgent(p.Owner).Fence(ctx, key); err != nil && !errors.Is(err, owner.ErrWrongOwner) {
 			return p, err // ErrWrongOwner: the agent holds nothing for key (never claimed, or forgotten)
 		}
 		return p, nil
@@ -321,12 +354,9 @@ func (c *Controller) finishDrop(ctx context.Context, d Database) (Database, erro
 		return d, errs.Wrap(module, err, "cannot drop database %s: objects not all deleted; still dropping, resume later", key)
 	}
 	if placed {
-		dead, err := c.dead(ctx, row.Owner)
-		if err == nil && !dead {
-			var a Agent
-			if a, err = c.agent(row.Owner); err == nil {
-				err = a.Forget(ctx, key)
-			}
+		a, err := c.agent(ctx, row.Owner)
+		if err == nil {
+			err = a.Forget(ctx, key) // a dead owner has nothing to forget
 		}
 		if err != nil {
 			return d, errs.Wrap(module, err, "cannot drop database %s: %s did not forget it; still dropping, resume later", key, row.Owner)
@@ -367,6 +397,7 @@ func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duratio
 	}
 	const page = 100
 	after := ""
+	pk := &picker{c: c}
 	for {
 		rows, err := c.Registry.OwnedBy(ctx, vm, after, page)
 		if err != nil {
@@ -374,7 +405,7 @@ func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duratio
 		}
 		for _, r := range rows {
 			kctx, cancel := withTimeout(ctx, perKey)
-			to, skipped, err := c.restoreOne(kctx, r.Key, vm)
+			to, skipped, err := c.restoreOne(kctx, r.Key, vm, pk)
 			cancel()
 			switch {
 			case err != nil:
@@ -392,16 +423,15 @@ func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duratio
 	}
 }
 
-func (c *Controller) restoreOne(ctx context.Context, key, deadVM string) (to string, skipped bool, err error) {
+func (c *Controller) restoreOne(ctx context.Context, key, deadVM string, pk *picker) (to string, skipped bool, err error) {
 	d, err := c.get(ctx, key)
 	if errors.Is(err, owner.ErrNotFound) {
 		// A key the registry does not know (placed by hand or by a test): move it all the same.
-		dst, err := c.pick(ctx, deadVM)
+		dst, err := pk.pick(ctx, deadVM)
 		if err != nil {
 			return "", false, err
 		}
-		_, err = (&owner.Mover{Placement: c.Placement, Agent: c.moverAgent()}).Move(ctx, key, dst)
-		return dst, false, err
+		return dst, false, c.move(ctx, key, dst)
 	}
 	if err != nil {
 		return "", false, err
@@ -417,7 +447,7 @@ func (c *Controller) restoreOne(ctx context.Context, key, deadVM string) (to str
 		return d.Target, false, err
 	}
 	// Active, creating (placed on the dead VM, maybe never claimed), or moving to the dead VM: re-target.
-	dst, err := c.pick(ctx, deadVM)
+	dst, err := pk.pick(ctx, deadVM)
 	if err != nil {
 		return "", false, err
 	}
@@ -482,8 +512,7 @@ func (c *Controller) ResumeStuck(ctx context.Context, olderThan time.Duration, l
 						return err
 					}
 				}
-				_, err := (&owner.Mover{Placement: c.Placement, Agent: c.moverAgent()}).Move(ctx, s.Key, dst)
-				return err
+				return c.move(ctx, s.Key, dst)
 			})
 		}
 	}

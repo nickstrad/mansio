@@ -98,9 +98,6 @@ func DefaultHTTP() *http.Client {
 // Breaker is this agent's breaker (metrics, logs).
 func (c *Client) Breaker() *breaker.Breaker { return c.b }
 
-// VM is the agent's VM id.
-func (c *Client) VM() string { return c.cfg.VM }
-
 // answer is every lifecycle answer: ok fields, or an error code and message.
 type answer struct {
 	Code    string `json:"code"`

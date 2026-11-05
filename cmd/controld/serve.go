@@ -26,6 +26,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
 )
 
@@ -95,7 +96,7 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 
 func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	p, err := pg.Open(pg.Config{DSN: sec.PGDSN, AppName: "controld", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
-		Breaker: breaker.Config{OnChange: breakerLog(log, "placement")}})
+		Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "placement")}})
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	for _, a := range cfg.Agents {
 		c, err := agenthttp.New(agenthttp.Config{VM: a.VM, BaseURL: a.Lifecycle, Token: sec.ControlToken, Timeout: cfg.AgentTimeout.Duration,
 			HTTP: httpc, Breaker: breaker.Config{MinCalls: cfg.AgentBreaker.MinCalls, CoolDown: cfg.AgentBreaker.CoolDown.Duration,
-				OnChange: breakerLog(log, "agent:"+a.VM)}})
+				OnChange: logx.BreakerLog(log, "agent:"+a.VM)}})
 		if err != nil {
 			p.Close()
 			return nil, err
@@ -241,29 +242,28 @@ func (d *daemon) every(ctx context.Context, period time.Duration, fn func(contex
 // answers as heartbeats (the VM registry's liveness and bytes, the policy's input). A silent agent keeps its
 // old heartbeat, so the policy stops placing on it after max_heartbeat_age.
 func (d *daemon) heartbeat(ctx context.Context) {
-	var wg sync.WaitGroup
-	for vm, c := range d.agents {
-		wg.Go(func() {
-			hctx, cancel := context.WithTimeout(ctx, d.cfg.HeartbeatTimeout.Duration)
-			defer cancel()
-			h, err := c.Health(hctx)
-			if err == nil {
-				err = d.pg.Heartbeat(hctx, vm, h.Bytes)
+	vms := slices.Sorted(maps.Keys(d.agents))
+	parallel.ForEach(ctx, len(vms), len(vms), func(ctx context.Context, i int) error {
+		vm := vms[i]
+		hctx, cancel := context.WithTimeout(ctx, d.cfg.HeartbeatTimeout.Duration)
+		defer cancel()
+		h, err := d.agents[vm].Health(hctx)
+		if err == nil {
+			err = d.pg.Heartbeat(hctx, vm, h.Bytes)
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		up := err == nil
+		if prev, ok := d.agentUp.Swap(vm, up); !ok || prev.(bool) != up {
+			if up {
+				d.log.Info("agent answers", "event", "CONTROLD.AGENT_UP", "vm", vm)
+			} else {
+				d.log.Warn("agent heartbeat failed", "event", "CONTROLD.AGENT_DOWN", "vm", vm, "error", err.Error())
 			}
-			if ctx.Err() != nil {
-				return
-			}
-			up := err == nil
-			if prev, ok := d.agentUp.Swap(vm, up); !ok || prev.(bool) != up {
-				if up {
-					d.log.Info("agent answers", "event", "CONTROLD.AGENT_UP", "vm", vm)
-				} else {
-					d.log.Warn("agent heartbeat failed", "event", "CONTROLD.AGENT_DOWN", "vm", vm, "error", err.Error())
-				}
-			}
-		})
-	}
-	wg.Wait()
+		}
+		return nil
+	})
 }
 
 // resume is one resumer pass (control.Controller.ResumeStuck). Each failure is logged at WARN; the next
@@ -285,37 +285,13 @@ func (d *daemon) resume(ctx context.Context) {
 	}
 }
 
-// breakerLog logs a breaker's transitions (Release It C4, O3).
-func breakerLog(log *slog.Logger, dep string) func(breaker.Transition) {
-	return func(t breaker.Transition) {
-		attrs := []any{"event", "BREAKER." + t.To.String(), "dep", dep, "from", t.From.String(), "to", t.To.String()}
-		if t.To == breaker.Open {
-			log.Warn("circuit breaker opened", attrs...)
-			return
-		}
-		log.Info("circuit breaker state", attrs...)
-	}
-}
-
 // register adds controld's metrics: breakers (placement, one per agent), agent liveness, resumer counters.
 func (d *daemon) register(reg *metrics.Registry) {
-	reg.Add("tsdb_breaker_state", "Circuit breaker state per dependency (1 = current).", metrics.Gauge, func(e *metrics.Emit) {
-		now := time.Now()
-		deps := map[string]*breaker.Breaker{"placement": d.pg.Breaker()}
-		for vm, c := range d.agents {
-			deps["agent:"+vm] = c.Breaker()
-		}
-		for _, dep := range slices.Sorted(maps.Keys(deps)) {
-			cur := deps[dep].State(now)
-			for _, s := range []breaker.State{breaker.Closed, breaker.Open, breaker.HalfOpen} {
-				v := 0.0
-				if s == cur {
-					v = 1
-				}
-				e.Value(metrics.Labels{"dep", dep, "state", s.String()}, v)
-			}
-		}
-	})
+	deps := map[string]*breaker.Breaker{"placement": d.pg.Breaker()}
+	for vm, c := range d.agents {
+		deps["agent:"+vm] = c.Breaker()
+	}
+	metrics.Breakers(reg, deps)
 	reg.Add("controld_agent_up", "1 when the agent's last health call answered.", metrics.Gauge, func(e *metrics.Emit) {
 		for _, vm := range slices.Sorted(maps.Keys(d.agents)) {
 			v := 0.0

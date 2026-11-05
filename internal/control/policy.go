@@ -70,8 +70,5 @@ func (p Policy) share(l VMLoad) float64 {
 }
 
 func (p Policy) less(sa float64, a VMLoad, sb float64, b VMLoad) bool {
-	if c := cmp.Or(cmp.Compare(sa, sb), cmp.Compare(a.ActiveDBs, b.ActiveDBs), cmp.Compare(a.Bytes, b.Bytes), cmp.Compare(a.VM, b.VM)); c != 0 {
-		return c < 0
-	}
-	return false
+	return cmp.Or(cmp.Compare(sa, sb), cmp.Compare(a.ActiveDBs, b.ActiveDBs), cmp.Compare(a.Bytes, b.Bytes), cmp.Compare(a.VM, b.VM)) < 0
 }

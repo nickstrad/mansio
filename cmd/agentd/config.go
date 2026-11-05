@@ -106,12 +106,7 @@ type S3Config struct {
 	MaxConns     int           `json:"max_conns"`
 	// Breaker overrides the S3 breaker's thresholds; zero fields take Release It §P (50 % of >= 20 calls in
 	// 10 s, cool-down 5 s).
-	Breaker struct {
-		Window      load.Duration `json:"window"`
-		MinCalls    int           `json:"min_calls"`
-		FailureRate float64       `json:"failure_rate"`
-		CoolDown    load.Duration `json:"cool_down"`
-	} `json:"breaker"`
+	Breaker BreakerConfig `json:"breaker"`
 
 	// Secure speaks HTTPS to the endpoint; false (plain HTTP) is refused without -dev (object-storage guide S2).
 	Secure bool `json:"secure"`
@@ -120,24 +115,26 @@ type S3Config struct {
 	CAFile string `json:"ca_file"`
 }
 
-// breakerConfig is the S3 breaker's config (Normalize fills the defaults and checks it).
-func (s *S3Config) breakerConfig() breaker.Config {
-	b := s.Breaker
-	return breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration}
-}
-
 // PlacementPGConfig selects the Postgres placement authority (internal/placement/pg). Zero fields take Release
 // It §P (connect 3 s, statement 2 s, lock 1 s, pool = startup_workers + lifecycle_concurrency).
 type PlacementPGConfig struct {
 	Schema   string `json:"schema"`    // search_path ("" = the server default); tests use one schema each
 	MaxConns int32  `json:"max_conns"` // default startup_workers + lifecycle_concurrency (RI §P)
 	// Breaker overrides the placement breaker's thresholds (zero fields: RI §P).
-	Breaker struct {
-		Window      load.Duration `json:"window"`
-		MinCalls    int           `json:"min_calls"`
-		FailureRate float64       `json:"failure_rate"`
-		CoolDown    load.Duration `json:"cool_down"`
-	} `json:"breaker"`
+	Breaker BreakerConfig `json:"breaker"`
+}
+
+// BreakerConfig is a breaker's thresholds in a config file; zero fields take Release It §P.
+type BreakerConfig struct {
+	Window      load.Duration `json:"window"`
+	MinCalls    int           `json:"min_calls"`
+	FailureRate float64       `json:"failure_rate"`
+	CoolDown    load.Duration `json:"cool_down"`
+}
+
+// config is the breaker.Config (Normalize fills the defaults and checks it).
+func (b BreakerConfig) config() breaker.Config {
+	return breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration}
 }
 
 // Maintenance drives the host's periodic write-back and eviction (vactor.Policy, Release It S2).
@@ -280,7 +277,7 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 	if s.Endpoint == "" || s.Bucket == "" {
 		bad("s3: endpoint and bucket are required")
 	}
-	if bc := s.breakerConfig(); bc.Normalize() != nil {
+	if bc := s.Breaker.config(); bc.Normalize() != nil {
 		bad("s3.breaker: invalid thresholds (window, min_calls >= 1, failure_rate in (0, 1], cool_down)")
 	}
 	if s.Prefix != "" && !strings.HasSuffix(s.Prefix, "/") {
@@ -307,8 +304,7 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 		if pg.MaxConns == 0 {
 			pg.MaxConns = int32(c.StartupWorkers + c.LifecycleConcurrency)
 		}
-		b := pg.Breaker
-		if bc := (breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration}); bc.Normalize() != nil {
+		if bc := pg.Breaker.config(); bc.Normalize() != nil {
 			bad("placement_pg.breaker: invalid thresholds (window, min_calls >= 1, failure_rate in (0, 1], cool_down)")
 		}
 	}

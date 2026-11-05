@@ -13,6 +13,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/control/agenthttp"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
@@ -205,11 +206,12 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// retrySeconds is 1 s, raised by a breaker's hint in the chain, capped at 30 s.
+// retrySeconds is 1 s, raised by a breaker's hint in the chain (front.RetryHint), capped at
+// front.MaxRetryAfter: the same rule as agentd's answers.
 func retrySeconds(err error) int {
-	var h interface{ RetryAfter() time.Duration }
+	var h front.RetryHint
 	if !errors.As(err, &h) {
 		return 1
 	}
-	return max(1, min(30, int((h.RetryAfter()+time.Second-1)/time.Second)))
+	return max(1, int((min(h.RetryAfter(), front.MaxRetryAfter)+time.Second-1)/time.Second))
 }

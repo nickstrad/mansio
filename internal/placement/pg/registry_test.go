@@ -38,20 +38,20 @@ func TestRegistryNamesMatchTheDomains(t *testing.T) {
 // row; owned-by pages by key; dropping the placement row takes its moves rows along.
 func TestRegistries(t *testing.T) {
 	p, _ := newPlacement(t, nil)
-	d, inserted, err := p.CreateDatabase(ctx, "acme", "main")
+	d, err := p.CreateDatabase(ctx, "acme", "main")
 	must(t, err)
-	if !inserted || d != (Database{Key: "acme:main", Tenant: "acme", Name: "main", Default: true, State: "creating"}) {
-		t.Fatalf("first create = %+v inserted %v", d, inserted)
+	if d != (Database{Key: "acme:main", Tenant: "acme", Name: "main", Default: true, State: "creating"}) {
+		t.Fatalf("first create = %+v", d)
 	}
-	again, inserted, err := p.CreateDatabase(ctx, "acme", "main")
-	if err != nil || inserted || again != d {
-		t.Fatalf("second create = %+v inserted %v, %v", again, inserted, err)
+	again, err := p.CreateDatabase(ctx, "acme", "main")
+	if err != nil || again != d {
+		t.Fatalf("second create = %+v, %v", again, err)
 	}
-	second, _, err := p.CreateDatabase(ctx, "acme", "logs")
+	second, err := p.CreateDatabase(ctx, "acme", "logs")
 	if err != nil || second.Default {
 		t.Fatalf("second database of a tenant = %+v, %v; want not default", second, err)
 	}
-	if _, _, err := p.CreateDatabase(ctx, "Acme", "x"); !errors.Is(err, owner.ErrInvalid) {
+	if _, err := p.CreateDatabase(ctx, "Acme", "x"); !errors.Is(err, owner.ErrInvalid) {
 		t.Fatalf("bad tenant: %v", err)
 	}
 	if _, err := p.GetDatabase(ctx, "acme:none"); !errors.Is(err, owner.ErrNotFound) {

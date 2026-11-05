@@ -60,13 +60,13 @@ type Owned struct {
 // Registry is the control plane's registries (Postgres). Errors: owner.ErrNotFound (no such database),
 // owner.ErrConflict (a state CAS lost), ErrUnknownVM-like adapter errors otherwise.
 //
-//	CreateDatabase:   registers tenant:name as "creating" if new; returns the row and whether it was inserted
+//	CreateDatabase:   registers tenant:name as "creating" if new; returns the row (new or existing)
 //	SetDatabaseState: CAS from → to (target only with StateMoving)
 //	DropPlacement:    deletes key's placement row iff it is expect (MOVING), with its moves history
 //	Load:             VMs not attested dead, with their load (vm_load.sql)
 //	Moving, Pending:  table scans of MOVING rows, and of databases creating, moving or dropping
 type Registry interface {
-	CreateDatabase(ctx context.Context, tenant, name string) (Database, bool, error)
+	CreateDatabase(ctx context.Context, tenant, name string) (Database, error)
 	GetDatabase(ctx context.Context, key string) (Database, error)
 	SetDatabaseState(ctx context.Context, key, from, to, target string) error
 	DropPlacement(ctx context.Context, key string, expect owner.Place) error

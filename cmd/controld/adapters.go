@@ -20,9 +20,9 @@ func toDatabase(d pg.Database) control.Database {
 	return control.Database{Key: d.Key, Tenant: d.Tenant, Name: d.Name, Default: d.Default, State: d.State, Target: d.Target}
 }
 
-func (r registry) CreateDatabase(ctx context.Context, tenant, name string) (control.Database, bool, error) {
-	d, ins, err := r.p.CreateDatabase(ctx, tenant, name)
-	return toDatabase(d), ins, err
+func (r registry) CreateDatabase(ctx context.Context, tenant, name string) (control.Database, error) {
+	d, err := r.p.CreateDatabase(ctx, tenant, name)
+	return toDatabase(d), err
 }
 
 func (r registry) GetDatabase(ctx context.Context, key string) (control.Database, error) {

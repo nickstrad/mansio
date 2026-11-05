@@ -44,12 +44,12 @@ func (r *registry) row(key string) (owner.Place, bool) {
 	return r.pl.Row(key)
 }
 
-func (r *registry) CreateDatabase(_ context.Context, tenant, name string) (control.Database, bool, error) {
+func (r *registry) CreateDatabase(_ context.Context, tenant, name string) (control.Database, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := tenant + ":" + name
 	if d, ok := r.dbs[key]; ok {
-		return d, false, nil
+		return d, nil
 	}
 	d := control.Database{Key: key, Tenant: tenant, Name: name, State: control.StateCreating, Default: true}
 	for _, o := range r.dbs {
@@ -59,7 +59,7 @@ func (r *registry) CreateDatabase(_ context.Context, tenant, name string) (contr
 	}
 	r.dbs[key] = d
 	r.keys = append(r.keys, key)
-	return d, true, nil
+	return d, nil
 }
 
 func (r *registry) GetDatabase(_ context.Context, key string) (control.Database, error) {

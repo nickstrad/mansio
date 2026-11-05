@@ -99,27 +99,30 @@ type Database struct {
 
 func scanDatabase(row pgx.CollectableRow) (Database, error) {
 	var d Database
-	var inserted bool
-	err := row.Scan(&d.Key, &d.Tenant, &d.Name, &d.Default, &d.State, &d.Target, &inserted)
+	err := row.Scan(&d.Key, &d.Tenant, &d.Name, &d.Default, &d.State, &d.Target)
 	return d, err
 }
 
-// CreateDatabase registers tenant:name in state "creating" (creating the tenant if new) and returns its row
-// and whether this call inserted it; an existing row comes back unchanged, so a retried create resumes.
+// CreateDatabase registers tenant:name in state "creating" (creating the tenant if new) and returns its row;
+// an existing row comes back unchanged, so a retried create resumes.
 // Invalid names match owner.ErrInvalid (nothing sent). Two first creates racing for one tenant's default may
 // fail ErrInvariant; a retry is safe.
-func (p *Placement) CreateDatabase(ctx context.Context, tenant, name string) (Database, bool, error) {
+func (p *Placement) CreateDatabase(ctx context.Context, tenant, name string) (Database, error) {
 	key := tenant + ":" + name
 	if !ValidTenant(tenant) || !ValidName(name) {
-		return Database{}, false, errs.Wrap(module, owner.ErrInvalid,
+		return Database{}, errs.Wrap(module, owner.ErrInvalid,
 			"cannot register database %q: tenant must match %s and name %s; nothing sent", key, tenantPattern, namePattern)
 	}
 	var d Database
-	var inserted bool
 	err := p.call(ctx, "register database", key, retryWrite, func(ctx context.Context) error {
-		return p.pool.QueryRow(ctx, q.createDatabase, key, tenant, name).Scan(&d.Key, &d.Tenant, &d.Name, &d.Default, &d.State, &d.Target, &inserted)
+		rows, err := p.pool.Query(ctx, q.createDatabase, key, tenant, name)
+		if err != nil {
+			return err
+		}
+		d, err = pgx.CollectExactlyOneRow(rows, scanDatabase)
+		return err
 	})
-	return d, inserted, err
+	return d, err
 }
 
 // The registry's name domains (0002_registry.sql); TestRegistryNamesMatchTheDomains keeps them in step.

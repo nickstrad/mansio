@@ -12,6 +12,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/owner"
@@ -60,8 +61,8 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if err != nil {
 		return nil, err
 	}
-	bc := s.breakerConfig() // zero fields: Release It §P S3 sheet
-	bc.OnChange = breakerLog(log, "s3")
+	bc := s.Breaker.config() // zero fields: Release It §P S3 sheet
+	bc.OnChange = logx.BreakerLog(log, "s3")
 	b, err := breaker.New(bc)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot create the S3 breaker")
@@ -83,9 +84,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	}
 	fail := func(err error) (*backend, error) {
 		d.host.Close()
-		if d.pg != nil {
-			d.pg.Close()
-		}
+		d.closePlacement()
 		return nil, err
 	}
 	fs, err := owner.NewFileStore(cfg.OwnerDir)
@@ -130,10 +129,9 @@ func (d *durableAgent) openPlacement(sec *Secrets) (owner.Placement, error) {
 	if sec.PGDSN == "" {
 		return nil, errs.Wrap(module, nil, "secrets_file: pg_dsn is required with placement_pg")
 	}
-	b := c.Breaker
-	p, err := pg.Open(pg.Config{DSN: sec.PGDSN, AppName: "agentd/" + d.cfg.VM, Schema: c.Schema, MaxConns: c.MaxConns,
-		Breaker: breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration,
-			OnChange: breakerLog(d.log, "placement")}})
+	bc := c.Breaker.config()
+	bc.OnChange = logx.BreakerLog(d.log, "placement")
+	p, err := pg.Open(pg.Config{DSN: sec.PGDSN, AppName: "agentd/" + d.cfg.VM, Schema: c.Schema, MaxConns: c.MaxConns, Breaker: bc})
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +210,7 @@ func (d *durableAgent) close(ctx context.Context) error {
 // and the S3 probe (Release It O1).
 func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
-	breakerMetrics(reg, d.breakers())
+	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
 	d.events.register(reg)
 	d.probe.register(reg)
