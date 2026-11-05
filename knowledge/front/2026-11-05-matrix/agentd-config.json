@@ -1,0 +1,2 @@
+{"listen":"127.0.0.1:0","vm":"vm-local","db_dir":"dbs","keys_file":"keys/keys.json","log_file":"agentd.log",
+ "statement_timeout":"2s","admission":{"tenant_in_flight":4096,"tenant_queue":4096,"db_in_flight":1024,"db_queue":1024}}

@@ -1,0 +1,21 @@
+{
+  "mode": "http",
+  "proto": "h2c",
+  "dbs": 16,
+  "conc": 64,
+  "write_frac": 1,
+  "duration": "10s",
+  "requests": 192279,
+  "codes": {
+    "ok": 192279
+  },
+  "ok_per_sec": 19227.9,
+  "p50_us": 3058.458,
+  "p90_us": 3743.541,
+  "p99_us": 12797.542,
+  "p999_us": 21201.583,
+  "max_us": 28138.208,
+  "go": "go1.26.4",
+  "cpus": 18,
+  "started_utc": "2026-11-05T16:42:37Z"
+}
