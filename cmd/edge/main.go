@@ -142,6 +142,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		return exitInterrupted
 	}
 	reg := metrics.NewRegistry()
+	metrics.Process(reg)
 	e.Register(reg)
 	if fetcher != nil {
 		fetcher.Register(reg, "edge")

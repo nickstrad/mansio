@@ -192,6 +192,7 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, 
 		ln = tls.NewListener(ln, tc)
 	}
 	reg := metrics.NewRegistry()
+	metrics.Process(reg)
 	d.register(reg)
 	hs := &http.Server{Handler: d.routes(reg), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: d.cfg.APITimeout.Duration + 5*time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10,

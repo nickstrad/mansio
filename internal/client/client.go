@@ -50,6 +50,10 @@ type Config struct {
 	// Scheme is used for endpoints the locator returns as host:port: "http" (default) or "https" (TLS agents
 	// or an edge). Endpoints that already carry a scheme are used as they are.
 	Scheme string
+	// Edge, if set, is the base URL every query is sent to instead of the route's endpoint (option 4 §3.6: the
+	// edge routes on the ticket's vm claim, so agents stay private). Resolves still go to Locator; a route's VM
+	// and epoch are used as without it.
+	Edge string
 	// CAFile is a PEM CA to trust for https endpoints and the locator (a private CA, e.g. the edge's); empty =
 	// system roots. Ignored when HTTP is set.
 	CAFile string
@@ -467,6 +471,14 @@ func drain(b io.ReadCloser) {
 	b.Close()
 }
 
+// queryBase is where a route's queries go: the edge if one is configured, else the endpoint.
+func (c *Client) queryBase(endpoint string) string {
+	if c.cfg.Edge != "" {
+		return c.url(c.cfg.Edge)
+	}
+	return c.url(endpoint)
+}
+
 func (c *Client) url(endpoint string) string {
 	if strings.Contains(endpoint, "://") {
 		return strings.TrimSuffix(endpoint, "/")
@@ -532,5 +544,5 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: errors.New("locator answer ok without endpoint, ticket, db or ttl")}
 	}
 	return Route{DB: out.DB, VM: out.VM, Endpoint: out.Endpoint, Epoch: out.Epoch, Ticket: out.Ticket,
-		TTL: time.Duration(out.TTLMs) * time.Millisecond, queryURL: c.url(out.Endpoint) + front.QueryPath, auth: "Bearer " + out.Ticket}, nil
+		TTL: time.Duration(out.TTLMs) * time.Millisecond, queryURL: c.queryBase(out.Endpoint) + front.QueryPath, auth: "Bearer " + out.Ticket}, nil
 }

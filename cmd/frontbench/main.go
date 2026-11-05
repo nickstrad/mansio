@@ -5,6 +5,7 @@
 //	frontbench seed   -dir DIR -dbs N           N databases db-0..db-N-1 with sqlbench's generated schemas
 //	frontbench run    -mode inproc|pipeline|http ...
 //	frontbench locator -locator URL ...          through controld's locator with internal/client (locator.go)
+//	frontbench verify -ack-logs F,... -dbs N     check a soak's acknowledged writes against the rows (soak.go)
 //
 // Modes: inproc calls the actor directly (Submit/Wait, as actor.Do does, plus row collection); pipeline runs
 // front.Server.Handle in this process (ticket verify, admission, JSON decode, actor) without HTTP; http sends
@@ -48,7 +49,7 @@ func main() {
 	os.Exit(code)
 }
 
-const usage = "usage: frontbench keygen|seed|run|locator [flags] (frontbench <cmd> -h for flags)"
+const usage = "usage: frontbench keygen|seed|run|locator|verify [flags] (frontbench <cmd> -h for flags)"
 
 func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) (code int) {
 	defer func() {
@@ -71,6 +72,8 @@ func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) (cod
 		err = runCmd(ctx, args[1:], stdout, stderr)
 	case "locator":
 		err = locatorCmd(ctx, args[1:], stdout, stderr)
+	case "verify":
+		err = verifyCmd(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return exitUsage

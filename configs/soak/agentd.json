@@ -1,0 +1,20 @@
+{
+  "listen": "127.0.0.1:@QPORT@",
+  "health_listen": "127.0.0.1:@HPORT@",
+  "admin_listen": "127.0.0.1:@APORT@",
+  "tls": {"cert_file": "../tls/server.crt", "key_file": "../tls/server.key"},
+  "vm": "@VM@",
+  "keys_url": "https://127.0.0.1:17080/v1/keys",
+  "control_ca_file": "../tls/ca.pem",
+  "keys_file": "ticket-keys.json",
+  "s3": {"endpoint": "localhost:8333", "bucket": "coldload", "prefix": "@PREFIX@"},
+  "secrets_file": "secrets.json",
+  "cache_dir": "cache",
+  "owner_dir": "owner",
+  "placement_pg": {"schema": "@SCHEMA@"},
+  "cache_bytes": 268435456,
+  "gen_cache_bytes": 4194304,
+  "maintenance": {"interval": "1s", "write_back_every": "10s", "idle_after": "3m", "max_active": 60},
+  "ticket_cache": 10000,
+  "log_file": "agentd.log"
+}

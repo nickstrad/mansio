@@ -431,3 +431,20 @@ func TestEndpointURL(t *testing.T) {
 		}
 	}
 }
+
+// With Edge set, every query goes to the edge with the route's ticket; resolves still go to the locator.
+func TestQueriesGoThroughTheEdge(t *testing.T) {
+	f := newFake(t)
+	f.resolve = func(int, uint64) (int, string, map[string]any) { return 200, "", routeTo("vm-a", "10.255.0.1:1", 1) }
+	edge := f.agent("edge", ok)
+	c, _ := f.client(func(cfg *Config) { cfg.Edge = edge })
+	res, err := c.Do(context.Background(), write("w1"))
+	if err != nil || res.Code != front.OK || res.VM != "vm-a" {
+		t.Fatalf("Do: %+v %v", res, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queries) != 1 || f.queries[0].agent != "edge" || f.queries[0].ticket != "vm-a-ticket-1" {
+		t.Fatalf("queries %+v: want one at the edge with vm-a's ticket", f.queries)
+	}
+}

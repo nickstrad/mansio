@@ -157,7 +157,7 @@ safe (`RI R2`).
     `unavailable` with no S3 calls.
   - OS-11: `TestS3Compat` shows the `agent` identity cannot LIST; a config test covers the TLS refusal.
 
-### CP-4b. Soak (RI-15)
+### CP-4b. Soak (RI-15) — **Harness built, not run** (scripts/soak/run.sh, configs/soak/soak.env, scripts/soak/analyze.sql; deferred by the user 2026-11-05. A 60 min run was started and stopped before results; the 72 h run is still to do.)
 
 72 h of frontbench through agentd + controld in S3 durable mode, with nightly idle hours, and the `RI H4` fault
 modes during a load run (`RI H5`). Track fds, RSS, goroutines, cache-dir bytes, bucket object count and
