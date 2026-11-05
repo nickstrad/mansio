@@ -396,7 +396,7 @@ func TestGate(t *testing.T) {
 	}
 	for _, k := range onB[:5] {
 		c.mustWrite(k, "pre-kill-table-"+k, "create table if not exists t (id integer not null)")
-		c.mustWrite(k, "pre-kill-"+k, "insert into t (id) values (?)", 7)
+		c.mustWrite(k, "pre-kill-"+k, "insert into t (id) values (?)", -7)
 	}
 	time.Sleep(time.Second) // write_back_every 200 ms: the rows are published
 	c.agents["vm-b"].kill()
@@ -430,11 +430,11 @@ func TestGate(t *testing.T) {
 		}
 	}
 	for _, k := range onB[:5] {
-		if n := c.count(k, "select count(*) from t where id = 7"); n != 1 {
+		if n := c.count(k, "select count(*) from t where id = -7"); n != 1 {
 			t.Fatalf("%s: the written-back row is gone (%d)", k, n)
 		}
 	}
-	if n := c.count(moving, "select count(*) from t"); n != acked.Load() {
+	if n := c.count(moving, "select count(*) from t where id >= 0"); n != acked.Load() {
 		t.Fatalf("the moved database after restore: %d rows, want %d", n, acked.Load())
 	}
 	var d map[string]any
