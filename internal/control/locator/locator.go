@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
@@ -145,9 +146,9 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 		return fail(err)
 	}
 	switch {
-	case pl.Intent == "dropping" || pl.Intent == "dropped" || !pl.Found && pl.Intent == "":
+	case pl.Intent == control.StateDropping || pl.Intent == control.StateDropped || !pl.Found && pl.Intent == "":
 		return fail(ErrNotFound)
-	case pl.Intent == "suspended":
+	case pl.Intent == control.StateSuspended:
 		return fail(ErrSuspended)
 	case !pl.Found || pl.Moving:
 		return fail(moving{l.cfg.MovingRetry})
@@ -266,13 +267,14 @@ func (l *Locator) Invalidate(key string, epoch uint64) {
 	if e != nil && !e.dirty && e.pl.Epoch > epoch {
 		return
 	}
-	for _, p := range []bool{false, true} {
-		if f := l.loads[loadKey{key, p}]; f != nil {
-			f.stale = true
-		}
+	if f := l.loads[loadKey{key, false}]; f != nil {
+		f.stale = true
+	}
+	if f := l.loads[loadKey{key, true}]; f != nil {
+		f.stale = true
 	}
 	if e != nil {
-		l.routes[key] = &entry{dirty: true, at: l.cfg.Now()}
+		*e = entry{dirty: true, at: l.cfg.Now()}
 	}
 }
 

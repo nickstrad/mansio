@@ -62,21 +62,25 @@ func openKeys(ctx context.Context, cfg *Config, log *slog.Logger) (*ticket.KeyRi
 			return nil, nil, err
 		}
 	}
-	if err := kf.fetch(ctx); err != nil {
-		kf.fail(err)
+	if kf.ring.Len() == 0 { // nothing cached: try once before serving; with a cache, run fetches at once
+		if err := kf.fetch(ctx); err != nil {
+			kf.fail(err)
+		}
 	}
 	return kf.ring, kf, nil
 }
 
-// run fetches every period until ctx ends; a fetch never overlaps the next (Release It S1).
+// run fetches now, then every period until ctx ends; a fetch never overlaps the next (Release It S1).
 func (k *keyFetcher) run(ctx context.Context) {
 	t := time.NewTicker(k.every)
 	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
+	for first := true; ; first = false {
+		if !first {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
 		}
 		if err := k.fetch(ctx); err != nil {
 			if ctx.Err() != nil {
@@ -94,7 +98,7 @@ func (k *keyFetcher) fail(err error) {
 	k.failures.Add(1)
 	if !k.failing.Swap(true) {
 		k.log.Warn("cannot fetch ticket keys; keeping the current set, retrying every keys_refresh", "event", "AGENT.KEYS_FETCH_FAILED",
-			"url", k.url, "keys", len(k.ring.KIDs()), "error", err.Error())
+			"url", k.url, "keys", k.ring.Len(), "error", err.Error())
 	}
 }
 
@@ -120,7 +124,7 @@ func (k *keyFetcher) fetch(ctx context.Context) error {
 		return errs.Wrap(module, err, "invalid ticket key set from %s; the current set stays", k.url)
 	}
 	k.lastOK.Store(time.Now().UnixNano())
-	if sameKeys(keys, k.ring) {
+	if k.ring.Equal(keys) {
 		return nil
 	}
 	k.ring.Replace(keys)
@@ -134,27 +138,9 @@ func (k *keyFetcher) fetch(ctx context.Context) error {
 	return nil
 }
 
-func sameKeys(keys map[string]ed25519.PublicKey, ring *ticket.KeyRing) bool {
-	kids := ring.KIDs()
-	if len(kids) != len(keys) {
-		return false
-	}
-	for _, kid := range kids {
-		cur, _ := ring.Key(kid)
-		if k, ok := keys[kid]; !ok || !k.Equal(cur) {
-			return false
-		}
-	}
-	return true
-}
-
 // writeKeyFile writes keys as a ticket.PublicKeyFile atomically (temp file, fsync, rename).
 func writeKeyFile(path string, keys map[string]ed25519.PublicKey) error {
-	f := ticket.PublicKeyFile{}
-	for _, kid := range slices.Sorted(maps.Keys(keys)) {
-		f.Keys = append(f.Keys, ticket.PublicKeyEntry{KID: kid, PublicKey: ticket.EncodeKey(keys[kid])})
-	}
-	b, _ := json.MarshalIndent(f, "", "  ")
+	b, _ := json.MarshalIndent(ticket.NewPublicKeyFile(keys), "", "  ")
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".keys-*")
 	if err != nil {
 		return err
@@ -178,7 +164,7 @@ func writeKeyFile(path string, keys map[string]ed25519.PublicKey) error {
 
 // register adds the key fetcher's metrics.
 func (k *keyFetcher) register(reg *metrics.Registry) {
-	reg.Add("agentd_ticket_keys", "Ticket public keys held.", metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, float64(len(k.ring.KIDs()))) })
+	reg.Add("agentd_ticket_keys", "Ticket public keys held.", metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, float64(k.ring.Len())) })
 	reg.Add("agentd_keys_fetch_failures_total", "Failed fetches of the ticket key set.", metrics.Counter, func(e *metrics.Emit) {
 		e.Value(nil, float64(k.failures.Load()))
 	})

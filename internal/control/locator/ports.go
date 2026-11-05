@@ -12,7 +12,7 @@ const module = "locator"
 
 // Placement is what a Store knows about one database: its registry state and its placement row.
 type Placement struct {
-	// Intent is the database's registry state (creating, active, moving, suspended, dropping, dropped), or ""
+	// Intent is the database's registry state (control.StateCreating, …), or ""
 	// when the registry has no row (a placement row made outside controld, e.g. agentd's -dev create).
 	Intent string
 	Found  bool // a placement row exists; the fields below are set only then

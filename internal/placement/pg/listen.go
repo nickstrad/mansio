@@ -45,10 +45,17 @@ func (p *Placement) Listen(ctx context.Context, cfg ListenConfig, h ListenHooks)
 	if cfg.MaxBackoff <= 0 {
 		cfg.MaxBackoff = 5 * time.Second
 	}
+	pc, err := p.cfg.poolConfig()
+	if err != nil { // Open already built it once: unreachable
+		h.Lost(err)
+		return
+	}
+	cc := pc.ConnConfig
+	cc.RuntimeParams["application_name"] = p.cfg.AppName + "/listen"
 	backoff := 100 * time.Millisecond
 	for ctx.Err() == nil {
 		began := time.Now()
-		err := p.listenOnce(ctx, cfg, h)
+		err := p.listenOnce(ctx, cc.Copy(), cfg, h)
 		if ctx.Err() != nil {
 			return
 		}
@@ -66,13 +73,7 @@ func (p *Placement) Listen(ctx context.Context, cfg ListenConfig, h ListenHooks)
 }
 
 // listenOnce runs one session: connect, LISTEN, Ready, then deliver notifications until the connection fails.
-func (p *Placement) listenOnce(ctx context.Context, cfg ListenConfig, h ListenHooks) error {
-	pc, err := p.cfg.poolConfig()
-	if err != nil {
-		return err
-	}
-	cc := pc.ConnConfig.Copy()
-	cc.RuntimeParams["application_name"] = p.cfg.AppName + "/listen"
+func (p *Placement) listenOnce(ctx context.Context, cc *pgx.ConnConfig, cfg ListenConfig, h ListenHooks) error {
 	cctx, cancel := context.WithTimeout(ctx, p.cfg.ConnectTimeout+p.cfg.CallTimeout)
 	conn, err := pgx.ConnectConfig(cctx, cc)
 	cancel()

@@ -129,12 +129,12 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		return exitInterrupted
 	}
 	a, err := newAgent(cfg, log, keys, dbs, sec)
-	if err == nil && fetcher != nil {
-		fetcher.register(a.reg)
-		a.background = append(a.background, fetcher.run)
-	}
 	if err != nil {
 		return rep.report(err)
+	}
+	if fetcher != nil {
+		fetcher.register(a.reg)
+		a.background = append(a.background, fetcher.run)
 	}
 	a.level = level
 	defer a.cleanup()

@@ -52,7 +52,6 @@ type daemon struct {
 	loc         *locator.Locator
 	signer      *ticket.Signer
 	keys        *keyDir
-	listening   atomic.Bool // the placement listener is connected
 	resolveSem  chan struct{}
 	resolveShed atomic.Int64
 }

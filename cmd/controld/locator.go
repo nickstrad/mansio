@@ -48,13 +48,11 @@ func (d *daemon) listen(ctx context.Context) {
 	d.pg.Listen(ctx, pg.ListenConfig{Ping: d.cfg.Locator.ListenPing.Duration}, pg.ListenHooks{
 		Ready: func() {
 			d.loc.Reset()
-			d.listening.Store(true)
 			d.log.Info("placement listener connected; locator cache reset", "event", "LOCATOR.LISTENING")
 		},
 		Notify: d.loc.Invalidate,
 		Lost: func(err error) {
 			d.loc.Untrust()
-			d.listening.Store(false)
 			d.log.Warn("placement listener lost; locator cache off until it reconnects", "event", "LOCATOR.LISTEN_LOST", "error", err.Error())
 		},
 	})
@@ -77,7 +75,7 @@ func (d *daemon) resolveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/keys", func(w http.ResponseWriter, r *http.Request) {
 		f := d.signer.Public()
 		if len(f.Keys) == 0 {
-			d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "no ticket keys yet"})
+			d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "no ticket keys yet", false})
 			return
 		}
 		d.write(w, r, f, nil)
@@ -87,7 +85,10 @@ func (d *daemon) resolveRoutes(mux *http.ServeMux) {
 		if err := decode(r, &req); err != nil {
 			return nil, err
 		}
-		perms, ok := parsePerms(req.Perms)
+		if req.Perms == "" {
+			req.Perms = (ticket.Read | ticket.Write).String()
+		}
+		perms, ok := ticket.ParsePerm(req.Perms)
 		if !ok {
 			return nil, errBadRequest(`perms must be "read", "write" or "read|write"`)
 		}
@@ -109,18 +110,6 @@ func (d *daemon) resolveRoutes(mux *http.ServeMux) {
 	}))
 }
 
-func parsePerms(s string) (ticket.Perm, bool) {
-	switch s {
-	case "read":
-		return ticket.Read, true
-	case "write":
-		return ticket.Write, true
-	case "read|write", "":
-		return ticket.Read | ticket.Write, true
-	}
-	return 0, false
-}
-
 // resolveAnswer is the resolve API's success body.
 type resolveAnswer struct {
 	Code      string    `json:"code"`
@@ -137,61 +126,53 @@ type resolveAnswer struct {
 }
 
 // resolve is POST /v1/resolve (Authorization: Bearer <api key>; body {"tenant", "db"[, "min_epoch"]}). It runs
-// under locator.timeout with its own bulkhead (locator.concurrency; more are refused at once).
+// under locator.timeout with its own bulkhead (locator.concurrency): resolves never queue behind admin calls.
 func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !d.ready.Load() {
-		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "starting: the schema is not migrated yet"})
-		return
-	}
-	select {
-	case d.resolveSem <- struct{}{}:
-		defer func() { <-d.resolveSem }()
-	default:
-		d.resolveShed.Add(1)
-		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "too many resolves in flight; retry"})
-		return
-	}
-	var req struct {
-		Tenant   string `json:"tenant"`
-		DB       string `json:"db"`
-		MinEpoch uint64 `json:"min_epoch"`
-	}
-	if err := decode(r, &req); err != nil {
-		d.write(w, r, nil, err)
-		return
-	}
-	if !pg.ValidTenant(req.Tenant) || !pg.ValidName(req.DB) {
-		d.write(w, r, nil, errBadRequest("tenant and db must be a valid tenant id and database name"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), d.cfg.Locator.Timeout.Duration)
-	defer cancel()
-	rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch})
-	if err != nil {
-		d.write(w, r, nil, err)
-		return
-	}
-	d.write(w, r, resolveAnswer{Code: "ok", DB: rt.DB, Tenant: rt.Tenant, VM: rt.VM, Endpoint: rt.Endpoint, Epoch: rt.Epoch, Gen: rt.Gen,
-		Ticket: rt.Ticket, Perms: rt.Perms, TTLMs: rt.TTL.Milliseconds(), ExpiresAt: rt.Expires.UTC()}, nil)
+	d.call(w, r, d.resolveSem, &d.resolveShed, d.cfg.Locator.Timeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
+		var req struct {
+			Tenant   string `json:"tenant"`
+			DB       string `json:"db"`
+			MinEpoch uint64 `json:"min_epoch"`
+		}
+		if err := decode(r, &req); err != nil {
+			return nil, err
+		}
+		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(req.DB) {
+			return nil, errBadRequest("tenant and db must be a valid tenant id and database name")
+		}
+		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch})
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, &apiError{"timeout", http.StatusGatewayTimeout, "resolve deadline passed; retry with backoff", false}
+		}
+		if err != nil {
+			return nil, err
+		}
+		return resolveAnswer{Code: "ok", DB: rt.DB, Tenant: rt.Tenant, VM: rt.VM, Endpoint: rt.Endpoint, Epoch: rt.Epoch, Gen: rt.Gen,
+			Ticket: rt.Ticket, Perms: rt.Perms, TTLMs: rt.TTL.Milliseconds(), ExpiresAt: rt.Expires.UTC()}, nil
+	})
 }
 
 // registerLocator adds the locator's and issuer's metrics.
 func (d *daemon) registerLocator(reg *metrics.Registry) {
-	counter := func(name, help string, v func(s locator.Stats) int64) {
-		reg.Add(name, help, metrics.Counter, func(e *metrics.Emit) { e.Value(nil, float64(v(d.loc.Stats()))) })
+	var st locator.Stats
+	reg.OnScrape(func() { st = d.loc.Stats() }) // one lock per scrape: the resolve path takes it too
+	for _, m := range []struct {
+		name, help string
+		v          func() int64
+	}{
+		{"controld_locator_hits_total", "Resolves answered from the placement cache.", func() int64 { return st.Hits }},
+		{"controld_locator_loads_total", "Placement loads started (cache misses).", func() int64 { return st.Misses }},
+		{"controld_locator_coalesced_total", "Resolves that joined a load in flight (single-flight).", func() int64 { return st.Coalesced }},
+		{"controld_locator_notifications_total", "Placement notifications applied.", func() int64 { return st.Notifications }},
+		{"controld_locator_resets_total", "Listener connects (each resets the cache).", func() int64 { return st.Resets }},
+		{"controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", d.resolveShed.Load},
+	} {
+		reg.Add(m.name, m.help, metrics.Counter, func(e *metrics.Emit) { e.Value(nil, float64(m.v())) })
 	}
-	counter("controld_locator_hits_total", "Resolves answered from the placement cache.", func(s locator.Stats) int64 { return s.Hits })
-	counter("controld_locator_loads_total", "Placement loads started (cache misses).", func(s locator.Stats) int64 { return s.Misses })
-	counter("controld_locator_coalesced_total", "Resolves that joined a load in flight (single-flight).", func(s locator.Stats) int64 { return s.Coalesced })
-	counter("controld_locator_notifications_total", "Placement notifications applied.", func(s locator.Stats) int64 { return s.Notifications })
-	counter("controld_locator_resets_total", "Listener connects (each resets the cache).", func(s locator.Stats) int64 { return s.Resets })
-	reg.Add("controld_locator_cached", "Placements cached now.", metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, float64(d.loc.Stats().Entries)) })
+	reg.Add("controld_locator_cached", "Placements cached now.", metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, float64(st.Entries)) })
 	reg.Add("controld_locator_listening", "1 while the placement listener is connected (the cache is in use).", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(nil, b2f(d.listening.Load()))
-	})
-	reg.Add("controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", metrics.Counter, func(e *metrics.Emit) {
-		e.Value(nil, float64(d.resolveShed.Load()))
+		e.Value(nil, b2f(st.Trusted))
 	})
 	reg.Add("controld_issuer_published_keys", "Ticket public keys published to agents.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(nil, float64(len(d.signer.Public().Keys)))

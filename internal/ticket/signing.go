@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"crypto/ed25519"
 	"fmt"
-	"maps"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -94,15 +93,11 @@ type Signer struct {
 type signerState struct {
 	kid    string
 	priv   ed25519.PrivateKey
-	public map[string]ed25519.PublicKey
+	public PublicKeyFile // built once per Set: agents poll it
 }
 
 // Set makes kid's key sign and publishes exactly the public halves of publish (which must contain kid).
 func (s *Signer) Set(kid string, keys map[string]ed25519.PrivateKey, publish []string) error {
-	priv, ok := keys[kid]
-	if !ok || len(priv) != ed25519.PrivateKeySize || kid == "" || len(kid) > MaxKID {
-		return fmt.Errorf("ticket: signing key %q missing or invalid", kid)
-	}
 	pub := map[string]ed25519.PublicKey{}
 	for _, id := range publish {
 		k, ok := keys[id]
@@ -114,7 +109,7 @@ func (s *Signer) Set(kid string, keys map[string]ed25519.PrivateKey, publish []s
 	if _, ok := pub[kid]; !ok {
 		return fmt.Errorf("ticket: signing key %q is not published", kid)
 	}
-	s.cur.Store(&signerState{kid: kid, priv: priv, public: pub})
+	s.cur.Store(&signerState{kid: kid, priv: keys[kid], public: NewPublicKeyFile(pub)})
 	return nil
 }
 
@@ -136,15 +131,10 @@ func (s *Signer) KID() string {
 	return ""
 }
 
-// Public is the published key set, in the agents' key file format, sorted by kid.
+// Public is the published key set, in the agents' key file format, sorted by kid. Do not modify it.
 func (s *Signer) Public() PublicKeyFile {
-	st := s.cur.Load()
-	if st == nil {
-		return PublicKeyFile{}
+	if st := s.cur.Load(); st != nil {
+		return st.public
 	}
-	f := PublicKeyFile{Keys: []PublicKeyEntry{}}
-	for _, kid := range slices.Sorted(maps.Keys(st.public)) {
-		f.Keys = append(f.Keys, PublicKeyEntry{KID: kid, PublicKey: EncodeKey(st.public[kid])})
-	}
-	return f
+	return PublicKeyFile{}
 }
