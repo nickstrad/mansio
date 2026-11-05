@@ -502,3 +502,18 @@ contracts above:
 - **owner:** `ReconcileAll(ctx, ReconcileOptions)` bounded and per-key timed; `ReconcileUntilDone`; `OnChange`.
 - **New packages:** `faultnet`, `objstore/s3test`, `breaker`, `metrics`, `parallel`, `sqlitedsn`; `cmd/dbtool`.
 - **CP-1 wiring points** are marked in `cmd/agentd/main.go` `newAgent`.
+
+## 2026-11-05 14:01 — cp2: request ids (CP-2): contract 3 and actor API additions
+
+Branch `cp/cp2`. Details: `knowledge/front/2026-11-05-request-ids.md`.
+
+- **actor:** `Request.RequestID` (writes only): applied at most once per database, recorded in `_tsdb_requests`
+  (in the tenant file, so it travels with snapshots/moves). A duplicate does not run: `Result.Duplicate` + the
+  original's `Rows`. `Config.RequestTTL` (default 24 h), `Config.RequestSweep` (default 1 m).
+  `actor.ReservedPrefix = "_tsdb_"` names agent tables.
+- **front (contract 3, additive):** `Reply.Duplicate`, `Response.Duplicate` (`"duplicate": true` on an `ok`
+  write whose `request_id` was applied before; `count` is the original's). Retrying `ambiguous` expired /
+  `internal` writes with the same `request_id` is now safe. Client SQL naming `_tsdb_` → `bad_request`.
+  `ActorExecutor` passes `Call.RequestID`; any other Executor (CP-1's vactor executor) should delegate to it.
+- **Clients/benches must send unique ids per write** (frontbench now sends `fb-<run>-<seq>`); a reused id gets
+  the first write's answer.
