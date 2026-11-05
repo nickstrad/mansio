@@ -67,6 +67,17 @@ type Digest struct {
 	SHA256 string // lower-case hex
 }
 
+// GenInfo is what the store says about one stored generation object (its HEAD).
+type GenInfo struct {
+	Size   int64
+	SHA256 string // the object's recorded sha256 (lower-case hex); "" if it carries none
+}
+
+// Holds reports whether the object holds exactly the snapshot d (same size and recorded sha256).
+func (g GenInfo) Holds(d Digest) bool {
+	return g.SHA256 != "" && g.Size == d.Size && g.SHA256 == d.SHA256
+}
+
 // Fetched describes one generation download.
 type Fetched struct {
 	Bytes int64
@@ -90,6 +101,13 @@ type Store interface {
 	//	post: err == nil ⇒ the object holds the file's bytes (size verified; sha256 sent for the store to check)
 	//	post: other err ⇒ the object may or may not exist; it is not referenced by any manifest
 	PutGeneration(ctx context.Context, key string, gen uint64, path string, d Digest) error
+
+	// StatGeneration returns the size and recorded sha256 of the stored object named object (a GenObject
+	// name). It is the re-read that resolves an ambiguous PutGeneration (object-storage guide R3).
+	//
+	//	post: missing object ⇒ errors.Is(err, ErrNotFound)
+	//	post: err == nil ⇒ info describes the object's bytes as uploaded by PutGeneration
+	StatGeneration(ctx context.Context, object string) (GenInfo, error)
 
 	// FetchGeneration downloads m.Object to path and checks it against m.Size and m.SHA256.
 	//
@@ -242,6 +260,10 @@ func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
 // Stamp re-publishes key's manifest at epoch, keeping generation gen (see CheckStamp). With no manifest and
 // gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Stamping at
 // the stored epoch again is a no-op that returns the stored manifest.
+//
+// A failed publish is ambiguous (a lost reply, or a 412 that a re-send of our own applied PUT caused), so
+// Stamp re-reads before it reports failure (object-storage guide R3): if the stored manifest is the one it
+// stamped, the stamp applied and Stamp succeeds.
 func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time.Time) (Manifest, Version, error) {
 	stored, v, err := s.ReadManifest(ctx, key)
 	var cur *Manifest
@@ -261,6 +283,9 @@ func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time
 	next := Stamped(cur, key, epoch, now)
 	nv, err := s.PublishManifest(ctx, next, v)
 	if err != nil {
+		if got, gv, rerr := s.ReadManifest(ctx, key); rerr == nil && got.Same(next) {
+			return got, gv, nil
+		}
 		if errors.Is(err, ErrStale) {
 			return Manifest{}, NoVersion, errs.Wrap(module, err, "cannot stamp %s at epoch %d: the manifest changed meanwhile; nothing changed", key, epoch)
 		}

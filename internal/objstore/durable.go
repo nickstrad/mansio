@@ -38,8 +38,8 @@ import (
 //   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
 //     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
 //     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. The
-//     size is also verified with a HEAD after the PUT, and the sha256 is recorded as x-amz-meta-sha256 (the
-//     manifest holds it too); the server does not check that one (minio-go's AutoChecksum does not add
+//     sha256 is recorded as x-amz-meta-sha256 (the manifest holds it too), and a HEAD after the PUT checks
+//     the size and that metadata; the server does not check the sha256 itself (minio-go's AutoChecksum does not add
 //     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
 //     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
 type Durable struct {
@@ -112,20 +112,40 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 		return wrap(err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
 	}
 	d.s.moved(OpPutGen, dg.Size)
+	info, err := d.stat(ctx, name)
+	if err != nil {
+		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
+	}
+	if !info.Holds(dg) {
+		return errs.Wrap(module, nil, "uploaded %s but the store holds %d bytes sha256 %q, not %d bytes %s; no manifest names it, safe to retry with a new generation",
+			name, info.Size, info.SHA256, dg.Size, dg.SHA256)
+	}
+	return nil
+}
+
+// StatGeneration HEADs a generation object (retried while Transient) and returns its size and its
+// x-amz-meta-sha256.
+func (d *Durable) StatGeneration(ctx context.Context, object string) (durable.GenInfo, error) {
+	name := d.root + object
+	info, err := d.stat(ctx, name)
+	if err != nil {
+		if noSuchKey(err) {
+			err = errors.Join(durable.ErrNotFound, err)
+		}
+		return durable.GenInfo{}, wrap(err, "cannot stat generation %s; nothing changed, safe to retry", name)
+	}
+	return info, nil
+}
+
+// stat HEADs the full object name.
+func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error) {
 	var st minio.ObjectInfo
-	err = d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+	err := d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
 		var err error
 		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
 		return err
 	})
-	if err != nil {
-		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
-	}
-	if st.Size != dg.Size {
-		return errs.Wrap(module, nil, "uploaded %s but the store holds %d bytes, not %d; no manifest names it, safe to retry with a new generation",
-			name, st.Size, dg.Size)
-	}
-	return nil
+	return durable.GenInfo{Size: st.Size, SHA256: st.Metadata.Get("X-Amz-Meta-Sha256")}, err
 }
 
 func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {

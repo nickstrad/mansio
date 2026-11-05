@@ -109,6 +109,26 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 		}
 	})
 
+	t.Run("stat names the uploaded bytes; a duplicate upload is recognized by its hash", func(t *testing.T) {
+		s := newStore(t)
+		m := put(t, s, "suite/stat", 1, []byte("ours"))
+		d := DigestOf([]byte("ours"))
+		info, err := s.StatGeneration(ctx, m.Object)
+		if err != nil || info.Size != d.Size || info.SHA256 != d.SHA256 || !info.Holds(d) {
+			t.Fatalf("StatGeneration = %+v, %v; want %+v", info, err, d)
+		}
+		// Our own PUT again (a re-send of a lost reply): ErrExists, and the stat proves it holds our bytes.
+		if err := s.PutGeneration(ctx, "suite/stat", 1, file(t, []byte("ours")), d); !errors.Is(err, durable.ErrExists) {
+			t.Fatalf("duplicate PutGeneration err = %v, want ErrExists", err)
+		}
+		if info, err := s.StatGeneration(ctx, m.Object); err != nil || !info.Holds(d) || info.Holds(DigestOf([]byte("other"))) {
+			t.Fatalf("StatGeneration after a duplicate = %+v, %v", info, err)
+		}
+		if _, err := s.StatGeneration(ctx, durable.GenObject("suite/stat", 2)); !errors.Is(err, durable.ErrNotFound) {
+			t.Fatalf("StatGeneration of a missing object: %v, want ErrNotFound", err)
+		}
+	})
+
 	t.Run("fetch of a missing generation is ErrNotFound and leaves no file", func(t *testing.T) {
 		s := newStore(t)
 		m := durable.NextManifest("suite/missing", 7, 1, DigestOf([]byte("x")), now)

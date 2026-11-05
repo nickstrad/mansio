@@ -171,3 +171,33 @@ func TestStamp(t *testing.T) {
 		t.Fatalf("stamp below a bumped epoch: %v", err)
 	}
 }
+
+// A stamp whose publish applied but whose reply was lost (or re-sent and refused with 412) is resolved by a
+// re-read (object-storage guide R3): it succeeds. A stamp that did not apply still fails (OS-02).
+func TestStampAmbiguousOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		f     durabletest.Faults
+		ok    bool
+		stale bool
+	}{
+		{"applied, reply lost", durabletest.Faults{LosePublishReply: true}, true, false},
+		{"applied, re-send got 412", durabletest.Faults{ApplyThenStale: true}, true, false},
+		{"not applied", durabletest.Faults{FailPublish: true}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := durabletest.NewStore()
+			seeded := s.Seed("k", 1, []byte("g1"))
+			s.SetFaults(tc.f)
+			m, v, err := durable.Stamp(ctx, s, "k", 2, seeded.Generation, t0)
+			s.SetFaults(durabletest.Faults{})
+			stored, sv, _ := s.ReadManifest(ctx, "k")
+			switch {
+			case tc.ok && (err != nil || !m.Same(stored) || v != sv || m.Epoch != 2):
+				t.Fatalf("Stamp = %+v %q %v; stored %+v %q", m, v, err, stored, sv)
+			case !tc.ok && (err == nil || errors.Is(err, durable.ErrStale) != tc.stale || stored.Epoch != 1):
+				t.Fatalf("Stamp err = %v, stored epoch %d", err, stored.Epoch)
+			}
+		})
+	}
+}

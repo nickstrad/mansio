@@ -23,13 +23,18 @@ var ErrInjected = errors.New("durabletest: injected failure")
 
 // Faults are the fake's switches. The zero value is a healthy store.
 type Faults struct {
-	Down             bool          // every call fails with ErrInjected
-	FailRead         bool          // ReadManifest fails
-	FailUpload       bool          // PutGeneration fails part-way: nothing becomes visible (as with one S3 PUT)
-	FailFetch        bool          // FetchGeneration fails after writing part of the file (it must clean up)
-	FailPublish      bool          // PublishManifest fails without applying (a crash between upload and publish)
-	LosePublishReply bool          // PublishManifest applies, then reports ErrInjected (ambiguous outcome)
-	Delay            time.Duration // every call sleeps this long first (or until ctx ends)
+	Down             bool // every call fails with ErrInjected
+	FailRead         bool // ReadManifest fails
+	FailUpload       bool // PutGeneration fails part-way: nothing becomes visible (as with one S3 PUT)
+	FailFetch        bool // FetchGeneration fails after writing part of the file (it must clean up)
+	FailPublish      bool // PublishManifest fails without applying (a crash between upload and publish)
+	LosePublishReply bool // PublishManifest applies, then reports ErrInjected (ambiguous outcome)
+	// ApplyThenStale: PublishManifest applies, then reports ErrStale. That is what a client-side retry of a
+	// publish whose reply was lost sees: the first attempt moved the version, so the re-send gets 412.
+	ApplyThenStale bool
+	// LoseUploadReply: PutGeneration stores the object, then reports ErrInjected (ambiguous outcome).
+	LoseUploadReply bool
+	Delay           time.Duration // every call sleeps this long first (or until ctx ends)
 }
 
 // Store keeps objects and manifests in memory.
@@ -202,7 +207,24 @@ func (s *Store) PutGeneration(ctx context.Context, key string, gen uint64, path 
 	}
 	s.objects[name] = data
 	s.puts++
+	if f.LoseUploadReply {
+		return fmt.Errorf("upload %s: reply lost: %w", name, ErrInjected)
+	}
 	return nil
+}
+
+func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenInfo, error) {
+	if _, err := s.begin(ctx); err != nil {
+		return durable.GenInfo{}, err
+	}
+	s.mu.Lock()
+	data, ok := s.objects[object]
+	s.mu.Unlock()
+	if !ok {
+		return durable.GenInfo{}, fmt.Errorf("stat %s: %w", object, durable.ErrNotFound)
+	}
+	d := DigestOf(data)
+	return durable.GenInfo{Size: d.Size, SHA256: d.SHA256}, nil
 }
 
 func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {
@@ -263,8 +285,11 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 	v := durable.Version(strconv.FormatUint(s.next, 10))
 	s.manifests[m.Key] = stored{m, v}
 	s.publishes++
-	if f.LosePublishReply {
+	switch {
+	case f.LosePublishReply:
 		return durable.NoVersion, fmt.Errorf("publish %s: reply lost: %w", m.Key, ErrInjected)
+	case f.ApplyThenStale:
+		return durable.NoVersion, fmt.Errorf("publish %s: reply lost, the re-send found version %q: %w", m.Key, v, durable.ErrStale)
 	}
 	return v, nil
 }
