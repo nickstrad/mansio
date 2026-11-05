@@ -225,7 +225,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - An `httptest` fake S3 that returns 503 once and then 200: a GET succeeds; a conditional PUT surfaces
     `Transient` and the fake saw exactly one PUT.
 
-### OS-02: Reconcile ambiguous stamps and uploads (fixes G2)
+### OS-02: Reconcile ambiguous stamps and uploads (fixes G2) — **Done** (6d768de)
 
 - **Goal:** every conditional write treats "error or 412" as "unknown" until a re-read settles it, as
   `Host.publish` already does.
@@ -264,7 +264,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - The multi-node result is recorded, pass or fail.
   - The control-plane plan's §4 assumption "S3 conditional PUT is atomic" links to the note.
 
-### OS-04: Key namespace v2 (fixes G3)
+### OS-04: Key namespace v2 (fixes G3) — **Done** (3770dff)
 
 - **Goal:** no object name of one database is a prefix of, or lies inside, another database's namespace.
   Key limits agree across packages.
@@ -286,7 +286,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
     `KeyPrefix(a)` nor any object of a starts with `KeyPrefix(b)`.
   - On/off tests at length 120 and 121.
 
-### OS-05: Epoch-qualified generations, self-describing objects (G2, G9; prepares G1)
+### OS-05: Epoch-qualified generations, self-describing objects (G2, G9; prepares G1) — **Done** (a2b5d72; Content-MD5 folded into the sha256 pass in 10ed2b8)
 
 - **Goal:**
   - Generation names cannot collide across owners.
