@@ -2,15 +2,16 @@
 -- Run from the repo root: duckdb < queries/compare.sql   (or: scripts/compare.sh)
 -- Reads every results/*/ directory; the run name is the directory name.
 
+.read queries/views.sql
 CREATE OR REPLACE VIEW req AS
   SELECT regexp_extract(filename, 'results/([^/]+)/', 1) AS run, * EXCLUDE (filename)
-  FROM read_csv('results/*/requests.csv', header = true, filename = true, union_by_name = true);
+  FROM requests_csv('results/*/requests.csv');
 CREATE OR REPLACE VIEW smp AS
   SELECT regexp_extract(filename, 'results/([^/]+)/', 1) AS run, * EXCLUDE (filename)
-  FROM read_csv('results/*/samples.csv', header = true, filename = true, union_by_name = true);
+  FROM samples_csv('results/*/samples.csv');
 CREATE OR REPLACE VIEW ph AS
   SELECT regexp_extract(filename, 'results/([^/]+)/', 1) AS run, * EXCLUDE (filename)
-  FROM read_csv('results/*/phases.csv', header = true, filename = true, quote = '', union_by_name = true);
+  FROM phases_csv('results/*/phases.csv');
 
 .print '== Runs by phase: throughput, success and latency (ok, ms) =='
 SELECT r.run, p.phase, p.name, p.dbs, round((p.start_qps + p.end_qps) / 2) AS target_qps,

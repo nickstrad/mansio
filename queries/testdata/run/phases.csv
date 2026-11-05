@@ -1,0 +1,3 @@
+phase,name,dbs,added_dbs,setup_start_ms,seed_ms,open_ms,start_ms,end_ms,shape,start_qps,end_qps,expected_requests,sent,gen_full,distribution,mix
+0,one,2,2,0.262,2.436,0.493,3.258,303.47,linear,100,100,30,29,0,uniform,aggregate=3 bulk_insert=3 cross_join=0.5 delete=2 filter_scan=3 index_lookup=12 insert=12 join=5 point_read=35 range_scan=6 slow_cte=0.5 top_n=2 update=10 upsert=6
+1,two,4,2,303.622,4.093,0.904,308.756,608.97,linear,100,60,24,23,0,uniform,aggregate=10 insert=25 join=10 point_read=40 slow_cte=15
