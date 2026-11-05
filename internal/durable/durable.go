@@ -58,6 +58,9 @@ var (
 	ErrExists = errors.New("durable: generation object already exists")
 	// ErrCorrupt: a fetched generation's size or sha256 does not match its manifest.
 	ErrCorrupt = errors.New("durable: generation does not match its manifest")
+	// ErrBadManifest: the stored manifest does not decode or validate. Nothing can activate or publish on it
+	// until an operator replaces it (cmd/dbtool rebuild-manifest, conditional on the version it listed).
+	ErrBadManifest = errors.New("durable: stored manifest is unreadable")
 )
 
 // Version identifies one stored manifest for a conditional publish (an S3 ETag, a counter in the fake).
@@ -117,7 +120,7 @@ type Fetched struct {
 type Store interface {
 	// ReadManifest returns key's manifest and its version.
 	//
-	//	post: no manifest ⇒ errors.Is(err, ErrNoManifest)
+	//	post: no manifest ⇒ errors.Is(err, ErrNoManifest); one that does not decode ⇒ ErrBadManifest
 	//	post: err == nil ⇒ v != NoVersion and m.Key == key
 	ReadManifest(ctx context.Context, key string) (m Manifest, v Version, err error)
 
@@ -146,7 +149,9 @@ type Store interface {
 	FetchGeneration(ctx context.Context, m Manifest, path string) (Fetched, error)
 
 	// PublishManifest stores m as m.Key's manifest if the stored version is still prev (NoVersion: only if
-	// none exists) and the stored epoch is not greater than m.Epoch.
+	// none exists) and the stored epoch is not greater than m.Epoch. A stored manifest that does not decode
+	// (ErrBadManifest) has no epoch to compare: only the version condition applies, so only a caller that
+	// listed its version (an operator's repair) can replace it.
 	//
 	//	post: version moved or stored epoch > m.Epoch ⇒ errors.Is(err, ErrStale), nothing changed
 	//	post: err == nil ⇒ the stored manifest is m and v is its new version (v != prev, v != NoVersion)
@@ -207,16 +212,18 @@ func Encode(m Manifest) []byte {
 }
 
 // Decode parses and validates a stored manifest (it came from storage: input, not a contract).
+//
+//	post: err != nil ⇒ errors.Is(err, ErrBadManifest)
 func Decode(key string, b []byte) (Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(b, &m); err != nil {
-		return Manifest{}, errs.Wrap(module, err, "manifest of %s is not valid JSON", key)
+		return Manifest{}, errs.Wrap(module, errors.Join(ErrBadManifest, err), "manifest of %s is not valid JSON", key)
 	}
 	if err := m.Validate(); err != nil {
-		return Manifest{}, err
+		return Manifest{}, errs.Wrap(module, errors.Join(ErrBadManifest, err), "manifest stored for %s is invalid", key)
 	}
 	if m.Key != key {
-		return Manifest{}, errs.Wrap(module, nil, "manifest stored for %s names key %s", key, m.Key)
+		return Manifest{}, errs.Wrap(module, ErrBadManifest, "manifest stored for %s names key %s", key, m.Key)
 	}
 	return m, nil
 }

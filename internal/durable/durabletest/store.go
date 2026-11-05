@@ -62,6 +62,7 @@ type stored struct {
 	m   durable.Manifest
 	v   durable.Version
 	mod time.Time
+	bad bool // the stored bytes do not decode (CorruptManifest)
 }
 
 func NewStore() *Store {
@@ -136,6 +137,17 @@ func (s *Store) DeleteObject(name string) {
 	delete(s.mod, name)
 }
 
+// CorruptManifest makes key's stored manifest undecodable (a new version): ReadManifest then fails with
+// ErrBadManifest, and only a publish conditional on that version replaces it.
+func (s *Store) CorruptManifest(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.manifests[key]
+	s.next++
+	st.v, st.mod, st.bad = durable.Version(strconv.FormatUint(s.next, 10)), s.clock(), true
+	s.manifests[key] = st
+}
+
 // DeleteManifest removes key's manifest (simulates a lost manifest).
 func (s *Store) DeleteManifest(key string) {
 	s.mu.Lock()
@@ -187,7 +199,7 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 	s.meta[m.Object] = m.ObjectInfo()
 	s.mod[m.Object] = s.clock()
 	s.next++
-	s.manifests[key] = stored{m, durable.Version(strconv.FormatUint(s.next, 10)), s.clock()}
+	s.manifests[key] = stored{m: m, v: durable.Version(strconv.FormatUint(s.next, 10)), mod: s.clock()}
 	return m
 }
 
@@ -229,8 +241,11 @@ func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.manifests[key]
-	if !ok {
+	switch {
+	case !ok:
 		return durable.Manifest{}, durable.NoVersion, fmt.Errorf("read manifest %s: %w", key, durable.ErrNoManifest)
+	case st.bad:
+		return durable.Manifest{}, durable.NoVersion, fmt.Errorf("read manifest %s: %w", key, durable.ErrBadManifest)
 	}
 	return st.m, st.v, nil
 }
@@ -331,12 +346,12 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 	switch {
 	case st.v != prev:
 		return durable.NoVersion, fmt.Errorf("publish %s: stored version %q, caller read %q: %w", m.Key, st.v, prev, durable.ErrStale)
-	case ok && st.m.Epoch > m.Epoch:
+	case ok && !st.bad && st.m.Epoch > m.Epoch:
 		return durable.NoVersion, fmt.Errorf("publish %s: stored epoch %d > %d: %w", m.Key, st.m.Epoch, m.Epoch, durable.ErrStale)
 	}
 	s.next++
 	v := durable.Version(strconv.FormatUint(s.next, 10))
-	s.manifests[m.Key] = stored{m, v, s.clock()}
+	s.manifests[m.Key] = stored{m: m, v: v, mod: s.clock()}
 	s.publishes++
 	switch {
 	case f.LosePublishReply:

@@ -61,6 +61,16 @@ func NewDurable(s *Store, root string) *Durable { return &Durable{s: s, root: ro
 const maxSinglePut = 5 << 30
 
 func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
+	m, v, err := d.readManifest(ctx, key)
+	if err != nil {
+		return durable.Manifest{}, durable.NoVersion, err
+	}
+	return m, v, nil
+}
+
+// readManifest is ReadManifest that also returns the version of a manifest that does not decode
+// (ErrBadManifest), so a publish conditional on that version can replace it.
+func (d *Durable) readManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
 	name := d.root + durable.ManifestObject(key)
 	var b []byte
 	var etag string
@@ -81,12 +91,12 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 		return durable.Manifest{}, durable.NoVersion, wrap(err, "cannot read manifest %s; nothing changed, safe to retry", name)
 	}
 	d.s.moved(OpGetManifest, int64(len(b)))
-	m, err := durable.Decode(key, b)
-	if err != nil {
-		return durable.Manifest{}, durable.NoVersion, wrap(err, "manifest %s is unreadable", name)
-	}
 	if etag == "" {
 		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, nil, "manifest %s has no ETag; conditional publish impossible", name)
+	}
+	m, err := durable.Decode(key, b)
+	if err != nil {
+		return durable.Manifest{}, durable.Version(etag), wrap(err, "manifest %s (version %s) is unreadable; repair it with dbtool rebuild-manifest", name, etag)
 	}
 	return m, durable.Version(etag), nil
 }
@@ -215,10 +225,11 @@ func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path 
 
 func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
 	name := d.root + durable.ManifestObject(m.Key)
-	stored, v, err := d.ReadManifest(ctx, m.Key)
+	stored, v, err := d.readManifest(ctx, m.Key)
 	switch {
 	case errors.Is(err, durable.ErrNoManifest):
 		v = durable.NoVersion
+	case errors.Is(err, durable.ErrBadManifest): // no epoch to compare: only If-Match on its version applies
 	case err != nil:
 		return durable.NoVersion, wrap(err, "cannot publish %s; nothing changed, safe to retry", name)
 	case stored.Epoch > m.Epoch:

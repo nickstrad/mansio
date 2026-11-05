@@ -17,14 +17,14 @@ var ErrUnavailable = errors.New("durable: storage unavailable")
 
 // IsSystemFailure is the default breaker classifier for WithBreaker: an error that says the store is failing,
 // not an answer about the data (Release It C2): anything but the store's answers (ErrStale, ErrExists,
-// ErrNoManifest, ErrNotFound, ErrCorrupt). A timeout counts; a call whose caller's ctx ended is ignored by
-// WithBreaker before any classifier runs. Adapters with a finer classification pass their own; the S3 one
-// is objstore.Classify(err) == objstore.Transient.
+// ErrNoManifest, ErrNotFound, ErrCorrupt, ErrBadManifest). A timeout counts; a call whose caller's ctx ended
+// is ignored by WithBreaker before any classifier runs. Adapters with a finer classification pass their own;
+// the S3 one is objstore.Classify(err) == objstore.Transient.
 func IsSystemFailure(err error) bool {
 	if err == nil {
 		return false
 	}
-	for _, answer := range []error{ErrStale, ErrExists, ErrNoManifest, ErrNotFound, ErrCorrupt} {
+	for _, answer := range []error{ErrStale, ErrExists, ErrNoManifest, ErrNotFound, ErrCorrupt, ErrBadManifest} {
 		if errors.Is(err, answer) {
 			return false
 		}

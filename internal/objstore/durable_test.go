@@ -179,3 +179,34 @@ func srcFile(t *testing.T, data []byte) (string, durable.Digest) {
 	}
 	return path, durabletest.DigestOf(data)
 }
+
+// A stored manifest that does not decode is ErrBadManifest (not "no manifest"), and only a publish
+// conditional on its listed version replaces it: the repair dbtool rebuild-manifest makes.
+func TestBadManifestIsReplacedOnlyOnItsListedVersion(t *testing.T) {
+	fake := s3test.New()
+	t.Cleanup(fake.Close)
+	d := objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "")
+	ctx := context.Background()
+	path, dg := srcFile(t, []byte("g1"))
+	m := durable.NextManifest("k", 1, 2, dg, time.Now())
+	if err := d.PutGeneration(ctx, m, path); err != nil {
+		t.Fatal(err)
+	}
+	fake.Put("bkt", durable.ManifestObject("k"), []byte("{not json"))
+	if _, _, err := d.ReadManifest(ctx, "k"); !errors.Is(err, durable.ErrBadManifest) || errors.Is(err, durable.ErrNoManifest) {
+		t.Fatalf("ReadManifest = %v, want ErrBadManifest", err)
+	}
+	if _, err := d.PublishManifest(ctx, m, durable.NoVersion); !errors.Is(err, durable.ErrStale) {
+		t.Fatalf("create-only publish over a bad manifest = %v, want ErrStale", err)
+	}
+	l, err := d.ListKey(ctx, "k")
+	if err != nil || l.Manifest == nil {
+		t.Fatal(l, err)
+	}
+	if _, err := d.PublishManifest(ctx, m, l.Manifest.Version); err != nil {
+		t.Fatalf("publish on the listed version: %v", err)
+	}
+	if got, _, err := d.ReadManifest(ctx, "k"); err != nil || !got.Same(m) {
+		t.Fatalf("after the repair: %+v, %v", got, err)
+	}
+}
