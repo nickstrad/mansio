@@ -145,6 +145,9 @@ func (k *sqliteConn) exec(ctx context.Context, r *Request) Result {
 		return Result{Err: err}
 	}
 	defer rows.Close()
+	if r.MaxRows > 0 {
+		return collect(rows, r.MaxRows)
+	}
 	var out Result
 	for rows.Next() {
 		if err := rows.Scan(k.scanTargets(rows)...); err != nil {
@@ -155,6 +158,37 @@ func (k *sqliteConn) exec(ctx context.Context, r *Request) Result {
 		}
 		out.Rows++
 	}
+	out.Err = rows.Err()
+	return out
+}
+
+// collect reads up to limit rows of copied values; one more row fails the read with ErrTooManyRows.
+//
+//	post: res.Err == nil ⇒ len(res.Values) == res.Rows <= limit and every row has len(res.Columns) values
+func collect(rows *sql.Rows, limit int) Result {
+	cols, err := rows.Columns()
+	if err != nil {
+		return Result{Err: err}
+	}
+	out := Result{Columns: cols}
+	for rows.Next() {
+		if len(out.Values) == limit {
+			return Result{Err: ErrTooManyRows, Rows: int64(limit) + 1, Columns: cols}
+		}
+		row := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range row {
+			ptrs[i] = &row[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil { // database/sql copies []byte into a *any destination
+			return Result{Err: err}
+		}
+		if len(out.Values) == 0 {
+			out.First, _ = row[0].(int64)
+		}
+		out.Values = append(out.Values, row)
+	}
+	out.Rows = int64(len(out.Values))
 	out.Err = rows.Err()
 	return out
 }

@@ -30,6 +30,8 @@ var (
 	ErrClosed      = errors.New("actor: closed")
 	ErrExpired     = errors.New("actor: deadline passed while queued")
 	ErrAborted     = errors.New("actor: batch transaction aborted by another write's timeout")
+	// ErrTooManyRows: a read with Request.MaxRows > 0 produced more than MaxRows rows.
+	ErrTooManyRows = errors.New("actor: read returned more rows than its limit")
 )
 
 // Request is one SQL statement for one database.
@@ -43,6 +45,10 @@ type Request struct {
 	// Deadline is when the caller stops caring. A request still queued at its deadline is answered with
 	// ErrExpired without running. Zero = none.
 	Deadline time.Time
+	// MaxRows > 0 makes a read return its rows: column names in Result.Columns and up to MaxRows rows of
+	// copied values (int64, float64, string, []byte or nil) in Result.Values. A read producing more rows stops
+	// and fails with ErrTooManyRows. 0 = count rows only (Result.Rows, Result.First). Writes ignore it.
+	MaxRows int
 
 	enqueued time.Time
 	reply    chan Result
@@ -59,6 +65,8 @@ type Result struct {
 	Batch     int           // requests in the same batch (1 for reads on the read pool)
 	Reopened  bool          // the database had been passivated and was reopened for this batch
 	TimedOut  bool          // the statement timeout interrupted it
+	Columns   []string      // reads with Request.MaxRows > 0: column names
+	Values    [][]any       // reads with Request.MaxRows > 0: one slice per row, len(Values) == Rows
 }
 
 // Wait returns the result, or ctx's error if it ends first.
