@@ -390,9 +390,11 @@ func (h *Host) Passivate(ctx context.Context, key string) error {
 func (h *Host) release(ctx context.Context, key string, e *entry) error {
 	<-e.done
 	if h.opts.Store != nil && (e.db != nil || e.stranded) {
-		if err := h.writeBackClosed(ctx, key, e); err != nil {
+		uploaded, err := h.writeBackClosed(ctx, key, e)
+		if err != nil {
 			return err
 		}
+		h.keepGeneration(key, e, uploaded)
 	} else if e.db != nil {
 		e.db.Close()
 	}
@@ -401,6 +403,33 @@ func (h *Host) release(ctx context.Context, key string, e *entry) error {
 	}
 	h.drop(key, e)
 	return nil
+}
+
+// keepGeneration moves a passivated key's closed file into the generation cache if it holds exactly the
+// generation e.man names (guide CA1): known when the file itself was just uploaded, otherwise checked by
+// hashing it (SQLite may have rewritten its header). Not while the host is closing: Close deletes the cache.
+//
+//	pre: the key's write-back on passivation succeeded, so e.man is the published manifest and e is clean
+func (h *Host) keepGeneration(key string, e *entry, uploaded bool) {
+	h.mu.Lock()
+	closing := h.closed
+	h.mu.Unlock()
+	m := e.man
+	if h.gens == nil || closing || m.Generation == 0 {
+		return
+	}
+	path := h.LocalPath(key)
+	if fi, err := os.Stat(path + "-wal"); err == nil && fi.Size() > 0 {
+		return // not a single-file copy
+	}
+	d := m.Digest()
+	if !uploaded { // sha256 only: the cache never uploads, so it needs no md5
+		var err error
+		if d, err = digestFile(path, false); err != nil || d.Size != m.Size || d.SHA256 != m.SHA256 {
+			return
+		}
+	}
+	h.gens.put(path, d)
 }
 
 // drop removes e from the map and wakes Gets waiting on its passivation.
@@ -414,14 +443,15 @@ func (h *Host) drop(key string, e *entry) {
 }
 
 // writeBackClosed is passivation's write-back: close, upload if dirty, and on failure put the key back warm.
-func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) error {
+// uploaded reports that the local file itself was uploaded as e.man's generation.
+func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) (uploaded bool, _ error) {
 	e.wb.Lock()
 	defer e.wb.Unlock()
 	if e.db != nil {
 		e.db.Close()
 	}
 	if !e.dirty() {
-		return nil
+		return false, nil
 	}
 	var err error
 	if e.stale.Load() {
@@ -436,14 +466,15 @@ func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) error 
 			err = perr
 		} else {
 			_, err = h.upload(ctx, key, e, path, commits)
+			uploaded = path == h.LocalPath(key)
 			cleanup()
 		}
 	}
 	if err == nil {
-		return nil
+		return uploaded, nil
 	}
 	h.reinstate(key, e)
-	return errs.Wrap(module, err, "passivation of %s cancelled: nothing deleted, the local copy is kept", key).With("local", h.LocalPath(key))
+	return false, errs.Wrap(module, err, "passivation of %s cancelled: nothing deleted, the local copy is kept", key).With("local", h.LocalPath(key))
 }
 
 // closedCopy returns a single-file copy of key's closed database. Normally that is the file itself (SQLite
@@ -676,19 +707,30 @@ func (h *Host) closeRemaining() int {
 	}
 }
 
-// hashFile returns a file's size, sha256 and md5, in one read of the file.
-func hashFile(path string) (durable.Digest, error) {
+// hashFile returns a file's size, sha256 and md5 (an upload's Content-MD5), in one read of the file.
+func hashFile(path string) (durable.Digest, error) { return digestFile(path, true) }
+
+// digestFile returns a file's size and sha256, and its md5 if withMD5, in one read of the file.
+func digestFile(path string, withMD5 bool) (durable.Digest, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return durable.Digest{}, err
 	}
 	defer f.Close()
 	h, m := sha256.New(), md5.New()
-	n, err := io.Copy(io.MultiWriter(h, m), f)
+	w := io.Writer(h)
+	if withMD5 {
+		w = io.MultiWriter(h, m)
+	}
+	n, err := io.Copy(w, f)
 	if err != nil {
 		return durable.Digest{}, err
 	}
-	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MD5: hex.EncodeToString(m.Sum(nil))}, nil
+	d := durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}
+	if withMD5 {
+		d.MD5 = hex.EncodeToString(m.Sum(nil))
+	}
+	return d, nil
 }
 
 // checkedStore asserts the durable.Store postconditions the host relies on (assertion builds only). A broken

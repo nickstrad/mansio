@@ -28,10 +28,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -150,8 +150,14 @@ type Options struct {
 	FailBackoff    time.Duration
 	MaxFailBackoff time.Duration
 
-	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
+	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal: a kept
+	// copy may be older than the manifest; use GenCacheBytes.
 	Store durable.Store
+	// GenCacheBytes turns on the local generation cache in durable mode (object-storage guide CA1, plan
+	// OS-10): a clean passivation keeps the database file as <CacheDir>/gen/<sha256>.db, and an activation
+	// whose manifest names that exact sha256 and size moves it back instead of downloading (1 GET in all).
+	// The cache holds at most this many bytes, least recently cached evicted first. 0: off.
+	GenCacheBytes int64
 	// CreateMissing: activating a key with no manifest starts an empty database (first write-back creates
 	// the manifest). Otherwise such a Get fails with ErrNotFound.
 	CreateMissing bool
@@ -240,6 +246,7 @@ type Host struct {
 	cancel context.CancelFunc
 
 	gate *fetchGate // fetch bulkhead
+	gens *genCache  // local generation cache; nil when off
 
 	mu      sync.Mutex
 	entries map[string]*entry
@@ -263,7 +270,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	case f == nil && opts.Store == nil:
 		return nil, errs.Wrap(module, nil, "cannot create host: neither a Fetcher nor a durable Store given")
 	case opts.Store != nil && opts.KeepLocal:
-		return nil, errs.Wrap(module, nil, "cannot create host: KeepLocal and a durable Store do not mix (a kept copy may be older than the manifest)")
+		return nil, errs.Wrap(module, nil, "cannot create host: KeepLocal and a durable Store do not mix (a kept copy may be older than the manifest); use GenCacheBytes")
 	}
 	if err := opts.Policy.Validate(); err != nil {
 		return nil, errs.Wrap(module, err, "cannot create host")
@@ -327,17 +334,23 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if err := backoff.Normalize(); err != nil {
 		return nil, errs.Wrap(module, err, "cannot create host: invalid failure backoff")
 	}
+	var gens *genCache
+	if opts.Store != nil && opts.GenCacheBytes > 0 {
+		var err error
+		if gens, err = newGenCache(filepath.Join(opts.CacheDir, "gen"), opts.GenCacheBytes); err != nil {
+			return nil, errs.Wrap(module, err, "cannot create the generation cache in %s", opts.CacheDir)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, size: size, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+	return &Host{fetch: f, size: size, gens: gens, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
 		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
-var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
-
-// LocalPath is where key's local copy lives.
+// LocalPath is where key's local copy lives: <CacheDir>/<escaped key>.db. The escaping is one-to-one and the
+// name always ends in ".db", so no key's file is another key's side file (-wal, .snap) or the gen/ cache.
 func (h *Host) LocalPath(key string) string {
-	return filepath.Join(h.opts.CacheDir, keyToFile.Replace(key))
+	return filepath.Join(h.opts.CacheDir, url.PathEscape(key)+".db")
 }
 
 // Get is GetAt with epoch 0 (no fencing).
@@ -497,7 +510,10 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 			cancel()
 			ctx, cancel = h.activationCtx(start, m.Size)
 		}
-		if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
+		if m.Generation > 0 && h.gens != nil && h.gens.take(m.Digest(), path) {
+			act.LocalHit, act.Bytes = true, m.Size
+			h.localHits.Add(1)
+		} else if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
 			return nil, err
 		}
 	} else if size, ok := h.localCopy(path); ok {

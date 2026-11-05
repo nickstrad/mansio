@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
@@ -171,4 +173,62 @@ func TestBucketBytesFlatThroughS3(t *testing.T) {
 		t.Cleanup(func() { st.DeletePrefix(context.Background(), root) })
 		run(t, objstore.NewDurable(st, root))
 	})
+}
+
+// OS-10 measurement against SeaweedFS (COLDLOAD_S3): the cold activation of a 256 MiB generation (manifest
+// GET + download) against a re-warm from the generation cache (manifest GET + rename). Logs both; fails only
+// if the re-warm downloads or takes over 100 ms.
+func TestGenCacheRewarmLatencyS3(t *testing.T) {
+	ep := os.Getenv("COLDLOAD_S3")
+	if ep == "" {
+		t.Skip("set COLDLOAD_S3=host:port to run against a real S3")
+	}
+	const size = 256 << 20
+	st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnsureBucket(ctx); err != nil {
+		t.Fatal(err)
+	}
+	root := "test-" + logx.NewID() + "/"
+	t.Cleanup(func() { st.DeletePrefix(context.Background(), root) })
+	d := objstore.NewDurable(st, root)
+	data := make([]byte, size)
+	for i := range data {
+		data[i] = byte(i * 31)
+	}
+	src := filepath.Join(t.TempDir(), "src.db")
+	if err := os.WriteFile(src, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := durable.NextManifest("t/big", 1, 0, durabletest.DigestOf(data), time.Now())
+	data = nil
+	if err := d.PutGeneration(ctx, m, src); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.PublishManifest(ctx, m, durable.NoVersion); err != nil {
+		t.Fatal(err)
+	}
+	h, err := vactor.NewHost(nil, &vactortest.Opener{}, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: d,
+		GenCacheBytes: 1 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	for i := range 3 {
+		res, err := h.Get(ctx, "t/big")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("activation %d: local hit %v, total %v (fetch %v)", i, res.Act.LocalHit, res.Act.Total, res.Act.Fetch)
+		if i > 0 && (!res.Act.LocalHit || res.Act.Total > 100*time.Millisecond) {
+			t.Fatalf("re-warm %d: %+v; want a local hit under 100 ms", i, res.Act)
+		}
+		t0 := time.Now()
+		if err := h.Passivate(ctx, "t/big"); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("passivation %d (clean: hash + rename into the cache): %v", i, time.Since(t0))
+	}
 }

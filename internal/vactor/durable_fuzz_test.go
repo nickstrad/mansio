@@ -34,7 +34,8 @@ import (
 // store's manifest names exactly the model's published contents (nothing acknowledged and written back is
 // ever lost or replaced by something older), every warm key's local file holds the model's warm contents,
 // cold keys have no local file, and the open-database count matches. Owner-side retention (K = 2) runs on
-// every publish; after a GC op without faults, each key holds at most K+1 generations older than its
+// every publish, and the generation cache (OS-10) is on with a budget that forces evictions; after a GC op
+// without faults, each key holds at most K+1 generations older than its
 // manifest's last rewrite (OS-06): the current one and K below it.
 func FuzzDurableHostModel(f *testing.F) {
 	f.Add([]byte{1, 0, 2, 0, 0, 0})                                                               // write, passivate, reactivate
@@ -60,8 +61,9 @@ func FuzzDurableHostModel(f *testing.F) {
 		s.SetClock(func() time.Time { return time.Unix(0, server.Add(int64(time.Second))) })
 		gc := durable.GCPolicy{Keep: 2, Grace: time.Nanosecond}
 		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Now: clk.Now, Workers: 2,
-			FailBackoff: -1, // tombstones are tested on their own
-			Policy:      vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
+			GenCacheBytes: 12, // the generation cache on (OS-10), small enough to evict: values are "s<step>"
+			FailBackoff:   -1, // tombstones are tested on their own
+			Policy:        vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
 		newHost := func() *vactor.Host {
 			h, err := vactor.NewHost(nil, o, opts)
 			if err != nil {
@@ -132,11 +134,14 @@ func FuzzDurableHostModel(f *testing.F) {
 				}
 			case k == 0, k == 1:
 				res, err := h.GetAt(ctx, key, own[key])
+				// A generation-cache hit needs no fetch, so FailFetch alone cannot fail it; the check after the
+				// step still demands the published contents.
+				cacheHit := err == nil && res.Act != nil && res.Act.LocalHit && !fenced[key] && !fault.FailRead && !fault.Down
 				if warm[key] {
 					if err != nil {
 						t.Fatalf("step %d: Get(%s) of a warm key: %v", step, key, err)
 					}
-				} else if activationFails(key) {
+				} else if activationFails(key) && !cacheHit {
 					if err == nil {
 						t.Fatalf("step %d: Get(%s) succeeded; fenced=%v fault=%+v", step, key, fenced[key], fault)
 					}
