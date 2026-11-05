@@ -1,0 +1,14 @@
+{
+  "listen": "127.0.0.1:17080",
+  "tls": {"cert_file": "tls/server.crt", "key_file": "tls/server.key"},
+  "secrets_file": "controld-secrets.json",
+  "pg": {"schema": "@SCHEMA@"},
+  "s3": {"endpoint": "localhost:8333", "bucket": "coldload", "prefix": "@PREFIX@"},
+  "agents": [
+    {"vm": "vm-a", "endpoint": "127.0.0.1:17070", "lifecycle": "http://127.0.0.1:17071"},
+    {"vm": "vm-b", "endpoint": "127.0.0.1:17073", "lifecycle": "http://127.0.0.1:17074"}
+  ],
+  "ticket_keys": {"dir": "ticket-keys"},
+  "locator": {"ticket_ttl": "60s"},
+  "log_file": "controld.log"
+}
