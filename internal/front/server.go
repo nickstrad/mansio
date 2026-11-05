@@ -194,9 +194,9 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 // answer builds the output for err (nil = ok) from the spec table. claims may be nil (not verified yet).
 func (s *Server) answer(req Request, claims *ticket.Claims, err error) Output {
 	code := Classify(err)
-	w := Spec[code]
-	out := Output{Status: w.Status, RetryAfter: w.RetryAfter, Err: err,
-		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: w.RetryAfter * 1000}}
+	ra := retryAfter(code, err)
+	out := Output{Status: Spec[code].Status, RetryAfter: ra, Err: err,
+		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: ra * 1000}}
 	if claims != nil {
 		out.Tenant, out.Sub = claims.TID, claims.Sub
 	}

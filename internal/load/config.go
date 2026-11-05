@@ -99,13 +99,15 @@ func (a ActorConfig) Actor() actor.Config {
 	}.WithDefaults()
 }
 
-// RetryConfig is a client profile's retry policy as written in the config (see retry.Policy).
+// RetryConfig is a client profile's retry policy as written in the config (see retry.Policy). A profile without
+// max_attempts never retries; one that retries gets retry.Policy's safe defaults for anything it leaves out, so
+// a badly behaved bench profile must ask for "none" backoff and jitter explicitly.
 type RetryConfig struct {
 	MaxAttempts  int           `json:"max_attempts"` // including the first; default 1 (no retries)
-	Backoff      retry.Backoff `json:"backoff"`      // none | fixed | exponential
-	Base         Duration      `json:"base"`         // first delay; default 10ms
-	Max          Duration      `json:"max"`          // cap; default 10s
-	Jitter       retry.Jitter  `json:"jitter"`       // none | full | equal | decorrelated
+	Backoff      retry.Backoff `json:"backoff"`      // none | fixed | exponential (default)
+	Base         Duration      `json:"base"`         // first delay; default 50ms
+	Max          Duration      `json:"max"`          // cap; default 5s
+	Jitter       retry.Jitter  `json:"jitter"`       // none | full (default) | equal | decorrelated
 	RetryOn      []string      `json:"retry_on"`     // outcome names (see package outcome) or "any"; default shed, aborted
 	BudgetRatio  float64       `json:"budget_ratio"` // max retries per first attempt; 0 = unlimited
 	TotalTimeout Duration      `json:"total_timeout"`
@@ -116,7 +118,7 @@ func (r RetryConfig) policy() (retry.Policy, error) {
 	if err != nil {
 		return retry.Policy{}, fmt.Errorf("retry_on: %w", err)
 	}
-	p := retry.Policy{MaxAttempts: r.MaxAttempts, Backoff: r.Backoff, Base: r.Base.Duration, Max: r.Max.Duration,
+	p := retry.Policy{MaxAttempts: max(r.MaxAttempts, 1), Backoff: r.Backoff, Base: r.Base.Duration, Max: r.Max.Duration,
 		Jitter: r.Jitter, RetryOn: on, BudgetRatio: r.BudgetRatio, TotalTimeout: r.TotalTimeout.Duration}
 	return p, p.Normalize()
 }

@@ -84,6 +84,9 @@ func TestHTTPStatusesAndHeaders(t *testing.T) {
 			503, front.Shed, map[string]string{"Retry-After": "1"}},
 		{"unavailable has Retry-After", bearer, get(1), nil, func() { r.ex.Set(func(e *fronttest.Executor) { e.Err = front.ErrUnavailable }) },
 			503, front.Unavailable, map[string]string{"Retry-After": "1"}},
+		{"unavailable with a breaker hint: computed Retry-After", bearer, get(1), nil, func() {
+			r.ex.Set(func(e *fronttest.Executor) { e.Err = front.WithRetryAfter(front.ErrUnavailable, 2500*time.Millisecond) })
+		}, 503, front.Unavailable, map[string]string{"Retry-After": "3"}},
 		{"panic in executor", bearer, get(1), nil, func() { r.ex.Set(func(e *fronttest.Executor) { e.Err, e.Panic = nil, true }) },
 			500, front.Internal, nil},
 	}

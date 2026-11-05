@@ -61,3 +61,18 @@ Note: knowledge/front/README.md "How the other agents plug in" says the owner ad
   (default 4 × `vm_in_flight`); a request over them is `shed`, like the tenant and database caps. agentd
   refuses a config whose caps do not nest (db ≤ tenant ≤ VM).
 - The health listener has read, write and idle timeouts.
+
+## Handshaking (RI-10, same branch)
+
+- **Computed Retry-After.** Errors may carry a hint (`front.WithRetryAfter(err, d)`, or any error implementing
+  `front.RetryHint`). For codes with a Retry-After (`shed`, `unavailable`, `fenced`) the answer sends
+  max(Spec floor, hint rounded up to seconds), capped at `front.MaxRetryAfter` (60 s). Not done: a
+  queue-drain estimate for `shed` (needs service-rate metrics, RI-11).
+- **Client side** (`internal/retry`): the zero `Policy` is now safe (3 attempts, exponential 50 ms → 5 s, full
+  jitter); `Attempt.ServerHint` makes `Decide` wait max(hint, backoff); `Budget` is a token bucket (Ratio per
+  first attempt, at most `Burst` = 10 banked). `internal/outcome` has no `unavailable` code yet; the CP-6 client
+  needs one (or maps `unavailable` to `shed`) before it can retry on it.
+- **Measurement** (2026-11-05, Apple M5 Max, 18 cores, macOS; `configs/retry-storm.json` trimmed to its three
+  `good` phases — calm 5k qps 10 s, overload 60k qps 15 s, recover 5k qps 10 s — 1,000 dbs, zipf 1.2): 999,999
+  first attempts, 59,899 retries (0.060 overall). Per 1 s window (by `sched_ms`) retries/first ranged
+  0.042–0.091, so every window stayed ≤ the 0.1 ratio.

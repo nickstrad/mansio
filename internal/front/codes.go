@@ -16,6 +16,7 @@ package front
 
 import (
 	"errors"
+	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
@@ -43,7 +44,7 @@ var Codes = []Code{OK, Shed, Unavailable, Expired, StmtTimeout, Aborted, WrongOw
 // Wire is how a code goes on the wire.
 type Wire struct {
 	Status     int    // HTTP status
-	RetryAfter int    // seconds for the Retry-After header; 0 = no header
+	RetryAfter int    // seconds for the Retry-After header, a floor raised by a RetryHint; 0 = no header
 	Retry      string // what a client should do
 }
 
@@ -83,6 +84,39 @@ var (
 	ErrTooManyRows = errors.New("front: result has more rows than allowed")
 	ErrDraining    = errors.New("front: draining")
 )
+
+// RetryHint is implemented by errors that know when a retry can succeed, e.g. a breaker's time to half-open.
+// For codes that carry Retry-After, the answer's Retry-After is max(the Spec floor, the hint), capped at
+// MaxRetryAfter (Release It R3: the server tells clients when to come back).
+type RetryHint interface{ RetryAfter() time.Duration }
+
+// MaxRetryAfter caps a hinted Retry-After, so a wrong hint cannot park clients for long.
+const MaxRetryAfter = time.Minute
+
+// WithRetryAfter attaches a retry hint to err; errors.Is/As still see err.
+func WithRetryAfter(err error, after time.Duration) error { return &hinted{err, after} }
+
+type hinted struct {
+	err   error
+	after time.Duration
+}
+
+func (e *hinted) Error() string             { return e.err.Error() }
+func (e *hinted) Unwrap() error             { return e.err }
+func (e *hinted) RetryAfter() time.Duration { return e.after }
+
+// retryAfter is the Retry-After in seconds for an answer of code caused by err.
+//
+//	post: Spec[code].RetryAfter == 0 ⇒ 0; otherwise Spec[code].RetryAfter <= result <= MaxRetryAfter in seconds
+func retryAfter(code Code, err error) int {
+	floor := Spec[code].RetryAfter
+	var h RetryHint
+	if floor == 0 || !errors.As(err, &h) {
+		return floor
+	}
+	d := min(h.RetryAfter(), MaxRetryAfter)
+	return max(floor, int((d+time.Second-1)/time.Second)) // whole seconds, rounded up
+}
 
 // BadRequestError is a validation failure. Msg is safe to send to the client: it describes their input only.
 type BadRequestError struct {
