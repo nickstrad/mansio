@@ -21,6 +21,16 @@ func (f s3Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched,
 	return vactor.Fetched{Bytes: s.Bytes, TTFB: s.TTFB, Total: s.Total}, err
 }
 
+// Size makes s3Fetcher a vactor.Sizer: one HEAD before each fetch lets the host's bulkhead bound plain
+// fetches by bytes (MaxFetchBytes), so many large fetches cannot overrun objstore's per-transfer deadline.
+func (f s3Fetcher) Size(ctx context.Context, key string) (int64, error) {
+	n, err := f.st.Size(ctx, key)
+	if errors.Is(err, objstore.ErrNotFound) {
+		err = errors.Join(vactor.ErrNotFound, err)
+	}
+	return n, err
+}
+
 // actorOpener adapts internal/actor to vactor's Opener port: one actor (goroutine + connections) per database.
 type actorOpener struct{ cfg actor.Config }
 

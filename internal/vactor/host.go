@@ -68,6 +68,16 @@ type Fetcher interface {
 	Fetch(ctx context.Context, key, path string) (Fetched, error)
 }
 
+// Sizer is an optional extension of a Fetcher: it says how large object key is before the fetch (one HEAD).
+// With it, plain mode bounds fetches by bytes as well as by count (Options.MaxFetchBytes) and grows the
+// activation deadline by size/MinThroughput, exactly as durable mode does with the manifest's size. Without
+// it a plain fetch counts 0 bytes, and only MaxFetches bounds how many large transfers share the link.
+//
+//	post: a missing object gives an error matching errors.Is(err, ErrNotFound)
+type Sizer interface {
+	Size(ctx context.Context, key string) (int64, error)
+}
+
 // Fetched describes one download.
 type Fetched struct {
 	Bytes int64
@@ -120,8 +130,14 @@ type Options struct {
 	// MinThroughput (bytes/s) is the slowest fetch rate the activation deadline allows for. Default 32 MiB/s.
 	MinThroughput int64
 	// MaxFetches and MaxFetchBytes bound fetches in flight, by count and by bytes (the bytes are known in
-	// durable mode only; a plain Fetch counts 0 bytes). One fetch larger than MaxFetchBytes runs alone.
-	// Defaults 16 and 1 GiB: the measured coldload knee (Release It B2).
+	// durable mode, and in plain mode when the Fetcher is a Sizer; otherwise a plain Fetch counts 0 bytes).
+	// One fetch larger than MaxFetchBytes runs alone. Defaults 16 and 1 GiB: the measured coldload knee
+	// (Release It B2).
+	//
+	// The byte bound is what keeps the bulkhead consistent with a store's per-transfer deadline (objstore:
+	// OpTimeout + size/MinThroughput): the fetches in flight share the link, so each must still finish in
+	// time when MaxFetchBytes moves at the link's rate. At ~260 MB/s, 1 GiB in flight takes ~4.1 s, inside
+	// the 5 s OpTimeout alone; 16 × 128 MiB counted as 0 bytes did not (knowledge/coldload RI-02 note).
 	MaxFetches    int
 	MaxFetchBytes int64
 	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
@@ -208,6 +224,7 @@ type entry struct {
 // Host owns the active databases. Safe for concurrent use.
 type Host struct {
 	fetch  Fetcher
+	size   Sizer // fetch's Sizer, if it is one (plain mode)
 	open   Opener
 	opts   Options
 	ctx    context.Context // cancelled by Close: stops fetches and queries in flight
@@ -286,6 +303,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	case opts.MaxFetchQueue < 0:
 		opts.MaxFetchQueue = 0
 	}
+	size, _ := f.(Sizer)
 	if assert.Enabled {
 		if f != nil {
 			f = checkedFetcher{f}
@@ -299,7 +317,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		return nil, errs.Wrap(module, err, "cannot create host: invalid failure backoff")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+	return &Host{fetch: f, size: size, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
 		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
@@ -474,10 +492,20 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
-	} else if err := h.gatedFetch(ctx, key, 0, e, func(ctx context.Context) (Fetched, error) {
-		return h.fetch.Fetch(ctx, key, path)
-	}); err != nil {
-		return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
+	} else {
+		var n int64 // 0: unknown
+		if h.size != nil {
+			if n, err = h.size.Size(ctx, key); err != nil {
+				return nil, errs.Wrap(module, err, "cannot activate %s: size lookup failed; nothing cached, safe to retry", key)
+			}
+			cancel()
+			ctx, cancel = h.activationCtx(start, n)
+		}
+		if err := h.gatedFetch(ctx, key, n, e, func(ctx context.Context) (Fetched, error) {
+			return h.fetch.Fetch(ctx, key, path)
+		}); err != nil {
+			return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
+		}
 	}
 
 	t := time.Now()

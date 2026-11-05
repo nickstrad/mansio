@@ -486,3 +486,20 @@ func TestContentMD5ComesFromTheDigest(t *testing.T) {
 		t.Fatalf("upload with the digest MD5: %v", err)
 	}
 }
+
+// Size is one HEAD, retried while Transient; a missing object is ErrNotFound (coldload's Sizer).
+func TestSizeHeadsAndRetries(t *testing.T) {
+	r := newRig(t, objstore.Config{})
+	r.fake.Put("bkt", "obj", body(1234))
+	r.fake.Inject(s3test.Fault{Mode: s3test.Status, Status: 503, Times: 1})
+	n, err := r.st.Size(context.Background(), "obj")
+	if err != nil || n != 1234 {
+		t.Fatalf("Size = %d, %v; want 1234", n, err)
+	}
+	if r.fake.Count("HEAD") != 2 {
+		t.Fatalf("%d HEADs, want 2 (503, then retry)", r.fake.Count("HEAD"))
+	}
+	if _, err := r.st.Size(context.Background(), "missing"); !errors.Is(err, objstore.ErrNotFound) {
+		t.Fatalf("Size(missing) = %v, want ErrNotFound", err)
+	}
+}

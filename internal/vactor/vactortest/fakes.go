@@ -228,3 +228,24 @@ func (d *db) Close() {
 		d.o.closed++
 	}
 }
+
+// SizedFetcher is a Fetcher that is also a vactor.Sizer: the host learns each object's size before it
+// fetches, as coldload's S3 fetcher does with a HEAD.
+type SizedFetcher struct{ *Fetcher }
+
+// Size returns the stored object's length; Down and a missing object fail like Fetch.
+func (f SizedFetcher) Size(ctx context.Context, key string) (int64, error) {
+	f.mu.Lock()
+	data, ok := f.objects[key]
+	down := f.Down
+	f.mu.Unlock()
+	switch {
+	case ctx.Err() != nil:
+		return 0, ctx.Err()
+	case down:
+		return 0, fmt.Errorf("size %s: %w", key, ErrInjected)
+	case !ok:
+		return 0, fmt.Errorf("size %s: %w", key, vactor.ErrNotFound)
+	}
+	return int64(len(data)), nil
+}

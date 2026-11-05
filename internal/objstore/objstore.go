@@ -168,6 +168,24 @@ func (s *Store) PutFile(ctx context.Context, key, path string) (int64, error) {
 	return info.Size, nil
 }
 
+// Size returns the size of object key (one HEAD, retried while Transient). A missing object matches
+// ErrNotFound.
+func (s *Store) Size(ctx context.Context, key string) (int64, error) {
+	var size int64
+	err := s.retryIdempotent(ctx, OpHead, key, s.cfg.OpTimeout, func(a *attempt) error {
+		st, err := s.c.StatObject(a.ctx, s.bucket, key, minio.StatObjectOptions{})
+		size = st.Size
+		return err
+	})
+	if err != nil {
+		if noSuchKey(err) {
+			err = errors.Join(ErrNotFound, err)
+		}
+		return 0, wrap(err, "cannot stat %s; nothing changed, safe to retry", key).With("bucket", s.bucket)
+	}
+	return size, nil
+}
+
 // FetchStats splits a download into time to first byte and the rest.
 type FetchStats struct {
 	Bytes int64
