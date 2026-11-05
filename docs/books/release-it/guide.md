@@ -12,7 +12,7 @@ this guide adds failure-below-the-interface tests (§H).
 | Point | Code | On request path? | Owner of retries |
 |---|---|---|---|
 | S3 / SeaweedFS | `internal/objstore` via `durable.Store`, `vactor.Fetcher` | cold activation only | vactor (write-back), owner (stamp); minio: none |
-| Postgres placement | `owner.Placement` adapter (CP step 3) | no (Claim, Reconcile, Move) | owner / Mover |
+| Postgres placement | `internal/placement/pg` (`owner.Placement`) | no (Claim, Reconcile, Move) | owner / Mover |
 | Inbound HTTP | `internal/front`, `cmd/agentd` | yes | the client |
 | Client → locator / agent | CP step 6, `internal/retry` | yes | client, once |
 | Actor mailbox / read pool | `internal/actor` | yes | none (shed) |

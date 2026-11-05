@@ -24,7 +24,7 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Network front | `front`, `ticket`, `cmd/agentd` | Done. 11 wire codes incl. **`unavailable`** (503 + computed `Retry-After`; `cmd/agentd/unavailable.go`). HTTP body/write deadlines, VM-wide admission cap (RI-09). `/livez`, `/readyz` (canary), `/metrics` on the lifecycle listener (RI-07, RI-11). Phased shutdown under one budget (`cmd/agentd/lifecycle.go`). **agentd still runs `front.StaticHost` + `startupAdmitter{epochs(...)}`**: no vactor, no owner, no S3 config, no Claim/Fence endpoints. CP-1 wiring points are marked in `cmd/agentd/main.go` (`newAgent`, `serve`). |
 | Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
 | Client retry | `internal/retry` | Policy done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`). **Not wired:** the only caller (`internal/bench/run.go:359`) never sets `ServerHint`, and `internal/outcome` has no `unavailable` code. |
-| Placement authority (Postgres) | none | Schema and queries specified in [art-of-postgresql plan §5](books/art-of-postgresql/plan.md); not built. |
+| Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `TSDB_PG_URL`). Not wired yet (CP-4). |
 | Control plane, locator, issuer, client | none | Not started. |
 
 ## 2. The three flows we need
@@ -107,7 +107,7 @@ safe (`RI R2`).
 - **Gate:** the same id retried after a crash and after a move applies exactly once; a failed user statement
   leaves no id row; `FuzzActorModel` gains a duplicate-id op.
 
-### CP-3. Postgres `Placement` adapter (PG-02, PG-03, PG-04, RI-12)
+### CP-3. Postgres `Placement` adapter (PG-02, PG-03, PG-04, RI-12) — **Done** (06204e3; not wired into agentd/controld (CP-4); the file adapter (CP-1) should run `ownertest.RunPlacementSuite`)
 
 `internal/placement/pg`, implementing `owner.Placement` (`internal/owner/ports.go`).
 - **Schema (PG-02):** `schema/0001_placement.sql` per [art-of-postgresql plan §5.1](books/art-of-postgresql/plan.md):
