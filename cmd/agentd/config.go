@@ -54,12 +54,10 @@ type Config struct {
 
 func defaults() Config {
 	d := func(v time.Duration) load.Duration { return load.Duration{Duration: v} }
-	adm := front.AdmissionLimits{}.WithDefaults()
-	adm.VMInFlight, adm.VMQueue = 0, 0 // derived after decoding, from the file's db_in_flight
 	return Config{
 		Listen: "127.0.0.1:7070", Protocols: []string{"h1", "h2c"},
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
-		Admission: adm, Limits: front.Limits{}.WithDefaults(),
+		Limits:         front.Limits{}.WithDefaults(),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
 		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
 		IdleTimeout: d(2 * time.Minute), LogLevel: "info",
@@ -128,10 +126,10 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.Limits.MaxBody <= 0 || c.Limits.MaxSQL <= 0 || c.Limits.MaxArgs <= 0 || c.Limits.MaxRows <= 0 {
 		bad("limits must all be > 0")
 	}
-	if a := c.Admission; a.TenantInFlight <= 0 || a.TenantQueue < 0 || a.DBInFlight <= 0 || a.DBQueue < 0 || a.VMInFlight < 0 || a.VMQueue < 0 {
-		bad("admission: in-flight caps must be > 0 and queues >= 0 (vm_* 0 = default)")
+	if a := c.Admission; min(a.TenantInFlight, a.TenantQueue, a.DBInFlight, a.DBQueue, a.VMInFlight, a.VMQueue) < 0 {
+		bad("admission: caps must be >= 0 (0 = default)")
 	}
-	c.Admission = c.Admission.WithDefaults() // a file that sets only some caps gets the derived VM defaults
+	c.Admission = c.Admission.WithDefaults() // after decoding: the VM defaults derive from the file's db_in_flight
 	if a := c.Admission; a.DBInFlight > a.TenantInFlight || a.TenantInFlight > a.VMInFlight {
 		bad("admission: caps must nest: db_in_flight %d <= tenant_in_flight %d <= vm_in_flight %d", a.DBInFlight, a.TenantInFlight, a.VMInFlight)
 	}

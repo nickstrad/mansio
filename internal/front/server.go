@@ -55,6 +55,14 @@ func (c Config) WithDefaults() Config {
 	return c
 }
 
+// timeout is the request's budget: the client's (0 = DefaultTimeout), capped at MaxTimeout.
+func (c Config) timeout(client time.Duration) time.Duration {
+	if client <= 0 {
+		return c.DefaultTimeout
+	}
+	return min(client, c.MaxTimeout)
+}
+
 // Server is the request pipeline, independent of the transport.
 type Server struct {
 	cfg      Config
@@ -149,12 +157,8 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	if err != nil {
 		return s.answer(req, nil, err)
 	}
-	timeout := in.Timeout
-	if timeout <= 0 {
-		timeout = s.cfg.DefaultTimeout
-	}
 	now := s.clock()
-	deadline := now.Add(min(timeout, s.cfg.MaxTimeout))
+	deadline := now.Add(s.cfg.timeout(in.Timeout))
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 

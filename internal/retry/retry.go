@@ -12,9 +12,9 @@ package retry
 
 import (
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -168,7 +168,8 @@ type Budget struct {
 	Ratio float64
 	Burst int // bucket size in retries; 0 = BudgetAllowance
 
-	deficit atomic.Int64 // Burst minus tokens, in millionths of a retry (0 = full)
+	mu      sync.Mutex
+	spent   float64 // Burst minus tokens (0 = full), so the zero Budget starts full
 	firsts  atomic.Int64
 	retries atomic.Int64
 }
@@ -177,13 +178,11 @@ type Budget struct {
 // quiet period can bank.
 const BudgetAllowance = 10
 
-const micro = 1_000_000 // token units per retry
-
-func (b *Budget) capacity() int64 {
+func (b *Budget) burst() float64 {
 	if b.Burst > 0 {
-		return int64(b.Burst) * micro
+		return float64(b.Burst)
 	}
-	return BudgetAllowance * micro
+	return BudgetAllowance
 }
 
 // First records a first attempt and refills the bucket by Ratio.
@@ -192,32 +191,26 @@ func (b *Budget) First() {
 	if b.Ratio <= 0 {
 		return
 	}
-	add := int64(math.Round(min(b.Ratio, float64(b.capacity())/micro) * micro))
-	for {
-		d := b.deficit.Load()
-		if d == 0 || b.deficit.CompareAndSwap(d, max(d-add, 0)) {
-			return
-		}
-	}
+	b.mu.Lock()
+	b.spent = max(b.spent-b.Ratio, 0)
+	b.mu.Unlock()
 }
 
 // TryRetry takes one retry from the budget, or reports that it is spent.
 func (b *Budget) TryRetry() bool {
-	if b.Ratio <= 0 {
-		b.retries.Add(1)
-		return true
-	}
-	limit := b.capacity()
-	for {
-		d := b.deficit.Load()
-		if d+micro > limit {
+	if b.Ratio > 0 {
+		b.mu.Lock()
+		ok := b.spent+1 <= b.burst()+1e-9 // tolerate float error from summing Ratio
+		if ok {
+			b.spent++
+		}
+		b.mu.Unlock()
+		if !ok {
 			return false
 		}
-		if b.deficit.CompareAndSwap(d, d+micro) {
-			b.retries.Add(1)
-			return true
-		}
 	}
+	b.retries.Add(1)
+	return true
 }
 
 // Counts returns first attempts and retries so far.

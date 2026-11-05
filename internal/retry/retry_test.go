@@ -194,7 +194,7 @@ func FuzzBudgetWindow(f *testing.F) {
 			t.Skip()
 		}
 		b := &Budget{Ratio: float64(ratioPct) / 100, Burst: int(burst % 20)}
-		cap := float64(b.capacity()) / micro
+		cap := b.burst()
 		// firsts[i], retries[i]: counts in the prefix of length i.
 		firsts, retries := []int{0}, []int{0}
 		for _, op := range script {

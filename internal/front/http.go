@@ -43,12 +43,14 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 	})
 	// Every request gets read and write deadlines first, whatever its path: http.Server has no ReadTimeout or
 	// WriteTimeout because h2c streams share one connection (net/http clears them after each request). query
-	// moves the write deadline once it knows the request's own deadline.
+	// sets its write deadline itself once it knows the request's own deadline.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		rc := http.NewResponseController(w)
 		rc.SetReadDeadline(now.Add(s.cfg.BodyReadTimeout)) // errors: the writer cannot (e.g. a test recorder)
-		rc.SetWriteDeadline(now.Add(s.cfg.BodyReadTimeout + s.cfg.WriteGrace))
+		if r.URL.Path != QueryPath {
+			rc.SetWriteDeadline(now.Add(s.cfg.WriteGrace))
+		}
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -110,6 +112,8 @@ func (h *httpHandler) query(w http.ResponseWriter, r *http.Request) {
 			h.write(w, r, out)
 		}
 	}()
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.BodyReadTimeout + h.s.cfg.WriteGrace)) // early refusals
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "use POST", Status: http.StatusMethodNotAllowed}))
@@ -126,23 +130,19 @@ func (h *httpHandler) query(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(h.s.cfg.Limits.MaxBody)))
 	if err != nil {
+		bad := &BadRequestError{Msg: "cannot read body"}
 		var tooBig *http.MaxBytesError
 		switch {
 		case errors.As(err, &tooBig):
-			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "body too large", Status: http.StatusRequestEntityTooLarge}))
+			bad = &BadRequestError{Msg: "body too large", Status: http.StatusRequestEntityTooLarge}
 		case errors.Is(err, os.ErrDeadlineExceeded):
-			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "body not received in time", Status: http.StatusRequestTimeout}))
-		default:
-			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "cannot read body"}))
+			bad = &BadRequestError{Msg: "body not received in time", Status: http.StatusRequestTimeout}
 		}
+		h.write(w, r, h.s.answer(Request{}, nil, bad))
 		return
 	}
 	in.Body = body
-	timeout := in.Timeout
-	if timeout <= 0 {
-		timeout = h.s.cfg.DefaultTimeout
-	}
-	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(min(timeout, h.s.cfg.MaxTimeout) + h.s.cfg.WriteGrace))
+	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.timeout(in.Timeout) + h.s.cfg.WriteGrace))
 	h.write(w, r, h.s.Handle(r.Context(), in))
 }
 

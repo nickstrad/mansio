@@ -240,7 +240,7 @@ func TestAdmissionCapsNest(t *testing.T) {
 		{"tenant = vm (on point)", `{"db_in_flight":1,"tenant_in_flight":4,"vm_in_flight":4}`, ""},
 		{"tenant > vm (off point)", `{"db_in_flight":1,"tenant_in_flight":5,"vm_in_flight":4}`, "caps must nest"},
 		{"db > tenant", `{"db_in_flight":9,"tenant_in_flight":4}`, "caps must nest"},
-		{"negative vm queue", `{"vm_queue":-1}`, "queues >= 0"},
+		{"negative vm queue", `{"vm_queue":-1}`, "caps must be >= 0"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
