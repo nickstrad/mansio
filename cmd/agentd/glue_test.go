@@ -274,7 +274,7 @@ func TestActivationErrorMapping(t *testing.T) {
 		{context.Background(), vactor.ErrNotFound, front.ErrUnknownDB},
 		{context.Background(), vactor.ErrClosed, front.ErrShed},
 		{cancelled, fmt.Errorf("x: %w", context.Canceled), front.ErrExpired},
-		{context.Background(), vactor.ErrBusy, vactor.ErrBusy},                   // depExecutor's
+		{context.Background(), vactor.ErrBusy, vactor.ErrBusy},                 // depExecutor's
 		{context.Background(), durable.ErrUnavailable, durable.ErrUnavailable}, // depExecutor's
 	} {
 		got := activationError(tc.ctx, fmt.Errorf("wrapped: %w", tc.err))
