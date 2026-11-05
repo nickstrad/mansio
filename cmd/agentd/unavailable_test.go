@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
@@ -55,5 +59,30 @@ func TestDependencyErrorsMapToUnavailable(t *testing.T) {
 	ex.Set(func(e *fronttest.Executor) { e.Err = ownerWrapped })
 	if _, err := (depExecutor{ex}).Exec(context.Background(), front.Call{DB: "db-1"}); front.Classify(err) != front.Unavailable {
 		t.Fatalf("depExecutor: %v", err)
+	}
+}
+
+// An open S3 breaker (durable.WithBreaker) reaches the wire as 503 unavailable, and its time to half-open
+// rides along as the retry hint (RI-03); a plain S3 system failure is unavailable too.
+func TestStorageUnavailableCarriesRetryHint(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	b, err := breaker.New(breaker.Config{MinCalls: 1, FailureRate: 1, CoolDown: 7 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := durabletest.NewStore()
+	fake.SetFaults(durabletest.Faults{Down: true})
+	s := durable.WithBreaker(fake, b, nil, func() time.Time { return now })
+	_, _, failed := s.ReadManifest(context.Background(), "db-1")
+	_, _, open := s.ReadManifest(context.Background(), "db-1")
+	for name, err := range map[string]error{"system failure": failed, "breaker open": open} {
+		got := asUnavailable(errs.Wrap("vactor", err, "cannot activate db-1"))
+		if c := front.Classify(got); c != front.Unavailable {
+			t.Fatalf("%s: Classify = %s, want unavailable", name, c)
+		}
+	}
+	var hint front.RetryHint
+	if !errors.As(asUnavailable(open), &hint) || hint.RetryAfter() != 7*time.Second {
+		t.Fatalf("no 7 s retry hint in %v", open)
 	}
 }

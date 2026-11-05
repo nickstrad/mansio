@@ -24,6 +24,7 @@ type TickReport struct {
 //	post: every planned key is either done or in r.Errors
 func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 	now := h.opts.Now()
+	h.pruneTombs(now)
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()

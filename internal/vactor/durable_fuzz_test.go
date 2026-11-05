@@ -50,7 +50,8 @@ func FuzzDurableHostModel(f *testing.F) {
 		keys := []string{"t/k0", "t/k1", "t/k2", "t/k3"}
 		s, o, clk := durabletest.NewStore(), &vactortest.Opener{}, &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
 		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Now: clk.Now, Workers: 2,
-			Policy: vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
+			FailBackoff: -1, // tombstones are tested on their own
+			Policy:      vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
 		newHost := func() *vactor.Host {
 			h, err := vactor.NewHost(nil, o, opts)
 			if err != nil {

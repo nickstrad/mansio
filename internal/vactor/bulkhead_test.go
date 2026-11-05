@@ -37,6 +37,10 @@ func TestActivationTimesOutAndIsRetryable(t *testing.T) {
 	}
 
 	r.s.SetFaults(durabletest.Faults{})
+	if _, err := r.h.Get(ctx, "k"); !errors.Is(err, vactor.ErrBusy) {
+		t.Fatalf("Get inside the key's backoff = %v, want the same cause, at once", err)
+	}
+	r.clk.Add(time.Second)
 	res, err := r.h.Get(ctx, "k")
 	if err != nil || res.Act == nil {
 		t.Fatalf("Get after the store recovered = %+v, %v; want a fresh activation", res, err)

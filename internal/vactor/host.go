@@ -9,8 +9,10 @@
 //
 // Get(key) returns the key's open database. If it is not active, the first caller starts an activation:
 // fetch the object to a local file, open it, run the first query, then optional warm-up queries. Callers
-// that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, so a
-// later Get tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
+// that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, but the
+// key keeps a short, jittered tombstone (Options.FailBackoff, doubling per failure in a row up to
+// MaxFailBackoff): until it ends, Gets fail fast with the same cause instead of hitting storage again
+// (Release It R6); the first Get after it tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
 // key is passivating waits for it to finish, then activates afresh.
 //
 // Every activation has a deadline (Options.ActivationTimeout, grown by size/MinThroughput once the size is
@@ -25,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -34,6 +37,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
@@ -119,6 +123,12 @@ type Options struct {
 	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
 	// ErrBusy instead of queueing (Release It B1). Default 256; negative: no queue.
 	MaxFetchQueue int
+	// FailBackoff is how long a key fails fast after a failed activation; it doubles with each failure in a
+	// row up to MaxFailBackoff, jittered to [d/2, d]. Not after shedding (ErrBusy without a timeout), an open
+	// breaker, a stale epoch or Close: those are not the key's failures. Defaults 100 ms and 5 s; a negative
+	// FailBackoff turns tombstones off.
+	FailBackoff    time.Duration
+	MaxFailBackoff time.Duration
 
 	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
 	Store durable.Store
@@ -200,6 +210,7 @@ type Host struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
+	tombs   map[string]tomb // keys whose last activation failed: fail fast until tomb.until
 	closed  bool
 
 	activations, failures, fetches, localHits    atomic.Int64
@@ -253,6 +264,12 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.MaxFetchBytes <= 0 {
 		opts.MaxFetchBytes = 1 << 30
 	}
+	if opts.FailBackoff == 0 {
+		opts.FailBackoff = 100 * time.Millisecond
+	}
+	if opts.MaxFailBackoff <= 0 {
+		opts.MaxFailBackoff = 5 * time.Second
+	}
 	switch {
 	case opts.MaxFetchQueue == 0:
 		opts.MaxFetchQueue = 256
@@ -269,7 +286,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
-		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
+		tombs: make(map[string]tomb), gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
 var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
@@ -291,7 +308,8 @@ func (h *Host) Get(ctx context.Context, key string) (Result, error) { return h.G
 //
 //	post: err == nil ⇒ res.DB != nil, and the key stays active until passivated
 //	post: res.Act != nil ⇒ this caller started the activation, so res.Waited is false
-//	post: a failed activation is not cached: the next Get tries again
+//	post: a failed activation is not cached; until its tombstone ends, Gets for key fail fast with its cause
+//	      (and a RetryAfter hint), and the first Get after that tries again
 //	post: if the activation panicked, Get panics with the same value in every caller (a bug)
 func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, error) {
 	for {
@@ -311,6 +329,10 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			}
 		}
 		if !ok {
+			if err := h.tombstoned(key); err != nil {
+				h.mu.Unlock()
+				return Result{}, err
+			}
 			if h.gate.shedding() { // fail fast before any storage call (guide F1)
 				h.mu.Unlock()
 				return Result{}, errs.Wrap(module, ErrBusy, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
@@ -386,15 +408,29 @@ func (h *Host) activate(key string, e *entry) {
 			RemoveDB(h.LocalPath(key)) // a fetched copy that failed to open must not leak disk
 		}
 		h.forget(key, e)
+		return
 	}
+	h.mu.Lock()
+	delete(h.tombs, key)
+	h.mu.Unlock()
 }
 
-// forget removes a failed entry so the next Get retries.
+// forget removes a failed entry so a later Get retries, and leaves a tombstone if the failure was the key's.
 func (h *Host) forget(key string, e *entry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.entries[key] == e {
 		delete(h.entries, key)
+	}
+	if e.err != nil && h.backsOff(e.err) {
+		now := h.opts.Now()
+		t := h.tombs[key]
+		if now.After(t.until.Add(h.opts.MaxFailBackoff)) {
+			t.n = 0 // the last failure is long past: start the backoff over
+		}
+		t.n++
+		t.until, t.err = now.Add(jitter(backoff(h.opts.FailBackoff, h.opts.MaxFailBackoff, t.n))), e.err
+		h.tombs[key] = t
 	}
 }
 
@@ -479,6 +515,81 @@ func (h *Host) localCopy(path string) (int64, bool) {
 	}
 	return fi.Size(), true
 }
+
+// tomb is a key whose activation failed n times in a row; Gets fail fast with err until until.
+type tomb struct {
+	until time.Time
+	n     int
+	err   error
+}
+
+// backsOff reports whether a failed activation's error is the key's own failure, which earns a tombstone.
+// pre: h.mu held.
+func (h *Host) backsOff(err error) bool {
+	switch {
+	case h.opts.FailBackoff < 0, h.closed, h.ctx.Err() != nil:
+		return false
+	case errors.Is(err, ErrBusy) && !errors.Is(err, context.DeadlineExceeded): // shed, not failed
+		return false
+	case errors.Is(err, breaker.ErrOpen), errors.Is(err, durable.ErrStale):
+		return false
+	}
+	return true
+}
+
+// tombstoned returns the fail-fast error if key is in its backoff. pre: h.mu held.
+func (h *Host) tombstoned(key string) error {
+	t, ok := h.tombs[key]
+	if !ok {
+		return nil
+	}
+	now := h.opts.Now()
+	if !now.Before(t.until) {
+		return nil
+	}
+	wait := t.until.Sub(now)
+	return errs.Wrap(module, &hinted{t.err, wait},
+		"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
+}
+
+// pruneTombs drops tombstones whose backoff ended long enough ago that a new failure starts over (S1: every
+// map that grows has a reaper). Tick calls it.
+func (h *Host) pruneTombs(now time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for k, t := range h.tombs {
+		if now.After(t.until.Add(h.opts.MaxFailBackoff)) {
+			delete(h.tombs, k)
+		}
+	}
+}
+
+// backoff is the n-th (n >= 1) delay: first, doubling, capped at most.
+func backoff(first, most time.Duration, n int) time.Duration {
+	d := first
+	for i := 1; i < n && d < most; i++ {
+		d *= 2
+	}
+	return min(d, most)
+}
+
+// jitter spreads d over [d/2, d], so keys that failed together do not retry together.
+func jitter(d time.Duration) time.Duration {
+	if d < 2 {
+		return d
+	}
+	return d/2 + rand.N(d/2+1)
+}
+
+// hinted carries a retry hint (front.RetryHint) on err without changing its message or chain.
+type hinted struct {
+	err   error
+	after time.Duration
+}
+
+func (e *hinted) Error() string             { return e.err.Error() }
+func (e *hinted) Unwrap() error             { return e.err }
+func (e *hinted) RetryAfter() time.Duration { return e.after }
 
 // transferTime is how long size bytes take at the minimum throughput.
 func transferTime(size, bytesPerSec int64) time.Duration {
