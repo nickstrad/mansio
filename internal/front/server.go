@@ -23,6 +23,13 @@ type Config struct {
 	DefaultTimeout time.Duration // request deadline when the client sends none; default 2 s
 	MaxTimeout     time.Duration // longest deadline a client may ask for; default 30 s
 	StmtTimeout    time.Duration // per statement, also capped by the deadline; default 1 s
+
+	// HTTP transport only (Release It T3, §P inbound HTTP). BodyReadTimeout bounds reading the request body, so a
+	// client cannot dribble it forever; default 5 s. WriteGrace is how long past the request deadline the answer
+	// may take to write, so a client that stops reading cannot hold a handler; it must exceed the executor's
+	// reply grace; default 2 s.
+	BodyReadTimeout time.Duration
+	WriteGrace      time.Duration
 }
 
 // WithDefaults fills zero fields.
@@ -39,7 +46,21 @@ func (c Config) WithDefaults() Config {
 	if c.StmtTimeout <= 0 {
 		c.StmtTimeout = time.Second
 	}
+	if c.BodyReadTimeout <= 0 {
+		c.BodyReadTimeout = 5 * time.Second
+	}
+	if c.WriteGrace <= 0 {
+		c.WriteGrace = 2 * time.Second
+	}
 	return c
+}
+
+// timeout is the request's budget: the client's (0 = DefaultTimeout), capped at MaxTimeout.
+func (c Config) timeout(client time.Duration) time.Duration {
+	if client <= 0 {
+		return c.DefaultTimeout
+	}
+	return min(client, c.MaxTimeout)
 }
 
 // Server is the request pipeline, independent of the transport.
@@ -136,12 +157,8 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	if err != nil {
 		return s.answer(req, nil, err)
 	}
-	timeout := in.Timeout
-	if timeout <= 0 {
-		timeout = s.cfg.DefaultTimeout
-	}
 	now := s.clock()
-	deadline := now.Add(min(timeout, s.cfg.MaxTimeout))
+	deadline := now.Add(s.cfg.timeout(in.Timeout))
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
@@ -181,9 +198,9 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 // answer builds the output for err (nil = ok) from the spec table. claims may be nil (not verified yet).
 func (s *Server) answer(req Request, claims *ticket.Claims, err error) Output {
 	code := Classify(err)
-	w := Spec[code]
-	out := Output{Status: w.Status, RetryAfter: w.RetryAfter, Err: err,
-		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: w.RetryAfter * 1000}}
+	ra := retryAfter(code, err)
+	out := Output{Status: Spec[code].Status, RetryAfter: ra, Err: err,
+		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: ra * 1000}}
 	if claims != nil {
 		out.Tenant, out.Sub = claims.TID, claims.Sub
 	}

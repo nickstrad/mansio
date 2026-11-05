@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/outcome"
 	"github.com/nickstrad/ts-db-go/internal/retry"
@@ -112,12 +111,12 @@ func TestClientPoliciesAreBuiltOnce(t *testing.T) {
 	c := parse(t, `{"clients":[{"name":"good","share":1,"retry":{"max_attempts":3,"backoff":"exponential","jitter":"full","retry_on":["shed","expired"]}},
 		{"name":"bad","share":1,"retry":{"max_attempts":9,"retry_on":["any"]}},{"name":"plain","share":1}],`+onePhase+`}`)
 	good, bad, plain := c.Clients[0].Policy(), c.Clients[1].Policy(), c.Clients[2].Policy()
-	if good.MaxAttempts != 3 || good.Backoff != retry.Exponential || good.Base != 10*time.Millisecond ||
+	if good.MaxAttempts != 3 || good.Backoff != retry.Exponential || good.Base != retry.DefaultBase ||
 		good.RetryOn != outcome.SetOf(outcome.Shed, outcome.Expired) {
 		t.Fatalf("good: %+v", good)
 	}
-	if bad.RetryOn != outcome.All {
-		t.Fatalf("bad retry_on = %b, want every failure", bad.RetryOn)
+	if bad.RetryOn != outcome.All || bad.Backoff != retry.Exponential || bad.Jitter != retry.Full {
+		t.Fatalf("bad: %+v; a profile that leaves backoff and jitter out gets the safe defaults", bad)
 	}
 	if plain.MaxAttempts != 1 || plain.RetryOn != outcome.SetOf(outcome.Shed, outcome.Aborted) {
 		t.Fatalf("plain: %+v", plain)

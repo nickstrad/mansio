@@ -228,3 +228,47 @@ func TestShippedConfigsParse(t *testing.T) {
 		}
 	}
 }
+
+// Admission caps: VM defaults derive from the file's db_in_flight, and caps must nest db <= tenant <= VM.
+func TestAdmissionCapsNest(t *testing.T) {
+	base := `{"vm":"v","db_dir":"d","keys_file":"k","admission":`
+	tests := []struct {
+		name, admission, problem string
+	}{
+		{"defaults", `{}`, ""},
+		{"vm default follows db_in_flight", `{"db_in_flight":100,"tenant_in_flight":200}`, ""},
+		{"tenant = vm (on point)", `{"db_in_flight":1,"tenant_in_flight":4,"vm_in_flight":4}`, ""},
+		{"tenant > vm (off point)", `{"db_in_flight":1,"tenant_in_flight":5,"vm_in_flight":4}`, "caps must nest"},
+		{"db > tenant", `{"db_in_flight":9,"tenant_in_flight":4}`, "caps must nest"},
+		{"negative vm queue", `{"vm_queue":-1}`, "caps must be >= 0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := parseConfig(strings.NewReader(base+tc.admission+`}`), "/")
+			if tc.problem == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if a := c.Admission; a.VMInFlight < a.TenantInFlight || a.VMQueue <= 0 || a.VMInFlight%a.DBInFlight != 0 {
+					t.Fatalf("admission %+v", a)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.problem) {
+				t.Fatalf("err %v, want %q", err, tc.problem)
+			}
+		})
+	}
+}
+
+// The health listener bounds every phase of a request (it has no body and a tiny answer).
+func TestHealthServerHasTimeouts(t *testing.T) {
+	c, err := parseConfig(strings.NewReader(`{"vm":"v","db_dir":"d","keys_file":"k"}`), "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hs := healthServer(c, front.NewServer(front.Config{}, nil, nil, nil, nil))
+	if hs.ReadHeaderTimeout <= 0 || hs.ReadTimeout <= 0 || hs.WriteTimeout <= 0 || hs.IdleTimeout <= 0 || hs.MaxHeaderBytes <= 0 {
+		t.Fatalf("health server without a timeout: %+v", hs)
+	}
+}

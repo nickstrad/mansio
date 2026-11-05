@@ -3,18 +3,23 @@ package front
 import (
 	"container/list"
 	"fmt"
+	"runtime"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
 )
 
-// AdmissionLimits are the caps per tenant and per database (option 4 §3.2: "subject to mailbox, tenant and VM
-// caps"). A request runs when both its tenant and its database are under their in-flight caps; otherwise it
-// waits if both queues have room; otherwise it is shed. The actor's own mailbox is a further cap behind these.
+// AdmissionLimits are the caps per database, per tenant and per VM (option 4 §3.2: "subject to mailbox, tenant
+// and VM caps"; Release It B3: caps nest db ≤ tenant ≤ VM). A request runs when its database, its tenant and the
+// VM are all under their in-flight caps; otherwise it waits if all three queues have room; otherwise it is shed.
+// The actor's own mailbox is a further cap behind these. Without the VM cap the process's in-flight count would
+// be tenants × TenantInFlight, which is unbounded.
 type AdmissionLimits struct {
 	TenantInFlight int `json:"tenant_in_flight"` // default 256
 	TenantQueue    int `json:"tenant_queue"`     // default 1024
 	DBInFlight     int `json:"db_in_flight"`     // default 64
 	DBQueue        int `json:"db_queue"`         // default 256
+	VMInFlight     int `json:"vm_in_flight"`     // default 4 × GOMAXPROCS × DBInFlight
+	VMQueue        int `json:"vm_queue"`         // default 4 × VMInFlight
 }
 
 // WithDefaults fills zero (or negative) caps.
@@ -28,6 +33,8 @@ func (l AdmissionLimits) WithDefaults() AdmissionLimits {
 	def(&l.TenantQueue, 1024)
 	def(&l.DBInFlight, 64)
 	def(&l.DBQueue, 256)
+	def(&l.VMInFlight, 4*runtime.GOMAXPROCS(0)*l.DBInFlight)
+	def(&l.VMQueue, 4*l.VMInFlight)
 	return l
 }
 
@@ -54,19 +61,23 @@ type tenantState struct {
 type waiter struct {
 	key     dbKey
 	elem    *list.Element // in its tenant's list; nil once granted or cancelled
+	vmElem  *list.Element // in the VM-wide arrival list; nil once granted or cancelled
 	granted bool
 	ch      chan struct{} // closed when granted (set by the concurrent wrapper)
 }
 
 // limiter is the pure admission state: no locks, no clock, no channels touched. Admission wraps it.
 //
-//	Invariant (per tenant t, per database d of t):
+//	Invariant (per tenant t, per database d of t, and the VM v):
 //	  t.inFlight <= TenantInFlight, t.queued <= TenantQueue, d.inFlight <= DBInFlight, d.queued <= DBQueue
 //	  t.inFlight = Σ d.inFlight, t.queued = Σ d.queued = len(t.waiters)
-//	  work-conserving: no waiter could run now (its tenant or its database is at its in-flight cap)
+//	  v.inFlight = Σ t.inFlight <= VMInFlight, v.queued = Σ t.queued = len(l.waiters) <= VMQueue
+//	  work-conserving: no waiter could run now (its database, its tenant or the VM is at its in-flight cap)
 //	  states with all counts zero are deleted (memory is bounded by active tenants and databases)
 type limiter struct {
 	lim     AdmissionLimits
+	vm      counts
+	waiters list.List // of *waiter, VM-wide arrival order
 	tenants map[string]*tenantState
 	dbs     map[dbKey]*counts
 }
@@ -90,26 +101,27 @@ func (l *limiter) state(k dbKey) (*tenantState, *counts) {
 }
 
 func (l *limiter) runnable(t *tenantState, d *counts) bool {
-	return t.inFlight < l.lim.TenantInFlight && d.inFlight < l.lim.DBInFlight
+	return l.vm.inFlight < l.lim.VMInFlight && t.inFlight < l.lim.TenantInFlight && d.inFlight < l.lim.DBInFlight
 }
 
 // acquire admits one request for k.
 //
 //	post: run ⇒ a slot is held (release it once); wait ⇒ w is queued; shed ⇒ nothing changed
-//	post: shed ⇔ the request cannot run now and its tenant or database queue is full
+//	post: shed ⇔ the request cannot run now and its database, tenant or VM queue is full
 func (l *limiter) acquire(k dbKey) (decision, *waiter) {
 	t, d := l.state(k)
 	switch {
 	case l.runnable(t, d):
-		t.inFlight++
-		d.inFlight++
+		l.take(t, d)
 		l.checkTenant(k.tenant)
 		return run, nil
-	case t.queued < l.lim.TenantQueue && d.queued < l.lim.DBQueue:
+	case t.queued < l.lim.TenantQueue && d.queued < l.lim.DBQueue && l.vm.queued < l.lim.VMQueue:
 		w := &waiter{key: k}
 		w.elem = t.waiters.PushBack(w)
+		w.vmElem = l.waiters.PushBack(w)
 		t.queued++
 		d.queued++
+		l.vm.queued++
 		l.checkTenant(k.tenant)
 		return wait, w
 	}
@@ -117,28 +129,60 @@ func (l *limiter) acquire(k dbKey) (decision, *waiter) {
 	return shed, nil
 }
 
-// release frees k's slot and grants waiters (oldest first) that can now run. Each granted waiter holds a slot.
+func (l *limiter) take(t *tenantState, d *counts) {
+	t.inFlight++
+	d.inFlight++
+	l.vm.inFlight++
+}
+
+// grant moves a queued waiter to running.
+func (l *limiter) grant(w *waiter) {
+	t, d := l.tenants[w.key.tenant], l.dbs[w.key]
+	t.waiters.Remove(w.elem)
+	l.waiters.Remove(w.vmElem)
+	w.elem, w.vmElem, w.granted = nil, nil, true
+	t.queued--
+	d.queued--
+	l.vm.queued--
+	l.take(t, d)
+}
+
+// grantRunnable grants, in list order, every waiter in ws that can run now. With full set, ws is that tenant's
+// own list and the scan stops once the tenant is full; without, ws is the VM list and tenant skip is passed over.
+// It always stops once the VM is full.
+func (l *limiter) grantRunnable(ws *list.List, full *tenantState, skip string) []*waiter {
+	var granted []*waiter
+	for e := ws.Front(); e != nil && l.vm.inFlight < l.lim.VMInFlight && (full == nil || full.inFlight < l.lim.TenantInFlight); {
+		next := e.Next()
+		if w := e.Value.(*waiter); (full != nil || w.key.tenant != skip) && l.runnable(l.tenants[w.key.tenant], l.dbs[w.key]) {
+			l.grant(w)
+			granted = append(granted, w)
+		}
+		e = next
+	}
+	return granted
+}
+
+// release frees k's slot and grants waiters that can now run: first k's tenant's (oldest first), then, if the
+// VM was at its cap, other tenants' waiters in VM-wide arrival order (they may have waited only for the VM).
+// Each granted waiter holds a slot.
 //
 //	pre: a slot for k is held
 func (l *limiter) release(k dbKey) []*waiter {
 	t, d := l.tenants[k.tenant], l.dbs[k]
-	assert.That(t != nil && d != nil && d.inFlight > 0, "limiter: release of %v without a slot", k)
+	assert.That(t != nil && d != nil && d.inFlight > 0 && l.vm.inFlight > 0, "limiter: release of %v without a slot", k)
+	vmWasFull := l.vm.inFlight >= l.lim.VMInFlight
 	t.inFlight--
 	d.inFlight--
-	var granted []*waiter
-	for e := t.waiters.Front(); e != nil && t.inFlight < l.lim.TenantInFlight; {
-		next := e.Next()
-		w := e.Value.(*waiter)
-		if wd := l.dbs[w.key]; wd.inFlight < l.lim.DBInFlight {
-			t.waiters.Remove(e)
-			w.elem, w.granted = nil, true
-			t.queued--
-			wd.queued--
-			t.inFlight++
-			wd.inFlight++
-			granted = append(granted, w)
+	l.vm.inFlight--
+	granted := l.grantRunnable(&t.waiters, t, "")
+	// While the VM was not full, every waiter was blocked by its own tenant or database (work-conserving), and
+	// this release changed only k's tenant: no other tenant can have become runnable, so skip the O(waiters) scan.
+	if vmWasFull {
+		granted = append(granted, l.grantRunnable(&l.waiters, nil, k.tenant)...)
+		for _, w := range granted {
+			l.checkTenant(w.key.tenant)
 		}
-		e = next
 	}
 	l.checkTenant(k.tenant)
 	l.gc(k)
@@ -154,9 +198,11 @@ func (l *limiter) cancel(w *waiter) bool {
 	assert.That(w.elem != nil, "limiter: cancel of a waiter that is neither queued nor granted")
 	t, d := l.tenants[w.key.tenant], l.dbs[w.key]
 	t.waiters.Remove(w.elem)
-	w.elem = nil
+	l.waiters.Remove(w.vmElem)
+	w.elem, w.vmElem = nil, nil
 	t.queued--
 	d.queued--
+	l.vm.queued--
 	l.checkTenant(w.key.tenant)
 	l.gc(w.key)
 	return true
@@ -180,9 +226,12 @@ func (l *limiter) checkTenant(tenant string) {
 	}
 }
 
-// tenantProblem returns the first broken invariant for tenant, or nil. Callers outside assertions use it in
-// tests and the model fuzz.
+// tenantProblem returns the first broken invariant for tenant (plus the O(1) VM bounds), or nil. Callers outside
+// assertions use it in tests and the model fuzz; vmProblem checks the VM sums.
 func (l *limiter) tenantProblem(tenant string) error {
+	if err := l.vmBounds(); err != nil {
+		return err
+	}
 	t := l.tenants[tenant]
 	if t == nil {
 		return nil
@@ -202,6 +251,28 @@ func (l *limiter) tenantProblem(tenant string) error {
 		if l.runnable(t, d) {
 			return fmt.Errorf("waiter for %v could run but waits (not work-conserving)", w.key)
 		}
+	}
+	return nil
+}
+
+// vmProblem checks the VM counts against the sums over tenants (O(tenants); tests and the model fuzz).
+func (l *limiter) vmProblem() error {
+	var sum counts
+	for _, t := range l.tenants {
+		sum.inFlight += t.inFlight
+		sum.queued += t.queued
+	}
+	if sum != l.vm {
+		return fmt.Errorf("VM counts %+v, tenants sum to %+v", l.vm, sum)
+	}
+	return l.vmBounds()
+}
+
+// vmBounds checks the VM counts against their caps and the waiter list (O(1)).
+func (l *limiter) vmBounds() error {
+	if l.vm.inFlight > l.lim.VMInFlight || l.vm.queued > l.lim.VMQueue || l.vm.inFlight < 0 || l.vm.queued < 0 ||
+		l.vm.queued != l.waiters.Len() {
+		return fmt.Errorf("VM counts %+v (%d waiters) over caps %+v", l.vm, l.waiters.Len(), l.lim)
 	}
 	return nil
 }

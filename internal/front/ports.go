@@ -14,8 +14,9 @@ type Admitter interface {
 	//
 	//	post: err == nil ⇒ release != nil; the pipeline calls it exactly once, when the request has finished
 	//	      (so a fence can drain in-flight work)
-	//	post: err != nil ⇒ errors.Is(err, ErrWrongOwner) (epoch mismatch, or db not owned here) or
-	//	      errors.Is(err, ErrFenced); anything else is reported as internal
+	//	post: err != nil ⇒ errors.Is(err, ErrWrongOwner) (epoch mismatch, or db not owned here),
+	//	      errors.Is(err, ErrFenced), or errors.Is(err, ErrUnavailable) (e.g. not reconciled since restart);
+	//	      anything else is reported as internal
 	Admit(db string, epoch uint64) (release func(), err error)
 }
 
@@ -64,7 +65,7 @@ type Reply struct {
 //	post: returns by Deadline plus a bounded grace, whatever the statement does
 //	post: err == nil ⇒ reads: Count == len(Rows) <= MaxRows, every row has len(Columns) values
 //	post: errors.Is(err, ErrUnknownDB): db is not hosted here; nothing ran
-//	post: errors.Is(err, ErrShed | ErrExpired): nothing ran
+//	post: errors.Is(err, ErrShed | ErrUnavailable | ErrExpired): nothing ran
 //	post: errors.Is(err, ErrStmtTimeout | ErrAborted | ErrStatement | ErrTooManyRows): nothing changed
 //	post: errors.Is(err, ErrNoReply): no answer in time; a write may have committed
 //	post: any other error: unexpected (internal)

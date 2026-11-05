@@ -252,7 +252,7 @@ where it lands.
   - After heal, all keys activate within one half-open interval plus backoff.
 - **Size.** M.
 
-#### RI-04 — Unavailable is not internal
+#### RI-04 — Unavailable is not internal — **Done** (cfdeadf)
 
 - **Files.** `internal/front/codes.go`, the CP-1 executor adapter in `cmd/agentd`.
 - **Change.**
@@ -265,7 +265,7 @@ where it lands.
   zero `internal`, and fewer than N log lines per second.
 - **Size.** S.
 
-#### RI-09 — HTTP deadlines and a VM-wide cap
+#### RI-09 — HTTP deadlines and a VM-wide cap — **Done** (0d6d0ec)
 
 - **Change.**
   - In `httpHandler.query`, set `http.NewResponseController(w).SetReadDeadline(now + BodyReadTimeout)` before
@@ -359,7 +359,7 @@ where it lands.
   pooled connection after `HalfOpen` heals is recycled without a hang.
 - **Size.** M.
 
-#### RI-10 — Handshaking end to end
+#### RI-10 — Handshaking end to end — **Done** (629193e; queue-drain Retry-After estimate deferred to RI-11 metrics)
 
 - **Change.**
   - `Retry-After` becomes computed: breaker time-to-half-open, queue-drain estimate, or 1 s floor.

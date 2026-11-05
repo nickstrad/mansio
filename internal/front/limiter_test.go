@@ -49,6 +49,58 @@ func TestLimiterCaps(t *testing.T) {
 	}
 }
 
+// On and off points of the VM caps, and a VM slot freed by one tenant going to another tenant's waiter.
+func TestLimiterVMCap(t *testing.T) {
+	lim := AdmissionLimits{TenantInFlight: 2, TenantQueue: 2, DBInFlight: 2, DBQueue: 2, VMInFlight: 2, VMQueue: 1}
+	l := newLimiter(lim)
+	t1, t2, t3, t3b := dbKey{"t1", "a"}, dbKey{"t2", "a"}, dbKey{"t3", "a"}, dbKey{"t3", "b"}
+	steps := []struct {
+		key  dbKey
+		want decision
+		why  string
+	}{
+		{t1, run, "t1: VM 1 of 2"},
+		{t2, run, "t2: VM reaches its in-flight cap (on point)"},
+		{t3, wait, "t3: VM full though t3 and its db are idle; VM queue 1 of 1 (on point)"},
+		{t3b, shed, "t3/b: VM queue full (off point of VMQueue)"},
+	}
+	for _, s := range steps {
+		if d, _ := l.acquire(s.key); d != s.want {
+			t.Fatalf("%s: got %d, want %d", s.why, d, s.want)
+		}
+		if err := l.vmProblem(); err != nil {
+			t.Fatalf("%s: %v", s.why, err)
+		}
+	}
+	if g := l.release(t1); len(g) != 1 || g[0].key != t3 {
+		t.Fatalf("release by t1 granted %v, want t3's waiter (it waited only for the VM)", g)
+	}
+	if l.vm != (counts{inFlight: 2}) {
+		t.Fatalf("VM counts %+v", l.vm)
+	}
+	if g := l.release(t2); len(g) != 0 {
+		t.Fatalf("granted %v with no waiters", g)
+	}
+	if d, _ := l.acquire(t3b); d != run {
+		t.Fatal("VM back under its cap (off point of VMInFlight): want run")
+	}
+	l.release(t3)
+	l.release(t3b)
+	if l.vm != (counts{}) || len(l.tenants) != 0 || l.vmProblem() != nil {
+		t.Fatalf("state left: vm %+v tenants %v", l.vm, l.tenants)
+	}
+}
+
+func TestAdmissionLimitsDefaultsNest(t *testing.T) {
+	d := AdmissionLimits{}.WithDefaults()
+	if d.DBInFlight > d.TenantInFlight || d.TenantInFlight > d.VMInFlight || d.VMQueue != 4*d.VMInFlight {
+		t.Fatalf("defaults do not nest db <= tenant <= VM: %+v", d)
+	}
+	if got := (AdmissionLimits{DBInFlight: 3}).WithDefaults(); got.VMInFlight%3 != 0 {
+		t.Fatalf("VM default not a multiple of db_in_flight: %+v", got)
+	}
+}
+
 func TestLimiterCancel(t *testing.T) {
 	l := newLimiter(small)
 	a := dbKey{"t", "a"}
@@ -93,6 +145,12 @@ func TestLimiterAssertionsFire(t *testing.T) {
 		l.tenants["t"].inFlight = 99 // corrupt: over cap
 		l.checkTenant("t")
 	})
+	expectPanic("VM over its cap", "VM counts", func() {
+		l := newLimiter(small)
+		l.acquire(dbKey{"t", "a"})
+		l.vm.inFlight = 1 << 30
+		l.checkTenant("t")
+	})
 	expectPanic("queued count drift", "waiters", func() {
 		l := newLimiter(small)
 		l.acquire(dbKey{"t", "a"})
@@ -121,11 +179,13 @@ func TestLimiterAssertionsFire(t *testing.T) {
 // got granted, every count, and the invariant. Shed must happen exactly when the request cannot run and a
 // queue is full.
 func FuzzLimiterModel(f *testing.F) {
+	f.Add([]byte{0, 1, 2, 3, 4, 5, 6, 0x40, 0x41, 0x40, 0x80, 0x40})
 	f.Add([]byte{0, 0, 0, 0, 1, 2, 3, 0, 0, 0})
 	f.Add([]byte{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0x40, 0x41, 0x80, 0x81, 0x40})
 	f.Add([]byte{3, 7, 11, 2, 0x45, 0x83, 0x47, 0x40, 0x40, 0x40, 0x40})
 	f.Fuzz(func(t *testing.T, script []byte) {
-		lim := AdmissionLimits{TenantInFlight: 2, TenantQueue: 3, DBInFlight: 1, DBQueue: 2}
+		// Three tenants could hold 6 slots and queue 9: the VM caps (3 and 4) bind.
+		lim := AdmissionLimits{TenantInFlight: 2, TenantQueue: 3, DBInFlight: 1, DBQueue: 2, VMInFlight: 3, VMQueue: 4}
 		l := newLimiter(lim)
 		type mw struct {
 			key dbKey
@@ -136,6 +196,7 @@ func FuzzLimiterModel(f *testing.F) {
 			mD       = map[dbKey]*counts{}
 			mWaiters []mw // global arrival order
 			running  []dbKey
+			vm       counts
 		)
 		get := func(k dbKey) (*counts, *counts) {
 			if mT[k.tenant] == nil {
@@ -149,14 +210,14 @@ func FuzzLimiterModel(f *testing.F) {
 		for i, b := range script {
 			op, arg := b>>6, int(b&0x3f)
 			switch op {
-			case 0, 3: // acquire on one of 2 tenants × 3 dbs
-				k := dbKey{[]string{"t0", "t1"}[arg%2], []string{"a", "b", "c"}[arg/2%3]}
+			case 0, 3: // acquire on one of 3 tenants × 3 dbs
+				k := dbKey{[]string{"t0", "t1", "t2"}[arg%3], []string{"a", "b", "c"}[arg/3%3]}
 				tc, dc := get(k)
 				want := shed
 				switch {
-				case tc.inFlight < lim.TenantInFlight && dc.inFlight < lim.DBInFlight:
+				case vm.inFlight < lim.VMInFlight && tc.inFlight < lim.TenantInFlight && dc.inFlight < lim.DBInFlight:
 					want = run
-				case tc.queued < lim.TenantQueue && dc.queued < lim.DBQueue:
+				case vm.queued < lim.VMQueue && tc.queued < lim.TenantQueue && dc.queued < lim.DBQueue:
 					want = wait
 				}
 				d, w := l.acquire(k)
@@ -167,10 +228,12 @@ func FuzzLimiterModel(f *testing.F) {
 				case run:
 					tc.inFlight++
 					dc.inFlight++
+					vm.inFlight++
 					running = append(running, k)
 				case wait:
 					tc.queued++
 					dc.queued++
+					vm.queued++
 					mWaiters = append(mWaiters, mw{k, w})
 				}
 			case 1: // release a running request
@@ -183,21 +246,29 @@ func FuzzLimiterModel(f *testing.F) {
 				tc, dc := get(k)
 				tc.inFlight--
 				dc.inFlight--
+				vm.inFlight--
+				// The releasing tenant's waiters first, then everyone else's, each in arrival order; the model
+				// always scans everything (the limiter skips the second pass when the VM was not full).
 				var want []*waiter
-				for j := 0; j < len(mWaiters); {
-					m := mWaiters[j]
-					mt, md := get(m.key)
-					if m.key.tenant == k.tenant && mt.inFlight < lim.TenantInFlight && md.inFlight < lim.DBInFlight {
-						mt.queued--
-						md.queued--
-						mt.inFlight++
-						md.inFlight++
-						running = append(running, m.key)
-						want = append(want, m.w)
-						mWaiters = append(mWaiters[:j], mWaiters[j+1:]...)
-						continue
+				for _, sameTenant := range []bool{true, false} {
+					for j := 0; j < len(mWaiters); {
+						m := mWaiters[j]
+						mt, md := get(m.key)
+						if (m.key.tenant == k.tenant) == sameTenant && vm.inFlight < lim.VMInFlight &&
+							mt.inFlight < lim.TenantInFlight && md.inFlight < lim.DBInFlight {
+							mt.queued--
+							md.queued--
+							vm.queued--
+							mt.inFlight++
+							md.inFlight++
+							vm.inFlight++
+							running = append(running, m.key)
+							want = append(want, m.w)
+							mWaiters = append(mWaiters[:j], mWaiters[j+1:]...)
+							continue
+						}
+						j++
 					}
-					j++
 				}
 				got := l.release(k)
 				if len(got) != len(want) {
@@ -218,6 +289,7 @@ func FuzzLimiterModel(f *testing.F) {
 				tc, dc := get(m.key)
 				tc.queued--
 				dc.queued--
+				vm.queued--
 				if !l.cancel(m.w) {
 					t.Fatalf("step %d: cancel of a queued waiter failed", i)
 				}
@@ -229,6 +301,12 @@ func FuzzLimiterModel(f *testing.F) {
 				if err := l.tenantProblem(name); err != nil {
 					t.Fatalf("step %d: %v", i, err)
 				}
+			}
+			if l.vm != vm {
+				t.Fatalf("step %d: VM %+v, model %+v", i, l.vm, vm)
+			}
+			if err := l.vmProblem(); err != nil {
+				t.Fatalf("step %d: %v", i, err)
 			}
 			for k, c := range mD {
 				if got := l.dbs[k]; (got == nil) != (*c == counts{}) || (got != nil && *got != *c) {

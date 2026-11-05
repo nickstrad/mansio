@@ -44,6 +44,7 @@ type Config struct {
 	ReplyGrace        load.Duration         `json:"reply_grace"`
 	DrainTimeout      load.Duration         `json:"drain_timeout"`
 	ReadHeaderTimeout load.Duration         `json:"read_header_timeout"`
+	BodyReadTimeout   load.Duration         `json:"body_read_timeout"` // whole request body; default 5 s
 	IdleTimeout       load.Duration         `json:"idle_timeout"`
 	Actor             load.ActorConfig      `json:"actor"`
 
@@ -56,9 +57,9 @@ func defaults() Config {
 	return Config{
 		Listen: "127.0.0.1:7070", Protocols: []string{"h1", "h2c"},
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
-		Admission: front.AdmissionLimits{}.WithDefaults(), Limits: front.Limits{}.WithDefaults(),
+		Limits:         front.Limits{}.WithDefaults(),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
-		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ReadHeaderTimeout: d(5 * time.Second),
+		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
 		IdleTimeout: d(2 * time.Minute), LogLevel: "info",
 	}
 }
@@ -114,7 +115,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	for name, d := range map[string]time.Duration{"default_timeout": c.DefaultTimeout.Duration, "max_timeout": c.MaxTimeout.Duration,
 		"statement_timeout": c.StatementTimeout.Duration, "reply_grace": c.ReplyGrace.Duration, "drain_timeout": c.DrainTimeout.Duration,
-		"read_header_timeout": c.ReadHeaderTimeout.Duration, "idle_timeout": c.IdleTimeout.Duration} {
+		"read_header_timeout": c.ReadHeaderTimeout.Duration, "body_read_timeout": c.BodyReadTimeout.Duration, "idle_timeout": c.IdleTimeout.Duration} {
 		if d <= 0 {
 			bad("%s must be > 0", name)
 		}
@@ -125,8 +126,12 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.Limits.MaxBody <= 0 || c.Limits.MaxSQL <= 0 || c.Limits.MaxArgs <= 0 || c.Limits.MaxRows <= 0 {
 		bad("limits must all be > 0")
 	}
-	if c.Admission.TenantInFlight <= 0 || c.Admission.TenantQueue < 0 || c.Admission.DBInFlight <= 0 || c.Admission.DBQueue < 0 {
-		bad("admission: in-flight caps must be > 0 and queues >= 0")
+	if a := c.Admission; min(a.TenantInFlight, a.TenantQueue, a.DBInFlight, a.DBQueue, a.VMInFlight, a.VMQueue) < 0 {
+		bad("admission: caps must be >= 0 (0 = default)")
+	}
+	c.Admission = c.Admission.WithDefaults() // after decoding: the VM defaults derive from the file's db_in_flight
+	if a := c.Admission; a.DBInFlight > a.TenantInFlight || a.TenantInFlight > a.VMInFlight {
+		bad("admission: caps must nest: db_in_flight %d <= tenant_in_flight %d <= vm_in_flight %d", a.DBInFlight, a.TenantInFlight, a.VMInFlight)
 	}
 	if err := c.Actor.Actor().Validate(); err != nil {
 		bad("actor: %w", err)

@@ -64,14 +64,9 @@ func (a *Admission) releaser(k dbKey) func() {
 // AdmissionStats are the current totals across tenants.
 type AdmissionStats struct{ Tenants, DBs, InFlight, Queued int }
 
-// Stats scans the state once.
+// Stats returns the current totals (O(1)).
 func (a *Admission) Stats() AdmissionStats {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := AdmissionStats{Tenants: len(a.l.tenants), DBs: len(a.l.dbs)}
-	for _, t := range a.l.tenants {
-		s.InFlight += t.inFlight
-		s.Queued += t.queued
-	}
-	return s
+	return AdmissionStats{Tenants: len(a.l.tenants), DBs: len(a.l.dbs), InFlight: a.l.vm.inFlight, Queued: a.l.vm.queued}
 }

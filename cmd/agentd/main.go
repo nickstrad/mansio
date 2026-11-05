@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
 	"github.com/nickstrad/ts-db-go/internal/errs"
@@ -102,8 +103,9 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	srv := front.NewServer(front.Config{
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
+		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		epochs(dbs, cfg), front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}, nil)
+		depAdmitter{epochs(dbs, cfg)}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
 	return serve(ctx, cfg, srv, log, *addrFile, rep, stderr)
 }
 
@@ -126,9 +128,7 @@ func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger
 			ln.Close()
 			return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
 		}
-		mux := http.NewServeMux()
-		mux.Handle(front.HealthPath, front.HealthHandler(srv))
-		servers = append(servers, &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration})
+		servers = append(servers, healthServer(cfg, srv))
 		listeners = append(listeners, hl)
 	}
 	errc := make(chan error, len(servers))
@@ -179,6 +179,18 @@ func serve(ctx context.Context, cfg *Config, srv *front.Server, log *slog.Logger
 	fmt.Fprintln(stderr, "agentd: stopped")
 	return exitOK
 }
+
+// healthServer serves /healthz alone. Health requests have no body and a tiny answer, so plain server-wide
+// timeouts bound every phase: a stuck or slow peer cannot hold its connection (Release It B4, T1).
+func healthServer(cfg *Config, srv *front.Server) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle(front.HealthPath, front.HealthHandler(srv))
+	return &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration, ReadTimeout: cfg.ReadHeaderTimeout.Duration,
+		WriteTimeout: healthWriteTimeout, IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10}
+}
+
+// healthWriteTimeout bounds one health answer (a few bytes) from the end of its headers.
+const healthWriteTimeout = 5 * time.Second
 
 // listDBs returns the database ids to serve: cfg.DBs, or every <id>.db in db_dir.
 func listDBs(cfg *Config) ([]string, error) {
