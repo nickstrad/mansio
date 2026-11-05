@@ -23,6 +23,13 @@ type Config struct {
 	DefaultTimeout time.Duration // request deadline when the client sends none; default 2 s
 	MaxTimeout     time.Duration // longest deadline a client may ask for; default 30 s
 	StmtTimeout    time.Duration // per statement, also capped by the deadline; default 1 s
+
+	// HTTP transport only (Release It T3, §P inbound HTTP). BodyReadTimeout bounds reading the request body, so a
+	// client cannot dribble it forever; default 5 s. WriteGrace is how long past the request deadline the answer
+	// may take to write, so a client that stops reading cannot hold a handler; it must exceed the executor's
+	// reply grace; default 2 s.
+	BodyReadTimeout time.Duration
+	WriteGrace      time.Duration
 }
 
 // WithDefaults fills zero fields.
@@ -38,6 +45,12 @@ func (c Config) WithDefaults() Config {
 	c.DefaultTimeout = min(c.DefaultTimeout, c.MaxTimeout)
 	if c.StmtTimeout <= 0 {
 		c.StmtTimeout = time.Second
+	}
+	if c.BodyReadTimeout <= 0 {
+		c.BodyReadTimeout = 5 * time.Second
+	}
+	if c.WriteGrace <= 0 {
+		c.WriteGrace = 2 * time.Second
 	}
 	return c
 }

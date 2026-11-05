@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +41,16 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.write(w, r, s.answer(Request{}, nil, &BadRequestError{Msg: "unknown path", Status: http.StatusNotFound}))
 	})
-	return mux
+	// Every request gets read and write deadlines first, whatever its path: http.Server has no ReadTimeout or
+	// WriteTimeout because h2c streams share one connection (net/http clears them after each request). query
+	// moves the write deadline once it knows the request's own deadline.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		rc := http.NewResponseController(w)
+		rc.SetReadDeadline(now.Add(s.cfg.BodyReadTimeout)) // errors: the writer cannot (e.g. a test recorder)
+		rc.SetWriteDeadline(now.Add(s.cfg.BodyReadTimeout + s.cfg.WriteGrace))
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // HealthHandler answers GET /healthz: 200 while serving, 503 once draining (so load balancers stop routing).
@@ -117,14 +127,22 @@ func (h *httpHandler) query(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(h.s.cfg.Limits.MaxBody)))
 	if err != nil {
 		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
+		switch {
+		case errors.As(err, &tooBig):
 			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "body too large", Status: http.StatusRequestEntityTooLarge}))
-			return
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "body not received in time", Status: http.StatusRequestTimeout}))
+		default:
+			h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "cannot read body"}))
 		}
-		h.write(w, r, h.s.answer(Request{}, nil, &BadRequestError{Msg: "cannot read body"}))
 		return
 	}
 	in.Body = body
+	timeout := in.Timeout
+	if timeout <= 0 {
+		timeout = h.s.cfg.DefaultTimeout
+	}
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(min(timeout, h.s.cfg.MaxTimeout) + h.s.cfg.WriteGrace))
 	h.write(w, r, h.s.Handle(r.Context(), in))
 }
 

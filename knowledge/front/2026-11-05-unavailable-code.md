@@ -52,3 +52,12 @@ Admitter and the Executor (`depAdmitter`, `depExecutor`) and maps every error th
 
 Note: knowledge/front/README.md "How the other agents plug in" says the owner adapter maps
 `ErrUnavailable → front.ErrShed`. Use `front.ErrUnavailable` instead (or wrap the Admitter in `depAdmitter`).
+
+## Related transport limits (RI-09, same branch)
+
+- `bad_request` can now come with HTTP **408**: the body did not arrive within `body_read_timeout` (agentd,
+  default 5 s). The write deadline is the request deadline + `reply_grace` + 1 s.
+- Admission gained VM-wide caps `vm_in_flight` (default 4 × GOMAXPROCS × `db_in_flight`) and `vm_queue`
+  (default 4 × `vm_in_flight`); a request over them is `shed`, like the tenant and database caps. agentd
+  refuses a config whose caps do not nest (db ≤ tenant ≤ VM).
+- The health listener has read, write and idle timeouts.

@@ -1,12 +1,14 @@
 package front_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -148,6 +150,67 @@ func TestHTTPUnavailableLogsSampledWarn(t *testing.T) {
 	}
 }
 
+// A client that dribbles its body (1 byte per 50 ms) is cut at BodyReadTimeout with 408, and the connection is
+// usable for nothing else; the handler does not wait for the body forever (Release It T3).
+func TestSlowBodyIsCut(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	r, srv, _ := newHTTP(t, front.Config{BodyReadTimeout: timeout})
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	body := get(1)
+	start := time.Now()
+	fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\n\r\n",
+		front.QueryPath, r.tok(t, "db-1", nil), len(body))
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for _, b := range body {
+			select {
+			case <-stop:
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+			if _, err := conn.Write([]byte{b}); err != nil {
+				return
+			}
+		}
+	}()
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	res, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no answer: %v", err)
+	}
+	defer res.Body.Close()
+	var out front.Response
+	json.NewDecoder(res.Body).Decode(&out)
+	if el := time.Since(start); res.StatusCode != http.StatusRequestTimeout || out.Code != front.BadRequest || el > timeout+time.Second {
+		t.Fatalf("status %d code %s after %v; want 408 bad_request within %v", res.StatusCode, out.Code, el, timeout+time.Second)
+	}
+}
+
+// A body that arrives in time is unaffected by the deadlines, and later requests on the same keep-alive
+// connection, after the earlier deadlines have passed, still succeed.
+func TestDeadlinesAreFreshPerRequest(t *testing.T) {
+	r, srv, _ := newHTTP(t, front.Config{BodyReadTimeout: 100 * time.Millisecond, WriteGrace: 100 * time.Millisecond,
+		DefaultTimeout: 100 * time.Millisecond})
+	bearer := "Bearer " + r.tok(t, "db-1", nil)
+	for i := range 2 {
+		if res, out := post(t, srv.URL, bearer, get(1), nil); res.StatusCode != 200 {
+			t.Fatalf("request %d: %d %s", i, res.StatusCode, out.Message)
+		}
+		time.Sleep(400 * time.Millisecond) // past the first request's read and write deadlines
+		r.clock.Advance(400 * time.Millisecond)
+	}
+	res, err := http.Get(srv.URL + front.HealthPath)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("health on a reused connection: %v %v", res, err)
+	}
+	res.Body.Close()
+}
+
 func TestHTTPMethodPathAndHealth(t *testing.T) {
 	r, srv, _ := newHTTP(t, front.Config{})
 	res, _ := http.Get(srv.URL + front.QueryPath)
@@ -241,6 +304,38 @@ func TestHTTP2Cleartext(t *testing.T) {
 	if res.ProtoMajor != 2 || res.StatusCode != 200 {
 		t.Fatalf("proto %s status %d", res.Proto, res.StatusCode)
 	}
+}
+
+// On h2c the body deadline is per stream: a stalled body is cut with 408 and the connection keeps serving.
+func TestSlowBodyIsCutOnH2C(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	r := newRig(t, front.Config{BodyReadTimeout: timeout})
+	srv := httptest.NewUnstartedServer(front.NewHandler(r.s, slog.New(slog.DiscardHandler)))
+	srv.Config.Protocols = new(http.Protocols)
+	srv.Config.Protocols.SetUnencryptedHTTP2(true)
+	srv.Start()
+	defer srv.Close()
+	client := H2CClient()
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	go pw.Write(get(1)[:5]) // a few bytes, then nothing
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+front.QueryPath, pr)
+	req.Header.Set("Authorization", "Bearer "+r.tok(t, "db-1", nil))
+	start := time.Now()
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if el := time.Since(start); res.ProtoMajor != 2 || res.StatusCode != http.StatusRequestTimeout || el > timeout+time.Second {
+		t.Fatalf("proto %s status %d after %v", res.Proto, res.StatusCode, el)
+	}
+	req, _ = http.NewRequest(http.MethodPost, srv.URL+front.QueryPath, bytes.NewReader(get(1)))
+	req.Header.Set("Authorization", "Bearer "+r.tok(t, "db-1", nil))
+	if res, err = client.Do(req); err != nil || res.StatusCode != 200 {
+		t.Fatalf("next stream: %v %v", res, err)
+	}
+	res.Body.Close()
 }
 
 // H2CClient speaks HTTP/2 without TLS.
