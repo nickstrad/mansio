@@ -84,14 +84,17 @@ func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
 	})
 }
 
-// lifecycleMetrics exposes startup and readiness (Release It S3: the oldest unfinished thing).
-func lifecycleMetrics(reg *metrics.Registry, st *startup, ready *front.Readiness, started time.Time) {
-	reg.Add("tsdb_startup_pending", "Databases not open yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(nil, float64(st.host.PendingCount()))
+// lifecycleMetrics exposes startup and readiness (Release It S3: the oldest unfinished thing). pending counts
+// the databases not served yet since start: unopened (static mode) or unreconciled (durable mode).
+func lifecycleMetrics(reg *metrics.Registry, pending func() int, ready *front.Readiness, started time.Time) {
+	var n int
+	reg.OnScrape(func() { n = pending() }) // once per scrape: durable mode's count is O(keys)
+	reg.Add("tsdb_startup_pending", "Databases not open or reconciled yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
+		e.Value(nil, float64(n))
 	})
-	reg.Add("tsdb_startup_pending_age_seconds", "How long the oldest unopened database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("tsdb_startup_pending_age_seconds", "How long the oldest unopened or unreconciled database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
 		age := 0.0
-		if st.host.PendingCount() > 0 {
+		if n > 0 {
 			age = time.Since(started).Seconds()
 		}
 		e.Value(nil, age)
@@ -105,7 +108,7 @@ func lifecycleMetrics(reg *metrics.Registry, st *startup, ready *front.Readiness
 	})
 }
 
-// s3Class maps an objstore error kind to an outcome class. CP-1 wiring point: s3Metrics(reg, store.Metrics).
+// s3Class maps an objstore error kind to an outcome class. Wired in durable mode.
 func s3Class(k objstore.Kind) string {
 	switch k {
 	case objstore.OK:
@@ -160,7 +163,7 @@ func toUint(c []int64) []uint64 {
 }
 
 // breakerMetrics exposes a breaker's state (one series per state, 1 for the current one) and its transitions.
-// CP-1 wiring point: one per remote dependency, with breakerLog as its Config.OnChange.
+// One per remote dependency, with breakerLog as its Config.OnChange.
 func breakerMetrics(reg *metrics.Registry, deps map[string]*breaker.Breaker) {
 	reg.Add("tsdb_breaker_state", "Circuit breaker state per dependency (1 = current).", metrics.Gauge, func(e *metrics.Emit) {
 		now := time.Now()
@@ -199,7 +202,7 @@ func breakerLog(log *slog.Logger, dep string) func(breaker.Transition) {
 }
 
 // vactorMetrics exposes a virtual-actor host: Stats counters, Gauges, and the last maintenance tick (its
-// oldest_dirty_age is the RPO gauge, Release It S3). CP-1 wiring point, with tickLog as the tick reporter.
+// oldest_dirty_age is the RPO gauge, Release It S3). tickLog is the tick reporter.
 func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor.TickReport) {
 	var st vactor.Stats
 	var tick vactor.TickReport
@@ -263,7 +266,7 @@ func (t *tickLog) lastTick() vactor.TickReport {
 }
 
 // ownerEvents is owner.Config.OnChange for the agent: one log line per ownership transition with a stable
-// message code, and counters by new state. CP-1 wiring point.
+// message code, and counters by new state.
 type ownerEvents struct {
 	log *slog.Logger
 	to  [5]atomic.Int64 // by owner.State

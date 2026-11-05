@@ -526,3 +526,20 @@ Branch `cp/cp3`. New package `internal/placement/pg` implements `owner.Placement
 - **Errors:** `owner.ErrNotFound`, `owner.ErrConflict`, `owner.ErrInvalid` (bad key: not UTF-8, NUL, length; bad VM id), `pg.ErrInvariant` (bug), `pg.ErrUnknownVM`, `pg.ErrUnavailable` (breaker open with `RetryAfter()`, or system failure; a CAS may have applied). Wiring must add `pg.ErrUnavailable` to agentd's/controld's `unavailableCauses`.
 - **Keys:** Postgres text cannot hold NUL or invalid UTF-8, so the adapter refuses them (`durable.ValidateKey` already refuses NUL).
 - **Deploy:** `deploy/postgres/docker-compose.yml` (container `tsdb-postgres`, port 5433); `TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable'`.
+
+## 2026-11-05 14:06 — CP-1: agentd durable mode wired; lifecycle API; placement contract suite
+
+Branch `cp/cp1` (merged main incl. CP-2). Contract/API changes others depend on:
+
+- The file adapter passes CP-3's `ownertest.RunPlacementSuite` (owners from `SuiteVMs`); CP-1's own draft of the
+  suite was dropped in the merge in favour of CP-3's.
+- **`internal/placement/file`**: single-node `owner.Placement` (JSON row per key, flock'd CAS; processes on one host
+  share it). Stand-in until CP-3/CP-4.
+- **agentd durable mode** (an `s3` config section): vactor + owner + S3 wired; static `db_dir` mode kept for benches.
+  New required fields in durable mode: `secrets_file` (0600: `s3_access_key`, `s3_secret_key`, `control_token` ≥ 16
+  chars), `cache_dir`, `owner_dir`, `placement_dir`. Example: `configs/agentd/durable-local.json`.
+- **Lifecycle API** (lifecycle listener, `Authorization: Bearer <control_token>`): `POST /v1/lifecycle/claim
+  {"db"[, "create": true]}`, `POST /v1/lifecycle/fence {"db"}` → `{"code":"ok","db","epoch","gen"}`,
+  `POST /v1/lifecycle/forget`, `GET /v1/lifecycle/health`. Error codes in `cmd/agentd/control.go`. `create` is a
+  single-node stand-in for controld's flow B; delete it at CP-4. controld (CP-4) should call these.
+- Details and gate numbers: `knowledge/front/2026-11-05-agentd-durable-mode.md`.

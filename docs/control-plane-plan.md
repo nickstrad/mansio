@@ -53,7 +53,7 @@ Each step ends with a gate. Every new adapter passes its contract suite three wa
 the real service, and the real service through `faultnet`/`s3test` with the H4 fault table. Env gates:
 `COLDLOAD_S3` (SeaweedFS in Docker), `TSDB_PG_URL` (`docker compose` Postgres).
 
-### CP-1. Wire agentd on one node
+### CP-1. Wire agentd on one node — **Done** (747abf3; deferred: per-actor queue metrics in durable mode, `ownerAdmitter` per-request `p.Done` allocation, a shared atomic-file helper for owner + placement/file, vactor `CheckActivation` taking a ctx, discard-on-release driven by owner transitions; notes in `knowledge/front/2026-11-05-agentd-durable-mode.md`)
 
 The glue every agent report specified. No new service: a file-backed `Placement` stands in for Postgres.
 
@@ -69,20 +69,20 @@ The glue every agent report specified. No new service: a file-backed `Placement`
   `owner.ErrStale`; `Options.CheckActivation` → `Table.CheckActivation`; `Options.Guard` → `Table.Publish`, with
   `Discard` on `ErrSuperseded`.
 - **Wiring checklist** (the marked points in `cmd/agentd/main.go`):
-  - [ ] S3: one long-lived `objstore` client (`OS CA2`); `b, _ := breaker.New(breaker.Config{OnChange:
+  - [x] S3: one long-lived `objstore` client (`OS CA2`); `b, _ := breaker.New(breaker.Config{OnChange:
         breakerLog(log, "s3")})` (defaults = `RI §P`: 50 % of ≥ 20 calls in 10 s, cool-down 5 s);
         `durable.WithBreaker(store, b, func(err error) bool { return objstore.Classify(err) == objstore.Transient }, nil)`
         (`RI C1–C4`).
-  - [ ] Metrics: `s3Metrics(reg, store.Metrics)`; `breakerMetrics(reg, {"s3": b})` (`"placement"` joins at
+  - [x] Metrics: `s3Metrics(reg, store.Metrics)`; `breakerMetrics(reg, {"s3": b})` (`"placement"` joins at
         CP-3); `vactorMetrics(reg, vhost, ticks.lastTick)` with `ticks.report` as the `RunMaintenance` reporter;
         `ownerEvents.onChange` as `owner.Config.OnChange` and `ownerEvents.register(reg)` (`RI O1`, `RI O3`).
-  - [ ] Startup: `owner.Open` with `NewFileStore(dir)`, then `ReconcileUntilDone(ctx, ReconcileOptions{},
+  - [x] Startup: `owner.Open` with `NewFileStore(dir)`, then `ReconcileUntilDone(ctx, ReconcileOptions{},
         reconcileLog(log))` as the background job replacing `st.openAll`. Reconciled keys serve; the rest answer
         `unavailable` (`RI H1`).
-  - [ ] Shutdown: the `host.close` phase calls `vhost.Shutdown(ctx)` (oldest-dirty first, the rest kept locally,
+  - [x] Shutdown: the `host.close` phase calls `vhost.Shutdown(ctx)` (oldest-dirty first, the rest kept locally,
         count logged). The owner table needs no phase (`RI H3`).
-  - [ ] Readiness stays startup + canary; the S3 breaker and S3 canary HEAD are metrics only (§4, `RI H2`).
-  - [ ] Config: S3 endpoint/bucket, cache dir, owner dir, `gen_cache_bytes` → `Options.GenCacheBytes` (sized from
+  - [x] Readiness stays startup + canary; the S3 breaker and S3 canary HEAD are metrics only (§4, `RI H2`).
+  - [x] Config: S3 endpoint/bucket, cache dir, owner dir, `gen_cache_bytes` → `Options.GenCacheBytes` (sized from
         the cache-dir budget). S3 keys go in a 0600 secrets file outside the config (`OS S2`; RI-16's secrets
         file, pulled forward because CP-1 is the first config with credentials).
 - **Lifecycle endpoints** on the existing lifecycle listener, control-plane identity only, never queued behind

@@ -309,7 +309,7 @@ where it lands.
   ε, and kept files equal un-written keys). The e2e SIGTERM run meets the budget.
 - **Size.** M.
 
-#### RI-07 — Startup readiness and real health — **Done** (1ece893; agentd opens databases in the background as the stand-in for `owner.ReconcileUntilDone` until CP-1; the CP-1 kill -9 gate and the S3 canary HEAD wait for CP-1)
+#### RI-07 — Startup readiness and real health — **Done** (1ece893; agentd opens databases in the background as the stand-in for `owner.ReconcileUntilDone` until CP-1; the CP-1 kill -9 gate and the S3 canary probe landed with CP-1 at 747abf3)
 
 - **Change.**
   - Listen early. `ReconcileAll` becomes `ReconcileAll(ctx, workers, perKeyTimeout)` (bounded concurrency,
@@ -376,7 +376,7 @@ where it lands.
     over the whole run).
 - **Size.** M.
 
-#### RI-16 — Runtime controls and admin CLI
+#### RI-16 — Runtime controls and admin CLI — secrets file **Done** in CP-1 (747abf3: `secrets_file`, 0600, S3 keys + control token); admin endpoints and `agentctl` remain (CP-4)
 
 - **Goal.** Ch16 (component-level control without a deploy) and ch14 (CLI first).
 - **Change.**

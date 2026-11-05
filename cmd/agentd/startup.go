@@ -19,10 +19,8 @@ import (
 )
 
 // startup opens the databases while the agent already serves (Release It H1): each database is served the
-// moment it is open; until then the host refuses it unavailable (503 + Retry-After; StaticHost.Expect). It is
-// the static stand-in for the owner table's reconcile: at CP-1, owner.Table.ReconcileUntilDone takes its place
-// (the table's Admit already refuses an unreconciled key with owner.ErrUnavailable), and startupAdmitter goes
-// away.
+// moment it is open; until then the host refuses it unavailable (503 + Retry-After; StaticHost.Expect). Static mode
+// only; durable mode reconciles with owner.Table.ReconcileUntilDone instead (durable.go).
 type startup struct {
 	host      *front.StaticHost
 	firstDone atomic.Bool // every database was tried once

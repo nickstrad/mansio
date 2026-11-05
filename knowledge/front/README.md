@@ -14,6 +14,8 @@ Notes:
   the `Executor` port (transaction scope, synchronous db calls on the actor goroutine, savepoint per handler).
 - [2026-11-05 request ids](2026-11-05-request-ids.md) (CP-2): a write's `request_id` applies at most once per
   database; a retry is answered `ok` with the original count and `"duplicate": true`. Resolves `ambiguous`.
+- [2026-11-05 agentd durable mode](2026-11-05-agentd-durable-mode.md) (CP-1): the wiring of vactor + owner + S3,
+  the lifecycle endpoints (Claim, Fence, Forget, Health), the secrets file, and the CP-1 gate results.
 - [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed
   Retry-After estimate (RI-11).
 - Raw numbers: [2026-11-05-matrix/](2026-11-05-matrix/) (`matrix.txt`, `micro.txt`, one JSON per run).
