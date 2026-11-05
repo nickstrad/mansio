@@ -14,7 +14,7 @@ this guide adds failure-below-the-interface tests (§H).
 | S3 / SeaweedFS | `internal/objstore` via `durable.Store`, `vactor.Fetcher` | cold activation only | vactor (write-back), owner (stamp); minio: none |
 | Postgres placement | `internal/placement/pg` (`owner.Placement`) | no (Claim, Reconcile, Move) | owner / Mover |
 | Inbound HTTP | `internal/front`, `cmd/agentd` | yes | the client |
-| Client → locator / agent | CP step 6, `internal/retry` | yes | client, once |
+| Client → locator / agent | `internal/client` (CP-6), `internal/retry` | yes | client, once |
 | Edge → agent | `internal/edge`, `cmd/edge` (CP-7) | yes | the client (the edge never retries) |
 | Locator → Postgres (resolve reads, LISTEN) | `internal/control/locator`, `placement/pg` `Locate`, `Listen` | yes (cache miss) | none (client re-resolves) |
 | Agent → issuer key set | `cmd/agentd/keys.go` (`keys_url`) | no (background) | the fetch loop (next period) |
@@ -259,7 +259,11 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 **Client** (CP step 6)
 - Per-request deadline sent as `X-Timeout-Ms`. `http.Client` with dial and response-header timeouts.
 - Exponential backoff + full jitter, honoring `Retry-After`; windowed budget.
-- Re-resolve on `421`/`401`. The same `request_id` on retried writes.
+- Re-resolve on `421`/`401` and on no answer, ≤ 5 per call, backing off from the second; re-resolves do not
+  spend the budget. The same `request_id` on retried writes.
+- `internal/client` defaults: call deadline 5 s, resolve 3 s (single-flight per db, own deadline), dial 3 s,
+  response-header backstop 60 s, routes refreshed at 80 % ± 10 % of the ticket TTL, ≤ 10 000 cached, budget
+  ratio 0.1, `X-Timeout-Ms` = time left − min(10 %, 100 ms).
 
 **Actor / read pool**
 - Every request carries `Deadline` and `StmtTimeout`. Mailbox 256, read queue = mailbox. A full queue sheds.
