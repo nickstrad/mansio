@@ -90,7 +90,11 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	}
 	defer closeLog()
 	rep.Log = log
-	keys, fetcher, err := openKeys(ctx, cfg, log)
+	hc, err := cfg.controlClient()
+	if err != nil {
+		return rep.Report(err)
+	}
+	keys, fetcher, err := openKeys(ctx, cfg, hc, log)
 	if err != nil {
 		return rep.Report(err)
 	}
@@ -105,9 +109,13 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 			return rep.Report(err)
 		}
 	}
-	resolver, registry, err := cfg.resolver(ctx, log)
+	registry, err := cfg.registry(ctx, hc, log)
 	if err != nil {
 		return rep.Report(err)
+	}
+	var resolver edge.Resolver = edge.StaticRoutes(cfg.Agents)
+	if registry != nil {
+		resolver = registry
 	}
 	e, err := edge.New(edge.Config{
 		Resolver:  resolver,

@@ -28,7 +28,7 @@ import (
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
 //
 // GET /v1/agents (Bearer <edge_token>, only when the secrets set one) answers {"code":"ok","agents":{vm: endpoint}}
-// for every VM not attested dead.
+// for every VM not attested dead (read from the locator's replica, if any: stale is safe).
 //
 //	code         | status | meaning
 //	-------------+--------+---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	if d.edge != "" {
 		// The edges' resolver (edge.RegistryRoutes): every VM not attested dead → its query endpoint.
 		mux.HandleFunc("GET /v1/agents", d.handleAs(d.edge, "edge", "", func(ctx context.Context, r *http.Request) (any, error) {
-			vms, err := d.pg.Load(ctx, maxAgents)
+			vms, err := d.replica.LiveVMs(ctx, maxAgents)
 			if err != nil {
 				return nil, err
 			}
@@ -251,21 +251,26 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
-	body := map[string]any{}
+	var body struct {
+		Code         string `json:"code"`
+		Message      string `json:"message"`
+		LogID        string `json:"log_id,omitempty"`
+		RetryAfterMS int64  `json:"retry_after_ms,omitempty"`
+	}
 	ae := classify(err)
 	if ae == nil {
 		id := logx.NewID()
 		d.log.Error("control call failed (bug)", "event", "CONTROLD.FAILED", "path", r.URL.Path, "log_id", id, "error", err.Error(), "chain", errs.Chain(err))
-		ae, body["log_id"] = &apiError{"internal", http.StatusInternalServerError, "internal error", false}, id
+		ae, body.LogID = &apiError{"internal", http.StatusInternalServerError, "internal error", false}, id
 	} else if ae.status >= 500 && !ae.quiet {
 		d.log.Warn("control call refused", "event", "CONTROLD.REFUSED", "path", r.URL.Path, "code", ae.code, "error", err.Error())
 	}
 	if ae.status == http.StatusServiceUnavailable {
 		hint := retryHint(err)
 		w.Header().Set("Retry-After", strconv.Itoa(max(1, int((hint+time.Second-1)/time.Second))))
-		body["retry_after_ms"] = max(1, hint.Milliseconds())
+		body.RetryAfterMS = max(1, hint.Milliseconds())
 	}
-	body["code"], body["message"] = ae.code, ae.msg
+	body.Code, body.Message = ae.code, ae.msg
 	w.WriteHeader(ae.status)
 	_ = json.NewEncoder(w).Encode(body)
 }

@@ -95,9 +95,6 @@ func (r *RegistryRoutes) Len() int {
 	return 0
 }
 
-// Breaker is the registry fetch's breaker (metrics, logs).
-func (r *RegistryRoutes) Breaker() *breaker.Breaker { return r.br }
-
 // Run fetches every Every, or sooner when Agent missed (but never within MinGap of the last fetch), until ctx
 // ends; a fetch never overlaps the next (Release It S1). Failures are counted and logged on the transition only.
 func (r *RegistryRoutes) Run(ctx context.Context) {
@@ -119,6 +116,7 @@ func (r *RegistryRoutes) Run(ctx context.Context) {
 			}
 		}
 		last = time.Now()
+		t.Reset(r.cfg.Every) // a tick that queued during an early fetch does not fetch again at once
 		if err := r.Fetch(ctx); err != nil {
 			if ctx.Err() != nil {
 				return

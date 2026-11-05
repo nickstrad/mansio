@@ -239,6 +239,17 @@ func (p *Placement) Load(ctx context.Context, limit int) ([]VMLoad, error) {
 	return list(p, ctx, "read vm load", q.vmLoad, pgx.RowToStructByPos[VMLoad], limit)
 }
 
+// LiveVM is a VM not attested dead and its query endpoint.
+type LiveVM struct {
+	VM       string
+	Endpoint string
+}
+
+// LiveVMs returns up to limit VMs not attested dead, by id (live_vms.sql): the edges' routes.
+func (p *Placement) LiveVMs(ctx context.Context, limit int) ([]LiveVM, error) {
+	return list(p, ctx, "read live vms", q.liveVMs, pgx.RowToStructByPos[LiveVM], limit)
+}
+
 // Violation is a moves row whose placement row is missing (Epoch 0) or not above the flip's from_epoch.
 type Violation struct {
 	Key       string

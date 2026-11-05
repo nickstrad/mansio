@@ -62,7 +62,8 @@ type Request struct {
 	Tenant string
 	Name   string // the database's name inside the tenant; the key is Tenant ":" Name
 	APIKey string
-	// Source is who sent it (ratelimit.SourceKey of the remote address): charged by Config.Limiter.
+	// Source is who sent it (the remote address, host:port; ratelimit.SourceKey keys it): charged by
+	// Config.Limiter.
 	Source string
 	// MinEpoch > 0 says the caller saw this epoch refused (last seen + 1): a cached row below it is not used
 	// and the primary is read.
@@ -198,17 +199,24 @@ func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey,
 		return StoredKey{}, ErrUnauthorized
 	}
 	l.mu.Lock()
-	now := l.cfg.Now()
-	var k StoredKey
-	var err error
-	e, known := l.keys[id]
-	if !known && l.cfg.Limiter != nil {
-		if ok, wait := l.cfg.Limiter.Allow(src, now); !ok {
+	_, known := l.keys[id]
+	_, loading := l.keyLoads[id]
+	if !known && !loading && l.cfg.Limiter != nil {
+		// A new id would start a store read: charge its source first, outside l.mu (a full limiter sweeps its
+		// buckets). Callers joining a load in flight cost nothing; a race here costs at most an extra token.
+		l.mu.Unlock()
+		ok, wait := l.cfg.Limiter.Allow(ratelimit.SourceKey(src), l.cfg.Now())
+		l.mu.Lock()
+		if !ok {
 			l.stats.RateLimited++
 			l.mu.Unlock()
 			return StoredKey{}, limited{wait}
 		}
 	}
+	now := l.cfg.Now()
+	var k StoredKey
+	var err error
+	e, known := l.keys[id]
 	if known && now.Sub(e.at) < l.cfg.AuthTTL {
 		l.mu.Unlock()
 		k = e.k

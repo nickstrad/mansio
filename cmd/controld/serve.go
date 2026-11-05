@@ -177,23 +177,25 @@ func (d *daemon) close() {
 // serve runs the API until ctx ends, with the startup job (migrate, register agents), the heartbeat poller
 // and the resumer in the background (Release It H1: serve first, become ready when startup is done).
 func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, stderr io.Writer) int {
+	var tc *tls.Config // loaded before the socket exists: a bad certificate fails without one
+	if d.cfg.TLS != nil {
+		var err error
+		if tc, err = tlsx.ServerConfig(d.cfg.TLS.CertFile, d.cfg.TLS.KeyFile); err != nil {
+			return rep.Report(errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", d.cfg.TLS.CertFile))
+		}
+	}
 	ln, err := net.Listen("tcp", d.cfg.Listen)
 	if err != nil {
 		return rep.Report(errs.Wrap(module, err, "cannot listen on %s", d.cfg.Listen))
+	}
+	if tc != nil {
+		ln = tls.NewListener(ln, tc)
 	}
 	reg := metrics.NewRegistry()
 	d.register(reg)
 	hs := &http.Server{Handler: d.routes(reg), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: d.cfg.APITimeout.Duration + 5*time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10,
 		ErrorLog: slog.NewLogLogger(d.log.Handler(), slog.LevelWarn)}
-	if d.cfg.TLS != nil {
-		tc, err := tlsx.ServerConfig(d.cfg.TLS.CertFile, d.cfg.TLS.KeyFile)
-		if err != nil {
-			ln.Close()
-			return rep.Report(errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", d.cfg.TLS.CertFile))
-		}
-		ln = tls.NewListener(ln, tc)
-	}
 	errc := make(chan error, 1)
 	go func() { errc <- hs.Serve(ln) }()
 	if addrFile != "" {

@@ -268,20 +268,20 @@ func checkAgentURL(s string) error {
 // checkDev refuses what only local development may do unless -dev is given: plain HTTP to clients or to agents
 // (object-storage guide S2's rule for S3, applied to the edge's two hops), and a CA file nothing would use.
 func (c *Config) checkDev() error {
-	plain, agents := 0, len(c.Agents)
+	plain := 0 // agents reached over plain http
 	for _, u := range c.Agents {
 		if pu, _ := url.Parse(u); pu.Scheme == "http" {
 			plain++
 		}
 	}
-	if r := c.Registry; r != nil {
-		if agents = 1; r.AgentScheme == "http" {
-			plain = 1
-		}
+	if c.Registry != nil && c.Registry.AgentScheme == "http" {
+		plain = 1
 	}
 	switch {
-	case c.AgentTLS.CAFile != "" && plain == agents:
+	case c.AgentTLS.CAFile != "" && c.Registry == nil && plain == len(c.Agents):
 		return errs.Wrap(module, nil, "agent_tls.ca_file is set but every agent URL is plain http (the CA would be unused)")
+	case c.AgentTLS.CAFile != "" && plain > 0 && c.Registry != nil:
+		return errs.Wrap(module, nil, "agent_tls.ca_file is set but registry.agent_scheme is http (the CA would be unused)")
 	case c.Dev:
 		return nil
 	case strings.HasPrefix(c.KeysURL, "http:"):
@@ -294,7 +294,7 @@ func (c *Config) checkDev() error {
 		return errs.Wrap(module, nil, "no tls section: plain HTTP to clients is for local development only; add \"tls\": "+
 			"{\"cert_file\", \"key_file\"}, or pass -dev for a local run")
 	case plain > 0:
-		return errs.Wrap(module, nil, "%d agent URLs are plain http (registry.agent_scheme counts as one): the edge → agent hop needs https (with agent_tls.ca_file for a "+
+		return errs.Wrap(module, nil, "%d agent URLs are plain http (or registry.agent_scheme): the edge → agent hop needs https (with agent_tls.ca_file for a "+
 			"private CA) outside local development; pass -dev for a local run", plain)
 	}
 	return nil
@@ -348,7 +348,7 @@ func loadConfig(path string) (*Config, error) {
 
 // openKeys builds the ticket key ring: static (keys_file; nil fetcher) or fetched (keys_url, keys_file as the
 // cache). A failed first fetch is not fatal: every ticket is refused until a key set arrives.
-func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing, *keyfetch.Fetcher, error) {
+func openKeys(ctx context.Context, c *Config, hc *http.Client, log *slog.Logger) (*ticket.KeyRing, *keyfetch.Fetcher, error) {
 	var ring *ticket.KeyRing
 	var f *keyfetch.Fetcher
 	var err error
@@ -356,7 +356,7 @@ func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing
 		ring, err = keyfetch.LoadFile(c.KeysFile)
 	} else {
 		ring, f, err = keyfetch.Open(ctx, keyfetch.Config{URL: c.KeysURL, Cache: c.KeysFile, Every: c.KeysRefresh.Duration,
-			Timeout: c.KeysTimeout.Duration, CAFile: c.ControlCAFile, Log: log, Event: "EDGE"})
+			Timeout: c.KeysTimeout.Duration, Client: hc, Log: log, Event: "EDGE"})
 	}
 	if err != nil {
 		return nil, nil, errs.Wrap(module, err, "cannot load the ticket keys (keys_file)").With("path", c.KeysFile)
@@ -364,31 +364,40 @@ func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing
 	return ring, f, nil
 }
 
-// resolver builds the routes: static (agents) or controld's registry (fetched once here; a failed first fetch is
-// not fatal: tickets for unknown VMs answer wrong_owner until a fetch succeeds). run is nil for static routes.
-func (c *Config) resolver(ctx context.Context, log *slog.Logger) (res edge.Resolver, reg *edge.RegistryRoutes, err error) {
+// registry opens controld's VM registry (nil without a registry section) and fetches it once: a failed first
+// fetch is not fatal (tickets for unknown VMs answer wrong_owner until a fetch succeeds). hc is the client to
+// controld (control_ca_file).
+func (c *Config) registry(ctx context.Context, hc *http.Client, log *slog.Logger) (*edge.RegistryRoutes, error) {
 	r := c.Registry
 	if r == nil {
-		return edge.StaticRoutes(c.Agents), nil, nil
+		return nil, nil
 	}
 	tok, err := readToken(r.TokenFile)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	hc, err := tlsx.HTTPClient(c.ControlCAFile)
-	if err != nil {
-		return nil, nil, errs.Wrap(module, err, "cannot load control_ca_file").With("ca_file", c.ControlCAFile)
-	}
-	reg, err = edge.NewRegistryRoutes(edge.RegistryConfig{URL: r.URL, Token: tok, Scheme: r.AgentScheme, Every: r.Refresh.Duration,
+	reg, err := edge.NewRegistryRoutes(edge.RegistryConfig{URL: r.URL, Token: tok, Scheme: r.AgentScheme, Every: r.Refresh.Duration,
 		Timeout: r.Timeout.Duration, Client: hc, Log: log, Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "registry")}})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err := reg.Fetch(ctx); err != nil {
 		log.Warn("cannot fetch the agent registry before serving; retrying every refresh", "event", "EDGE.REGISTRY_FETCH_FAILED",
 			"url", r.URL, "error", err.Error())
 	}
-	return reg, reg, nil
+	return reg, nil
+}
+
+// minToken is the shortest token accepted (controld's minToken).
+const minToken = 16
+
+// controlClient is the one HTTP client to controld (keys_url, registry.url), trusting control_ca_file.
+func (c *Config) controlClient() (*http.Client, error) {
+	hc, err := tlsx.HTTPClient(c.ControlCAFile)
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot load control_ca_file").With("ca_file", c.ControlCAFile)
+	}
+	return hc, nil
 }
 
 // readToken reads a token file: 0600 (others cannot read it), one line, at least 16 characters.
@@ -405,8 +414,8 @@ func readToken(path string) (string, error) {
 		return "", errs.Wrap(module, err, "cannot read registry.token_file").With("path", path)
 	}
 	tok := strings.TrimSpace(string(b))
-	if len(tok) < 16 {
-		return "", errs.Wrap(module, nil, "registry.token_file %s: the token must be at least 16 characters", path)
+	if len(tok) < minToken {
+		return "", errs.Wrap(module, nil, "registry.token_file %s: the token must be at least %d characters", path, minToken)
 	}
 	return tok, nil
 }

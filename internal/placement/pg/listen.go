@@ -42,8 +42,7 @@ type ListenConfig struct {
 }
 
 // Listen keeps one dedicated connection (not from the pool) LISTENing on Channel (and StateChannel when h.State
-// is set) until ctx ends, reconnecting
-// with jittered backoff after any failure. Its application_name is AppName + "/listen". Payloads that do not
+// is set) until ctx ends, reconnecting with jittered backoff after any failure. Its application_name is AppName + "/listen". Payloads that do not
 // parse are skipped (they are not ours). It returns when ctx ends.
 func (p *Placement) Listen(ctx context.Context, cfg ListenConfig, h ListenHooks) {
 	if cfg.Ping <= 0 {
@@ -113,10 +112,9 @@ func (p *Placement) listenOnce(ctx context.Context, cc *pgx.ConnConfig, cfg List
 			if key, epoch, ok := parsePayload(n.Payload); ok {
 				h.Notify(key, epoch)
 			}
-		case err == nil:
-			if n.Channel == StateChannel && n.Payload != "" && h.State != nil {
-				h.State(n.Payload)
-			}
+		case err == nil && n.Channel == StateChannel && n.Payload != "": // LISTENed only when h.State is set
+			h.State(n.Payload)
+		case err == nil: // another channel: not ours
 		case silent && !conn.IsClosed():
 			if err := p.exec(ctx, conn, "select 1"); err != nil {
 				return err
