@@ -5,6 +5,7 @@ One line per topic folder or key note. Newest first within a section. Rules: `AG
 ## Topics
 
 - [writeback/](writeback/README.md): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; VACUUM INTO stalls writes ~0.8 GB/s; SeaweedFS conditional PUT documented but unverified. Owner: writeback agent.
+- [fencing/](fencing/README.md): single-owner fencing per database (`internal/owner`): epochs, durable local ACTIVE/FENCED, drain-then-write-back fence, storage stamp backstop, resumable moves; safety argument, Postgres placement note, Admit 9 ns. Owner: fencing agent.
 - [testing/](testing/README.md): how we test (Aniche): domain vs integration, pre/postconditions + assertions + invariants (`internal/assert`), spec tables with on/off points, fakes with fault switches, contract suites, model-based fuzzing. Owner: coldload agent; others add dated notes.
 - [concurrency-in-go/](concurrency-in-go/README.md): Cox-Buday error handling + logging (Result pattern, panic forwarding, wrap at module boundaries, log once with log ID); `internal/errs`, `internal/logx`. Owner: coldload agent; others add dated notes.
 - [multi-agent-coordination/](multi-agent-coordination/README.md): how several agents share one repo: per-agent state files, append-only `shared_state.md`, `scripts/lock.sh` / `shared-note.sh` (copies inside). Owner: sqlbench agent.
