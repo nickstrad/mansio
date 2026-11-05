@@ -72,6 +72,15 @@ type Result struct {
 	Values    [][]any       // reads with Request.MaxRows > 0: one slice per row, len(Values) == Rows
 }
 
+// boundBy makes ctx's deadline, if any, r's Deadline and StmtTimeout. The timeout is measured from now, so it
+// also covers time spent queued; a deadline already past still gets 1 ms (the queue check answers ErrExpired).
+func (r *Request) boundBy(ctx context.Context) {
+	if d, ok := ctx.Deadline(); ok {
+		r.Deadline = d
+		r.StmtTimeout = max(time.Until(d), time.Millisecond)
+	}
+}
+
 // Wait returns the result, or ctx's error if it ends first.
 func (r *Request) Wait(ctx context.Context) Result {
 	select {
@@ -153,9 +162,15 @@ func (a *Actor) Submit(r *Request) error {
 	}
 }
 
-// Do submits one statement and waits for its result or ctx.
+// Do submits one statement and waits for its result or ctx. ctx's deadline also bounds the work, not only the
+// wait (waiting is not working, Release It T5): it becomes the request's Deadline (still queued then → ErrExpired,
+// never run) and its StmtTimeout (SQLite is interrupted when it passes), so a caller that gives up does not leave
+// the statement running and holding the connection.
+//
+//	post: ctx has a deadline d ⇒ the statement is not running after about d (plus the interrupt latency)
 func (a *Actor) Do(ctx context.Context, sql string, write bool, args ...any) Result {
 	r := &Request{SQL: sql, Args: args, Write: write}
+	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return Result{Err: err}
 	}
@@ -188,8 +203,8 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 
 // Snapshot writes a consistent copy of the database to path (which must not exist) with VACUUM INTO, on the
 // actor's own write connection, between batches. Writes queued meanwhile wait in the mailbox; none are lost.
-// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline becomes the
-// statement timeout.
+// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline bounds it as in
+// Do.
 //
 //	post: err == nil ⇒ path is a complete database holding at least the first `commits` committed write
 //	      transactions (commits is read before the snapshot is queued, so it may hold more)
@@ -197,9 +212,7 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
 	commits = a.Commits()
 	r := &Request{SQL: "VACUUM INTO ?", Args: []any{path}, onWriter: true}
-	if d, ok := ctx.Deadline(); ok {
-		r.StmtTimeout = max(time.Until(d), time.Millisecond)
-	}
+	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return commits, err
 	}
