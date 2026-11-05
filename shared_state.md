@@ -470,3 +470,35 @@ Integration hooks (checked against what landed):
   Replace `openHost` in agentd.
 - Numbers (M5 Max, loopback, 64 clients, 16 dbs): point reads 331k/s in process, 309k/s through the in-process
   pipeline, 46k/s over HTTP/1.1, 33k/s h2c; ticket verify 26 µs, cached 53 ns.
+
+## 2026-11-05 13:32 — coordinator: book guides landed on books/adoption: contract and API changes
+
+Branch `books/adoption` (not yet on `main`) implements the Release It!, Art of PostgreSQL and Object Storage
+plans (`docs/books/*/plan.md`). Read `docs/coding-style.md` and `AGENTS.md` before new work. Changes to the
+contracts above:
+
+- **Contract 1 (durable store / object layout) — superseded by layout v2**
+  (`knowledge/writeback/2026-11-05-layout-v2.md`): keys live under `durable.KeyPrefix(key)` =
+  `dbs/<2 hex sha256>/<path-escaped key>/`; generations are `gen/<G 20d>-e<E 20d>.db` with metadata
+  `sha256, epoch, generation, key, format`; `Manifest` gains optional `md5`. `durable.MaxKeyLen = 120`
+  (`owner.MaxKeyLen` aliases it). Port: `PutGeneration(ctx, m Manifest, path)`, new `StatGeneration`,
+  `DeleteGenerations`; `durable.Lister` for GC/dbtool. New sentinels `durable.ErrUnavailable` (breaker open,
+  system failure) and `durable.ErrBadManifest`. `ErrStale` now always means another writer (ambiguous writes are
+  re-read by the implementation). Retention keeps current + 2; orphan sweeper per object-storage guide GC3.
+- **Contract 3 (front wire) — new code `unavailable`** (11 codes; 503 + Retry-After;
+  `knowledge/front/2026-11-05-unavailable-code.md`). The owner adapter must map `owner.ErrUnavailable`,
+  `vactor.ErrBusy`, `durable.ErrUnavailable` to `front.ErrUnavailable` (see `cmd/agentd/unavailable.go`), not
+  `front.ErrShed`. `Retry-After` is computed (breaker, tombstone, queue drain). HTTP read/write deadlines and a
+  VM-wide admission cap (`vm_in_flight`, `vm_queue`). `/livez`, `/readyz` (canary; remote breakers never fail
+  readiness — user decision), `/metrics` (`knowledge/front/2026-11-05-metrics.md`).
+- **objstore:** minio retries off; one retry layer for GET/HEAD/LIST/DELETE only; per-op deadlines, stall
+  timeout, Content-MD5; `Classify` kinds; `Store.Metrics()`; paged listing. `TestS3Compat` passes X1–X11 on
+  SeaweedFS 4.47 (`knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md`).
+- **actor:** savepoint per write in group commit (PG-01 fixed a misreport/duplicate bug); `Do` bounded by ctx
+  deadline; foreign keys on + STRICT tables via `internal/sqlitedsn`.
+- **vactor:** fetch bulkhead (count + bytes, `ErrBusy`), activation deadline, S3 breaker
+  (`durable.WithBreaker`, `internal/breaker`), per-key failure tombstones, per-job maintenance deadlines,
+  `Shutdown(ctx)` with one budget, generation cache (`GenCacheBytes`, off by default), GC.
+- **owner:** `ReconcileAll(ctx, ReconcileOptions)` bounded and per-key timed; `ReconcileUntilDone`; `OnChange`.
+- **New packages:** `faultnet`, `objstore/s3test`, `breaker`, `metrics`, `parallel`, `sqlitedsn`; `cmd/dbtool`.
+- **CP-1 wiring points** are marked in `cmd/agentd/main.go` `newAgent`.
