@@ -51,6 +51,7 @@ func TestResolveStep(t *testing.T) {
 		{answer{Code: "moving"}, stepReroute},
 		{answer{Code: "unavailable"}, stepRetry},
 		{answer{Code: "timeout"}, stepRetry},
+		{answer{Code: "shed"}, stepRetry},
 		{answer{Code: codeTransport}, stepRetry},
 		{answer{Code: "not_found"}, stepFail},
 		{answer{Code: "forbidden"}, stepFail},

@@ -1,4 +1,6 @@
-package edge
+// Package ratelimit holds the per-source token bucket that the edge (tickets it must verify) and controld (API key
+// ids it must look up) charge before costly work for an unauthenticated caller. Domain code: no I/O.
+package ratelimit
 
 import (
 	"net"
@@ -8,10 +10,11 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/assert"
 )
 
-// SourceLimiter is a token bucket per request source, charged once for every ticket the edge has to verify (a
-// verified-ticket cache miss). A client that reuses its ticket pays once per ticket lifetime; a source that
-// sends garbage runs dry after Burst tickets and is refused before the verify runs, while other sources and
-// cached tickets from the same source go on (Release It B1: shed, never queue).
+// SourceLimiter is a token bucket per request source, charged once for each costly check an unauthenticated
+// request needs: the edge charges a ticket it has to verify (a verified-ticket cache miss), controld an API key
+// id it has to read from Postgres (not in its key cache). A client that reuses its ticket or key pays once per
+// lifetime; a source that sends garbage runs dry after Burst and is refused before the work, while other sources
+// and cached credentials from the same source go on (Release It B1: shed, never queue).
 //
 // Sources are bounded: with MaxSources buckets held, buckets that are full again (idle long enough) are swept,
 // at most once per second; if none is, new sources share one overflow bucket. So many-source floods are cut to
@@ -37,7 +40,7 @@ type bucket struct {
 //
 //	pre: rate > 0, burst >= 1, maxSources >= 1 (validated by the caller's config)
 func NewSourceLimiter(rate, burst float64, maxSources int) *SourceLimiter {
-	assert.That(rate > 0 && burst >= 1 && maxSources >= 1, "edge: limiter rate %v burst %v max %d", rate, burst, maxSources)
+	assert.That(rate > 0 && burst >= 1 && maxSources >= 1, "ratelimit: rate %v burst %v max %d", rate, burst, maxSources)
 	return &SourceLimiter{rate: rate, burst: burst, max: maxSources, buckets: map[string]*bucket{},
 		overflow: bucket{tokens: burst}}
 }
@@ -66,7 +69,7 @@ func (l *SourceLimiter) Allow(src string, now time.Time) (ok bool, wait time.Dur
 	} else {
 		wait = max(time.Duration((1-b.tokens)/l.rate*float64(time.Second)), time.Millisecond)
 	}
-	assert.That(b.tokens >= 0 && b.tokens <= l.burst && len(l.buckets) <= l.max, "edge: limiter invariant broken") // no args: no allocation
+	assert.That(b.tokens >= 0 && b.tokens <= l.burst && len(l.buckets) <= l.max, "ratelimit: invariant broken") // no args: no allocation
 	return wait == 0, wait
 }
 

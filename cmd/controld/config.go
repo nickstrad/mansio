@@ -80,6 +80,13 @@ type Config struct {
 		MovingRetry load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
 		ClaimRetry  load.Duration `json:"claim_retry"`  // retry_after_ms while a new owner's claim is pending; default 50 ms
 		ListenPing  load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
+		// RateLimit charges each source (client IP, IPv6 /64) one token per API key id not in the key cache
+		// (unknown ids are never cached and each costs a primary read). Empty: answer shed + Retry-After.
+		RateLimit struct {
+			PerSecond  float64 `json:"lookups_per_second"` // default 20
+			Burst      float64 `json:"burst"`              // default 50
+			MaxSources int     `json:"max_sources"`        // default 100 000
+		} `json:"rate_limit"`
 	} `json:"locator"`
 
 	// TicketKeys is the issuer's Ed25519 key ring: one file per key in dir (0700, files 0600; never shared with
@@ -119,6 +126,7 @@ func defaults() Config {
 	c.PG.MaxConns = 20
 	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
 	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
+	c.Locator.RateLimit.PerSecond, c.Locator.RateLimit.Burst, c.Locator.RateLimit.MaxSources = 20, 50, 100_000
 	c.Locator.MovingRetry, c.Locator.ClaimRetry, c.Locator.ListenPing = d(time.Second), d(50*time.Millisecond), d(5*time.Second)
 	c.TicketKeys.Rotate, c.TicketKeys.Activate, c.TicketKeys.Check = d(24*time.Hour), d(5*time.Minute), d(time.Minute)
 	return c
@@ -179,6 +187,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 		if d <= 0 {
 			bad("%s must be > 0", name)
 		}
+	}
+	if rl := lc.RateLimit; rl.PerSecond <= 0 || rl.Burst < 1 || rl.MaxSources < 1 {
+		bad("locator.rate_limit: lookups_per_second > 0, burst >= 1 and max_sources >= 1 required")
 	}
 	if lc.CacheMax < 1 || lc.Concurrency < 1 || tk.Activate.Duration < 0 {
 		bad("locator.cache_max and locator.concurrency must be >= 1, ticket_keys.activate >= 0")

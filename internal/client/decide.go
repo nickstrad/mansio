@@ -70,7 +70,8 @@ func minEpochAfter(a answer, epoch uint64) uint64 {
 
 // resolveStep maps a locator answer (POST /v1/resolve, CP-5) to the next step:
 //
-//	moving, unavailable, timeout, no answer  → retry the resolve after Retry-After (moving: not a failure,
+//	moving, unavailable, shed, timeout,
+//	no answer                                → retry the resolve after Retry-After (moving: not a failure,
 //	                                           so it does not spend the retry budget)
 //	not_found, forbidden, unauthorized,
 //	suspended, bad_request, unknown          → fail
@@ -78,7 +79,7 @@ func resolveStep(a answer) (step, outcome.Code) {
 	switch a.Code {
 	case "moving":
 		return stepReroute, outcome.Unavailable
-	case "unavailable", "timeout", codeTransport:
+	case "unavailable", "shed", "timeout", codeTransport:
 		return stepRetry, outcome.Unavailable
 	}
 	return stepFail, outcome.Error

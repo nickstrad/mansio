@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 )
 
 // The ticket filter's per-request costs: a cache hit, a full verify (miss), garbage refused at parse, and a
@@ -38,7 +40,7 @@ func BenchmarkTicketFilter(b *testing.B) {
 		}
 	})
 	b.Run("limiter", func(b *testing.B) {
-		l := NewSourceLimiter(1e9, 1e9, 1<<20)
+		l := ratelimit.NewSourceLimiter(1e9, 1e9, 1<<20)
 		srcs := make([]string, 1024)
 		for i := range srcs {
 			srcs[i] = "198.51.100." + strconv.Itoa(i%256) + strconv.Itoa(i)

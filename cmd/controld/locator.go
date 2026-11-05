@@ -12,6 +12,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
@@ -143,7 +144,8 @@ func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(req.DB) {
 			return nil, errBadRequest("tenant and db must be a valid tenant id and database name")
 		}
-		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch})
+		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch,
+			Source: ratelimit.SourceKey(r.RemoteAddr)})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, &apiError{"timeout", http.StatusGatewayTimeout, "resolve deadline passed; retry with backoff", false}
 		}
@@ -169,6 +171,7 @@ func (d *daemon) registerLocator(reg *metrics.Registry) {
 		{"controld_locator_notifications_total", "Placement notifications applied.", func() int64 { return st.Notifications }},
 		{"controld_locator_resets_total", "Listener connects (each resets the cache).", func() int64 { return st.Resets }},
 		{"controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", d.resolveShed.Load},
+		{"controld_locator_rate_limited_total", "Resolves refused: an uncached api key id from a source out of tokens.", func() int64 { return st.RateLimited }},
 	} {
 		reg.Add(m.name, m.help, metrics.Counter, func(e *metrics.Emit) { e.Value(nil, float64(m.v())) })
 	}

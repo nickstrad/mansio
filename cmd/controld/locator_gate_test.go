@@ -105,7 +105,7 @@ func freeAddr(t *testing.T) string {
 func TestLocatorGate(t *testing.T) {
 	c := newCluster(t)
 	c.locator, c.controldAddr = true, freeAddr(t)
-	c.extra = `,"locator":{"ticket_ttl":"4s","cache_ttl":"10m","listen_ping":"500ms"}`
+	c.extra = `,"locator":{"ticket_ttl":"4s","cache_ttl":"10m","listen_ping":"500ms","rate_limit":{"lookups_per_second":1,"burst":5}}`
 	c.startAgent("vm-a")
 	c.startAgent("vm-b")
 	c.startControld()
@@ -251,6 +251,26 @@ func TestLocatorGate(t *testing.T) {
 		return ds[len(ds)/2]
 	}
 	t.Logf("resolve p50 over HTTP: cache hit %v, primary read %v", lat(0), lat(r5.Epoch+1))
+
+	// Unknown api key ids are charged to their source (here loopback, burst 5, 1/s; two keys already spent two):
+	// a flood of them is shed with Retry-After, while the cached key from the same source still resolves.
+	secret := apiKey[len("tsdb_")+17:]
+	statuses := map[int]int{}
+	for i := range 40 {
+		code, ra, _ := c.resolve(fmt.Sprintf("tsdb_%016x_%s", i+1, secret), "gate", "loc", 0)
+		statuses[code]++
+		if code == 503 && ra == "" {
+			t.Fatal("shed without Retry-After")
+		}
+	}
+	if statuses[401] < 3 || statuses[401] > 5 || statuses[503] != 40-statuses[401] {
+		t.Fatalf("garbage key flood: %v, want 3..5 unauthorized (the burst left) and the rest shed", statuses)
+	}
+	if code, _, _ := c.resolve(apiKey, "gate", "loc", 0); code != 200 {
+		t.Fatalf("the cached key during the flood: %d", code)
+	}
+	t.Logf("garbage key flood from one source: %v; rate_limited_total %v; the cached key resolves", statuses,
+		c.metric("controld_locator_rate_limited_total"))
 
 	// 4. With the locator stopped, traffic continues until the tickets expire.
 	_, _, r6 := c.resolve(apiKey, "gate", "loc", 0)

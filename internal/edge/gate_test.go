@@ -16,6 +16,8 @@ type issuer struct {
 	ring *ticket.KeyRing
 }
 
+var t0 = time.Unix(1_800_000_000, 0)
+
 func newIssuer(t testing.TB) *issuer {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
@@ -27,7 +28,10 @@ type Config struct {
 	// ClaimRetry is the retry hint while the placement already names the new owner but its Claim has not landed
 	// (the registry still says creating/moving): a few milliseconds of work left. Default 50 ms.
 	ClaimRetry time.Duration
-	Now        func() time.Time
+	// Limiter, if set, is charged Request.Source once for each API key id not in the key cache, before the
+	// store is read: unknown ids are never cached, so without it every garbage key costs a primary read.
+	Limiter *ratelimit.SourceLimiter
+	Now     func() time.Time
 }
 
 func (c *Config) normalize() {
@@ -58,6 +62,8 @@ type Request struct {
 	Tenant string
 	Name   string // the database's name inside the tenant; the key is Tenant ":" Name
 	APIKey string
+	// Source is who sent it (ratelimit.SourceKey of the remote address): charged by Config.Limiter.
+	Source string
 	// MinEpoch > 0 says the caller saw this epoch refused (last seen + 1): a cached row below it is not used
 	// and the primary is read.
 	MinEpoch uint64
@@ -81,6 +87,7 @@ type Route struct {
 // Stats are the locator's counters since start.
 type Stats struct {
 	Hits, Misses, Coalesced int64 // placement reads: from the cache, started a load, joined a load
+	RateLimited             int64 // resolves refused by the Limiter (an uncached key id from a source out of tokens)
 	Notifications, Resets   int64 // Invalidate calls; Reset calls (listener connects)
 	Entries                 int   // placements cached now (tombstones included)
 	Trusted                 bool  // the cache is in use (a listener is connected)
@@ -131,14 +138,14 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 //
 //	post: err == nil ⇒ the ticket names r.Tenant ":" r.Name, the row's VM, epoch and generation, and the
 //	      key's principal and permissions, and expires TicketTTL from now
-//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound, ErrMoving (with a RetryAfter hint),
-//	      ErrSuspended, the ctx's error, or the store's own error
+//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound, ErrMoving or ErrRateLimited (with a RetryAfter
+//	      hint), ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
 		return Route{}, errs.Wrap(module, err, "cannot resolve %q", key)
 	}
-	k, err := l.authenticate(ctx, r.APIKey)
+	k, err := l.authenticate(ctx, r.APIKey, r.Source)
 	if err != nil {
 		return fail(err)
 	}
@@ -183,9 +190,9 @@ func claimPending(pl Placement) bool {
 }
 
 // authenticate checks an API key: its id names a row, the secret's hash matches in constant time, and it is
-// not revoked. Rows are cached for AuthTTL; unknown ids are not (a flood of garbage keys is the edge's to
-// rate-limit, CP-7).
-func (l *Locator) authenticate(ctx context.Context, raw string) (StoredKey, error) {
+// not revoked. Rows are cached for AuthTTL; unknown ids are not, so an id not in the cache first costs src a
+// token of the Limiter (a known id's refresh is free).
+func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey, error) {
 	id, hash, ok := ParseAPIKey(raw)
 	if !ok {
 		return StoredKey{}, ErrUnauthorized
@@ -194,7 +201,15 @@ func (l *Locator) authenticate(ctx context.Context, raw string) (StoredKey, erro
 	now := l.cfg.Now()
 	var k StoredKey
 	var err error
-	if e, ok := l.keys[id]; ok && now.Sub(e.at) < l.cfg.AuthTTL {
+	e, known := l.keys[id]
+	if !known && l.cfg.Limiter != nil {
+		if ok, wait := l.cfg.Limiter.Allow(src, now); !ok {
+			l.stats.RateLimited++
+			l.mu.Unlock()
+			return StoredKey{}, limited{wait}
+		}
+	}
+	if known && now.Sub(e.at) < l.cfg.AuthTTL {
 		l.mu.Unlock()
 		k = e.k
 	} else {

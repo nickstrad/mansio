@@ -36,6 +36,7 @@ import (
 //	suspended    | 409    | resolve: the database is suspended
 //	moving       | 503    | resolve: the database is moving or being created; resolve again after Retry-After
 //	             |        | (the body's retry_after_ms is the precise hint: ~50 ms while a new owner's claim lands)
+//	shed         | 503    | resolve: too many unknown api key ids from this source; retry after Retry-After
 //	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation
 //	no_capacity  | 503    | no live vm under the policy's caps
 //	unavailable  | 503    | Postgres, S3 or an agent cannot do it now; the flow is recorded and resumes; Retry-After
@@ -196,6 +197,8 @@ func classify(err error) *apiError {
 		return &apiError{"not_found", http.StatusNotFound, "no such database", false}
 	case errors.Is(err, locator.ErrMoving):
 		return &apiError{"moving", http.StatusServiceUnavailable, "the database is moving or being created; resolve again after Retry-After", true}
+	case errors.Is(err, locator.ErrRateLimited): // counted (controld_locator_rate_limited_total), not logged: a flood
+		return &apiError{"shed", http.StatusServiceUnavailable, "too many unknown api key ids from this source; retry after Retry-After", true}
 	case errors.Is(err, locator.ErrSuspended):
 		return &apiError{"suspended", http.StatusConflict, "the database is suspended", false}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):

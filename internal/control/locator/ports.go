@@ -57,7 +57,15 @@ var (
 	ErrNotFound     = errors.New("locator: no such database")
 	ErrMoving       = errors.New("locator: database is moving or being created; retry after the hint")
 	ErrSuspended    = errors.New("locator: database is suspended")
+	ErrRateLimited  = errors.New("locator: too many api key lookups from this source; retry after the hint")
 )
+
+// limited is ErrRateLimited with a retry hint (front.RetryHint).
+type limited struct{ after time.Duration }
+
+func (m limited) Error() string             { return ErrRateLimited.Error() }
+func (m limited) Is(target error) bool      { return target == ErrRateLimited }
+func (m limited) RetryAfter() time.Duration { return m.after }
 
 // moving is ErrMoving with a retry hint (front.RetryHint).
 type moving struct{ after time.Duration }

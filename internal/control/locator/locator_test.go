@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
 )
@@ -313,6 +314,40 @@ func TestRegistryFlipEndsTheClaimWindow(t *testing.T) {
 	f.l.InvalidateState("acme:unknown")
 	if s := f.l.Stats(); s.Entries != 1 || s.Notifications != 3 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// Unknown key ids cost a primary read each, so an id not in the key cache is charged to its source first: a
+// garbage flood is cut to the bucket's rate; cached keys from the same source and other sources go on.
+func TestUnknownKeyIDsAreRateLimitedPerSource(t *testing.T) {
+	f := newFixture(t, Config{Limiter: ratelimit.NewSourceLimiter(1, 3, 100)})
+	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: f.key, Source: "evil"}); err != nil {
+		t.Fatal(err) // the good key is now cached (one token spent)
+	}
+	refused := 0
+	for i := range 50 {
+		garbage := fmt.Sprintf("tsdb_%016x_%s", i+1, f.key[len("tsdb_")+17:])
+		_, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: garbage, Source: "evil"})
+		var h front.RetryHint
+		switch {
+		case errors.Is(err, ErrRateLimited) && errors.As(err, &h) && h.RetryAfter() > 0:
+			refused++
+		case !errors.Is(err, ErrUnauthorized):
+			t.Fatalf("garbage %d: %v", i, err)
+		}
+	}
+	if f.st.keyRead != 3 || refused != 48 || f.l.Stats().RateLimited != 48 {
+		t.Fatalf("key reads %d (want 3: the burst), refused %d", f.st.keyRead, refused)
+	}
+	for _, src := range []string{"evil", "good"} { // a cached key from the flooding source; and another source
+		if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: f.key, Source: src}); err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+	}
+	f.clk.add(time.Second) // one token back
+	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: "tsdb_ffffffffffffffff_" + f.key[len("tsdb_")+17:],
+		Source: "evil"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("after refill: %v", err)
 	}
 }
 

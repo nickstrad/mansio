@@ -40,6 +40,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 )
 
 const (
@@ -106,7 +107,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	e, err := edge.New(edge.Config{
 		Resolver:  edge.StaticRoutes(cfg.Agents),
 		Gate:      edge.NewGate(keys, cfg.ClockSkew.Duration, cfg.MaxTicketTTL.Duration, cfg.TicketCache),
-		Limiter:   edge.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
+		Limiter:   ratelimit.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
 		Transport: tr, VerifySlots: cfg.VerifySlots, AgentInFlight: cfg.AgentInFlight, Breaker: cfg.AgentBreaker.config(),
 		OnBreaker:      func(vm string) func(breaker.Transition) { return logx.BreakerLog(log, "agent:"+vm) },
 		DefaultTimeout: cfg.DefaultTimeout.Duration, MaxTimeout: cfg.MaxTimeout.Duration, Grace: cfg.ReplyGrace.Duration,
