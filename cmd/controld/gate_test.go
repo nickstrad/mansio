@@ -173,7 +173,9 @@ func (c *cluster) startControld() {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
 	var stderr bytes.Buffer
-	go func() { done <- realMain(ctx, []string{"-config", path, "-addr-file", addrFile}, os.Stdout, &stderr) }()
+	go func() {
+		done <- realMain(ctx, []string{"-dev", "-config", path, "-addr-file", addrFile}, os.Stdout, &stderr)
+	}()
 	t.Cleanup(func() {
 		cancel()
 		if code := <-done; code != exitOK {

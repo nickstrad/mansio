@@ -28,6 +28,7 @@ func TestConfig(t *testing.T) {
 		{"no bucket", `{"secrets_file":"s","s3":{"endpoint":"e"},"agents":[` + agent + `]}`, "endpoint and bucket"},
 		{"heartbeat timeout = interval (off point)", `{` + base + `,"agents":[` + agent + `],"heartbeat_interval":"1s","heartbeat_timeout":"1s"}`, "shorter than heartbeat_interval"},
 		{"per key below agent timeout", `{` + base + `,"agents":[` + agent + `],"per_key_timeout":"1s","agent_timeout":"2s"}`, "at least agent_timeout"},
+		{"CA file without secure", `{` + base + `,"agents":[` + agent + `],"s3":{"endpoint":"e:1","bucket":"b","ca_file":"ca.pem"}}`, "ca_file needs secure"},
 		{"unknown field", `{` + base + `,"agents":[` + agent + `],"x":1}`, "unknown field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -42,6 +43,26 @@ func TestConfig(t *testing.T) {
 				t.Fatalf("err %v, want %q", err, tc.problem)
 			}
 		})
+	}
+}
+
+// OS-11: plain-HTTP S3 needs -dev; HTTPS does not.
+func TestTLSRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		secure, dev, ok bool
+	}{{false, false, false}, {false, true, true}, {true, false, true}, {true, true, true}} {
+		c := &Config{Dev: tc.dev}
+		c.S3.Secure = tc.secure
+		if err := c.checkDev(); (err == nil) != tc.ok {
+			t.Errorf("secure %v dev %v: %v", tc.secure, tc.dev, err)
+		}
+	}
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "c.json")
+	os.WriteFile(cfg, []byte(`{"secrets_file":"s","s3":{"endpoint":"e:1","bucket":"b"},"agents":[{"vm":"a","endpoint":"x","lifecycle":"http://x"}]}`), 0o644)
+	var errw strings.Builder
+	if code := realMain(t.Context(), []string{"-config", cfg}, &strings.Builder{}, &errw); code != exitError || !strings.Contains(errw.String(), "pass -dev") {
+		t.Fatalf("plain-HTTP S3 without -dev: exit %d %q", code, errw.String())
 	}
 }
 

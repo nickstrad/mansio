@@ -35,7 +35,13 @@ type Config struct {
 		Bucket    string        `json:"bucket"`
 		Prefix    string        `json:"prefix"`
 		OpTimeout load.Duration `json:"op_timeout"`
+		// Secure speaks HTTPS; false (plain HTTP) is refused without -dev (object-storage guide S2, OS-11).
+		Secure bool   `json:"secure"`
+		CAFile string `json:"ca_file"` // PEM bundle of a private CA; needs secure
 	} `json:"s3"`
+
+	// Dev is the -dev flag, not a file field: allows plain-HTTP S3 for a local run.
+	Dev bool `json:"-"`
 
 	// Agents is the VM registry's source: every agent controld may place databases on. Registered at start
 	// (pg.RegisterVM); heartbeats come from polling each one's health endpoint.
@@ -101,6 +107,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.S3.Endpoint == "" || c.S3.Bucket == "" {
 		bad("s3: endpoint and bucket are required (drop deletes the database's objects)")
 	}
+	if c.S3.CAFile != "" && !c.S3.Secure {
+		bad("s3: ca_file needs secure: true")
+	}
 	if c.S3.Prefix != "" && !strings.HasSuffix(c.S3.Prefix, "/") {
 		bad("s3: prefix %q must end in /", c.S3.Prefix)
 	}
@@ -153,7 +162,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.SecretsFile, &c.LogFile} {
+	for _, p := range []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile} {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
@@ -172,6 +181,16 @@ func loadConfig(path string) (*Config, error) {
 		return nil, errs.Wrap(module, err, "invalid config %s", path).With("path", path)
 	}
 	return c, nil
+}
+
+// checkDev refuses plain-HTTP S3 unless -dev is given: the gc identity's keys would cross the network in
+// the clear (object-storage guide S1, S2; OS-11).
+func (c *Config) checkDev() error {
+	if !c.S3.Secure && !c.Dev {
+		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+
+			"(and \"ca_file\" for a private CA) in the s3 section, or pass -dev for a local run").With("endpoint", c.S3.Endpoint)
+	}
+	return nil
 }
 
 // Secrets is controld's secrets file (0600; object-storage guide S2, RI-16).

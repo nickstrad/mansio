@@ -50,11 +50,12 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "controld config (JSON)")
 	addrFile := fs.String("addr-file", "", "write the API listener's address here once serving")
+	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false)")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	if fs.NArg() > 0 || *cfgPath == "" {
-		fmt.Fprintln(stderr, "usage: controld -config <file> [-addr-file <file>] | controld <command> -addr URL -secrets FILE ...")
+		fmt.Fprintln(stderr, "usage: controld -config <file> [-addr-file <file>] [-dev] | controld <command> -addr URL -secrets FILE ...")
 		return exitUsage
 	}
 	rep := reporter{stderr: stderr}
@@ -65,6 +66,10 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 	}()
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
+		return rep.report(err)
+	}
+	cfg.Dev = *dev
+	if err := cfg.checkDev(); err != nil {
 		return rep.report(err)
 	}
 	log, closeLog, err := openLog(cfg, stderr)
@@ -95,7 +100,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		return nil, err
 	}
 	st, err := objstore.New(objstore.Config{Endpoint: cfg.S3.Endpoint, Bucket: cfg.S3.Bucket, AccessKey: sec.S3AccessKey,
-		SecretKey: sec.S3SecretKey, OpTimeout: cfg.S3.OpTimeout.Duration, Logger: log})
+		SecretKey: sec.S3SecretKey, OpTimeout: cfg.S3.OpTimeout.Duration, Secure: cfg.S3.Secure, CAFile: cfg.S3.CAFile, Logger: log})
 	if err != nil {
 		p.Close()
 		return nil, err
