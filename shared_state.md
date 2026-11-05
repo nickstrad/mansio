@@ -517,3 +517,23 @@ Branch `cp/cp2`. Details: `knowledge/front/2026-11-05-request-ids.md`.
   `ActorExecutor` passes `Call.RequestID`; any other Executor (CP-1's vactor executor) should delegate to it.
 - **Clients/benches must send unique ids per write** (frontbench now sends `fb-<run>-<seq>`); a reused id gets
   the first write's answer.
+
+## 2026-11-05 14:06 — CP-1: agentd durable mode wired; lifecycle API; placement contract suite
+
+Branch `cp/cp1` (merged main incl. CP-2). Contract/API changes others depend on:
+
+- **`ownertest.RunPlacementSuite(t, newPlacement)`** (new, `internal/owner/ownertest/placement_suite.go`): the shared
+  `owner.Placement` contract. CP-3's Postgres adapter should run it (`TestPlacementCAS`). It requires: unknown key →
+  `ErrNotFound`; stale expect / second create → `ErrConflict`, nothing changed; invariant breaks (epoch down, epoch 0,
+  new owner without a higher epoch) → an error matching NEITHER `ErrConflict` nor `ErrNotFound`; 32 concurrent CASes
+  from one row → exactly one wins. The fake's switch checks moved to `TestPlacementSwitches`.
+- **`internal/placement/file`**: single-node `owner.Placement` (JSON row per key, flock'd CAS; processes on one host
+  share it). Stand-in until CP-3/CP-4.
+- **agentd durable mode** (an `s3` config section): vactor + owner + S3 wired; static `db_dir` mode kept for benches.
+  New required fields in durable mode: `secrets_file` (0600: `s3_access_key`, `s3_secret_key`, `control_token` ≥ 16
+  chars), `cache_dir`, `owner_dir`, `placement_dir`. Example: `configs/agentd/durable-local.json`.
+- **Lifecycle API** (lifecycle listener, `Authorization: Bearer <control_token>`): `POST /v1/lifecycle/claim
+  {"db"[, "create": true]}`, `POST /v1/lifecycle/fence {"db"}` → `{"code":"ok","db","epoch","gen"}`,
+  `POST /v1/lifecycle/forget`, `GET /v1/lifecycle/health`. Error codes in `cmd/agentd/control.go`. `create` is a
+  single-node stand-in for controld's flow B; delete it at CP-4. controld (CP-4) should call these.
+- Details and gate numbers: `knowledge/front/2026-11-05-agentd-durable-mode.md`.
