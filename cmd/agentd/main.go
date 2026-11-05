@@ -136,8 +136,8 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string)
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
 		front.Check{Name: "startup", Run: st.readyCheck},
 		front.Check{Name: "canary", Run: func(ctx context.Context) error { return srv.Canary(ctx, front.CanaryDB, probe*2/3) }},
-		// CP-1 wiring point: one breakerCheck per remote dependency (S3, placement), and a periodic HEAD of an S3
-		// canary object.
+		// Remote dependency breakers (S3, placement) never fail readiness: warm traffic still works while they are
+		// open (Release It C5, H2). They are exposed on /metrics instead (CP-1 wiring point below).
 	)
 	reg := metrics.NewRegistry()
 	frontMetrics(reg, srv)

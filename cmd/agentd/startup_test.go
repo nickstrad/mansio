@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
 )
@@ -119,22 +118,6 @@ func TestLifecycleOnQueryListenerWhenAlone(t *testing.T) {
 	waitReady(t, addr)
 	cancel()
 	<-done
-}
-
-func TestBreakerCheck(t *testing.T) {
-	b, err := breaker.New(breaker.Config{MinCalls: 1, CoolDown: time.Hour})
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := breakerCheck("s3", b)
-	if c.Name != "s3_breaker" || c.Run(context.Background()) != nil {
-		t.Fatal("closed breaker fails readiness")
-	}
-	p, _, _ := b.Allow(time.Now())
-	b.Done(p, time.Now(), breaker.Failure)
-	if err := c.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "open") {
-		t.Fatalf("open breaker: %v", err)
-	}
 }
 
 // Lifecycle config bounds: the drain is part of the shutdown (drain_timeout <= shutdown_budget), and a probe

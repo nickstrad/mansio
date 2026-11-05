@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/parallel"
@@ -123,15 +122,4 @@ func openCanary(cfg *Config) (*actor.Actor, func(), error) {
 		return nil, nil, errs.Wrap(module, err, "cannot open the canary database")
 	}
 	return a, cleanup, nil
-}
-
-// breakerCheck fails readiness while b is open (Release It H2: ready means the breaker is not open). CP-1 adds
-// one per remote dependency (s3, placement) to newAgent's readiness checks.
-func breakerCheck(name string, b *breaker.Breaker) front.Check {
-	return front.Check{Name: name + "_breaker", Run: func(context.Context) error {
-		if s := b.State(time.Now()); s == breaker.Open {
-			return fmt.Errorf("%s breaker is %s", name, s)
-		}
-		return nil
-	}}
 }

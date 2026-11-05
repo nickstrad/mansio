@@ -316,7 +316,8 @@ where it lands.
     default 16 workers, 5 s per key), retried in the background with backoff. Unreconciled keys are already
     refused per key (`ErrUnavailable` → RI-04 503).
   - Split `/livez` (process up, admin pool responsive) from `/readyz`. Ready means reconcile has finished at
-    least once, the breaker is not open, and the canary passes.
+    least once and the canary passes. (Decided 2026-11-05 with the user: an open S3/placement breaker does
+    not fail readiness, so an S3 outage does not drain every agent; it is a metric and an alert. Guide C5.)
   - The canary is a synthetic transaction (ch13): a tiny local canary database read through the real
     admission → actor path, plus a periodic cheap S3 HEAD on a canary object. It is marked so it never pollutes
     tenant data.
