@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/outcome"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/schema"
+	"github.com/nickstrad/ts-db-go/internal/stats"
 	"github.com/nickstrad/ts-db-go/internal/workload"
 )
 
@@ -346,6 +348,47 @@ func TestCancelDoesNotWaitOutBackoffs(t *testing.T) {
 	}
 	if sum.RetriesScheduled == 0 || sum.RetriesLost != sum.RetriesScheduled {
 		t.Fatalf("scheduled %d, lost %d: every pending retry should be recorded as never sent", sum.RetriesScheduled, sum.RetriesLost)
+	}
+}
+
+// A run that stops between a worker's "not stopping" check and its backoff's registration (the cancel sweep has
+// already run) must not leave that backoff pending: the drain would wait it out. The hook stops the run inside that
+// window, which under load happened by chance (TestCancelDoesNotWaitOutBackoffs once took 6m16s, a full-jitter
+// draw of the hour-long delay).
+func TestRetryDecidedAsTheRunStopsIsNotWaitedOut(t *testing.T) {
+	c := tinyConfig(t, "")
+	c.Clients[0].Retry = load.RetryConfig{MaxAttempts: 3, Backoff: "fixed", Base: load.Duration{Duration: time.Hour},
+		RetryOn: []string{"stmt_timeout"}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := newRunner(context.Background(), c, quiet())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for b := range r.backoffs {
+			b.t.Stop()
+		}
+		r.requests.Close()
+		r.closeFiles()
+		r.cancel()
+	})
+	r.beforeBackoff = func() { // what run does when the dispatcher stops early
+		r.stopping.Store(true)
+		r.cancelBackoffs()
+	}
+	now := time.Now()
+	j := newJob(0, load.Pick{Record: true, Statement: workload.Statement{Class: workload.Classes[0]}}, now)
+	rng := rand.New(rand.NewPCG(1, 2))
+	if !r.maybeRetry(j, stats.Record{Outcome: outcome.StmtTimeout}, 0, rng, now) {
+		t.Fatal("retry not scheduled")
+	}
+	if n, pending := r.outstanding.Load(), len(r.backoffs); n != 0 || pending != 0 {
+		t.Fatalf("outstanding %d, pending backoffs %d: the drain would wait out the hour-long backoff", n, pending)
+	}
+	if lost, rec := r.retriesLost.Load(), r.recorded.Load(); lost != 1 || rec != 1 {
+		t.Fatalf("lost %d, recorded %d: the retry should be recorded once as never sent", lost, rec)
 	}
 }
 

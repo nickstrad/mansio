@@ -107,6 +107,8 @@ type runner struct {
 	lost      *stats.Buffer         // records of retries that were never sent (guarded by backoffMu)
 
 	crash crash
+
+	beforeBackoff func() // test hook: runs in maybeRetry just before a backoff is registered
 }
 
 func newRunner(ctx context.Context, cfg *load.Config, log *slog.Logger) (_ *runner, err error) {
@@ -370,9 +372,21 @@ func (r *runner) maybeRetry(j job, rec stats.Record, hint time.Duration, rng *ra
 		}
 		return true
 	}
+	if r.beforeBackoff != nil {
+		r.beforeBackoff()
+	}
+	// stopping is checked again under backoffMu: the run may have stopped since the check above, and its
+	// cancelBackoffs sweep has then already run, so a backoff registered now would be waited out in full.
+	// The run sets stopping before it sweeps, so either the sweep finds this backoff or this check sees stopping.
+	r.backoffMu.Lock()
+	if r.stopping.Load() {
+		r.backoffMu.Unlock()
+		next.sched = now
+		r.loseRetry(next)
+		return true
+	}
 	b := &backoff{j: next}
 	r.outstanding.Add(1) // released when the backoff fires or is cancelled
-	r.backoffMu.Lock()
 	r.backoffs[b] = struct{}{}
 	b.t = time.AfterFunc(delay, func() { r.fireBackoff(b) })
 	r.backoffMu.Unlock()
