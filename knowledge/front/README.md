@@ -68,6 +68,16 @@ What this says (measured unless marked):
 Not measured yet: a real network between client and agent (RTT dominates there), TLS, more databases than
 cores, a slow-query mix through the front, the separate health listener under saturation, Linux.
 
+### 2026-11-05: what the tests found
+
+- **FuzzVerify, first 30 s run:** Go's base64 decoder skips `\r` and `\n`, so a valid ticket with a CR inside
+  also verified. Not a forgery (same signed bytes), but one ticket had many spellings, each a cache miss that
+  costs a 26 µs signature check. Fix: refuse any byte outside the base64url alphabet before decoding
+  (`ticket.split`); the input is kept as a regression in `internal/ticket/testdata/fuzz/FuzzVerify/`.
+- Fuzz totals (2026-11-05, under the bench lock): FuzzVerify ~11–17M execs per 30 s, FuzzDecodeRequest 1.2M,
+  FuzzLimiterModel 0.64M; no other failures. Coverage of `internal/front` + `internal/ticket` from their tests:
+  97.6% of statements (uncovered: the panic recovery outside `Handle`, a body read error, SQLITE_BUSY mapping).
+
 ## Design in one paragraph
 
 Pure domain (`ticket` verify and encoding, `front` request decoder + SQL guard, the limiter, the wire mapping)
@@ -84,7 +94,7 @@ statement timeout. Every outcome maps through one table to the ten wire codes.
 - **fencing** (`internal/owner`): `front.Admitter` is `Admit(db, epoch) (release func(), error)`. Adapter in
   `cmd/agentd` (shared_state.md 2026-11-05 "Admitter adapter"): `Permit.Done` is the release;
   `ErrWrongOwner` → `front.ErrWrongOwner`; `ErrFenced`/`ErrMoving` → `front.ErrFenced`; `ErrUnavailable` →
-  `front.ErrShed`. Replace `epochTable` in `cmd/agentd/main.go` with it.
+  `front.ErrShed`. Replace the `front.StaticAdmitter` built by `epochs()` in `cmd/agentd/main.go` with it.
 - **writeback** (`internal/vactor`): either implement `front.Host` (`Lookup(ctx, db) (*actor.Actor, error)`) over
   `GetAt` with the actor behind `actordb`, or implement `front.Executor` directly (the `Call` carries `Epoch` and
   `Gen`), and run `fronttest.RunExecutorSuite` against it. Replace `openHost` in `cmd/agentd`.
