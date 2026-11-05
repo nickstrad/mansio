@@ -115,6 +115,13 @@ something another agent would otherwise rediscover. Date new entries (`YYYY-MM-D
 mark superseded entries instead of deleting history. Markdown only in the repo — the `kb` CLI is for
 VM/environment knowledge (the box-level store at `/root/Raw/knowledge`), never the home for project knowledge.
 
+**Save what a thread explained.** When a session answers a "how does X work" question, walks through a code
+path, or traces a request across processes, write the answer to a topic folder before the session ends:
+`docs/knowledge/<topic>/YYYY-MM-DD-<slug>.md`, plus a line in that topic's `README.md` and in
+`docs/knowledge/index.md`. Record what the code does, with `file:line` references and the commit it was read
+at. Facts you checked by running code go in as checked; everything else is marked unverified. Full rules:
+[`docs/knowledge/AGENTS.md`](docs/knowledge/AGENTS.md).
+
 ## Diagram maintenance (C4 architecture docs)
 
 `docs/architecture/` holds Simon Brown C4 diagrams for this project (see `docs/architecture/AGENTS.md` for the
