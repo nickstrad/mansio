@@ -19,6 +19,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/owner"
@@ -142,11 +143,11 @@ func TestDependencyMetricsAndCodes(t *testing.T) {
 	reg := metrics.NewRegistry()
 
 	// Breaker: trip it, then let it half-open.
-	b, err := breaker.New(breaker.Config{MinCalls: 1, CoolDown: time.Hour, OnChange: breakerLog(log, "s3")})
+	b, err := breaker.New(breaker.Config{MinCalls: 1, CoolDown: time.Hour, OnChange: logx.BreakerLog(log, "s3")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	breakerMetrics(reg, map[string]*breaker.Breaker{"s3": b})
+	metrics.Breakers(reg, map[string]*breaker.Breaker{"s3": b})
 	p, _, _ := b.Allow(time.Now())
 	b.Done(p, time.Now(), breaker.Failure)
 

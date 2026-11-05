@@ -25,7 +25,8 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
 | Client retry | `internal/retry` | Policy done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`). **Not wired:** the only caller (`internal/bench/run.go:359`) never sets `ServerHint`, and `internal/outcome` has no `unavailable` code. |
 | Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `TSDB_PG_URL`). Not wired yet (CP-4). |
-| Control plane, locator, issuer, client | none | Not started. |
+| Control plane | `cmd/controld`, `internal/control` | Done (CP-4): registries (0002), M8 policy, create/move/suspend/drop/M5 restore, resumer from table scans; agentd on `placement_pg`; RI-16 admin + `agentctl`; OS-11 scoped identities, TLS. |
+| Locator, issuer, client | none | Not started. |
 
 ## 2. The three flows we need
 
@@ -133,7 +134,7 @@ safe (`RI R2`).
   - **Concurrency (PG-04, `SQL G-22`):** 64 goroutines CAS one key → exactly one wins, epoch +1; a many-key
     move race leaves the invariants query empty; p50/p99 CAS latency at 1/16/64 workers in `knowledge/fencing/`.
 
-### CP-4. `cmd/controld`: registries and lifecycle (RI-16, OS-11)
+### CP-4. `cmd/controld`: registries and lifecycle (RI-16, OS-11) — **Done** (cf4be26; deferred: restore runs keys one at a time, a shared cmd helper package (reporter, secrets, JSON endpoints) for agentd/controld, the resumer does not re-fence suspended databases, no locator yet so the gate resolves through Postgres; notes in `knowledge/front/2026-11-05-controld.md`)
 
 - Tables (a new migration, CP-3 rules): `tenants`, `databases` (tenant owns 0..N, default database), `vms`
   (registry and heartbeats; load computed by `vm_load.sql`).
@@ -218,7 +219,8 @@ on the wire (the reserved `op` field).
 | Remote breakers (S3, placement) never fail readiness. S3 open → cold activations 503, warm traffic unaffected, write-backs deferred, alert on `oldest_dirty_age` | Made (user, 2026-11-05) | `RI C5`, `RI H2` |
 | Layout v2; retention current + 2; orphan sweeper as `dbtool gc` | Made | `knowledge/writeback/2026-11-05-layout-v2.md`, `knowledge/writeback/2026-11-05-gc-and-gen-cache.md` |
 | WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [release-it plan §4](books/release-it/plan.md) (after RI-15), `knowledge/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
-| Placement policy (M8); leases | Open (leases: options + recommendation, needs the user with the placement-outage question) | CP-4, `knowledge/fencing/2026-11-05-leases-options.md` |
+| Placement policy (M8): least-loaded live VM by dominant share of the database and byte caps, then databases, bytes, id; deterministic | Made (CP-4) | `internal/control/policy.go`, `knowledge/front/2026-11-05-controld.md` |
+| Leases | Open (options + recommendation, needs the user with the placement-outage question) | `knowledge/fencing/2026-11-05-leases-options.md` |
 
 ## 5. Assumptions the plan rests on (from the fencing safety argument)
 

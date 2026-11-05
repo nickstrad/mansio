@@ -250,8 +250,9 @@ Run `TestS3Compat` (OS-03) for every backend and version before using it. Record
 | X11 | `If-None-Match` on `CompleteMultipartUpload` | required before any generation over 5 GiB |
 | X12 | Scoped identity: the agent credential cannot LIST or delete outside its permissions | §9 |
 
-Known results: single-node SeaweedFS 4.47 passes X1–X11; X12 is not run (no scoped identity yet)
-([compat note](../../../knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md)). Identical bytes repeat the
+Known results: single-node SeaweedFS 4.47 passes X1–X12
+([compat note](../../../knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md); X12 with the `agent` identity:
+[scoped identities note](../../../knowledge/writeback/2026-11-05-s3-scoped-identities.md)). Identical bytes repeat the
 ETag there (X5). 2026-11-05 (CP-8): MinIO (2025-05-24 build) passes X1–X12; a SeaweedFS 4.47 cluster with two
 filers on a shared Postgres store passes X1–X11 with X3 raced across both gateways (`S3_COMPAT_PEER`,
 `deploy/seaweedfs-cluster/`) ([note](../../../knowledge/writeback/2026-11-05-s3-compat-minio-and-cluster.md)).
@@ -280,10 +281,12 @@ hash.**
 | gc | Read, List, Write |
 | bench/dev | Admin, local only |
 
-- Example: `deploy/seaweedfs/s3.json` (OS-11).
+- Example: `deploy/seaweedfs/s3.json` (OS-11). The agent's Write includes DELETE (owner-side retention deletes
+  old generations by name); it has no LIST and cannot create buckets (setup's job, with an admin identity).
 
 **S2. TLS outside a developer laptop. Credentials never go in code, configs or logs.**
-- Example: `objstore.Config.Secure` (OS-11). agentd refuses plain HTTP without `-dev`.
+- Example: `objstore.Config.Secure` and `CAFile` (OS-11); agentd's `s3.secure` / `s3.ca_file`. agentd refuses
+  plain HTTP without `-dev`.
 
 **S3. Tenant isolation comes from the key (K1), not from a check in the caller.**
 - Why: if tenants share a bucket, the tenant must be part of the database key, so the prefix is the

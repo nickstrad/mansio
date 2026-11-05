@@ -1,6 +1,7 @@
 {
   "listen": "127.0.0.1:7070",
   "health_listen": "127.0.0.1:7071",
+  "admin_listen": "127.0.0.1:7072",
   "vm": "vm-local",
   "keys_file": "../../results/front/keys/keys.json",
   "s3": {"endpoint": "localhost:8333", "bucket": "tsdb", "prefix": "agentd/"},

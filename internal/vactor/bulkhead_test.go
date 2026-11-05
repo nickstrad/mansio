@@ -227,3 +227,78 @@ func TestSizerGrowsDeadlineAndReportsMissing(t *testing.T) {
 		t.Fatalf("Get(missing) = %v after %d fetches; want ErrNotFound and no fetch", err, f.Calls("missing"))
 	}
 }
+
+// RI-16: SetFetchLimit at run time. With 4 slots and 2 cold fetches held in flight, lowering the limit to 1
+// lets both finish but holds the next 2 cold keys queued until fewer than 1 run; then they fetch one at a
+// time. Raising it back lets queued keys start together.
+func TestSetFetchLimitAppliesToTheNextFetches(t *testing.T) {
+	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
+	for _, k := range []string{"a", "b", "c", "d", "e", "g"} {
+		f.Put(k, []byte("db:"+k))
+	}
+	hold := make(chan struct{})
+	f.Hold = hold
+	h, err := vactor.NewHost(f, o, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), MaxFetches: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	get := func(keys ...string) chan error {
+		done := make(chan error, len(keys))
+		for _, k := range keys {
+			go func() { _, err := h.Get(ctx, k); done <- err }()
+		}
+		return done
+	}
+	first := get("a", "b")
+	vactor.WaitFor(t, func() bool { n, _, _ := vactor.FetchGate(h); return n == 2 })
+	if prev := h.SetFetchLimit(1); prev != 4 || h.FetchLimit() != 1 {
+		t.Fatalf("SetFetchLimit(1) = previous %d, FetchLimit %d", prev, h.FetchLimit())
+	}
+	next := get("c", "d")
+	vactor.WaitFor(t, func() bool { _, _, q := vactor.FetchGate(h); return q == 2 })
+	if n, _, _ := vactor.FetchGate(h); n != 2 || f.Calls("c")+f.Calls("d") != 0 {
+		t.Fatalf("lowering the limit: %d in flight, next fetches started %d; want the 2 running kept, none new", n, f.Calls("c")+f.Calls("d"))
+	}
+	stop, peak := make(chan struct{}), make(chan int)
+	go func() { // the peak once a's and b's fetches are gone
+		p := 0
+		for {
+			select {
+			case <-stop:
+				peak <- p
+				return
+			default:
+			}
+			if f.Calls("a")+f.Calls("b") == 2 && len(first) == 2 {
+				n, _, _ := vactor.FetchGate(h)
+				p = max(p, n)
+			}
+			time.Sleep(100 * time.Microsecond) // sample, do not spin against the locks under test
+		}
+	}()
+	close(hold)
+	for _, done := range []chan error{first, next} {
+		for range 2 {
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	close(stop)
+	if p := <-peak; p > 1 {
+		t.Fatalf("after lowering the limit to 1, %d fetches ran at once", p)
+	}
+
+	hold2 := make(chan struct{})
+	f.Hold = hold2
+	h.SetFetchLimit(2)
+	last := get("e", "g")
+	vactor.WaitFor(t, func() bool { n, _, _ := vactor.FetchGate(h); return n == 2 })
+	close(hold2)
+	for range 2 {
+		if err := <-last; err != nil {
+			t.Fatal(err)
+		}
+	}
+}

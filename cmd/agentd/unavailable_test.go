@@ -14,6 +14,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
 	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/ts-db-go/internal/placement/pg"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 )
 
@@ -32,6 +33,7 @@ func TestDependencyErrorsMapToUnavailable(t *testing.T) {
 		{"owner authority unreadable (wrapped)", ownerWrapped, front.Unavailable},
 		{"fetch bulkhead full", errs.Wrap("vactor", vactor.ErrBusy, "cannot activate db-1"), front.Unavailable},
 		{"activation deadline", errs.Wrap("vactor", fmt.Errorf("%w: %w", vactor.ErrBusy, context.DeadlineExceeded), "cannot activate db-1"), front.Unavailable},
+		{"placement authority down (pg adapter)", errs.Wrap("placement", pg.ErrUnavailable, "cannot read the placement of \"db-1\""), front.Unavailable},
 		{"already front.ErrUnavailable", front.ErrUnavailable, front.Unavailable},
 		{"owner fenced keeps its class", fmt.Errorf("%w: %w", front.ErrFenced, owner.ErrFenced), front.Fenced},
 		{"shed keeps its class", front.ErrShed, front.Shed},

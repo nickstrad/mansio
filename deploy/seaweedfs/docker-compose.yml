@@ -1,6 +1,14 @@
 # Single-container SeaweedFS (master + volume + filer + S3 gateway) for the coldload test.
 #   docker compose -f deploy/seaweedfs/docker-compose.yml up -d
-# S3 endpoint: http://localhost:8333  access key: coldload  secret: coldload-secret
+# S3 endpoint: http://localhost:8333 (plain HTTP: dev only; agentd needs -dev for it, object-storage guide S2).
+# Identities (s3.json; throwaway dev keys, never use them outside this container; guide S1, plan OS-11):
+#   coldload / coldload-secret    Admin, everything: coldload, benches, test setup and cleanup (unchanged)
+#   agent    / agent-secret-dev   Read + Write on buckets coldload and tsdb: GET, HEAD, PUT, DELETE (retention).
+#                                 No LIST, no bucket creation. What agentd runs with.
+#   gc       / gc-secret-dev      Read + List + Write on coldload and tsdb: the orphan sweeper, dbtool.
+#   bench    / bench-secret-dev   Admin (creates buckets): dev benches only.
+# After editing s3.json, recreate to load it (data survives in the named volume):
+#   docker compose -f deploy/seaweedfs/docker-compose.yml up -d --force-recreate
 services:
   seaweedfs:
     image: chrislusf/seaweedfs:latest

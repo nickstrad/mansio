@@ -13,6 +13,8 @@ var queryFS embed.FS
 
 type queries struct {
 	get, create, cas, moving, vmLoad, registerVM, invariants string
+	// Registries (0002, CP-4).
+	heartbeat, attestDead, vm, ownedBy, createDatabase, getDatabase, setDatabaseState, pending, dropPlacement string
 }
 
 // q is read-only after init.
@@ -24,6 +26,16 @@ var q = queries{
 	vmLoad:     mustQuery("vm_load"),
 	registerVM: mustQuery("register_vm"),
 	invariants: mustQuery("invariants"),
+
+	heartbeat:        mustQuery("heartbeat"),
+	attestDead:       mustQuery("attest_dead"),
+	vm:               mustQuery("vm"),
+	ownedBy:          mustQuery("owned_by"),
+	createDatabase:   mustQuery("create_database"),
+	getDatabase:      mustQuery("get_database"),
+	setDatabaseState: mustQuery("set_database_state"),
+	pending:          mustQuery("pending"),
+	dropPlacement:    mustQuery("drop_placement"),
 }
 
 func mustQuery(name string) string {

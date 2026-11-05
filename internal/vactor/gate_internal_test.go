@@ -124,16 +124,64 @@ func TestFetchGateIsFIFO(t *testing.T) {
 	}
 }
 
+// RI-16: lowering the count limit lets the running fetches finish and holds new ones until fewer than the new
+// limit run (on point: n == limit still waits); raising it grants a waiter at once.
+func TestFetchGateSetMaxN(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	g := newFetchGate(3, 100, 4)
+	var held []func()
+	for range 3 {
+		r, err := g.acquire(context.Background(), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, r)
+	}
+	g.setMaxN(1)
+	if g.limit() != 1 {
+		t.Fatalf("limit %d", g.limit())
+	}
+	for i := range 2 { // 3 running, then 2: above the new limit; then 1: at it (on point)
+		held[i]()
+		if _, err := g.acquire(cancelled, 0); !errors.Is(err, context.Canceled) {
+			t.Fatalf("after %d releases: acquire = %v, want to wait", i+1, err)
+		}
+	}
+	held[2]()
+	r, err := g.acquire(cancelled, 0) // 0 running: below the limit (off point)
+	if err != nil {
+		t.Fatalf("with nothing running: %v", err)
+	}
+	granted := make(chan error, 1)
+	go func() {
+		r2, err := g.acquire(context.Background(), 0)
+		if err == nil {
+			r2()
+		}
+		granted <- err
+	}()
+	waitFor(t, func() bool { _, _, q := g.inFlight(); return q == 1 })
+	g.setMaxN(2)
+	if err := <-granted; err != nil {
+		t.Fatalf("waiter after raising the limit: %v", err)
+	}
+	r()
+	if n, _, q := g.inFlight(); n != 0 || q != 0 {
+		t.Fatalf("left %d in flight, %d queued", n, q)
+	}
+}
+
 // Each invariant assertion can fire.
 func TestFetchGateInvariantFires(t *testing.T) {
 	if !assert.Enabled {
 		t.Skip("assertions compiled out")
 	}
 	for name, g := range map[string]*fetchGate{
-		"over count": {maxN: 1, maxBytes: 10, n: 2},
-		"over bytes": {maxN: 4, maxBytes: 10, n: 2, bytes: 11},
-		"over queue": {maxN: 1, maxBytes: 10, n: 1, queue: []*waiter{{}}},
-		"head fits":  {maxN: 2, maxBytes: 10, maxQueue: 1, n: 1, queue: []*waiter{{bytes: 1}}},
+		"negative count": {maxN: 1, maxBytes: 10, n: -1},
+		"over bytes":     {maxN: 4, maxBytes: 10, n: 2, bytes: 11},
+		"over queue":     {maxN: 1, maxBytes: 10, n: 1, queue: []*waiter{{}}},
+		"head fits":      {maxN: 2, maxBytes: 10, maxQueue: 1, n: 1, queue: []*waiter{{bytes: 1}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -144,6 +192,14 @@ func TestFetchGateInvariantFires(t *testing.T) {
 			g.invariant()
 		})
 	}
+	t.Run("grant at the limit", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("take did not fire")
+			}
+		}()
+		(&fetchGate{maxN: 1, maxBytes: 10, n: 1}).take(0)
+	})
 }
 
 func waitFor(t *testing.T, cond func() bool) {

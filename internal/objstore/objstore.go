@@ -10,6 +10,8 @@ package objstore
 import (
 	"context"
 	"crypto/md5"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -39,6 +41,12 @@ type Config struct {
 	AccessKey string
 	SecretKey string
 	Bucket    string
+	// Secure speaks HTTPS to the endpoint (object-storage guide S2: TLS outside a developer laptop). Off is for
+	// local development only; agentd refuses it without -dev.
+	Secure bool
+	// CAFile, if set, is a PEM bundle of the CAs that sign the endpoint's certificate (a private CA); the
+	// system roots are used otherwise. Requires Secure.
+	CAFile string
 	// MaxConns caps open connections per host; set it to at least the fetch concurrency, or fetches queue
 	// for a socket. Default 1024.
 	MaxConns int
@@ -92,6 +100,10 @@ func New(cfg Config) (*Store, error) {
 		return nil, errs.Wrap(module, nil, "cannot create S3 client: endpoint, access key, secret key and bucket are all required")
 	}
 	cfg.normalize()
+	tlsCfg, err := tlsConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	tr := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -101,9 +113,12 @@ func New(cfg Config) (*Store, error) {
 		IdleConnTimeout:       90 * time.Second,
 		ResponseHeaderTimeout: cfg.OpTimeout,
 		DisableCompression:    true,
+		TLSClientConfig:       tlsCfg,
+		TLSHandshakeTimeout:   5 * time.Second,
 	}
 	c, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:      credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure:     cfg.Secure,
 		Transport:  tr,
 		MaxRetries: 1, // minio-go sends each request once: this package is the one retry layer
 	})
@@ -112,6 +127,30 @@ func New(cfg Config) (*Store, error) {
 	}
 	return &Store{c: c, core: minio.Core{Client: c}, bucket: cfg.Bucket, cfg: cfg,
 		metrics: newMetrics(), bufs: make(chan []byte, keptBufs)}, nil
+}
+
+// tlsConfig is the client TLS config: nil for plain HTTP; TLS 1.2 or later, trusting CAFile's CAs if set.
+// It refuses a CAFile without Secure (the CA would be silently unused) and a file with no PEM certificate.
+func tlsConfig(cfg Config) (*tls.Config, error) {
+	if !cfg.Secure {
+		if cfg.CAFile != "" {
+			return nil, errs.Wrap(module, nil, "cannot create S3 client: a CA file is set but Secure is off (plain HTTP would ignore it)").With("ca_file", cfg.CAFile)
+		}
+		return nil, nil
+	}
+	t := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.CAFile == "" {
+		return t, nil
+	}
+	pem, err := os.ReadFile(cfg.CAFile)
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot create S3 client: cannot read the CA file").With("ca_file", cfg.CAFile)
+	}
+	t.RootCAs = x509.NewCertPool()
+	if !t.RootCAs.AppendCertsFromPEM(pem) {
+		return nil, errs.Wrap(module, nil, "cannot create S3 client: the CA file %s holds no PEM certificate", cfg.CAFile).With("ca_file", cfg.CAFile)
+	}
+	return t, nil
 }
 
 // wrap is errs.Wrap for this module, tagged with err's Classify kind.

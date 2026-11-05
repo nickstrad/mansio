@@ -123,6 +123,71 @@ delete from placement where database_id = 'k';
 ERROR:  update or delete on table "placement" violates foreign key constraint "moves_database_id_fkey" on table "moves"
   sqlstate 23503, constraint moves_database_id_fkey
 
+-- 0002 registries. tenant_id domain: on point 63 chars; off points 64 chars, uppercase, leading dash.
+insert into tenants (tenant_id) values ('t23456789012345678901234567890123456789012345678901234567890123');
+INSERT 0 1
+insert into tenants (tenant_id) values ('t234567890123456789012345678901234567890123456789012345678901234');
+ERROR:  value for domain tenant_id violates check constraint "tenant_id_check"
+  sqlstate 23514, constraint tenant_id_check
+insert into tenants (tenant_id) values ('Acme');
+ERROR:  value for domain tenant_id violates check constraint "tenant_id_check"
+  sqlstate 23514, constraint tenant_id_check
+insert into tenants (tenant_id) values ('-acme');
+ERROR:  value for domain tenant_id violates check constraint "tenant_id_check"
+  sqlstate 23514, constraint tenant_id_check
+insert into tenants (tenant_id) values ('acme');
+INSERT 0 1
+
+-- database_name domain: on point 56 chars; off points 57 chars, a colon. The key must be tenant ':' name.
+insert into databases (database_id, tenant_id, name) values ('acme:' || repeat('n', 56), 'acme', repeat('n', 56));
+INSERT 0 1
+insert into databases (database_id, tenant_id, name) values ('acme:' || repeat('n', 57), 'acme', repeat('n', 57));
+ERROR:  value for domain database_name violates check constraint "database_name_check"
+  sqlstate 23514, constraint database_name_check
+insert into databases (database_id, tenant_id, name) values ('acme:a:b', 'acme', 'a:b');
+ERROR:  value for domain database_name violates check constraint "database_name_check"
+  sqlstate 23514, constraint database_name_check
+insert into databases (database_id, tenant_id, name) values ('acme:x', 'acme', 'y');
+ERROR:  new row for relation "databases" violates check constraint "databases_key_is_tenant_name"
+  sqlstate 23514, constraint databases_key_is_tenant_name
+insert into databases (database_id, tenant_id, name) values ('nobody:x', 'nobody', 'x');
+ERROR:  insert or update on table "databases" violates foreign key constraint "databases_tenant_id_fkey"
+  sqlstate 23503, constraint databases_tenant_id_fkey
+
+-- databases_state_check, and databases_target_iff_moving (on points: moving with a target, active without).
+insert into databases (database_id, tenant_id, name, state) values ('acme:s', 'acme', 's', 'gone');
+ERROR:  new row for relation "databases" violates check constraint "databases_state_check"
+  sqlstate 23514, constraint databases_state_check
+insert into databases (database_id, tenant_id, name, state) values ('acme:m', 'acme', 'm', 'moving');
+ERROR:  new row for relation "databases" violates check constraint "databases_target_iff_moving"
+  sqlstate 23514, constraint databases_target_iff_moving
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'active', 'vm-a');
+ERROR:  new row for relation "databases" violates check constraint "databases_target_iff_moving"
+  sqlstate 23514, constraint databases_target_iff_moving
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'moving', 'vm-z');
+ERROR:  insert or update on table "databases" violates foreign key constraint "databases_target_vm_fkey"
+  sqlstate 23503, constraint databases_target_vm_fkey
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'moving', 'vm-a');
+INSERT 0 1
+
+-- databases_one_default: one live default per tenant; a dropped default frees the slot.
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d1', 'acme', 'd1', true, 'active');
+INSERT 0 1
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d2', 'acme', 'd2', true, 'active');
+ERROR:  duplicate key value violates unique constraint "databases_one_default"
+  sqlstate 23505, constraint databases_one_default
+update databases set state = 'dropped' where database_id = 'acme:d1';
+UPDATE 1
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d2', 'acme', 'd2', true, 'active');
+INSERT 0 1
+
+-- vms_bytes_check: on point 0, off point -1.
+update vms set bytes = 0 where vm_id = 'vm-a';
+UPDATE 1
+update vms set bytes = -1 where vm_id = 'vm-a';
+ERROR:  new row for relation "vms" violates check constraint "vms_bytes_check"
+  sqlstate 23514, constraint vms_bytes_check
+
 -- What is left.
 select database_id, owner_vm, epoch, generation, state from placement order by database_id;
 database_id | owner_vm | epoch | generation | state
@@ -141,7 +206,15 @@ v23456789012345678901234567890123456789012345678901234567890123 | t
 vm-a | t
 vm-b | t
 (3 rows)
+select database_id, is_default, state, target_vm from databases order by database_id;
+database_id | is_default | state | target_vm
+acme:d1 | t | dropped | NULL
+acme:d2 | t | active | NULL
+acme:m | f | moving | vm-a
+acme:nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn | f | creating | NULL
+(4 rows)
 select version from schema_version order by version;
 version
 1
-(1 rows)
+2
+(2 rows)

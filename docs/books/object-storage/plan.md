@@ -406,7 +406,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - `FuzzDurableHostModel` with the cache on: invariants unchanged.
   - Coldload/wbbench: re-warm latency for a 256 MiB database drops from about 1 s to under 10 ms.
 
-### OS-11: Scoped credentials and TLS (fixes G8)
+### OS-11: Scoped credentials and TLS (fixes G8) — **Done** (CP-4: 18b8591, 9026a10, 333425c; note `knowledge/writeback/2026-11-05-s3-scoped-identities.md`; X12 passes on SeaweedFS 4.47; the agent's Write includes DELETE for retention; bucket creation is setup's job, not the agent's)
 
 - **Change:**
   - `deploy/seaweedfs/s3.json` gets three identities, each scoped to the bucket (`Read:<bucket>`, etc.):

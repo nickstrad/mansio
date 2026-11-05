@@ -1,0 +1,10 @@
+{
+  "listen": "127.0.0.1:7080",
+  "secrets_file": "../../results/controld/secrets.json",
+  "s3": {"endpoint": "localhost:8333", "bucket": "tsdb", "prefix": "agentd/"},
+  "agents": [
+    {"vm": "vm-local", "endpoint": "127.0.0.1:7070", "lifecycle": "http://127.0.0.1:7071"}
+  ],
+  "policy": {"max_databases": 10000},
+  "log_file": "../../results/controld/controld.log"
+}

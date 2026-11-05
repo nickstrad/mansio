@@ -37,8 +37,10 @@ each under `lifecycle_timeout` (30 s; `X-Timeout-Ms` may shorten it), at most `l
 once, the rest 503 at once. Codes: `bad_request` 400, `unauthorized` 401, `wrong_owner`/`moving`/`fenced`/
 `illegal` 409, `unavailable` 503 + Retry-After, `timeout` 504, `internal` 500 + log ID (table in
 `control.go`). Fence drops the warm copy after the ack (and on supersede). `"create": true` on claim writes
-ACTIVE(self, 1, 0) when no placement row exists: the single-node stand-in for controld's flow B, to delete at
-CP-4.
+ACTIVE(self, 1, 0) when no placement row exists: the single-node stand-in for controld's flow B. **Since CP-4
+(2026-11-05) it needs `-dev`**; without it the claim answers `bad_request`, and agentd also needs `-dev` for
+plain-HTTP S3 ([scoped identities note](../writeback/2026-11-05-s3-scoped-identities.md)). Runtime admin
+controls: [admin controls note](2026-11-05-agentd-admin-controls.md).
 
 ## Secrets
 

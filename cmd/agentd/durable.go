@@ -12,10 +12,12 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/placement/file"
+	"github.com/nickstrad/ts-db-go/internal/placement/pg"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 	"github.com/nickstrad/ts-db-go/internal/vactor/actordb"
 )
@@ -33,6 +35,7 @@ type durableAgent struct {
 	host   *vactor.Host
 	tab    *owner.Table
 	place  owner.Placement
+	pg     *pg.Placement // the Postgres authority (placement_pg); nil with placement_dir
 	canary *front.StaticHost
 	ticks  *tickLog
 	events *ownerEvents
@@ -53,12 +56,13 @@ const openTimeout = 10 * time.Second
 func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.StaticHost) (*backend, error) {
 	s := cfg.S3
 	st, err := objstore.New(objstore.Config{Endpoint: s.Endpoint, Bucket: s.Bucket, AccessKey: sec.S3AccessKey, SecretKey: sec.S3SecretKey,
-		MaxConns: s.MaxConns, OpTimeout: s.OpTimeout.Duration, StallTimeout: s.StallTimeout.Duration, Logger: log})
+		MaxConns: s.MaxConns, OpTimeout: s.OpTimeout.Duration, StallTimeout: s.StallTimeout.Duration, Logger: log,
+		Secure: s.Secure, CAFile: s.CAFile})
 	if err != nil {
 		return nil, err
 	}
-	bc := s.breakerConfig() // zero fields: Release It §P S3 sheet
-	bc.OnChange = breakerLog(log, "s3")
+	bc := s.Breaker.config() // zero fields: Release It §P S3 sheet
+	bc.OnChange = logx.BreakerLog(log, "s3")
 	b, err := breaker.New(bc)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot create the S3 breaker")
@@ -80,13 +84,14 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	}
 	fail := func(err error) (*backend, error) {
 		d.host.Close()
+		d.closePlacement()
 		return nil, err
 	}
 	fs, err := owner.NewFileStore(cfg.OwnerDir)
 	if err != nil {
 		return fail(err)
 	}
-	if d.place, err = file.Open(cfg.PlacementDir); err != nil {
+	if d.place, err = d.openPlacement(sec); err != nil {
 		return fail(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
@@ -107,8 +112,47 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		},
 		background: []func(context.Context){d.reconcile, d.maintain, d.runProbe},
 		close:      d.close,
-		abort:      func() { d.host.Close(); canary.Close() },
+		abort:      func() { d.host.Close(); canary.Close(); d.closePlacement() },
+		breakers:   d.breakers(), // the admin endpoints' breakers, by name: "s3", and "placement" with Postgres
+		host:       d.host,
 	}, nil
+}
+
+// openPlacement opens the configured authority: the single-node file adapter, or Postgres (CP-4). The
+// Postgres pool connects lazily, so the authority being down does not stop startup: keys stay unreconciled
+// (unavailable) until it answers (Release It H1). Its breaker is "placement" in the metrics.
+func (d *durableAgent) openPlacement(sec *Secrets) (owner.Placement, error) {
+	c := d.cfg.PlacementPG
+	if c == nil {
+		return file.Open(d.cfg.PlacementDir)
+	}
+	if sec.PGDSN == "" {
+		return nil, errs.Wrap(module, nil, "secrets_file: pg_dsn is required with placement_pg")
+	}
+	bc := c.Breaker.config()
+	bc.OnChange = logx.BreakerLog(d.log, "placement")
+	p, err := pg.Open(pg.Config{DSN: sec.PGDSN, AppName: "agentd/" + d.cfg.VM, Schema: c.Schema, MaxConns: c.MaxConns, Breaker: bc})
+	if err != nil {
+		return nil, err
+	}
+	d.pg = p
+	return p, nil
+}
+
+// closePlacement closes the Postgres pool, if any (after the host: nothing calls the authority any more).
+func (d *durableAgent) closePlacement() {
+	if d.pg != nil {
+		d.pg.Close()
+	}
+}
+
+// breakers are the remote dependencies' breakers by name: "s3", and "placement" with Postgres.
+func (d *durableAgent) breakers() map[string]*breaker.Breaker {
+	m := map[string]*breaker.Breaker{"s3": d.s3b}
+	if d.pg != nil {
+		m["placement"] = d.pg.Breaker()
+	}
+	return m
 }
 
 // readyCheck passes once the first reconcile round finished: every key was tried once (Release It H1).
@@ -157,14 +201,16 @@ func (d *durableAgent) close(ctx context.Context) error {
 	} else {
 		d.log.Info("host closed", attrs...)
 	}
-	return errors.Join(err, d.canary.Shutdown(ctx))
+	err = errors.Join(err, d.canary.Shutdown(ctx))
+	d.closePlacement()
+	return err
 }
 
 // register adds durable mode's metric families: S3 requests, the S3 breaker, the host, ownership transitions
 // and the S3 probe (Release It O1).
 func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
-	breakerMetrics(reg, map[string]*breaker.Breaker{"s3": d.s3b}) // "placement" joins at CP-3
+	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
 	d.events.register(reg)
 	d.probe.register(reg)

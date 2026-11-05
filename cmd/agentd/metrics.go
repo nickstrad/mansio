@@ -5,12 +5,10 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
@@ -160,45 +158,6 @@ func toUint(c []int64) []uint64 {
 		out[i] = uint64(n)
 	}
 	return out
-}
-
-// breakerMetrics exposes a breaker's state (one series per state, 1 for the current one) and its transitions.
-// One per remote dependency, with breakerLog as its Config.OnChange.
-func breakerMetrics(reg *metrics.Registry, deps map[string]*breaker.Breaker) {
-	reg.Add("tsdb_breaker_state", "Circuit breaker state per dependency (1 = current).", metrics.Gauge, func(e *metrics.Emit) {
-		now := time.Now()
-		for _, dep := range slices.Sorted(maps.Keys(deps)) {
-			b := deps[dep]
-			cur := b.State(now)
-			for _, s := range []breaker.State{breaker.Closed, breaker.Open, breaker.HalfOpen} {
-				v := 0.0
-				if s == cur {
-					v = 1
-				}
-				e.Value(metrics.Labels{"dep", dep, "state", s.String()}, v)
-			}
-		}
-	})
-	reg.Add("tsdb_breaker_transitions_total", "Circuit breaker state changes per dependency.", metrics.Counter, func(e *metrics.Emit) {
-		for _, dep := range slices.Sorted(maps.Keys(deps)) {
-			b := deps[dep]
-			e.Value(metrics.Labels{"dep", dep}, float64(b.Transitions()))
-		}
-	})
-}
-
-// breakerLog logs every transition of dep's breaker with a stable message code: <DEP>.BREAKER_OPEN (WARN),
-// <DEP>.BREAKER_HALF_OPEN and <DEP>.BREAKER_CLOSED (INFO) — e.g. S3.BREAKER_OPEN (Release It C4, O3).
-func breakerLog(log *slog.Logger, dep string) func(breaker.Transition) {
-	return func(t breaker.Transition) {
-		code := strings.ToUpper(dep) + ".BREAKER_" + strings.ToUpper(t.To.String())
-		level := slog.LevelInfo
-		if t.To == breaker.Open {
-			level = slog.LevelWarn
-		}
-		log.Log(context.Background(), level, "circuit breaker "+t.To.String(), "event", code, "dep", dep, "from", t.From.String(),
-			"calls", t.Calls, "failures", t.Failures)
-	}
 }
 
 // vactorMetrics exposes a virtual-actor host: Stats counters, Gauges, and the last maintenance tick (its

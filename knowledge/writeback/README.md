@@ -7,6 +7,7 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-05 (CP-4 agent side): [scoped S3 identities, TLS, -dev](2026-11-05-s3-scoped-identities.md): `agent` (Read+Write, no LIST, no bucket creation), `gc`, `bench` in `s3.json`; X12 passes on SeaweedFS 4.47; agentd needs nothing more than `agent`; plain-HTTP S3 needs `-dev` (OS-11).
 - 2026-11-05 (CP-8): [snapshot with the backup API](2026-11-05-backup-api-snapshot.md): on a reader in WAL
   mode, the write stall during a write-back drops from the snapshot time (149 ms at 128 MiB, 589 ms at 512 MiB)
   to ~1 ms; wbbench prints requests (4) and $10.80 per million write-backs (OS-08 leftovers).
