@@ -5,6 +5,8 @@
 //
 //	edge -config configs/edge/local.json [-addr-file path] [-check] [-dev]
 //
+// Routes come from the config's agents (static) or from controld's VM registry (registry: GET /v1/agents, polled).
+//
 // -dev allows plain HTTP on either hop: to clients (no tls section; h1 + h2c) and to agents (http:// URLs).
 // Without it both hops must be TLS. The lifecycle listener (health_listen) serves /livez, /readyz (503 once
 // draining) and /metrics, never behind queries.
@@ -104,8 +106,12 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 			return rep.report(err)
 		}
 	}
+	resolver, registry, err := cfg.resolver(ctx, log)
+	if err != nil {
+		return rep.report(err)
+	}
 	e, err := edge.New(edge.Config{
-		Resolver:  edge.StaticRoutes(cfg.Agents),
+		Resolver:  resolver,
 		Gate:      edge.NewGate(keys, cfg.ClockSkew.Duration, cfg.MaxTicketTTL.Duration, cfg.TicketCache),
 		Limiter:   ratelimit.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
 		Transport: tr, VerifySlots: cfg.VerifySlots, AgentInFlight: cfg.AgentInFlight, Breaker: cfg.AgentBreaker.config(),
@@ -117,8 +123,11 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		return rep.report(err)
 	}
 	if *check {
-		fmt.Fprintf(stderr, "config ok: %d agents (%s), %d keys, tls %v\n", len(cfg.Agents),
-			strings.Join(slices.Sorted(maps.Keys(cfg.Agents)), ", "), len(keys.KIDs()), cfg.TLS != nil)
+		routes := fmt.Sprintf("%d agents (%s)", len(cfg.Agents), strings.Join(slices.Sorted(maps.Keys(cfg.Agents)), ", "))
+		if registry != nil {
+			routes = fmt.Sprintf("registry %s: %d agents", cfg.Registry.URL, registry.Len())
+		}
+		fmt.Fprintf(stderr, "config ok: %s, %d keys, tls %v\n", routes, len(keys.KIDs()), cfg.TLS != nil)
 		return exitOK
 	}
 	if ctx.Err() != nil {
@@ -129,12 +138,21 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	e.Register(reg)
 	if fetcher != nil {
 		fetcher.Register(reg, "edge")
-		fctx, stopFetch := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		go func() { fetcher.Run(fctx); close(done) }()
-		defer func() { stopFetch(); <-done }()
+		defer background(fetcher.Run)()
+	}
+	if registry != nil {
+		registry.Register(reg)
+		defer background(registry.Run)()
 	}
 	return serve(ctx, cfg, e, reg, tlsCfg, log, *addrFile, rep, stderr)
+}
+
+// background runs run until the returned stop is called; stop waits for it to return.
+func background(run func(context.Context)) (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { run(ctx); close(done) }()
+	return func() { cancel(); <-done }
 }
 
 // serve runs both listeners until ctx ends, then shuts down within shutdown_budget: drain (readiness fails, new
@@ -174,7 +192,7 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 		}
 	}
 	log.Info("serving", "event", "EDGE.SERVING", "addr", ln.Addr().String(), "health_addr", hl.Addr().String(),
-		"agents", len(cfg.Agents), "tls", tlsCfg != nil, "dev", cfg.Dev)
+		"agents", len(cfg.Agents), "registry", cfg.Registry != nil, "tls", tlsCfg != nil, "dev", cfg.Dev)
 	fmt.Fprintf(stderr, "edge: serving on %s\n", ln.Addr())
 
 	var serveErr error

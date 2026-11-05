@@ -278,6 +278,9 @@ type Secrets struct {
 	// PGReplicaDSN, if set, is a read replica the locator reads placement from (stale is safe; min_epoch
 	// and notified keys read the primary). Default: the primary.
 	PGReplicaDSN string `json:"pg_replica_dsn"`
+	// EdgeToken, if set (at least 16 characters), is the edges' token for GET /v1/agents (the VM registry's
+	// query endpoints). Without it that endpoint is off.
+	EdgeToken string `json:"edge_token"`
 }
 
 const minToken = 16
@@ -306,8 +309,9 @@ func loadSecrets(path string) (*Secrets, error) {
 	switch {
 	case s.PGDSN == "" || s.S3AccessKey == "" || s.S3SecretKey == "":
 		return nil, errs.Wrap(module, nil, "secrets_file %s: pg_dsn, s3_access_key and s3_secret_key are required", path)
-	case len(s.ControlToken) < minToken || len(s.AdminToken) < minToken:
-		return nil, errs.Wrap(module, nil, "secrets_file %s: control_token and admin_token must be at least %d characters", path, minToken)
+	case len(s.ControlToken) < minToken || len(s.AdminToken) < minToken || s.EdgeToken != "" && len(s.EdgeToken) < minToken:
+		return nil, errs.Wrap(module, nil, "secrets_file %s: control_token, admin_token and edge_token (if set) must be at least %d characters",
+			path, minToken)
 	}
 	return &s, nil
 }

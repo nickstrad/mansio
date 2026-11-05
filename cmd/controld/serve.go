@@ -43,6 +43,7 @@ type daemon struct {
 	ctl    *control.Controller
 	agents map[string]*agenthttp.Client
 	token  string // the API's admin token
+	edge   string // the edges' token for GET /v1/agents; "" = off
 	sem    chan struct{}
 
 	ready      atomic.Bool // schema migrated and agents registered
@@ -119,7 +120,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		p.Close()
 		return nil, err
 	}
-	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken,
+	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
 		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,

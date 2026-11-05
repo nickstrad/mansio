@@ -27,6 +27,9 @@ import (
 // api_concurrency at once (more are refused 503 at once, never queued; Release It T1, B1). Answers are JSON:
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
 //
+// GET /v1/agents (Bearer <edge_token>, only when the secrets set one) answers {"code":"ok","agents":{vm: endpoint}}
+// for every VM not attested dead.
+//
 //	code         | status | meaning
 //	-------------+--------+---------------------------------------------------------------------------
 //	bad_request  | 400    | malformed body, tenant, name or key
@@ -43,6 +46,9 @@ import (
 //	timeout      | 504    | api_timeout passed; the flow is recorded and resumes (call again to follow it)
 //	internal     | 500    | a bug; report the log_id
 const maxBody = 4 << 10
+
+// maxAgents bounds GET /v1/agents (Release It B6): more VMs than any deployment of this design.
+const maxAgents = 10_000
 
 func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	mux := http.NewServeMux()
@@ -89,6 +95,20 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	mux.HandleFunc("GET /v1/vms", d.handle("", func(ctx context.Context, r *http.Request) (any, error) {
 		return d.ctl.Registry.Load(ctx, 1000)
 	}))
+	if d.edge != "" {
+		// The edges' resolver (edge.RegistryRoutes): every VM not attested dead → its query endpoint.
+		mux.HandleFunc("GET /v1/agents", d.handleAs(d.edge, "edge", "", func(ctx context.Context, r *http.Request) (any, error) {
+			vms, err := d.pg.Load(ctx, maxAgents)
+			if err != nil {
+				return nil, err
+			}
+			agents := make(map[string]string, len(vms))
+			for _, v := range vms {
+				agents[v.VM] = v.Endpoint
+			}
+			return map[string]any{"code": "ok", "agents": agents}, nil
+		}))
+	}
 	mux.HandleFunc("POST /v1/vms/{vm}/attest-dead", d.handle("attest-dead", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ By string }
 		if err := decode(r, &req); err != nil {
@@ -142,10 +162,15 @@ func decode(r *http.Request, v any) error {
 // handle runs fn under the admin identity, a slot and the API deadline, and writes its answer. A named
 // action (not "") is logged once when it succeeds.
 func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
+	return d.handleAs(d.token, "admin", action, fn)
+}
+
+// handleAs is handle for the holder of token (named who in the refusal).
+func (d *daemon) handleAs(token, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(d.token)) != 1 {
-			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, "admin token required", false})
+		if !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(token)) != 1 {
+			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
 		d.call(w, r, d.sem, nil, d.cfg.APITimeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {

@@ -122,6 +122,26 @@ func TestLocatorGate(t *testing.T) {
 	}
 	waitListening(t, c)
 
+	// The edges' VM registry (GET /v1/agents, edge_token only).
+	agentsAs := func(token string) (int, map[string]string) {
+		req, _ := http.NewRequest(http.MethodGet, c.api+"/v1/agents", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out struct{ Agents map[string]string }
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out.Agents
+	}
+	if code, agents := agentsAs(edgeToken); code != 200 || agents["vm-a"] != c.agents["vm-a"].query || agents["vm-b"] != c.agents["vm-b"].query {
+		t.Fatalf("GET /v1/agents: %d %v", code, agents)
+	}
+	if code, _ := agentsAs(adminToken); code != 401 {
+		t.Fatalf("GET /v1/agents with the admin token: %d", code)
+	}
+
 	// Answers other than ok.
 	var other map[string]string
 	c.call("POST", "/v1/tenants/other/api-keys", map[string]string{"principal": "x", "perms": "read"}, &other)

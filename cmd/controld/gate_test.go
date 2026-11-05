@@ -37,6 +37,7 @@ import (
 const (
 	controlToken = "gate-control-token-0123456789"
 	adminToken   = "gate-admin-token-0123456789"
+	edgeToken    = "gate-edge-token-0123456789"
 )
 
 var iss = tickettest.NewIssuer("k1")
@@ -172,7 +173,8 @@ func (c *cluster) startControld() {
 		a := c.agents[vm]
 		agents = append(agents, fmt.Sprintf(`{"vm":%q,"endpoint":%q,"lifecycle":"http://%s"}`, vm, a.query, a.life))
 	}
-	sec, _ := json.Marshal(Secrets{PGDSN: c.dsn, ControlToken: controlToken, AdminToken: adminToken, S3AccessKey: "gc", S3SecretKey: "gc-secret-dev"})
+	sec, _ := json.Marshal(Secrets{PGDSN: c.dsn, ControlToken: controlToken, AdminToken: adminToken, S3AccessKey: "gc", S3SecretKey: "gc-secret-dev",
+		EdgeToken: edgeToken})
 	c.secrets = filepath.Join(c.dir, "controld-secrets.json")
 	os.WriteFile(c.secrets, sec, 0o600)
 	listen := c.controldAddr

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseConfigDefaultsAndPaths(t *testing.T) {
@@ -44,6 +45,21 @@ func TestParseConfigProblems(t *testing.T) {
 		!strings.Contains(err.Error(), "control_ca_file needs an https keys_url") {
 		t.Errorf("control_ca_file with a plain keys_url: %v", err)
 	}
+	for body, want := range map[string]string{
+		`{"keys_file":"k","agents":{"a":"https://a:1"},"registry":{"url":"https://c/v1/agents","token_file":"t"}}`: "exclusive",
+		`{"keys_file":"k","registry":{"url":"c:1"}}`:                                                               "registry.url",
+		`{"keys_file":"k","registry":{"url":"https://c/v1/agents"}}`:                                               "token_file is required",
+		`{"keys_file":"k","registry":{"url":"https://c/v1/agents","token_file":"t","timeout":"10s"}}`:              "timeout shorter",
+		`{"keys_file":"k","registry":{"url":"https://c/v1/agents","token_file":"t","agent_scheme":"tcp"}}`:         "agent_scheme",
+	} {
+		if _, err := parseConfig(strings.NewReader(body), "."); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", body, err, want)
+		}
+	}
+	if c, err := parseConfig(strings.NewReader(`{"keys_file":"k","control_ca_file":"ca.pem","registry":{"url":"https://c/v1/agents","token_file":"t"}}`), "/etc"); err != nil ||
+		c.Registry.Refresh.Duration != 10*time.Second || c.Registry.AgentScheme != "https" || c.Registry.TokenFile != "/etc/t" {
+		t.Errorf("registry defaults: %+v %v", c, err)
+	}
 	if _, err := parseConfig(strings.NewReader(`{"surprise":1}`), "."); err == nil {
 		t.Error("unknown field accepted")
 	}
@@ -65,6 +81,9 @@ func TestCheckDev(t *testing.T) {
 		{"http agent, dev", Config{TLS: tlsOn, Dev: true, Agents: map[string]string{"b": "http://b:1"}}, true, ""},
 		{"http keys_url", Config{TLS: tlsOn, KeysURL: "http://c/v1/keys", Agents: map[string]string{"a": "https://a:1"}}, false, "keys_url is plain HTTP"},
 		{"http keys_url, dev", Config{Dev: true, KeysURL: "http://c/v1/keys", Agents: map[string]string{"a": "https://a:1"}}, true, ""},
+		{"http registry", Config{TLS: tlsOn, Registry: &Registry{URL: "http://c/v1/agents", AgentScheme: "https"}}, false, "registry.url is plain HTTP"},
+		{"http registry agents", Config{TLS: tlsOn, Registry: &Registry{URL: "https://c/v1/agents", AgentScheme: "http"}}, false, "1 agent URLs are plain http"},
+		{"registry over tls", Config{TLS: tlsOn, Registry: &Registry{URL: "https://c/v1/agents", AgentScheme: "https"}}, true, ""},
 		{"unused ca", Config{Dev: true, AgentTLS: AgentTLS{CAFile: "ca"}, Agents: map[string]string{"b": "http://b:1"}}, false, "unused"},
 	} {
 		err := tc.c.checkDev()
