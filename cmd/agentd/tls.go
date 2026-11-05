@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // TLSFiles is the query listener's server certificate and key (PEM). With it the listener speaks HTTPS, h2 and
@@ -20,11 +21,11 @@ func (c *Config) queryTLS() (*tls.Config, error) {
 	if c.TLS == nil {
 		return nil, nil
 	}
-	cert, err := tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
+	t, err := tlsx.ServerConfig(c.TLS.CertFile, c.TLS.KeyFile)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", c.TLS.CertFile)
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}, nil
+	return t, nil
 }
 
 // checkTLS refuses, without -dev, a query listener that clients off this host could reach in plain HTTP:

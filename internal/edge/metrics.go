@@ -3,7 +3,6 @@ package edge
 import (
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/front"
@@ -15,27 +14,26 @@ import (
 // count and breaker (the shared tsdb_breaker_* families, dep="agent:<vm>"). Catalog:
 // knowledge/front/2026-11-05-edge.md.
 func (e *Edge) Register(reg *metrics.Registry) {
-	type agentSnap struct {
-		inFlight    int
-		state       breaker.State
-		transitions uint64
-	}
-	var agents map[string]agentSnap
+	var agents map[string]int // vm → requests in flight
 	reg.OnScrape(func() {
-		now := time.Now()
 		e.mu.RLock()
-		agents = make(map[string]agentSnap, len(e.ups))
+		agents = make(map[string]int, len(e.ups))
 		for vm, u := range e.ups {
-			agents[vm] = agentSnap{len(u.slots), u.b.State(now), u.b.Transitions()}
+			agents[vm] = len(u.slots)
 		}
 		e.mu.RUnlock()
 	})
 	vms := func() []string { return slices.Sorted(maps.Keys(agents)) }
 	reg.Add("tsdb_requests_total", "Answers per integration point by outcome class and wire code (edge: answers the edge made itself).",
 		metrics.Counter, func(m *metrics.Emit) {
+			amb := e.st.ambiguous.Load()
 			for i, c := range front.Codes {
-				class := front.OutcomeClass(c, c == front.Expired) // the edge's expired answers are all ambiguous
-				m.Value(metrics.Labels{"point", "edge", "class", class, "code", string(c)}, float64(e.st.answers[i].Load()))
+				n := e.st.answers[i].Load()
+				if c == front.Expired {
+					m.Value(metrics.Labels{"point", "edge", "class", front.OutcomeClass(c, true), "code", string(c)}, float64(amb))
+					n -= amb
+				}
+				m.Value(metrics.Labels{"point", "edge", "class", front.OutcomeClass(c, false), "code", string(c)}, float64(n))
 			}
 		})
 	reg.Add("tsdb_edge_agent_answers_total", "Agent answers relayed by the edge, by HTTP status class.", metrics.Counter, func(m *metrics.Emit) {
@@ -79,23 +77,16 @@ func (e *Edge) Register(reg *metrics.Registry) {
 	})
 	reg.Add("tsdb_edge_agent_in_flight", "Requests in flight to each agent (its bulkhead in use).", metrics.Gauge, func(m *metrics.Emit) {
 		for _, vm := range vms() {
-			m.Value(metrics.Labels{"vm", vm}, float64(agents[vm].inFlight))
+			m.Value(metrics.Labels{"vm", vm}, float64(agents[vm]))
 		}
 	})
-	reg.Add("tsdb_breaker_state", "Circuit breaker state per dependency (1 = current).", metrics.Gauge, func(m *metrics.Emit) {
-		for _, vm := range vms() {
-			for _, s := range []breaker.State{breaker.Closed, breaker.Open, breaker.HalfOpen} {
-				v := 0.0
-				if s == agents[vm].state {
-					v = 1
-				}
-				m.Value(metrics.Labels{"dep", "agent:" + vm, "state", s.String()}, v)
-			}
+	metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker {
+		e.mu.RLock()
+		defer e.mu.RUnlock()
+		m := make(map[string]*breaker.Breaker, len(e.ups))
+		for vm, u := range e.ups {
+			m["agent:"+vm] = u.b
 		}
-	})
-	reg.Add("tsdb_breaker_transitions_total", "Circuit breaker state changes per dependency.", metrics.Counter, func(m *metrics.Emit) {
-		for _, vm := range vms() {
-			m.Value(metrics.Labels{"dep", "agent:" + vm}, float64(agents[vm].transitions))
-		}
+		return m
 	})
 }

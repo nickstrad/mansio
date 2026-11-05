@@ -73,8 +73,6 @@ func (l *SourceLimiter) Allow(src string, now time.Time) (ok bool, wait time.Dur
 func (b *bucket) refill(now time.Time, rate, burst float64) {
 	if dt := now.Sub(b.last); dt > 0 {
 		b.tokens = min(burst, b.tokens+dt.Seconds()*rate)
-	}
-	if now.After(b.last) {
 		b.last = now
 	}
 }

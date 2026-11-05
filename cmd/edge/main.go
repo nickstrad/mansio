@@ -142,26 +142,21 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, tlsCfg *tls.Config, l
 	}
 	protos := new(http.Protocols)
 	protos.SetHTTP1(true)
-	if tlsCfg != nil {
-		protos.SetHTTP2(true)
-	} else {
-		protos.SetUnencryptedHTTP2(true)
-	}
+	protos.SetHTTP2(tlsCfg != nil)
+	protos.SetUnencryptedHTTP2(tlsCfg == nil)
 	// No ReadTimeout/WriteTimeout: the edge sets per-request read and write deadlines itself (body read
 	// timeout; deadline + grace), as the agent does (h2 streams share a connection).
-	hs := &http.Server{Handler: e, Protocols: protos, TLSConfig: tlsCfg, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
+	hs := &http.Server{Handler: e, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	reg := metrics.NewRegistry()
 	e.Register(reg)
 	life := lifecycleServer(cfg, e, reg)
 	errc := make(chan error, 2)
-	go func() {
-		if tlsCfg != nil {
-			errc <- hs.ServeTLS(ln, "", "")
-		} else {
-			errc <- hs.Serve(ln)
-		}
-	}()
+	served := ln
+	if tlsCfg != nil {
+		served = tls.NewListener(ln, tlsCfg)
+	}
+	go func() { errc <- hs.Serve(served) }()
 	go func() { errc <- life.Serve(hl) }()
 	if addrFile != "" {
 		if err := os.WriteFile(addrFile, []byte(ln.Addr().String()+"\n"+hl.Addr().String()+"\n"), 0o644); err != nil {

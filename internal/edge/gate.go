@@ -56,7 +56,7 @@ func (g *Gate) Lookup(token string, now time.Time) (c ticket.Claims, hit bool, e
 		g.forget(token)
 		return ticket.Claims{}, false, nil
 	}
-	switch {
+	switch { // the same window as ticket.Verifier's checkTime (TestGateVerify/TestGateLookup pin the boundaries)
 	case !now.Before(time.Unix(e.c.EXP, 0).Add(g.skew)):
 		g.forget(token) // it will never be valid again
 		return ticket.Claims{}, true, ticket.ErrExpired

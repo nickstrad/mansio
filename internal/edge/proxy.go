@@ -75,14 +75,15 @@ type Edge struct {
 }
 
 type upstream struct {
-	vm, base, url string
-	b             *breaker.Breaker
-	slots         chan struct{}
+	base, url string
+	b         *breaker.Breaker
+	slots     chan struct{}
 }
 
 // counters are the edge's request stats; all atomics (the request path takes no lock for them).
 type counters struct {
 	answers                                      [len(front.Codes)]atomic.Int64 // answers the edge made, by code
+	ambiguous                                    atomic.Int64                   // of answers[Expired]: a write may have run
 	agent                                        [6]atomic.Int64                // agent answers by status/100
 	hits, misses, invalid, limited, verifyBusy   atomic.Int64
 	inFlight, inFlightHigh                       atomic.Int64
@@ -268,12 +269,11 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 
 	res, err := e.cfg.Transport.RoundTrip(out)
 	if err != nil {
-		switch {
-		case r.Context().Err() != nil: // the client left: says nothing about the agent
-			up.b.Done(p, e.cfg.Now(), breaker.Ignore)
-		default:
-			up.b.Done(p, e.cfg.Now(), breaker.Failure)
+		o := breaker.Failure
+		if r.Context().Err() != nil { // the client left: says nothing about the agent
+			o = breaker.Ignore
 		}
+		up.b.Done(p, e.cfg.Now(), o)
 		e.st.transportErrs.Add(1)
 		if wrote.Load() { // the agent may have run it
 			return answer{code: front.Expired, ambiguous: true, msg: "no answer from the agent; a write may have committed: retry with the same request_id"}, false
@@ -290,9 +290,14 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 		}
 	}
 	w.WriteHeader(res.StatusCode)
-	io.Copy(w, res.Body) // an error means the client or the agent left mid-body; nothing more to say
+	buf := copyBufs.Get().(*[]byte)
+	io.CopyBuffer(w, res.Body, *buf) // an error means the client or the agent left mid-body; nothing more to say
+	copyBufs.Put(buf)
 	return answer{}, true
 }
+
+// copyBufs are relay buffers: the h2 ResponseWriter has no ReadFrom, so io.Copy would allocate 32 KiB per answer.
+var copyBufs = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 
 // relayHeaders are the agent response headers the edge passes on (an allowlist: nothing else of the agent's
 // leaks to clients).
@@ -322,7 +327,7 @@ func (e *Edge) upstream(vm string) (*upstream, bool) {
 	}
 	b, err := breaker.New(bc)
 	assert.That(err == nil, "edge: breaker config was normalized in New: %v", err)
-	u = &upstream{vm: vm, base: base, url: strings.TrimSuffix(base, "/") + front.QueryPath, b: b,
+	u = &upstream{base: base, url: strings.TrimSuffix(base, "/") + front.QueryPath, b: b,
 		slots: make(chan struct{}, e.cfg.AgentInFlight)}
 	e.ups[vm] = u
 	return u, true
@@ -342,8 +347,12 @@ func (e *Edge) Breaker(vm string) (*breaker.Breaker, bool) {
 // answer writes an edge-made answer in the agent's wire format (front.Response), with Retry-After for the codes
 // that carry one: max(the Spec floor, the hint), capped at front.MaxRetryAfter.
 func (e *Edge) answer(w http.ResponseWriter, a answer) {
-	idx := codeIndex(a.code)
+	idx, ok := codeIndex[a.code]
+	assert.That(ok, "edge: unknown code")
 	e.st.answers[idx].Add(1)
+	if a.ambiguous {
+		e.st.ambiguous.Add(1)
+	}
 	spec := front.Spec[a.code]
 	status := spec.Status
 	if a.status != 0 {
@@ -375,16 +384,14 @@ var defaultMessage = map[front.Code]string{
 	front.Internal:      "internal error",
 }
 
-// codeIndex is c's position in front.Codes.
-func codeIndex(c front.Code) int {
-	for i, k := range front.Codes {
-		if k == c {
-			return i
-		}
+// codeIndex is each code's position in front.Codes.
+var codeIndex = func() map[front.Code]int {
+	m := make(map[front.Code]int, len(front.Codes))
+	for i, c := range front.Codes {
+		m[c] = i
 	}
-	assert.That(false, "edge: unknown code %q", c)
-	return len(front.Codes) - 1
-}
+	return m
+}()
 
 // bearer extracts the token from "Bearer <token>"; anything else is "" (ticket_invalid). Same rule as the agent.
 func bearer(v string) string {

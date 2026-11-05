@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/load"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // Config is the edge's JSON config. Defaults are applied before decoding; unknown fields are errors. Relative
@@ -228,11 +228,11 @@ func (c *Config) checkDev() error {
 
 // serverTLS loads the client-facing certificate: TLS 1.2 or later, h2 and http/1.1 by ALPN.
 func (c *Config) serverTLS() (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(c.TLS.CertFile, c.TLS.KeyFile)
+	t, err := tlsx.ServerConfig(c.TLS.CertFile, c.TLS.KeyFile)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", c.TLS.CertFile)
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}, nil
+	return t, nil
 }
 
 // agentTransport is the one transport to every agent (it pools connections): dial and handshake bounded,
@@ -250,14 +250,11 @@ func (c *Config) agentTransport() (*http.Transport, error) {
 	if c.AgentTLS.CAFile == "" {
 		return t, nil
 	}
-	pem, err := os.ReadFile(c.AgentTLS.CAFile)
+	pool, err := tlsx.LoadPool(c.AgentTLS.CAFile)
 	if err != nil {
-		return nil, errs.Wrap(module, err, "cannot read agent_tls.ca_file").With("ca_file", c.AgentTLS.CAFile)
+		return nil, errs.Wrap(module, err, "cannot load agent_tls.ca_file").With("ca_file", c.AgentTLS.CAFile)
 	}
-	t.TLSClientConfig.RootCAs = x509.NewCertPool()
-	if !t.TLSClientConfig.RootCAs.AppendCertsFromPEM(pem) {
-		return nil, errs.Wrap(module, nil, "agent_tls.ca_file %s holds no PEM certificate", c.AgentTLS.CAFile).With("ca_file", c.AgentTLS.CAFile)
-	}
+	t.TLSClientConfig.RootCAs = pool
 	return t, nil
 }
 

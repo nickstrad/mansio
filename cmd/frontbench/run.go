@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +27,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/schema"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 	"github.com/nickstrad/ts-db-go/internal/workload"
 )
 
@@ -269,13 +269,9 @@ func httpTarget(f runFlags, toks []string) (target, func(), error) {
 		tr.ForceAttemptHTTP2 = true
 	}
 	if f.ca != "" {
-		pem, err := os.ReadFile(f.ca)
+		pool, err := tlsx.LoadPool(f.ca)
 		if err != nil {
-			return nil, nil, errs.Wrap(module, err, "cannot read -ca").With("path", f.ca)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, nil, errs.Wrap(module, nil, "-ca %s holds no PEM certificate", f.ca)
+			return nil, nil, errs.Wrap(module, err, "cannot load -ca").With("path", f.ca)
 		}
 		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
