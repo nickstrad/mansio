@@ -4,6 +4,7 @@ One line per topic folder or key note. Newest first within a section. Rules: `AG
 
 ## Topics
 
+- [control-plane plan](../docs/control-plane-plan.md): 2026-11-05 standing after writeback/fencing/front landed, the three flows (route, new db, place+warm cold db), and the build order to a client that reaches the right process. Owner: coordinator.
 - [front/](front/README.md): the agent's network front: Ed25519 tickets, per-tenant/per-db admission, `Admitter`/`Executor` ports, wire codes; pipeline −7% vs in-process actor, loopback HTTP ~7× slower; ticket verify 26 µs (cached 53 ns). Owner: front agent.
 - [writeback/](writeback/README.md): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; VACUUM INTO stalls writes ~0.8 GB/s; SeaweedFS conditional PUT documented but unverified. Owner: writeback agent.
 - [fencing/](fencing/README.md): single-owner fencing per database (`internal/owner`): epochs, durable local ACTIVE/FENCED, drain-then-write-back fence, storage stamp backstop, resumable moves; safety argument, Postgres placement note, Admit 9 ns. Owner: fencing agent.
