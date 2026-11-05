@@ -90,8 +90,12 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "%s%s conc=%d write=%.2f dbs=%d: %d req, %.0f ok/s, p50 %.0f µs, p99 %.0f µs, p99.9 %.0f µs, codes %v\n",
-		sum.Mode, map[bool]string{true: "/" + sum.Proto}[sum.Proto != ""], sum.Conc, sum.WriteFrac, sum.DBs, sum.Requests,
+	mode := sum.Mode
+	if sum.Proto != "" {
+		mode += "/" + sum.Proto
+	}
+	fmt.Fprintf(stdout, "%s conc=%d write=%.2f dbs=%d: %d req, %.0f ok/s, p50 %.0f µs, p99 %.0f µs, p99.9 %.0f µs, codes %v\n",
+		mode, sum.Conc, sum.WriteFrac, sum.DBs, sum.Requests,
 		sum.OKPerSec, sum.P50us, sum.P99us, sum.P999us, sum.Codes)
 	if f.out != "" {
 		b, _ := json.MarshalIndent(sum, "", "  ")
@@ -130,12 +134,12 @@ func newTarget(f runFlags) (target, func(), error) {
 			return nil, nil, err
 		}
 		keys := ticket.NewKeyRing(map[string]ed25519.PublicKey{kid: priv.Public().(ed25519.PublicKey)})
-		epochs := map[string]uint64{}
+		epochs := front.StaticAdmitter{}
 		for i := range f.dbs {
 			epochs[dbID(i)] = 1
 		}
 		srv := front.NewServer(front.Config{DefaultTimeout: f.timeout, MaxTimeout: f.timeout, StmtTimeout: f.timeout},
-			ticket.NewCache(ticket.Verifier{Keys: keys, VM: f.vm, Skew: 5 * time.Second}, 1<<16), staticAdmitter(epochs),
+			ticket.NewCache(ticket.Verifier{Keys: keys, VM: f.vm, Skew: 5 * time.Second}, 1<<16), epochs,
 			front.ActorExecutor{Host: host}, nil)
 		toks, err := tickets(f, kid, priv)
 		if err != nil {
@@ -185,15 +189,6 @@ func tickets(f runFlags, kid string, priv ed25519.PrivateKey) ([]string, error) 
 		out[i] = tok
 	}
 	return out, nil
-}
-
-type staticAdmitter map[string]uint64
-
-func (s staticAdmitter) Admit(db string, epoch uint64) (func(), error) {
-	if s[db] != epoch {
-		return nil, front.ErrWrongOwner
-	}
-	return func() {}, nil
 }
 
 func openActors(f runFlags) (*front.StaticHost, error) {

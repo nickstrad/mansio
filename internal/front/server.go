@@ -82,17 +82,16 @@ type Input struct {
 
 // Response is the JSON body of every answer.
 type Response struct {
-	Code         Code       `json:"code"`
-	RequestID    string     `json:"request_id,omitempty"`
-	Columns      []string   `json:"columns,omitempty"`
-	Rows         [][]any    `json:"rows,omitempty"`
-	Count        int64      `json:"count"`                    // rows returned (read) or affected (write)
-	Ambiguous    bool       `json:"ambiguous,omitempty"`      // expired write that may have committed
-	Message      string     `json:"message,omitempty"`        // fixed per code; bad_request explains the input
-	RetryAfterMS int        `json:"retry_after_ms,omitempty"` // same as the Retry-After header
-	LogID        string     `json:"log_id,omitempty"`         // internal: look it up in the agent's log
-	Timing       *Timing    `json:"timing,omitempty"`
-	Claims       *claimInfo `json:"-"` // for the transport's log line only
+	Code         Code     `json:"code"`
+	RequestID    string   `json:"request_id,omitempty"`
+	Columns      []string `json:"columns,omitempty"`
+	Rows         [][]any  `json:"rows,omitempty"`
+	Count        int64    `json:"count"`                    // rows returned (read) or affected (write)
+	Ambiguous    bool     `json:"ambiguous,omitempty"`      // expired write that may have committed
+	Message      string   `json:"message,omitempty"`        // fixed per code; bad_request explains the input
+	RetryAfterMS int      `json:"retry_after_ms,omitempty"` // same as the Retry-After header
+	LogID        string   `json:"log_id,omitempty"`         // internal: look it up in the agent's log
+	Timing       *Timing  `json:"timing,omitempty"`
 }
 
 // Timing says where the time went inside the agent (microseconds).
@@ -101,8 +100,6 @@ type Timing struct {
 	ExecUS  int64 `json:"exec_us"`  // executor call, including the actor's queue
 }
 
-type claimInfo struct{ tenant, sub string }
-
 // Output is the pipeline's answer plus what the transport needs to log it.
 type Output struct {
 	Status     int
@@ -110,6 +107,8 @@ type Output struct {
 	Resp       Response
 	Err        error  // the cause, for the log (never sent)
 	Stack      string // set when a panic was recovered
+	Tenant     string // from the verified ticket, for the log; "" before verification
+	Sub        string
 }
 
 // Handle runs one request through the pipeline. It never panics: a panic in a port is recovered and answered
@@ -150,10 +149,9 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	if err != nil {
 		return s.answer(req, nil, err)
 	}
-	info := &claimInfo{claims.TID, claims.Sub}
 	release, err := s.admitter.Admit(req.DB, claims.Epoch)
 	if err != nil {
-		return s.answer(req, info, err)
+		return s.answer(req, &claims, err)
 	}
 	assert.That(release != nil, "Admitter.Admit returned no error and no release")
 	defer release()
@@ -161,7 +159,7 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	t0 := time.Now()
 	slot, err := s.adm.Acquire(ctx, claims.TID, req.DB)
 	if err != nil {
-		return s.answer(req, info, err)
+		return s.answer(req, &claims, err)
 	}
 	defer slot()
 	t1 := time.Now()
@@ -169,7 +167,7 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	reply, err := s.exec.Exec(ctx, Call{Tenant: claims.TID, DB: req.DB, Epoch: claims.Epoch, Gen: claims.Gen, RequestID: req.RequestID, Kind: req.Kind,
 		SQL: req.SQL, Args: req.Args, Deadline: deadline, StmtTimeout: stmt, MaxRows: s.cfg.Limits.MaxRows})
 	t2 := time.Now()
-	out = s.answer(req, info, err)
+	out = s.answer(req, &claims, err)
 	out.Resp.Timing = &Timing{AdmitUS: t1.Sub(t0).Microseconds(), ExecUS: t2.Sub(t1).Microseconds()}
 	if err != nil {
 		return out
@@ -180,12 +178,15 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	return out
 }
 
-// answer builds the output for err (nil = ok) from the spec table.
-func (s *Server) answer(req Request, info *claimInfo, err error) Output {
+// answer builds the output for err (nil = ok) from the spec table. claims may be nil (not verified yet).
+func (s *Server) answer(req Request, claims *ticket.Claims, err error) Output {
 	code := Classify(err)
 	w := Spec[code]
 	out := Output{Status: w.Status, RetryAfter: w.RetryAfter, Err: err,
-		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: w.RetryAfter * 1000, Claims: info}}
+		Resp: Response{Code: code, RequestID: req.RequestID, Message: message[code], RetryAfterMS: w.RetryAfter * 1000}}
+	if claims != nil {
+		out.Tenant, out.Sub = claims.TID, claims.Sub
+	}
 	var bad *BadRequestError
 	if errors.As(err, &bad) {
 		out.Resp.Message = bad.Msg

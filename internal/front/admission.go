@@ -61,7 +61,7 @@ func (a *Admission) releaser(k dbKey) func() {
 	}
 }
 
-// Stats are the current totals across tenants.
+// AdmissionStats are the current totals across tenants.
 type AdmissionStats struct{ Tenants, DBs, InFlight, Queued int }
 
 // Stats scans the state once.

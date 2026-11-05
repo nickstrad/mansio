@@ -106,13 +106,13 @@ func bearer(v string) string {
 func (h *httpHandler) write(w http.ResponseWriter, r *http.Request, out Output) {
 	body, err := json.Marshal(out.Resp)
 	if err != nil { // e.g. a REAL that is ±Inf or NaN: JSON cannot carry it
-		req := Request{RequestID: out.Resp.RequestID}
-		out = h.s.answer(req, out.Resp.Claims, errs.Wrap("front", err, "cannot encode the result as JSON"))
-		body, _ = json.Marshal(out.Resp) // cannot fail: no rows
+		tenant, sub := out.Tenant, out.Sub
+		out = h.s.answer(Request{RequestID: out.Resp.RequestID}, nil, errs.Wrap("front", err, "cannot encode the result as JSON"))
+		out.Tenant, out.Sub = tenant, sub
 	}
 	if out.Resp.Code == Internal {
 		out.Resp.LogID = logx.NewID()
-		body, _ = json.Marshal(out.Resp)
+		body, _ = json.Marshal(out.Resp) // cannot fail: internal answers carry no rows
 		attrs := []slog.Attr{slog.String("log_id", out.Resp.LogID), slog.String("path", r.URL.Path),
 			slog.String("request_id", out.Resp.RequestID)}
 		if out.Err != nil {
@@ -125,8 +125,8 @@ func (h *httpHandler) write(w http.ResponseWriter, r *http.Request, out Output) 
 		if stack != "" {
 			attrs = append(attrs, slog.String("stack", stack))
 		}
-		if c := out.Resp.Claims; c != nil {
-			attrs = append(attrs, slog.String("tenant", c.tenant), slog.String("sub", c.sub))
+		if out.Tenant != "" {
+			attrs = append(attrs, slog.String("tenant", out.Tenant), slog.String("sub", out.Sub))
 		}
 		h.log.LogAttrs(context.Background(), slog.LevelError, "request failed (internal)", attrs...)
 	} else if out.Err != nil && h.log.Enabled(context.Background(), slog.LevelDebug) {

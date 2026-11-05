@@ -175,9 +175,8 @@ func (l *limiter) gc(k dbKey) {
 // checkTenant asserts the invariant for one tenant (O(its waiters); only with assertions enabled).
 func (l *limiter) checkTenant(tenant string) {
 	if assert.Enabled {
-		if err := l.tenantProblem(tenant); err != nil {
-			panic("assertion failed: limiter: " + err.Error())
-		}
+		err := l.tenantProblem(tenant)
+		assert.That(err == nil, "limiter: %v", err)
 	}
 }
 

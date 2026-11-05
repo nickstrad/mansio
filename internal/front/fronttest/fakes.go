@@ -9,15 +9,14 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/front"
 )
 
-// Admitter is a fake ownership port: databases have epochs; switches make it fail, block or panic.
+// Admitter is a fake ownership port: databases have epochs; switches make it fail, panic or break its contract.
 // It counts admissions and releases and fails the release check if one is called twice.
 type Admitter struct {
 	mu      sync.Mutex
 	epochs  map[string]uint64
-	Err     error         // returned by every Admit when set (e.g. front.ErrFenced)
-	Panic   bool          // Admit panics
-	Delay   time.Duration // Admit sleeps first
-	NoRel   bool          // return a nil release with a nil error (a broken adapter)
+	Err     error // returned by every Admit when set (e.g. front.ErrFenced)
+	Panic   bool  // Admit panics
+	NoRel   bool  // return a nil release with a nil error (a broken adapter)
 	admits  int
 	open    int
 	doubles int
@@ -43,12 +42,9 @@ func (a *Admitter) SetErr(err error) {
 // Admit implements front.Admitter.
 func (a *Admitter) Admit(db string, epoch uint64) (func(), error) {
 	a.mu.Lock()
-	delay, p, err, norel := a.Delay, a.Panic, a.Err, a.NoRel
+	p, err, norel := a.Panic, a.Err, a.NoRel
 	owned := a.epochs[db]
 	a.mu.Unlock()
-	if delay > 0 {
-		time.Sleep(delay)
-	}
 	if p {
 		panic("fronttest: Admitter panics on purpose")
 	}

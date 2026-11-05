@@ -103,7 +103,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		newEpochTable(dbs, cfg), front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}, nil)
+		epochs(dbs, cfg), front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}, nil)
 	return serve(ctx, cfg, srv, log, *addrFile, rep, stderr)
 }
 
@@ -247,12 +247,10 @@ func openLog(cfg *Config, stderr io.Writer) (*slog.Logger, func(), error) {
 	return logx.New(f, level), func() { f.Close() }, nil
 }
 
-// epochTable is the stand-in Admitter until fencing's owner store lands: each served database is owned at a
-// fixed epoch from the config. It tracks nothing in flight (release is a no-op).
-type epochTable map[string]uint64
-
-func newEpochTable(dbs []string, cfg *Config) epochTable {
-	t := epochTable{}
+// epochs is the stand-in ownership table until fencing's owner store is wired in: every served database at
+// default_epoch unless epochs overrides it.
+func epochs(dbs []string, cfg *Config) front.StaticAdmitter {
+	t := front.StaticAdmitter{}
 	for _, db := range dbs {
 		t[db] = cfg.DefaultEpoch
 		if e, ok := cfg.Epochs[db]; ok {
@@ -260,16 +258,6 @@ func newEpochTable(dbs []string, cfg *Config) epochTable {
 		}
 	}
 	return t
-}
-
-func (t epochTable) Admit(db string, epoch uint64) (func(), error) {
-	switch e, ok := t[db]; {
-	case !ok:
-		return nil, fmt.Errorf("%w: %s is not served here", front.ErrWrongOwner, db)
-	case e != epoch:
-		return nil, fmt.Errorf("%w: %s is at epoch %d, ticket has %d", front.ErrWrongOwner, db, e, epoch)
-	}
-	return func() {}, nil
 }
 
 // reporter classifies an error at the top level and reports it once (the cmd/sqlbench pattern): an outermost

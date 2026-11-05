@@ -155,7 +155,7 @@ func TestActorExecutorFailurePaths(t *testing.T) {
 
 func TestStaticHost(t *testing.T) {
 	h := front.NewStaticHost(map[string]*actor.Actor{})
-	if _, err := h.Lookup(context.Background(), "x"); !errors.Is(err, front.ErrUnknownDB) || h.Len() != 0 {
+	if _, err := h.Lookup(context.Background(), "x"); !errors.Is(err, front.ErrUnknownDB) {
 		t.Fatal(err)
 	}
 }

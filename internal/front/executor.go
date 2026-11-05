@@ -113,13 +113,6 @@ func (h *StaticHost) Lookup(_ context.Context, db string) (*actor.Actor, error) 
 	return a, nil
 }
 
-// Len is the number of databases served.
-func (h *StaticHost) Len() int {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.actors)
-}
-
 // Close closes every actor (queued requests get actor.ErrClosed → shed). Later Lookups are shed.
 func (h *StaticHost) Close() {
 	h.mu.Lock()

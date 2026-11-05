@@ -85,7 +85,7 @@ func TestKeygenSeedAndRunEveryMode(t *testing.T) {
 	}
 	defer host.Close()
 	srv := front.NewServer(front.Config{}, ticket.Verifier{Keys: ticket.NewKeyRing(keys), VM: "vm-local", Skew: time.Second},
-		staticAdmitter{"db-0": 1, "db-1": 1, "db-2": 1}, front.ActorExecutor{Host: host}, nil)
+		front.StaticAdmitter{"db-0": 1, "db-1": 1, "db-2": 1}, front.ActorExecutor{Host: host}, nil)
 	hs := httptest.NewServer(front.NewHandler(srv, slog.New(slog.DiscardHandler)))
 	defer hs.Close()
 	code, stdout, stderr := run(t, bg, append([]string{"run", "-mode", "http", "-url", hs.URL, "-key", filepath.Join(dir, "keys", "issuer.key")}, short...)...)

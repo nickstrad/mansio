@@ -33,7 +33,6 @@ type Executor struct {
 	Block bool
 	Panic bool
 	Err   error
-	calls int
 	last  front.Call
 }
 
@@ -57,13 +56,6 @@ func NewExecutor(dbs ...string) *Executor {
 	return e
 }
 
-// Calls counts Exec calls.
-func (e *Executor) Calls() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.calls
-}
-
 // Set changes switches under the lock: fn receives the executor.
 func (e *Executor) Set(fn func(*Executor)) {
 	e.mu.Lock()
@@ -74,7 +66,6 @@ func (e *Executor) Set(fn func(*Executor)) {
 // Exec implements front.Executor.
 func (e *Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
 	e.mu.Lock()
-	e.calls++
 	e.last = c
 	delay, block, p, ferr := e.Delay, e.Block, e.Panic, e.Err
 	e.mu.Unlock()

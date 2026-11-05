@@ -2,6 +2,7 @@ package front
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
@@ -16,6 +17,21 @@ type Admitter interface {
 	//	post: err != nil ⇒ errors.Is(err, ErrWrongOwner) (epoch mismatch, or db not owned here) or
 	//	      errors.Is(err, ErrFenced); anything else is reported as internal
 	Admit(db string, epoch uint64) (release func(), err error)
+}
+
+// StaticAdmitter owns each database in the map at that epoch and nothing else. It is the stand-in until fencing's
+// owner store is wired in; it tracks nothing in flight (release is a no-op).
+type StaticAdmitter map[string]uint64
+
+// Admit implements Admitter.
+func (s StaticAdmitter) Admit(db string, epoch uint64) (func(), error) {
+	switch e, ok := s[db]; {
+	case !ok:
+		return nil, fmt.Errorf("%w: %s is not served here", ErrWrongOwner, db)
+	case e != epoch:
+		return nil, fmt.Errorf("%w: %s is at epoch %d, ticket has %d", ErrWrongOwner, db, e, epoch)
+	}
+	return func() {}, nil
 }
 
 // Call is one unit of work for an Executor, already validated, authorized and admitted.
