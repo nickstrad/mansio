@@ -3,7 +3,9 @@ package objstore
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -33,12 +35,13 @@ import (
 //   - Retries (object-storage guide R1–R3): the GETs and the HEAD are retried while Transient; the PUTs are
 //     sent exactly once. A PUT that fails without an answer is ambiguous and says so; the caller re-reads.
 //     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
-//   - Upload integrity: the size is verified with a HEAD after the PUT, and the sha256 is recorded as
-//     x-amz-meta-sha256 (the manifest holds it too). The server does not check the hash: minio-go's
-//     AutoChecksum does not add x-amz-checksum-sha256 to this single streaming-signed PUT (seen in
-//     TestDurableStoreContractAgainstFakeS3), and Checksum would need TrailingHeaders on the client. The
-//     V4 streaming signature covers each chunk, so the transport is protected; FetchGeneration re-hashes
-//     every download and fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
+//   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
+//     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
+//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. The
+//     size is also verified with a HEAD after the PUT, and the sha256 is recorded as x-amz-meta-sha256 (the
+//     manifest holds it too); the server does not check that one (minio-go's AutoChecksum does not add
+//     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
+//     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
 type Durable struct {
 	s    *Store
 	root string
@@ -97,12 +100,16 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 		return wrap(err, "cannot upload %s; nothing uploaded, safe to retry", name)
 	}
 	defer f.Close()
-	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", DisableMultipart: true,
+	sum, err := d.s.md5File(f)
+	if err != nil {
+		return wrap(err, "cannot upload %s: reading %s failed; nothing uploaded, safe to retry", name, path)
+	}
+	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3",
 		UserMetadata: map[string]string{"sha256": dg.SHA256}}
 	opts.SetMatchETagExcept("*") // create-only
 	err = d.s.sendOnce(ctx, OpPutGen, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.transferTime(dg.Size))
-		_, err := d.s.c.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, opts)
+		_, err := d.s.core.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, sum, "", opts)
 		return a.end(err)
 	})
 	if err != nil {
@@ -193,7 +200,8 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		return durable.NoVersion, wrap(durable.ErrStale, "cannot publish %s: version is %q, caller read %q; nothing changed", name, v, prev)
 	}
 	b := durable.Encode(m)
-	opts := minio.PutObjectOptions{ContentType: "application/json", DisableMultipart: true}
+	sum := md5.Sum(b)
+	opts := minio.PutObjectOptions{ContentType: "application/json"}
 	if prev == durable.NoVersion {
 		opts.SetMatchETagExcept("*")
 	} else {
@@ -203,7 +211,8 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 	err = d.s.sendOnce(ctx, OpPublish, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
 		var err error
-		info, err = d.s.c.PutObject(a.ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)), opts)
+		info, err = d.s.core.PutObject(a.ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)),
+			base64.StdEncoding.EncodeToString(sum[:]), "", opts)
 		return a.end(err)
 	})
 	if err != nil {

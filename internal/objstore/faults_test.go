@@ -441,3 +441,51 @@ func s3Store2(t *testing.T, ep string) *objstore.Store {
 	}
 	return st
 }
+
+// OS-07: a byte flipped in flight makes the server reject the PUT (Content-MD5 → BadDigest, Permanent), and
+// no object exists afterwards. The flip lands in the body: 32 KiB into the request, past the headers.
+func TestFlippedUploadByteIsRejectedByTheServer(t *testing.T) {
+	r := newRig(t, objstore.Config{})
+	data := bytes.Repeat([]byte("a"), 64<<10)
+	path := filepath.Join(t.TempDir(), "src")
+	os.WriteFile(path, data, 0o644)
+	r.proxy.Set(faultnet.FlipByteAt(32<<10), 0)
+	d := r.fresh(t)
+	err := d.PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
+	wantKind(t, err, objstore.Permanent)
+	if _, ok := r.fake.Object("bkt", durable.GenObject("k", 1)); ok {
+		t.Fatal("a corrupted upload was stored")
+	}
+	r.proxy.Heal()
+	if err := r.fresh(t).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data)); err != nil {
+		t.Fatalf("clean upload after the flip: %v", err)
+	}
+}
+
+// Against SeaweedFS (gated): the same flip is rejected and nothing is stored.
+func TestS3FlippedUploadByteIsRejected(t *testing.T) {
+	ep := s3Endpoint(t)
+	p, err := faultnet.New(ep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	root := "test-" + logx.NewID() + "/"
+	direct := objstore.NewDurable(s3Store(t, ep), root)
+	t.Cleanup(func() { s3Store(t, ep).DeletePrefix(context.Background(), root) })
+	data := bytes.Repeat([]byte("a"), 64<<10)
+	path := filepath.Join(t.TempDir(), "src")
+	os.WriteFile(path, data, 0o644)
+	p.Set(faultnet.FlipByteAt(32<<10), 0)
+	err = objstore.NewDurable(s3Store2(t, p.Addr()), root).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
+	// SeaweedFS 4.47 answers 500 InternalError here (Transient), not BadDigest: the flipped byte also breaks
+	// the chunk signature of the streaming-signed body. Either way it is rejected and the PUT is not re-sent.
+	if err == nil {
+		t.Fatal("a corrupted upload was accepted")
+	}
+	t.Logf("SeaweedFS answer to a flipped body byte (%v): %v", objstore.Classify(err), err)
+	m := durable.NextManifest("k", 1, 1, durabletest.DigestOf(data), time.Now())
+	if _, err := direct.FetchGeneration(context.Background(), m, filepath.Join(t.TempDir(), "db")); !errors.Is(err, durable.ErrNotFound) {
+		t.Fatalf("after a rejected upload, fetch err = %v, want ErrNotFound", err)
+	}
+}

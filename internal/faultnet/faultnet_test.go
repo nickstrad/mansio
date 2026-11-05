@@ -219,3 +219,25 @@ func TestCloseEndsHeldConnections(t *testing.T) {
 		t.Fatal("closed proxy still accepts")
 	}
 }
+
+func TestFlipByteCorruptsOneRequestByte(t *testing.T) {
+	for _, off := range []int64{0, 5, 9} {
+		p, _ := newProxy(t)
+		p.Set(faultnet.FlipByteAt(off), 0)
+		msg := []byte("0123456789")
+		got, err := roundTrip(dial(t, p), msg, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range msg {
+			if flipped := got[i] != msg[i]; flipped != (int64(i) == off) || flipped && got[i] != msg[i]^0xff {
+				t.Fatalf("offset %d: got %q", off, got)
+			}
+		}
+	}
+	p, _ := newProxy(t)
+	p.Set(faultnet.FlipByteAt(10), 0) // off point: just past the message
+	if got, err := roundTrip(dial(t, p), []byte("0123456789"), time.Second); err != nil || string(got) != "0123456789" {
+		t.Fatalf("got %q %v", got, err)
+	}
+}

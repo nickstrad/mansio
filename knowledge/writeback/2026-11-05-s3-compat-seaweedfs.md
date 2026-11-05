@@ -36,7 +36,11 @@ What this means:
   bytes" from "not rewritten" (the ABA case of guide rule W3). Our manifests always change bytes on publish
   (`WrittenAt`, and epoch or generation rise), so `If-Match` stays sound; a writer that republished identical
   bytes would not move the version.
-- X6: SeaweedFS enforces `Content-MD5`, so OS-07's server-side upload check works on this backend.
+- X6: SeaweedFS enforces `Content-MD5`, so OS-07's server-side upload check works on this backend. A byte
+  flipped in flight inside a streaming-signed (aws-chunked) upload is also rejected and nothing is stored,
+  but the answer is **500 InternalError**, not `BadDigest` (`TestS3FlippedUploadByteIsRejected`, through
+  `faultnet.FlipByteAt`): `Classify` says `Transient`. Harmless for us (PUTs are never re-sent; write-back
+  retries with a new generation), but a 500 here does not mean the store is unhealthy.
 - X11: create-only multipart completion works here, so generations over 5 GiB could use multipart on this
   backend. Not used yet; other backends need their own run.
 - Not covered: multi-node SeaweedFS (needs `deploy/seaweedfs-cluster/`, owned by coldload/writeback), MinIO,

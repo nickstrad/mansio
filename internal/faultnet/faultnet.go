@@ -27,17 +27,18 @@ const (
 	Latency                       // forward, sleeping Delay before each chunk in each direction
 	Throttle                      // forward at most Rate bytes/s in each direction
 	HalfOpen                      // stop forwarding and keep the sockets open; also freezes live connections
+	FlipByte                      // forward, inverting the byte at offset Bytes of the client → upstream stream
 )
 
 func (k Kind) String() string {
 	return [...]string{"pass", "refuse", "accept_then_silence", "blackhole", "reset_after", "latency",
-		"throttle", "half_open"}[k]
+		"throttle", "half_open", "flip_byte"}[k]
 }
 
 // Fault is a Kind with its parameter. Build one with the constructors below.
 type Fault struct {
 	Kind  Kind
-	Bytes int64         // ResetAfter
+	Bytes int64         // ResetAfter: reply bytes before the reset; FlipByte: request offset
 	Delay time.Duration // Latency
 	Rate  int64         // Throttle, bytes per second
 }
@@ -50,6 +51,7 @@ func ResetAfterBytes(n int64) Fault     { return Fault{Kind: ResetAfter, Bytes: 
 func Delayed(d time.Duration) Fault     { return Fault{Kind: Latency, Delay: d} }
 func Throttled(bytesPerSec int64) Fault { return Fault{Kind: Throttle, Rate: max(bytesPerSec, 1)} }
 func Frozen() Fault                     { return Fault{Kind: HalfOpen} }
+func FlipByteAt(offset int64) Fault     { return Fault{Kind: FlipByte, Bytes: offset} }
 
 // Proxy forwards connections from Addr to an upstream address, applying the current fault to each new
 // connection. Safe for concurrent use.
@@ -226,30 +228,22 @@ func (p *Proxy) handle(l *link, f Fault) {
 		return
 	default:
 	}
-	var budget atomic.Int64 // bytes left before ResetAfter fires
-	budget.Store(f.Bytes)
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); l.pipe(up, l.client, f, nil) }()
-	go func() {
-		defer wg.Done()
-		if f.Kind == ResetAfter {
-			l.pipe(l.client, up, f, &budget)
-		} else {
-			l.pipe(l.client, up, f, nil)
-		}
-	}()
+	go func() { defer wg.Done(); l.pipe(up, l.client, f, false) }()
+	go func() { defer wg.Done(); l.pipe(l.client, up, f, true) }()
 	wg.Wait()
 }
 
-// pipe copies src → dst chunk by chunk, applying f. budget (ResetAfter only) counts bytes left before the
-// link is reset.
-func (l *link) pipe(dst, src net.Conn, f Fault, budget *atomic.Int64) {
+// pipe copies src → dst chunk by chunk, applying f. reply says the direction is upstream → client (where
+// ResetAfter counts); FlipByte acts on the other direction, client → upstream.
+func (l *link) pipe(dst, src net.Conn, f Fault, reply bool) {
 	chunk := 32 << 10
 	if f.Kind == Throttle {
 		chunk = int(min(int64(chunk), max(f.Rate/20, 1))) // ~20 writes a second keeps the rate smooth
 	}
 	buf := make([]byte, chunk)
+	var off int64 // bytes forwarded so far in this direction
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
@@ -258,28 +252,26 @@ func (l *link) pipe(dst, src net.Conn, f Fault, budget *atomic.Int64) {
 				return
 			}
 			b := buf[:n]
-			switch f.Kind {
-			case Latency:
+			switch {
+			case f.Kind == Latency:
 				if !l.sleep(f.Delay) {
 					return
 				}
-			case Throttle:
+			case f.Kind == Throttle:
 				if !l.sleep(time.Duration(int64(n) * int64(time.Second) / f.Rate)) {
 					return
 				}
-			}
-			if budget != nil {
-				left := budget.Load()
-				if int64(n) >= left {
-					if left > 0 {
-						dst.Write(b[:left])
-					}
-					time.Sleep(10 * time.Millisecond) // let the bytes leave before the RST discards them
-					l.reset()
-					return
+			case f.Kind == ResetAfter && reply && off+int64(n) >= f.Bytes:
+				if left := f.Bytes - off; left > 0 {
+					dst.Write(b[:left])
 				}
-				budget.Add(-int64(n))
+				time.Sleep(10 * time.Millisecond) // let the bytes leave before the RST discards them
+				l.reset()
+				return
+			case f.Kind == FlipByte && !reply && off <= f.Bytes && f.Bytes < off+int64(n):
+				b[f.Bytes-off] ^= 0xff
 			}
+			off += int64(n)
 			if _, werr := dst.Write(b); werr != nil {
 				l.close()
 				return

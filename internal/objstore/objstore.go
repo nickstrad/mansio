@@ -9,6 +9,8 @@ package objstore
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash"
@@ -270,6 +272,20 @@ func (s *Store) writeFile(path string, r io.Reader, h hash.Hash) (int64, error) 
 		}
 	}
 	return n, f.Close()
+}
+
+// md5File returns the base64 MD5 of f's contents (a Content-MD5 value) and rewinds f.
+func (s *Store) md5File(f *os.File) (string, error) {
+	h := md5.New()
+	buf := s.getBuf()
+	defer s.putBuf(buf)
+	if _, err := io.CopyBuffer(struct{ io.Writer }{h}, struct{ io.Reader }{f}, buf); err != nil {
+		return "", err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
 // fill reads into buf until it is full or r fails; io.EOF is the clean end. Unlike io.ReadFull it keeps a
