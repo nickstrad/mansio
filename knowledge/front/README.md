@@ -18,6 +18,8 @@ Notes:
   the lifecycle endpoints (Claim, Fence, Forget, Health), the secrets file, and the CP-1 gate results.
 - [2026-11-05 agentd admin controls](2026-11-05-agentd-admin-controls.md) (CP-4, RI-16): `admin_listen` (loopback
   only), breaker trip/reset, fetch limit, drain, passivate, log level; `cmd/agentctl`; gate results.
+- [2026-11-05 locator](2026-11-05-locator.md) (CP-5, PG-10): resolve API, notified cache, API keys, rotating
+  ticket key ring, agentd key fetch; gate results.
 - [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed
   Retry-After estimate (RI-11).
 - Raw numbers: [2026-11-05-matrix/](2026-11-05-matrix/) (`matrix.txt`, `micro.txt`, one JSON per run).
