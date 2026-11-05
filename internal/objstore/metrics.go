@@ -15,7 +15,7 @@ const (
 	OpPutGen      = "put_gen"      // PUT a generation (create-only)
 	OpPublish     = "publish"      // PUT manifest.json (conditional)
 	OpHead        = "head"         // HEAD after an upload
-	OpList        = "list"         // one listing (all its pages)
+	OpList        = "list"         // one listing page
 	OpDelete      = "delete"       // one batch delete
 	OpGet         = "get"          // GetToFile
 	OpPut         = "put"          // PutFile

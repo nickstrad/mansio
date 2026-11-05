@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -251,4 +253,64 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		return durable.NoVersion, errs.Wrap(module, nil, "published %s but got no ETag; re-read before retrying", name)
 	}
 	return durable.Version(info.ETag), nil
+}
+
+var _ durable.GCStore = (*Durable)(nil)
+
+// DeleteGenerations deletes key's generation objects in batches of up to 1000 (guide GC5), after checking
+// every name is one (CheckDeletable, GC4).
+func (d *Durable) DeleteGenerations(ctx context.Context, key string, names []string) error {
+	if err := durable.CheckDeletable(key, names); err != nil {
+		return err
+	}
+	full := make([]string, len(names))
+	for i, n := range names {
+		full[i] = d.root + n
+	}
+	return d.s.Delete(ctx, full)
+}
+
+// ListKey lists KeyPrefix(key) page by page (GC and dbtool only, guide K2).
+func (d *Durable) ListKey(ctx context.Context, key string) (durable.Listing, error) {
+	var l durable.Listing
+	man, gen := durable.ManifestObject(key), durable.GenPrefix(key)
+	err := d.s.EachPage(ctx, d.root+durable.KeyPrefix(key), "", func(p Page) error {
+		for _, o := range p.Objects {
+			name := strings.TrimPrefix(o.Key, d.root)
+			so := durable.StoredObject{Name: name, Size: o.Size, Modified: o.Modified, Version: durable.Version(o.ETag)}
+			switch {
+			case name == man:
+				l.Manifest = &so
+			case strings.HasPrefix(name, gen):
+				l.Generations = append(l.Generations, so)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return durable.Listing{}, err
+	}
+	slices.SortFunc(l.Generations, func(a, b durable.StoredObject) int { return strings.Compare(a.Name, b.Name) })
+	return l, nil
+}
+
+// ListKeys lists the database keys of one shard ("dbs/<shard>/<escaped key>/"), one page at a time.
+// Prefixes that are not the canonical KeyPrefix of their unescaped key are not ours and are skipped.
+func (d *Durable) ListKeys(ctx context.Context, shard string, fn func(key string) error) error {
+	if !durable.ValidShard(shard) {
+		return errs.Wrap(module, nil, "cannot list shard %q: not two lower-case hex digits", shard)
+	}
+	base := d.root + "dbs/" + shard + "/"
+	return d.s.EachPage(ctx, base, "/", func(p Page) error {
+		for _, pre := range p.Prefixes {
+			key, err := url.PathUnescape(strings.TrimSuffix(strings.TrimPrefix(pre, base), "/"))
+			if err != nil || d.root+durable.KeyPrefix(key) != pre {
+				continue
+			}
+			if err := fn(key); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

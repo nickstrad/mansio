@@ -20,7 +20,10 @@
 // changed since it was read, or if the stored epoch is greater than the writer's. This package does not
 // decide ownership (internal/owner does); it only never lets a lower epoch overwrite a higher one.
 //
-// Domain code: the decisions here (CheckPublish, CheckStamp, NextManifest) are pure. Storage is reached
+// Generations do not pile up: owner-side retention and the orphan sweeper delete what no manifest can name
+// any more (gc.go: PlanRetention, PlanGC, Sweep; guide GC1–GC6).
+//
+// Domain code: the decisions here (CheckPublish, CheckStamp, NextManifest, PlanGC, PlanRetention) are pure. Storage is reached
 // through the Store port; durabletest has a fake and the contract suite, internal/objstore the S3 adapter.
 // WithBreaker guards any Store with a circuit breaker (internal/breaker): refused and failing calls are
 // ErrUnavailable (Release It C1–C3).
@@ -34,7 +37,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +152,14 @@ type Store interface {
 	//	post: err == nil ⇒ the stored manifest is m and v is its new version (v != prev, v != NoVersion)
 	//	post: other err ⇒ ambiguous: the publish may or may not have happened; re-read to find out
 	PublishManifest(ctx context.Context, m Manifest, prev Version) (v Version, err error)
+
+	// DeleteGenerations deletes the named generation objects of key, in batches (guide GC5). Deleting an
+	// object that does not exist is not an error. Only GC calls it, with names PlanGC or PlanRetention chose.
+	//
+	//	post: a name that is not one of key's generation objects ⇒ error, nothing deleted (CheckDeletable, GC4)
+	//	post: err == nil ⇒ none of names exists
+	//	post: other err ⇒ some may remain; safe to retry
+	DeleteGenerations(ctx context.Context, key string, names []string) error
 }
 
 // MaxKeyLen is the longest database key in bytes, for every package (internal/owner uses it too). An
@@ -187,17 +197,6 @@ func GenObject(key string, gen, epoch uint64) string {
 	return fmt.Sprintf("%sgen/%020d-e%020d.db", KeyPrefix(key), gen, epoch)
 }
 
-// objectEpoch returns the epoch in object if it is a GenObject name of key's generation gen.
-func objectEpoch(key string, gen uint64, object string) (uint64, bool) {
-	const digits = 20
-	rest, ok := strings.CutPrefix(object, fmt.Sprintf("%sgen/%020d-e", KeyPrefix(key), gen))
-	if !ok || len(rest) != digits+len(".db") || !strings.HasSuffix(rest, ".db") {
-		return 0, false
-	}
-	epoch, err := strconv.ParseUint(rest[:digits], 10, 64) // rejects signs, non-digits and overflow
-	return epoch, err == nil
-}
-
 // ManifestObject is the object name of key's manifest.
 func ManifestObject(key string) string { return KeyPrefix(key) + "manifest.json" }
 
@@ -233,7 +232,7 @@ func (m Manifest) Validate() error {
 		}
 		return nil
 	}
-	if e, ok := objectEpoch(m.Key, m.Generation, m.Object); !ok {
+	if g, e, ok := ParseGenObject(m.Key, m.Object); !ok || g != m.Generation {
 		return errs.Wrap(module, nil, "manifest of %s: object %q is not generation %d's name", m.Key, m.Object, m.Generation)
 	} else if e > m.Epoch {
 		return errs.Wrap(module, nil, "manifest of %s at epoch %d names %q, uploaded at the later epoch %d", m.Key, m.Epoch, m.Object, e)

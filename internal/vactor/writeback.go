@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,9 @@ type durableState struct {
 	lastGen  uint64            // highest generation this host tried to upload for the key
 	pending  *durable.Manifest // a publish or stamp of ours whose outcome we never learned (ambiguous error)
 	stranded bool              // passivation's write-back failed and the file could not be reopened
+	// published are the generation objects this entry saw published, oldest first: the current one and the
+	// ones owner-side retention has not deleted yet (guide GC2).
+	published []string
 
 	epoch      atomic.Uint64
 	pubCommits atomic.Uint64
@@ -87,6 +91,9 @@ func (h *Host) readManifest(ctx context.Context, key string, e *entry) (durable.
 		}
 	}
 	e.man, e.ver, e.lastGen = m, v, m.Generation
+	if m.Generation > 0 {
+		e.published = []string{m.Object}
+	}
 	return m, nil
 }
 
@@ -248,6 +255,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		}
 		return fail(err, "cannot write back %s: publishing generation %d failed or its reply was lost; database still warm, safe to retry", key, gen)
 	}
+	h.retain(ctx, key, e, next.Object)
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
 	now := h.opts.Now().UnixNano()
@@ -257,6 +265,29 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	h.bytesUploaded.Add(d.Size)
 	res.Wrote, res.Generation = true, gen
 	return res, nil
+}
+
+// retain is owner-side retention (object-storage guide GC2), right after obj was published: it deletes the
+// generations this entry published more than K publishes ago (durable.PlanRetention), by computed name with no
+// LIST. It runs under e.wb, the publish serialization, so it never races a publish of the key and a fence
+// drains it like one. A failed delete does not fail the write-back (it is published): the names are dropped
+// here and the orphan sweeper deletes them later.
+//
+//	pre: e.wb is held; obj is the object e.man now names
+func (h *Host) retain(ctx context.Context, key string, e *entry, obj string) {
+	if n := len(e.published); n == 0 || e.published[n-1] != obj {
+		e.published = append(e.published, obj)
+	}
+	keep, drop := durable.PlanRetention(e.published, h.opts.GC)
+	if len(drop) == 0 {
+		return
+	}
+	e.published = slices.Clone(keep)
+	if err := h.opts.Store.DeleteGenerations(ctx, key, drop); err != nil {
+		h.retentionFailures.Add(1)
+		return
+	}
+	h.generationsDeleted.Add(int64(len(drop)))
 }
 
 // holds reports whether the stored object name holds exactly the snapshot d: the re-read that settles an
@@ -449,7 +480,7 @@ func (h *Host) closedCopy(key string) (string, func(), error) {
 func (h *Host) reinstate(key string, e *entry) {
 	n := &entry{done: make(chan struct{})}
 	close(n.done)
-	n.man, n.ver, n.lastGen, n.pending = e.man, e.ver, e.lastGen, e.pending
+	n.man, n.ver, n.lastGen, n.pending, n.published = e.man, e.ver, e.lastGen, e.pending, e.published
 	n.epoch.Store(e.epoch.Load())
 	n.stale.Store(e.stale.Load())
 	n.lastUsed.Store(e.lastUsed.Load())

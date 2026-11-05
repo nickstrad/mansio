@@ -11,3 +11,7 @@ import (
 func TestFakeStoreContract(t *testing.T) {
 	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store { return durabletest.NewStore() })
 }
+
+func TestFakeGCStoreContract(t *testing.T) {
+	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore { return durabletest.NewStore() })
+}

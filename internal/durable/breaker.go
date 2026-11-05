@@ -99,6 +99,13 @@ func (g *guarded) PublishManifest(ctx context.Context, m Manifest, prev Version)
 	return v, err
 }
 
+func (g *guarded) DeleteGenerations(ctx context.Context, key string, names []string) error {
+	if err := CheckDeletable(key, names); err != nil {
+		return err // our own refusal says nothing about the store
+	}
+	return g.call(ctx, "delete generations of", key, func() error { return g.s.DeleteGenerations(ctx, key, names) })
+}
+
 // openError is a call the breaker refused.
 type openError struct{ wait time.Duration }
 

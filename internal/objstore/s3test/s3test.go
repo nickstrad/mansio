@@ -409,40 +409,61 @@ type listResult struct {
 	XMLName               xml.Name `xml:"ListBucketResult"`
 	Name                  string
 	Prefix                string
+	Delimiter             string `xml:",omitempty"`
 	KeyCount              int
 	MaxKeys               int
 	IsTruncated           bool
 	ContinuationToken     string `xml:",omitempty"`
 	NextContinuationToken string `xml:",omitempty"`
 	Contents              []listContent
+	CommonPrefixes        []commonPrefix
 }
 
-// listLocked is one ListObjectsV2 page, in key order. Called with s.mu held.
+type commonPrefix struct{ Prefix string }
+
+// listLocked is one ListObjectsV2 page, in key order. With a delimiter, keys below it fold into common
+// prefixes, which count toward max-keys and can be a continuation token. Called with s.mu held.
 func (s *Server) listLocked(bucket string, q url.Values) listResult {
 	get := q.Get
-	prefix, after := get("prefix"), max(get("start-after"), get("continuation-token"))
+	prefix, delim, after := get("prefix"), get("delimiter"), max(get("start-after"), get("continuation-token"))
 	maxKeys := 1000
 	if n, err := strconv.Atoi(get("max-keys")); err == nil && n > 0 && n < maxKeys {
 		maxKeys = n
 	}
-	var keys []string
+	folded := map[string]bool{} // entry → is a common prefix
 	for p := range s.objects {
-		if k, ok := strings.CutPrefix(p, "/"+bucket+"/"); ok && strings.HasPrefix(k, prefix) && k > after {
-			keys = append(keys, k)
+		k, ok := strings.CutPrefix(p, "/"+bucket+"/")
+		if !ok || !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		if i := strings.Index(k[len(prefix):], delim); delim != "" && i >= 0 {
+			folded[k[:len(prefix)+i+len(delim)]] = true
+		} else {
+			folded[k] = false
 		}
 	}
-	sort.Strings(keys)
-	res := listResult{Name: bucket, Prefix: prefix, MaxKeys: maxKeys, ContinuationToken: get("continuation-token")}
-	if len(keys) > maxKeys {
-		keys, res.IsTruncated = keys[:maxKeys], true
-		res.NextContinuationToken = keys[maxKeys-1]
+	var entries []string
+	for e := range folded {
+		if e > after {
+			entries = append(entries, e)
+		}
 	}
-	for _, k := range keys {
-		o := s.objects["/"+bucket+"/"+k]
-		res.Contents = append(res.Contents, listContent{Key: k, LastModified: o.mod.Format(time.RFC3339),
+	sort.Strings(entries)
+	res := listResult{Name: bucket, Prefix: prefix, Delimiter: delim, MaxKeys: maxKeys, ContinuationToken: get("continuation-token")}
+	if len(entries) > maxKeys {
+		entries, res.IsTruncated = entries[:maxKeys], true
+		res.NextContinuationToken = entries[maxKeys-1]
+	}
+	for _, e := range entries {
+		if folded[e] {
+			res.CommonPrefixes = append(res.CommonPrefixes, commonPrefix{e})
+			continue
+		}
+		o := s.objects["/"+bucket+"/"+e]
+		res.Contents = append(res.Contents, listContent{Key: e, LastModified: o.mod.Format(time.RFC3339),
 			ETag: `"` + ETag(o.data) + `"`, Size: int64(len(o.data)), StorageClass: "STANDARD"})
 	}
-	res.KeyCount = len(res.Contents)
+	res.KeyCount = len(entries)
 	return res
 }
 

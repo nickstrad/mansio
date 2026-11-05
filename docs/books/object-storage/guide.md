@@ -192,12 +192,15 @@ anything else.**
 retained predecessors.**
 - Why: an activation or a move fetches the generation the manifest names, and K gives point-in-time
   rollback (Ch 7, Ch 14).
-- Example: `durable.PlanGC` (OS-06) is pure and spec-tested at the boundary at K. Default K = 2.
+- Example: `durable.PlanGC` (OS-06) is pure and spec-tested at the boundary at K. Default K = 2. The
+  sweeper cannot tell a published predecessor from an orphan, so it keeps the K highest-numbered generations
+  below the current one; owner-side retention (`durable.PlanRetention`) keeps the K it published.
 
 **GC2. Owner-side retention runs under the same serialization as publish.**
 - Why: GC must never race the publisher it is trimming behind.
 - Example: delete G−K−1 right after a successful publish, while `e.wb` is held, so Fence drains it like a
-  publish. Use computed names, with no LIST.
+  publish. Use computed names, with no LIST (`vactor.Host.retain`). A failed delete never fails the
+  write-back; the sweeper gets the object later.
 
 **GC3. Delete an orphan only after the manifest has been rewritten since the orphan was uploaded, and
 only after a grace window.**
@@ -205,15 +208,18 @@ only after a grace window.**
   can never return (W3). The grace window bounds delayed requests. This is stronger than the book's
   "reachability manifest" (Ch 9), which works only if writers check that same object.
 - Example: `o.LastModified + grace < manifest.LastModified && now − o.LastModified > grace`, with
-  grace = 2 × `WriteBackTimeout`.
+  grace = 2 × `WriteBackTimeout`. `durable.Sweep` takes the manifest's LastModified from the listing and
+  skips the key if the listed version is not the one `ReadManifest` returns (it moved in between).
 
 **GC4. GC never writes the manifest, and never deletes from more than one key's prefix per decision.**
 - Why: a GC bug must not be able to fork a history or reach another database (K1).
 
 **GC5. Use batch deletes, measure them, and keep up.**
 - Why: GC that falls behind looks like a cost leak (Ch 14).
-- Example: delete in `RemoveObjects` batches. Report objects and bytes deleted per run, and bucket bytes
-  per database. Alert when bytes grow faster than (K+1) × size.
+- Example: `DeleteGenerations` deletes in `RemoveObjects` batches of up to 1000, and listings go one page at
+  a time (`objstore.ListPage`, `EachPage`). `durable.SweepResult` reports objects and bytes listed and
+  deleted per key; `Host.Stats` counts `GenerationsDeleted` and `RetentionFailures`. Alert when bytes grow
+  faster than (K+1) × size.
 
 **GC5a. Dropping a database: tombstone in placement first, then delete its prefix.**
 - Why: if the prefix goes first, a concurrent activation could recreate the database.

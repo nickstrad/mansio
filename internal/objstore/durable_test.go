@@ -62,11 +62,13 @@ func s3Store(t *testing.T, ep string) *objstore.Store {
 
 func runS3Suite(t *testing.T, ep string) {
 	st := s3Store(t, ep)
-	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
+	fresh := func(t *testing.T) *objstore.Durable {
 		root := "test-" + logx.NewID() + "/"
 		t.Cleanup(func() { st.DeletePrefix(context.Background(), root) })
 		return objstore.NewDurable(st, root)
-	})
+	}
+	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store { return fresh(t) })
+	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore { return fresh(t) })
 }
 
 // Runs without a store: every call against an unreachable endpoint is a wrapped objstore error, and never
@@ -125,6 +127,16 @@ func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 				}
 			}
 		})
+		return objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "root/")
+	})
+}
+
+// The inventory contract (OS-06: paged listing, shard listing with a delimiter, batch delete) against the
+// in-process S3.
+func TestDurableGCStoreContractAgainstFakeS3(t *testing.T) {
+	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore {
+		fake := s3test.New()
+		t.Cleanup(fake.Close)
 		return objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "root/")
 	})
 }

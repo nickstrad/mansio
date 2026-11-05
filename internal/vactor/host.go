@@ -160,6 +160,10 @@ type Options struct {
 	// WriteBackTimeout bounds each write-back that has no caller context (PassivateAll, Close) and each job of
 	// a maintenance tick. Default 5 min.
 	WriteBackTimeout time.Duration
+	// GC is owner-side retention (object-storage guide GC1, GC2): after each publish the host deletes the
+	// generations it published more than GC.Keep publishes ago (default 2; negative: keep none but the
+	// current). GC.Grace is unused here: it is the orphan sweeper's (durable.Sweep). Durable mode only.
+	GC durable.GCPolicy
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
 	// Now is the clock (tests). Default time.Now.
@@ -207,6 +211,11 @@ type Stats struct {
 	BytesUploaded     int64
 	// LastWriteBackOK is when a write-back last published (the gauge last_writeback_ok); zero if none yet.
 	LastWriteBackOK time.Time
+
+	// GenerationsDeleted counts generations deleted by owner-side retention (guide GC2, GC5);
+	// RetentionFailures counts failed retention deletes (those objects are left to the orphan sweeper).
+	GenerationsDeleted int64
+	RetentionFailures  int64
 }
 
 type entry struct {
@@ -242,6 +251,7 @@ type Host struct {
 	activations, failures, fetches, localHits    atomic.Int64
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
+	generationsDeleted, retentionFailures        atomic.Int64
 }
 
 // NewHost creates a host with an empty cache directory.
@@ -264,6 +274,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.Workers <= 0 {
 		opts.Workers = 8
 	}
+	opts.GC = opts.GC.Normalize()
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -658,6 +669,9 @@ func (h *Host) Stats() Stats {
 		WriteBackFailures: h.writeBackFailures.Load(),
 		BytesUploaded:     h.bytesUploaded.Load(),
 		LastWriteBackOK:   unixNano(h.lastWriteBackOK.Load()),
+
+		GenerationsDeleted: h.generationsDeleted.Load(),
+		RetentionFailures:  h.retentionFailures.Load(),
 	}
 }
 
