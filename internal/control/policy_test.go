@@ -27,11 +27,11 @@ func TestPolicyPick(t *testing.T) {
 		{"database cap off point (10)", capped, []VMLoad{l("a", 10, 0, 0)}, nil, ""},
 		{"bytes cap off point (1000)", capped, []VMLoad{l("a", 0, 1000, 0)}, nil, ""},
 		{"bytes cap on point (999)", capped, []VMLoad{l("a", 0, 999, 0)}, nil, "a"},
-		{"heartbeat age on point (10 s)", capped, []VMLoad{l("a", 0, 0, 10 * time.Second)}, nil, "a"},
-		{"heartbeat age off point (10 s + 1 ns)", capped, []VMLoad{l("a", 0, 0, 10*time.Second + 1)}, nil, ""},
+		{"heartbeat age on point (10 s)", capped, []VMLoad{l("a", 0, 0, 10*time.Second)}, nil, "a"},
+		{"heartbeat age off point (10 s + 1 ns)", capped, []VMLoad{l("a", 0, 0, 10*time.Second+1)}, nil, ""},
 		{"stale VM skipped for a busier live one", capped, []VMLoad{l("a", 0, 0, time.Minute), l("b", 8, 0, 0)}, nil, "b"},
 		{"excluded", Policy{}, []VMLoad{l("a", 0, 0, 0), l("b", 5, 0, 0)}, []string{"a"}, "b"},
-		{"no caps: zero share for all", Policy{}, []VMLoad{l("a", 1000, 1 << 40, 0)}, nil, "a"},
+		{"no caps: zero share for all", Policy{}, []VMLoad{l("a", 1000, 1<<40, 0)}, nil, "a"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := tc.p.Pick(tc.loads, tc.exclude...)
