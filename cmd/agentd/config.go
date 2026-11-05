@@ -19,7 +19,7 @@ import (
 // are errors. Relative paths are relative to the config file's directory.
 type Config struct {
 	Listen       string   `json:"listen"`        // query listener; default 127.0.0.1:7070 (":0" picks a port)
-	HealthListen string   `json:"health_listen"` // optional second listener for /healthz only
+	HealthListen string   `json:"health_listen"` // optional lifecycle listener: /healthz, /livez, /readyz, /metrics
 	Protocols    []string `json:"protocols"`     // "h1", "h2c"; default both
 	VM           string   `json:"vm"`            // this VM's id: the ticket audience (required)
 

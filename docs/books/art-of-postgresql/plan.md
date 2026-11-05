@@ -179,8 +179,8 @@ Order is the table order. "Before CP" = can land before the control-plane step i
 - **Files (new):** `internal/placement/pg/placement.go`, `internal/placement/pg/queries/*.sql` (one named query
   per file, embedded), adapter for `owner.Placement` (`internal/owner/ports.go:87-90`).
 - **Change:** the queries in §5.2. Driver `pgx/v5` (extended protocol: binds are never parsed as SQL, ch 2).
-  Pool sets `application_name=controld/placement` (ch 8) and per-session `lock_timeout = '2s'`,
-  `statement_timeout = '5s'`, `idle_in_transaction_session_timeout = '10s'`. Read committed (ch 37: the second
+  Pool sets `application_name=controld/placement` (ch 8) and per-session `lock_timeout = '1s'`,
+  `statement_timeout = '2s'`, `idle_in_transaction_session_timeout = '5s'` (aligned with release-it guide §P). Read committed (ch 37: the second
   of two racing CASes waits, re-checks the `WHERE` on the new row and updates 0 rows → `ErrConflict`; repeatable
   read would turn that into a serialization error the adapter would have to remap). Error map: 0 rows →
   `owner.ErrConflict`; no row on Get → `owner.ErrNotFound`; SQLSTATE from the invariant trigger (`23514`,
