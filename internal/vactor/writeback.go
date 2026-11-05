@@ -2,6 +2,7 @@ package vactor
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -643,19 +644,19 @@ func (h *Host) closeRemaining() int {
 	}
 }
 
-// hashFile returns a file's size and sha256.
+// hashFile returns a file's size, sha256 and md5, in one read of the file.
 func hashFile(path string) (durable.Digest, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return durable.Digest{}, err
 	}
 	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
+	h, m := sha256.New(), md5.New()
+	n, err := io.Copy(io.MultiWriter(h, m), f)
 	if err != nil {
 		return durable.Digest{}, err
 	}
-	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}, nil
+	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MD5: hex.EncodeToString(m.Sum(nil))}, nil
 }
 
 // checkedStore asserts the durable.Store postconditions the host relies on (assertion builds only). A broken

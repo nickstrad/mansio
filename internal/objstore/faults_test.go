@@ -465,3 +465,24 @@ func TestS3FlippedUploadByteIsRejected(t *testing.T) {
 		t.Fatalf("after a rejected upload, fetch err = %v, want ErrNotFound", err)
 	}
 }
+
+// The upload's Content-MD5 comes from the caller's digest (computed in the same pass as the sha256): a wrong
+// one is rejected by the server, so the adapter did not re-read the file for it; without one, the adapter
+// computes it.
+func TestContentMD5ComesFromTheDigest(t *testing.T) {
+	r := newRig(t, objstore.Config{})
+	data := []byte("generation")
+	path, dg := srcFile(t, data)
+	bad := dg
+	bad.MD5 = durabletest.DigestOf([]byte("other")).MD5
+	err := r.d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, bad, time.Now()), path)
+	wantKind(t, err, objstore.Permanent)
+	none := dg
+	none.MD5 = ""
+	if err := r.d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, none, time.Now()), path); err != nil {
+		t.Fatalf("upload without a digest MD5: %v", err)
+	}
+	if err := r.d.PutGeneration(context.Background(), durable.NextManifest("k", 2, 1, dg, time.Now()), path); err != nil {
+		t.Fatalf("upload with the digest MD5: %v", err)
+	}
+}

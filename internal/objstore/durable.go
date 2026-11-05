@@ -40,7 +40,8 @@ import (
 //     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
 //   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
 //     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
-//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. Each
+//     it (TestS3Compat X6). The generation's MD5 comes from the caller's digest (vactor computes it in
+//     its sha256 pass); only a digest without one costs an extra read of the file before the PUT. Each
 //     generation records x-amz-meta-{sha256, epoch, generation, key, format} (guide I4: enough to rebuild
 //     its manifest), and a HEAD after the PUT checks the size and the sha256 metadata; the server does not
 //     check the sha256 itself (minio-go's AutoChecksum does not add
@@ -98,9 +99,12 @@ func (d *Durable) PutGeneration(ctx context.Context, m durable.Manifest, path st
 		return wrap(err, "cannot upload %s; nothing uploaded, safe to retry", name)
 	}
 	defer f.Close()
-	sum, err := d.s.md5File(f)
+	sum, err := contentMD5(dg.MD5)
+	if dg.MD5 == "" {
+		sum, err = d.s.md5File(f) // the caller did not compute it in its hashing pass: one more read
+	}
 	if err != nil {
-		return wrap(err, "cannot upload %s: reading %s failed; nothing uploaded, safe to retry", name, path)
+		return wrap(err, "cannot upload %s: no Content-MD5 for %s; nothing uploaded, safe to retry", name, path)
 	}
 	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", UserMetadata: metadata(m.ObjectInfo())}
 	opts.SetMatchETagExcept("*") // create-only
@@ -124,6 +128,15 @@ func (d *Durable) PutGeneration(ctx context.Context, m durable.Manifest, path st
 			name, info.Size, info.SHA256, dg.Size, dg.SHA256)
 	}
 	return nil
+}
+
+// contentMD5 turns a hex MD5 into a Content-MD5 header value (base64).
+func contentMD5(hexSum string) (string, error) {
+	b, err := hex.DecodeString(hexSum)
+	if err == nil && len(b) != md5.Size {
+		err = errs.Wrap(module, nil, "md5 %q is not %d bytes", hexSum, md5.Size)
+	}
+	return base64.StdEncoding.EncodeToString(b), err
 }
 
 // StatGeneration HEADs a generation object (retried while Transient) and returns its size and its

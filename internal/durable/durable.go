@@ -68,14 +68,17 @@ type Manifest struct {
 	Epoch      uint64    `json:"epoch"`
 	Object     string    `json:"object"` // GenObject(Key, Generation, e) with e <= Epoch; "" for generation 0
 	Size       int64     `json:"size"`
-	SHA256     string    `json:"sha256"` // lower-case hex; "" for generation 0
+	SHA256     string    `json:"sha256"`        // lower-case hex; "" for generation 0
+	MD5        string    `json:"md5,omitempty"` // lower-case hex, when the writer computed it (Content-MD5)
 	WrittenAt  time.Time `json:"written_at"`
 }
 
-// Digest is what a snapshot file holds.
+// Digest is what a snapshot file holds. Writers compute SHA256 and MD5 in one pass over the file; the MD5
+// becomes the upload's Content-MD5 (guide V2), so the adapter need not read the file again.
 type Digest struct {
 	Size   int64
 	SHA256 string // lower-case hex
+	MD5    string // lower-case hex; "" if not computed (the adapter then computes it)
 }
 
 // Format is the format metadata of a generation that holds one SQLite database file.
@@ -232,7 +235,7 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if m.Generation == 0 {
-		if m.Object != "" || m.Size != 0 || m.SHA256 != "" {
+		if m.Object != "" || m.Size != 0 || m.SHA256 != "" || m.MD5 != "" {
 			return errs.Wrap(module, nil, "manifest of %s: generation 0 must name no object", m.Key)
 		}
 		return nil
@@ -245,10 +248,19 @@ func (m Manifest) Validate() error {
 	if m.Size < 0 {
 		return errs.Wrap(module, nil, "manifest of %s: negative size %d", m.Key, m.Size)
 	}
-	if b, err := hex.DecodeString(m.SHA256); err != nil || len(b) != 32 || strings.ToLower(m.SHA256) != m.SHA256 {
+	if !lowerHex(m.SHA256, 32) {
 		return errs.Wrap(module, nil, "manifest of %s: sha256 %q is not 64 lower-case hex digits", m.Key, m.SHA256)
 	}
+	if m.MD5 != "" && !lowerHex(m.MD5, 16) {
+		return errs.Wrap(module, nil, "manifest of %s: md5 %q is not 32 lower-case hex digits", m.Key, m.MD5)
+	}
 	return nil
+}
+
+// lowerHex reports whether s is n bytes in lower-case hex.
+func lowerHex(s string, n int) bool {
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == n && strings.ToLower(s) == s
 }
 
 // Same reports whether two manifests describe the same publish (WrittenAt aside).
@@ -258,7 +270,7 @@ func (m Manifest) Same(o Manifest) bool {
 }
 
 // Digest is the snapshot m's generation holds.
-func (m Manifest) Digest() Digest { return Digest{Size: m.Size, SHA256: m.SHA256} }
+func (m Manifest) Digest() Digest { return Digest{Size: m.Size, SHA256: m.SHA256, MD5: m.MD5} }
 
 // ObjectInfo is the metadata PutGeneration records with m's object.
 //
@@ -272,7 +284,7 @@ func (m Manifest) ObjectInfo() GenInfo {
 //	pre:  gen >= 1, d.SHA256 is 64 lower-case hex digits
 func NextManifest(key string, gen, epoch uint64, d Digest, now time.Time) Manifest {
 	return Manifest{Key: key, Generation: gen, Epoch: epoch, Object: GenObject(key, gen, epoch), Size: d.Size,
-		SHA256: d.SHA256, WrittenAt: now.UTC()}
+		SHA256: d.SHA256, MD5: d.MD5, WrittenAt: now.UTC()}
 }
 
 // CheckPublish decides whether next may replace stored (nil: no manifest yet). Pure; the Store's

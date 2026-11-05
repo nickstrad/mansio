@@ -102,6 +102,14 @@ func TestManifestValidateAndDecode(t *testing.T) {
 	if err := empty.Validate(); err != nil {
 		t.Fatalf("generation 0 with no object: %v", err)
 	}
+	noMD5 := good
+	noMD5.MD5 = "" // optional: older writers and callers that did not compute it
+	if err := noMD5.Validate(); err != nil {
+		t.Fatalf("manifest without md5: %v", err)
+	}
+	if empty.MD5 = good.MD5; empty.Validate() == nil {
+		t.Fatal("generation 0 with an md5 accepted")
+	}
 	for name, mut := range map[string]func(*durable.Manifest){
 		"gen 0 with object":  func(m *durable.Manifest) { m.Generation = 0 },
 		"object name":        func(m *durable.Manifest) { m.Object = durable.GenObject("k", 4, 2) },
@@ -113,6 +121,8 @@ func TestManifestValidateAndDecode(t *testing.T) {
 		"negative size":      func(m *durable.Manifest) { m.Size = -1 },
 		"short hash":         func(m *durable.Manifest) { m.SHA256 = m.SHA256[:63] },
 		"upper-case hash":    func(m *durable.Manifest) { m.SHA256 = strings.ToUpper(m.SHA256) },
+		"short md5":          func(m *durable.Manifest) { m.MD5 = m.MD5[:31] },
+		"upper-case md5":     func(m *durable.Manifest) { m.MD5 = strings.ToUpper(m.MD5) },
 		"bad key":            func(m *durable.Manifest) { m.Key = "" },
 	} {
 		m := good

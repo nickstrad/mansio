@@ -6,6 +6,7 @@ package durabletest
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -143,10 +144,10 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 	return m
 }
 
-// DigestOf is data's size and sha256.
+// DigestOf is data's size, sha256 and md5.
 func DigestOf(data []byte) durable.Digest {
-	h := sha256.Sum256(data)
-	return durable.Digest{Size: int64(len(data)), SHA256: hex.EncodeToString(h[:])}
+	h, m := sha256.Sum256(data), md5.Sum(data)
+	return durable.Digest{Size: int64(len(data)), SHA256: hex.EncodeToString(h[:]), MD5: hex.EncodeToString(m[:])}
 }
 
 // begin applies Delay and Down; it returns a snapshot of the switches.
@@ -251,7 +252,7 @@ func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path st
 		os.Remove(tmp)
 		return durable.Fetched{}, fmt.Errorf("fetch %s: %w", m.Object, ErrInjected)
 	}
-	if got := DigestOf(data); got != (durable.Digest{Size: m.Size, SHA256: m.SHA256}) {
+	if got := DigestOf(data); got.Size != m.Size || got.SHA256 != m.SHA256 {
 		return durable.Fetched{}, fmt.Errorf("fetch %s: got %d bytes sha256 %s: %w", m.Object, got.Size, got.SHA256, durable.ErrCorrupt)
 	}
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
