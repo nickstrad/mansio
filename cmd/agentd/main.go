@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -102,6 +103,10 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	if err != nil {
 		return rep.report(err)
 	}
+	queryTLS, err := cfg.queryTLS()
+	if err != nil {
+		return rep.report(err)
+	}
 	var dbs []string
 	var sec *Secrets
 	if cfg.Durable() {
@@ -130,6 +135,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		return rep.report(err)
 	}
 	a.level = level
+	a.tls = queryTLS
 	defer a.cleanup()
 	return a.serve(ctx, *addrFile, rep, stderr)
 }
@@ -143,6 +149,7 @@ type agent struct {
 	be         *backend
 	lifecycle  *http.ServeMux              // /livez, /readyz, /healthz, /metrics, control endpoints; on the lifecycle listener
 	level      *slog.LevelVar              // the log level; POST /admin/loglevel sets it
+	tls        *tls.Config                 // the query listener's TLS (tls.go); nil = plain HTTP
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
 }
@@ -258,8 +265,9 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.Listen))
 	}
 	protos := new(http.Protocols)
-	protos.SetHTTP1(slices.Contains(cfg.Protocols, "h1"))
-	protos.SetUnencryptedHTTP2(slices.Contains(cfg.Protocols, "h2c"))
+	protos.SetHTTP1(slices.Contains(cfg.Protocols, "h1") || a.tls != nil)
+	protos.SetUnencryptedHTTP2(slices.Contains(cfg.Protocols, "h2c") && a.tls == nil)
+	protos.SetHTTP2(a.tls != nil)
 	var handler http.Handler = front.NewHandler(srv, log)
 	if cfg.HealthListen == "" {
 		mux := http.NewServeMux()
@@ -272,7 +280,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	hs := &http.Server{Handler: handler, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	servers := []*http.Server{hs}
-	listeners := []net.Listener{ln}
+	listeners := []net.Listener{tlsListener(ln, a.tls)}
 	closeAll := func() {
 		for _, l := range listeners {
 			l.Close()
