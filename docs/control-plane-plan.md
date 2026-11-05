@@ -18,11 +18,11 @@ pieces are hardened per the three books but still **not wired together**: agentd
 |---|---|---|
 | Actor per database | `internal/actor` | Done. Savepoint per write in group commit (PG-01); `Do` bounded by the ctx deadline (RI-08); FKs + `STRICT` via `internal/sqlitedsn` (PG-05). |
 | Cold ⇄ warm, durable | `vactor`, `durable` | Done. **Layout v2**: `durable.KeyPrefix` = `dbs/<h2>/<escaped key>/`, epoch-qualified self-describing generations (`knowledge/writeback/2026-11-05-layout-v2.md`). Ambiguous writes re-read (OS-02, RI-14). Fetch bulkhead + activation deadline → `vactor.ErrBusy` (RI-02). S3 breaker `durable.WithBreaker` over `internal/breaker`, per-key tombstones (RI-03). Per-job maintenance deadlines, `oldest_dirty_age` (RI-05). `Host.Shutdown(ctx)` (RI-06). Generation cache `Options.GenCacheBytes`, off by default (OS-10). GC with retention current + 2 (OS-06). |
-| S3 client | `internal/objstore` | Done. minio retries off; one retry layer for GET/HEAD/LIST/DELETE; per-op deadline + stall timeout; Content-MD5; `Classify`; `Store.Metrics()`; paged listing (RI-01, OS-01/07/08). `TestS3Compat` X1–X11 pass on SeaweedFS 4.47 single-node (OS-03). |
+| S3 client | `internal/objstore` | Done. One retry layer (idempotent ops only), per-op deadline + stall timeout, Content-MD5, `Classify`, `Store.Metrics()`, paged listing (RI-01, OS-01/07/08). `TestS3Compat` X1–X11 pass on SeaweedFS 4.47 single-node (OS-03). |
 | Storage ops | `cmd/dbtool` | Done (OS-12). `inspect`, `verify`, `orphans`, `gc` (orphan sweeper), `rebuild-manifest`; runbook `knowledge/writeback/2026-11-05-storage-runbook.md`. |
 | Single owner | `internal/owner` | Done. `Admit`, `Fence`, `Reconcile`, `Mover`; `ReconcileAll(ctx, ReconcileOptions)` (16 workers, 5 s per key), `ReconcileUntilDone`, `Config.OnChange`. **`Placement` exists only as the fake** (`ownertest`). |
 | Network front | `front`, `ticket`, `cmd/agentd` | Done. 11 wire codes incl. **`unavailable`** (503 + computed `Retry-After`; `cmd/agentd/unavailable.go`). HTTP body/write deadlines, VM-wide admission cap (RI-09). `/livez`, `/readyz` (canary), `/metrics` on the lifecycle listener (RI-07, RI-11). Phased shutdown under one budget (`cmd/agentd/lifecycle.go`). **agentd still runs `front.StaticHost` + `startupAdmitter{epochs(...)}`**: no vactor, no owner, no S3 config, no Claim/Fence endpoints. CP-1 wiring points are marked in `cmd/agentd/main.go` (`newAgent`, `serve`). |
-| Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). TCP fault proxy (`Refuse`, `AcceptThenSilence`, `Blackhole`, `HalfOpen`, throttle, reset, byte flip); misbehaving fake S3 (`HeadersThenStall`, `TruncateBody`, `CorruptBody`, `Status`, `ApplyThenDropReply`, `ApplyThenPreconditionFailed`). Golden tests for `queries/*.sql` (PG-06). |
+| Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
 | Client retry | `internal/retry` | Policy done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`). **Not wired:** the only caller (`internal/bench/run.go:359`) never sets `ServerHint`, and `internal/outcome` has no `unavailable` code. |
 | Placement authority (Postgres) | none | Schema and queries specified in [art-of-postgresql plan §5](books/art-of-postgresql/plan.md); not built. |
 | Control plane, locator, issuer, client | none | Not started. |
@@ -62,8 +62,8 @@ The glue every agent report specified. No new service: a file-backed `Placement`
   Fetch only when a claim actually activates the key.
 - **Admitter:** an `owner.Table` adapter replaces `startupAdmitter{epochs(...)}`: `t.Admit(db, owner.Epoch(e))`
   returns `p.Done`. `ErrWrongOwner` → `front.ErrWrongOwner`; `ErrFenced`/`ErrMoving`/`ErrSuperseded` →
-  `front.ErrFenced`. Keep `depAdmitter`/`depExecutor`: `unavailableCauses` (`owner.ErrUnavailable`,
-  `vactor.ErrBusy`, `durable.ErrUnavailable`) → `unavailable`, never `shed` or `internal` (`RI F2`).
+  `front.ErrFenced`. Keep `depAdmitter`/`depExecutor` outermost so `unavailableCauses` answer `unavailable`
+  (`RI F2`).
 - **Owner ↔ write-back glue:** `Publish` → `host.WriteBackAt`, `Discard` after a successful `Fence`; `Head` →
   `store.ReadManifest`; `Stamp` → `host.Stamp`; `durable.ErrStale` (now always another writer, `OS R4`) →
   `owner.ErrStale`; `Options.CheckActivation` → `Table.CheckActivation`; `Options.Guard` → `Table.Publish`, with
@@ -81,8 +81,7 @@ The glue every agent report specified. No new service: a file-backed `Placement`
         `unavailable` (`RI H1`).
   - [ ] Shutdown: the `host.close` phase calls `vhost.Shutdown(ctx)` (oldest-dirty first, the rest kept locally,
         count logged). The owner table needs no phase (`RI H3`).
-  - [ ] Readiness stays startup + canary. **The S3 breaker and the S3 canary HEAD never fail `/readyz`**; they
-        are metrics (`RI C5`, `RI H2`).
+  - [ ] Readiness stays startup + canary; the S3 breaker and S3 canary HEAD are metrics only (§4, `RI H2`).
   - [ ] Config: S3 endpoint/bucket, cache dir, owner dir, `gen_cache_bytes` → `Options.GenCacheBytes` (sized from
         the cache-dir budget). S3 keys go in a 0600 secrets file outside the config (`OS S2`; RI-16's secrets
         file, pulled forward because CP-1 is the first config with credentials).
@@ -120,9 +119,9 @@ safe (`RI R2`).
   connection errors match neither sentinel.
 - **Stability (RI-12, `RI §P` Postgres sheet, `SQL G-6`):** pgxpool `MaxConns` = reconcile workers + lifecycle
   concurrency, acquire under ctx (`RI T6`); `connect_timeout` 3 s, `statement_timeout` 2 s, `lock_timeout` 1 s,
-  `idle_in_transaction_session_timeout` 5 s (§P wins over PG-03's 5 s / 2 s / 10 s), `application_name`, TCP keepalives; `MaxConnIdleTime` below any
-  NAT/LB idle timeout; never lower `synchronous_commit`. A breaker per pool, registered as `"placement"`; like
-  S3, never a readiness check (`RI C5`).
+  `idle_in_transaction_session_timeout` 5 s (§P wins over PG-03's 5 / 2 / 10 s), `application_name`, TCP
+  keepalives; `MaxConnIdleTime` below any NAT/LB idle timeout; never lower `synchronous_commit`. A breaker per
+  pool, registered as `"placement"`, not a readiness check (§4).
 - **Gate:**
   - `TestPlacementCAS` against the fake, the file adapter and Postgres; `TestMoveCrashPoints` "reply lost" with
     the real adapter.
