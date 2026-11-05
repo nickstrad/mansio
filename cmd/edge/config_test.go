@@ -33,7 +33,7 @@ func TestParseConfigProblems(t *testing.T) {
 	if err == nil {
 		t.Fatal("accepted")
 	}
-	for _, want := range []string{"listen and health_listen", "cert_file and key_file", "keys_file is required", "vm id \"\"",
+	for _, want := range []string{"listen and health_listen", "cert_file and key_file", "keys_file or keys_url is required", "vm id \"\"",
 		"want scheme://host:port", "no path", "scheme must be https", "rate_limit", "default_timeout 40s is over max_timeout",
 		"drain_timeout 1m0s is over shutdown_budget", "agent_breaker", "log_level"} {
 		if !strings.Contains(err.Error(), want) {
@@ -59,6 +59,8 @@ func TestCheckDev(t *testing.T) {
 		{"no tls, dev", Config{Dev: true, Agents: map[string]string{"a": "https://a:1"}}, true, ""},
 		{"one http agent", Config{TLS: tlsOn, Agents: map[string]string{"a": "https://a:1", "b": "http://b:1"}}, false, "1 agent URLs are plain http"},
 		{"http agent, dev", Config{TLS: tlsOn, Dev: true, Agents: map[string]string{"b": "http://b:1"}}, true, ""},
+		{"http keys_url", Config{TLS: tlsOn, KeysURL: "http://c/v1/keys", Agents: map[string]string{"a": "https://a:1"}}, false, "keys_url is plain HTTP"},
+		{"http keys_url, dev", Config{Dev: true, KeysURL: "http://c/v1/keys", Agents: map[string]string{"a": "https://a:1"}}, true, ""},
 		{"unused ca", Config{Dev: true, AgentTLS: AgentTLS{CAFile: "ca"}, Agents: map[string]string{"b": "http://b:1"}}, false, "unused"},
 	} {
 		err := tc.c.checkDev()

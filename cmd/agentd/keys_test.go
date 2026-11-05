@@ -66,7 +66,7 @@ func TestKeyFetcher(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { kf.run(ctx); close(done) }()
+	go func() { kf.Run(ctx); close(done) }()
 	defer func() { cancel(); <-done }()
 
 	// Rotation: the issuer publishes k2 next to k1, then drops k1.
@@ -77,12 +77,12 @@ func TestKeyFetcher(t *testing.T) {
 
 	// The issuer fails: the ring stays, failures are counted.
 	ks.set(http.StatusServiceUnavailable)
-	waitUntil(t, func() bool { return kf.failures.Load() >= 2 })
+	waitUntil(t, func() bool { return kf.Failures() >= 2 })
 	if !slices.Equal(kids(ring), []string{"k2"}) {
 		t.Fatalf("a failed fetch changed the ring: %v", kids(ring))
 	}
 	ks.set(0, k2)
-	waitUntil(t, func() bool { return !kf.failing.Load() })
+	waitUntil(t, func() bool { return !kf.Failing() })
 
 	// A restart while the issuer is down: the cached set verifies tickets.
 	srv.Close()

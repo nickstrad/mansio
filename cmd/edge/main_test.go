@@ -21,6 +21,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/edge/edgetest"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
 )
 
 // keys writes a one-key public key file and returns its path and a minting function.
@@ -252,5 +253,54 @@ func TestExitCodes(t *testing.T) {
 		if c := realMain(context.Background(), tc.args, &b); c != tc.code || !strings.Contains(b.String(), tc.want) {
 			t.Errorf("%s: exit %d, %q; want %d, %q", tc.name, c, b.String(), tc.code, tc.want)
 		}
+	}
+}
+
+// With keys_url the edge follows the issuer's key set (internal/keyfetch, as agentd): after a rotation to a new
+// key, tickets signed by it pass the edge, and the old key's are refused once it is withdrawn.
+func TestKeysURLRotation(t *testing.T) {
+	dir := t.TempDir()
+	k1, k2 := tickettest.NewIssuer("k1"), tickettest.NewIssuer("k2")
+	var mu sync.Mutex
+	published := []tickettest.Issuer{k1}
+	keySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		f := ticket.PublicKeyFile{}
+		for _, k := range published {
+			f.Keys = append(f.Keys, ticket.PublicKeyEntry{KID: k.KID, PublicKey: ticket.EncodeKey(k.Pub)})
+		}
+		json.NewEncoder(w).Encode(f)
+	}))
+	defer keySrv.Close()
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"code":"ok"}`) }))
+	defer agent.Close()
+	e := start(t, dir, fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","keys_url":%q,"keys_file":"keys-cache.json",
+		"keys_refresh":"50ms","keys_timeout":"40ms","agents":{"vm-a":%q},"log_file":"edge.log"}`, keySrv.URL+"/v1/keys", agent.URL), "-dev")
+	tok := func(is tickettest.Issuer) string {
+		return is.Mint(t, is.Claims("db-1", "vm-a", time.Now(), time.Minute))
+	}
+	status := func(tk string) int { s, _, _, _ := query(t, http.DefaultClient, "http://"+e.addr, tk); return s }
+	if s := status(tok(k1)); s != 200 {
+		t.Fatalf("k1 before rotation: %d", s)
+	}
+	mu.Lock()
+	published = []tickettest.Issuer{k2}
+	mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	for status(tok(k2)) != 200 {
+		if time.Now().After(deadline) {
+			t.Fatalf("k2 never accepted:\n%s", e.stderr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if s := status(tok(k1)); s != 401 {
+		t.Fatalf("withdrawn k1: %d", s)
+	}
+	if c := e.stop(); c != exitOK {
+		t.Fatalf("exit %d\n%s", c, e.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keys-cache.json")); err != nil {
+		t.Fatalf("key cache not written: %v", err)
 	}
 }

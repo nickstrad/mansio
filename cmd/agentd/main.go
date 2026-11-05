@@ -138,8 +138,8 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		return rep.report(err)
 	}
 	if fetcher != nil {
-		fetcher.register(a.reg)
-		a.background = append(a.background, fetcher.run)
+		fetcher.Register(a.reg, "agentd")
+		a.background = append(a.background, fetcher.Run)
 	}
 	a.level = level
 	a.tls = queryTLS

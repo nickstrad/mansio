@@ -1,20 +1,24 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/keyfetch"
 	"github.com/nickstrad/ts-db-go/internal/load"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 	"github.com/nickstrad/ts-db-go/internal/tlsx"
@@ -28,9 +32,12 @@ type Config struct {
 	// TLS is the client-facing server certificate. Required unless -dev (then the listener speaks h1 + h2c).
 	TLS *TLSFiles `json:"tls"`
 
-	// KeysFile is the issuer's public keys (ticket.PublicKeyFile). The seam for CP-5's key endpoint: the edge
-	// holds them in a ticket.KeyRing, which a fetcher can Replace while serving.
+	// Ticket public keys, as agentd: keys_file (static), or keys_url (controld's GET /v1/keys, fetched every
+	// keys_refresh by internal/keyfetch; keys_file is then the cache). Plain-HTTP keys_url needs -dev.
 	KeysFile     string        `json:"keys_file"`
+	KeysURL      string        `json:"keys_url"`
+	KeysRefresh  load.Duration `json:"keys_refresh"` // default 30 s
+	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
 	ClockSkew    load.Duration `json:"clock_skew"`
 	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
 	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
@@ -102,7 +109,7 @@ func defaults() Config {
 	d := func(v time.Duration) load.Duration { return load.Duration{Duration: v} }
 	return Config{
 		Listen: "127.0.0.1:7443", HealthListen: "127.0.0.1:7444",
-		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536,
+		KeysRefresh: d(30 * time.Second), KeysTimeout: d(3 * time.Second), ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536,
 		RateLimit:   RateLimit{PerSecond: 20, Burst: 50, MaxSources: 100_000},
 		DialTimeout: d(2 * time.Second), TLSHandshake: d(3 * time.Second),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), ReplyGrace: d(time.Second), MaxBody: 1 << 20,
@@ -127,8 +134,16 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		bad("tls: cert_file and key_file are both required")
 	}
-	if c.KeysFile == "" {
-		bad("keys_file is required")
+	if c.KeysFile == "" && c.KeysURL == "" {
+		bad("keys_file or keys_url is required (the ticket public keys)")
+	}
+	if c.KeysURL != "" {
+		if u, err := url.Parse(c.KeysURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("keys_url %q must be an http(s) URL", c.KeysURL)
+		}
+		if c.KeysRefresh.Duration <= 0 || c.KeysTimeout.Duration <= 0 || c.KeysTimeout.Duration >= c.KeysRefresh.Duration {
+			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
+		}
 	}
 	if len(c.Agents) == 0 {
 		bad("agents: at least one vm → URL")
@@ -216,6 +231,9 @@ func (c *Config) checkDev() error {
 		return errs.Wrap(module, nil, "agent_tls.ca_file is set but every agent URL is plain http (the CA would be unused)")
 	case c.Dev:
 		return nil
+	case strings.HasPrefix(c.KeysURL, "http:"):
+		return errs.Wrap(module, nil, "keys_url is plain HTTP: whoever can change the answer can mint tickets; use https, or pass -dev "+
+			"for a local run").With("keys_url", c.KeysURL)
 	case c.TLS == nil:
 		return errs.Wrap(module, nil, "no tls section: plain HTTP to clients is for local development only; add \"tls\": "+
 			"{\"cert_file\", \"key_file\"}, or pass -dev for a local run")
@@ -272,16 +290,20 @@ func loadConfig(path string) (*Config, error) {
 	return c, nil
 }
 
-// loadKeys reads the ticket public key set.
-func loadKeys(path string) (*ticket.KeyRing, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, errs.Wrap(module, err, "cannot open keys_file").With("path", path)
+// openKeys builds the ticket key ring: static (keys_file; nil fetcher) or fetched (keys_url, keys_file as the
+// cache). A failed first fetch is not fatal: every ticket is refused until a key set arrives.
+func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing, *keyfetch.Fetcher, error) {
+	var ring *ticket.KeyRing
+	var f *keyfetch.Fetcher
+	var err error
+	if c.KeysURL == "" {
+		ring, err = keyfetch.LoadFile(c.KeysFile)
+	} else {
+		ring, f, err = keyfetch.Open(ctx, keyfetch.Config{URL: c.KeysURL, Cache: c.KeysFile, Every: c.KeysRefresh.Duration,
+			Timeout: c.KeysTimeout.Duration, Log: log, Event: "EDGE"})
 	}
-	defer f.Close()
-	keys, err := ticket.ParsePublicKeys(f)
 	if err != nil {
-		return nil, errs.Wrap(module, err, "invalid keys_file %s", path).With("path", path)
+		return nil, nil, errs.Wrap(module, err, "cannot load the ticket keys (keys_file)").With("path", c.KeysFile)
 	}
-	return ticket.NewKeyRing(keys), nil
+	return ring, f, nil
 }

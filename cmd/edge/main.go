@@ -88,7 +88,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	}
 	defer closeLog()
 	rep.log = log
-	keys, err := loadKeys(cfg.KeysFile)
+	keys, fetcher, err := openKeys(ctx, cfg, log)
 	if err != nil {
 		return rep.report(err)
 	}
@@ -124,12 +124,21 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		fmt.Fprintln(stderr, "interrupted before serving")
 		return exitInterrupted
 	}
-	return serve(ctx, cfg, e, tlsCfg, log, *addrFile, rep, stderr)
+	reg := metrics.NewRegistry()
+	e.Register(reg)
+	if fetcher != nil {
+		fetcher.Register(reg, "edge")
+		fctx, stopFetch := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { fetcher.Run(fctx); close(done) }()
+		defer func() { stopFetch(); <-done }()
+	}
+	return serve(ctx, cfg, e, reg, tlsCfg, log, *addrFile, rep, stderr)
 }
 
 // serve runs both listeners until ctx ends, then shuts down within shutdown_budget: drain (readiness fails, new
 // requests are shed, in-flight ones get drain_timeout), then close the lifecycle listener.
-func serve(ctx context.Context, cfg *Config, e *edge.Edge, tlsCfg *tls.Config, log *slog.Logger, addrFile string, rep reporter,
+func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry, tlsCfg *tls.Config, log *slog.Logger, addrFile string, rep reporter,
 	stderr io.Writer) int {
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
@@ -148,8 +157,6 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, tlsCfg *tls.Config, l
 	// timeout; deadline + grace), as the agent does (h2 streams share a connection).
 	hs := &http.Server{Handler: e, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
-	reg := metrics.NewRegistry()
-	e.Register(reg)
 	life := lifecycleServer(cfg, e, reg)
 	errc := make(chan error, 2)
 	served := ln
