@@ -3,7 +3,9 @@ package objstore
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -18,24 +20,28 @@ import (
 
 // Durable is the S3 adapter for durable.Store (contract 1). Object names are Root + the durable layout.
 //
-// What is atomic, and what is verified (2026-11-05):
+// What is atomic, and what is verified:
 //
 //   - Generation uploads are one PUT with `If-None-Match: *` (create-only); a 412 is durable.ErrExists. One
 //     PUT is all-or-nothing on S3: a failed upload leaves no object. Files over 5 GiB are refused (a
 //     multipart upload would need the condition on CompleteMultipartUpload).
 //   - The manifest publish is GET (version = ETag, epoch check), then PUT with `If-Match: <etag>` (or
 //     `If-None-Match: *` when none exists); a 412 is durable.ErrStale. The conditional PUT is what makes
-//     "compare version, then write" atomic. AWS S3 documents both headers on PutObject (2024); SeaweedFS's
-//     wiki page "S3 Conditional Operations" documents both and says "the conditional check and the write
-//     are atomic — cluster-wide" (version not stated). UNVERIFIED here: Docker was down, so the contract
-//     suite (which includes a concurrent-publish test) has not run against SeaweedFS. A server that
-//     ignores the headers would make publishes last-writer-wins: run TestS3DurableStoreContract first.
-//   - Upload integrity: the size is verified with a HEAD after the PUT, and the sha256 is recorded as
-//     x-amz-meta-sha256 (the manifest holds it too). The server does not check the hash: minio-go's
-//     AutoChecksum does not add x-amz-checksum-sha256 to this single streaming-signed PUT (seen in
-//     TestDurableStoreContractAgainstFakeS3), and Checksum would need TrailingHeaders on the client. The
-//     V4 streaming signature covers each chunk, so the transport is protected; FetchGeneration re-hashes
-//     every download and fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
+//     "compare version, then write" atomic. AWS S3 documents both headers on PutObject (2024). Verified on
+//     single-node SeaweedFS 4.47 (2026-11-05): TestS3DurableStoreContract, including concurrent publishes on
+//     one version (exactly one wins), see knowledge/writeback/2026-11-05-s3-conditional-put-verified.md.
+//     Any other backend or version must pass TestS3Compat first (object-storage guide §7): a server that
+//     ignores the headers would make publishes last-writer-wins.
+//   - Retries (object-storage guide R1–R3): the GETs and the HEAD are retried while Transient; the PUTs are
+//     sent exactly once. A PUT that fails without an answer is ambiguous and says so; the caller re-reads.
+//     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
+//   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
+//     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
+//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. The
+//     size is also verified with a HEAD after the PUT, and the sha256 is recorded as x-amz-meta-sha256 (the
+//     manifest holds it too); the server does not check that one (minio-go's AutoChecksum does not add
+//     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
+//     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
 type Durable struct {
 	s    *Store
 	root string
@@ -47,33 +53,35 @@ func NewDurable(s *Store, root string) *Durable { return &Durable{s: s, root: ro
 
 const maxSinglePut = 5 << 30
 
-func preconditionFailed(err error) bool {
-	code := minio.ToErrorResponse(err).Code
-	return code == minio.PreconditionFailed || code == "ConditionalRequestConflict"
-}
-
 func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
 	name := d.root + durable.ManifestObject(key)
-	body, info, _, err := d.s.core.GetObject(ctx, d.s.bucket, name, minio.GetObjectOptions{})
+	var b []byte
+	var etag string
+	err := d.s.retryIdempotent(ctx, OpGetManifest, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+		body, info, _, err := d.s.core.GetObject(a.ctx, d.s.bucket, name, minio.GetObjectOptions{})
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		b, err = io.ReadAll(io.LimitReader(body, 1<<16))
+		etag = info.ETag
+		return err
+	})
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+		if noSuchKey(err) {
 			err = errors.Join(durable.ErrNoManifest, err)
 		}
-		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, err, "cannot read manifest %s; nothing changed, safe to retry", name)
+		return durable.Manifest{}, durable.NoVersion, wrap(err, "cannot read manifest %s; nothing changed, safe to retry", name)
 	}
-	defer body.Close()
-	b, err := io.ReadAll(io.LimitReader(body, 1<<16))
-	if err != nil {
-		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, err, "cannot read manifest %s; nothing changed, safe to retry", name)
-	}
+	d.s.moved(OpGetManifest, int64(len(b)))
 	m, err := durable.Decode(key, b)
 	if err != nil {
-		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, err, "manifest %s is unreadable", name)
+		return durable.Manifest{}, durable.NoVersion, wrap(err, "manifest %s is unreadable", name)
 	}
-	if info.ETag == "" {
+	if etag == "" {
 		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, nil, "manifest %s has no ETag; conditional publish impossible", name)
 	}
-	return m, durable.Version(info.ETag), nil
+	return m, durable.Version(etag), nil
 }
 
 func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, path string, dg durable.Digest) error {
@@ -83,21 +91,35 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return errs.Wrap(module, err, "cannot upload %s; nothing uploaded, safe to retry", name)
+		return wrap(err, "cannot upload %s; nothing uploaded, safe to retry", name)
 	}
 	defer f.Close()
-	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", DisableMultipart: true,
+	sum, err := d.s.md5File(f)
+	if err != nil {
+		return wrap(err, "cannot upload %s: reading %s failed; nothing uploaded, safe to retry", name, path)
+	}
+	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3",
 		UserMetadata: map[string]string{"sha256": dg.SHA256}}
 	opts.SetMatchETagExcept("*") // create-only
-	if _, err := d.s.c.PutObject(ctx, d.s.bucket, name, f, dg.Size, opts); err != nil {
-		if preconditionFailed(err) {
+	err = d.s.sendOnce(ctx, OpPutGen, name, d.s.transferTime(dg.Size), func(a *attempt) error {
+		_, err := d.s.core.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, sum, "", opts)
+		return err
+	})
+	if err != nil {
+		if Classify(err) == Precondition {
 			err = errors.Join(durable.ErrExists, err)
 		}
-		return errs.Wrap(module, err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
+		return wrap(err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
 	}
-	st, err := d.s.c.StatObject(ctx, d.s.bucket, name, minio.StatObjectOptions{})
+	d.s.moved(OpPutGen, dg.Size)
+	var st minio.ObjectInfo
+	err = d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+		var err error
+		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
+		return err
+	})
 	if err != nil {
-		return errs.Wrap(module, err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
+		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
 	}
 	if st.Size != dg.Size {
 		return errs.Wrap(module, nil, "uploaded %s but the store holds %d bytes, not %d; no manifest names it, safe to retry with a new generation",
@@ -109,29 +131,28 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {
 	name := d.root + m.Object
 	t0 := time.Now()
-	body, _, _, err := d.s.core.GetObject(ctx, d.s.bucket, name, minio.GetObjectOptions{})
+	var st durable.Fetched
+	err := d.s.retryIdempotent(ctx, OpFetch, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+		h := sha256.New()
+		n, _, ttfb, err := d.s.getToPart(a, name, path, h)
+		st.TTFB = ttfb
+		if err == nil && (n != m.Size || hex.EncodeToString(h.Sum(nil)) != m.SHA256) {
+			err = errs.Wrap(module, durable.ErrCorrupt, "generation %s is %d bytes sha256 %x; manifest says %d bytes %s",
+				name, n, h.Sum(nil), m.Size, m.SHA256)
+		}
+		if err = finishPart(path, err); err == nil {
+			st.Bytes = n
+		}
+		return err
+	})
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+		if noSuchKey(err) {
 			err = errors.Join(durable.ErrNotFound, err)
 		}
-		return durable.Fetched{}, errs.Wrap(module, err, "cannot download generation %s; nothing cached, safe to retry", name)
+		return st, wrap(err, "cannot download generation %s; nothing cached", name)
 	}
-	defer body.Close()
-	st := durable.Fetched{TTFB: time.Since(t0)}
-	h := sha256.New()
-	n, err := d.s.writeFile(path+".part", body, h)
-	if err == nil && (n != m.Size || hex.EncodeToString(h.Sum(nil)) != m.SHA256) {
-		err = errs.Wrap(module, durable.ErrCorrupt, "generation %s is %d bytes sha256 %x; manifest says %d bytes %s",
-			name, n, h.Sum(nil), m.Size, m.SHA256)
-	}
-	if err == nil {
-		err = os.Rename(path+".part", path)
-	}
-	if err != nil {
-		os.Remove(path + ".part")
-		return st, errs.Wrap(module, err, "cannot download generation %s; nothing cached", name)
-	}
-	st.Bytes, st.Total = n, time.Since(t0)
+	st.Total = time.Since(t0)
+	d.s.moved(OpFetch, st.Bytes)
 	return st, nil
 }
 
@@ -142,27 +163,35 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 	case errors.Is(err, durable.ErrNoManifest):
 		v = durable.NoVersion
 	case err != nil:
-		return durable.NoVersion, errs.Wrap(module, err, "cannot publish %s; nothing changed, safe to retry", name)
+		return durable.NoVersion, wrap(err, "cannot publish %s; nothing changed, safe to retry", name)
 	case stored.Epoch > m.Epoch:
-		return durable.NoVersion, errs.Wrap(module, durable.ErrStale, "cannot publish %s at epoch %d: stored epoch is %d; nothing changed", name, m.Epoch, stored.Epoch)
+		return durable.NoVersion, wrap(durable.ErrStale, "cannot publish %s at epoch %d: stored epoch is %d; nothing changed", name, m.Epoch, stored.Epoch)
 	}
 	if v != prev {
-		return durable.NoVersion, errs.Wrap(module, durable.ErrStale, "cannot publish %s: version is %q, caller read %q; nothing changed", name, v, prev)
+		return durable.NoVersion, wrap(durable.ErrStale, "cannot publish %s: version is %q, caller read %q; nothing changed", name, v, prev)
 	}
 	b := durable.Encode(m)
-	opts := minio.PutObjectOptions{ContentType: "application/json", DisableMultipart: true}
+	sum := md5.Sum(b)
+	opts := minio.PutObjectOptions{ContentType: "application/json"}
 	if prev == durable.NoVersion {
 		opts.SetMatchETagExcept("*")
 	} else {
 		opts.SetMatchETag(string(prev))
 	}
-	info, err := d.s.c.PutObject(ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)), opts)
+	var info minio.UploadInfo
+	err = d.s.sendOnce(ctx, OpPublish, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+		var err error
+		info, err = d.s.core.PutObject(a.ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)),
+			base64.StdEncoding.EncodeToString(sum[:]), "", opts)
+		return err
+	})
 	if err != nil {
-		if preconditionFailed(err) {
-			return durable.NoVersion, errs.Wrap(module, errors.Join(durable.ErrStale, err), "cannot publish %s: it changed meanwhile; nothing changed", name)
+		if Classify(err) == Precondition {
+			return durable.NoVersion, wrap(errors.Join(durable.ErrStale, err), "cannot publish %s: it changed meanwhile; nothing changed", name)
 		}
-		return durable.NoVersion, errs.Wrap(module, err, "publish of %s failed; it may or may not have applied, re-read before retrying", name)
+		return durable.NoVersion, wrap(err, "publish of %s failed; it may or may not have applied, re-read before retrying", name)
 	}
+	d.s.moved(OpPublish, int64(len(b)))
 	if info.ETag == "" {
 		return durable.NoVersion, errs.Wrap(module, nil, "published %s but got no ETag; re-read before retrying", name)
 	}

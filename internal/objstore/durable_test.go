@@ -11,8 +11,10 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/faultnet"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
+	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
 )
 
 // The S3 adapter must pass the same contract as the fake (including the concurrent-publish test, which is
@@ -21,17 +23,45 @@ import (
 //	docker compose -f deploy/seaweedfs/docker-compose.yml up -d
 //	COLDLOAD_S3=localhost:8333 go test ./internal/objstore -run S3
 func TestS3DurableStoreContract(t *testing.T) {
+	ep := s3Endpoint(t)
+	t.Run("direct", func(t *testing.T) { runS3Suite(t, ep) })
+	t.Run("through healthy faultnet proxy", func(t *testing.T) {
+		p, err := faultnet.New(ep)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { p.Close() })
+		runS3Suite(t, p.Addr())
+	})
+}
+
+// s3Endpoint returns COLDLOAD_S3 or skips the test.
+func s3Endpoint(t *testing.T) string {
+	t.Helper()
 	ep := os.Getenv("COLDLOAD_S3")
 	if ep == "" {
-		t.Skip("set COLDLOAD_S3=host:port to run the S3 durable store contract suite")
+		t.Skip("set COLDLOAD_S3=host:port to run tests against a real S3")
 	}
-	st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	return ep
+}
+
+// s3Config is the real S3 at ep with the coldload credentials (deploy/seaweedfs/s3.json).
+func s3Config(ep string) objstore.Config {
+	return objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"}
+}
+
+// s3Store connects to the real S3 at ep and makes sure the bucket exists.
+func s3Store(t *testing.T, ep string) *objstore.Store {
+	t.Helper()
+	st := mustStore(t, s3Config(ep))
 	if err := st.EnsureBucket(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	return st
+}
+
+func runS3Suite(t *testing.T, ep string) {
+	st := s3Store(t, ep)
 	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
 		root := "test-" + logx.NewID() + "/"
 		t.Cleanup(func() { st.DeletePrefix(context.Background(), root) })
@@ -77,23 +107,63 @@ func TestDurableStoreDownIsAWrappedErrorNotASentinel(t *testing.T) {
 // TestS3DurableStoreContract's job.
 func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
-		fake, ep := newFakeS3(t)
-		st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "a", SecretKey: "b", Bucket: "bkt"})
-		if err != nil {
-			t.Fatal(err)
-		}
+		fake := s3test.New()
+		t.Cleanup(fake.Close)
 		t.Cleanup(func() {
-			fake.mu.Lock()
-			defer fake.mu.Unlock()
-			for _, h := range fake.puts {
-				if h.Get("If-None-Match") == "" && h.Get("If-Match") == "" {
-					t.Errorf("an unconditional PUT was sent: %v", h)
+			for _, r := range fake.Requests() {
+				if r.Method != "PUT" {
+					continue
 				}
-				if h.Get("Content-Type") == "application/vnd.sqlite3" && h.Get("X-Amz-Meta-Sha256") == "" {
-					t.Errorf("a generation PUT without x-amz-meta-sha256: %v", h)
+				if r.Header.Get("If-None-Match") == "" && r.Header.Get("If-Match") == "" {
+					t.Errorf("an unconditional PUT was sent: %v", r.Header)
+				}
+				if r.Header.Get("Content-Md5") == "" {
+					t.Errorf("a PUT without Content-MD5 (OS-07): %v", r.Header)
+				}
+				if r.Header.Get("Content-Type") == "application/vnd.sqlite3" && r.Header.Get("X-Amz-Meta-Sha256") == "" {
+					t.Errorf("a generation PUT without x-amz-meta-sha256: %v", r.Header)
 				}
 			}
 		})
-		return objstore.NewDurable(st, "root/")
+		return objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "root/")
 	})
+}
+
+// The same suite through a faultnet proxy with every fault off: the harness itself must be transparent
+// before any fault test through it means something (RI-13).
+func TestDurableStoreContractThroughHealthyProxy(t *testing.T) {
+	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
+		fake := s3test.New()
+		t.Cleanup(fake.Close)
+		p, err := faultnet.New(fake.Endpoint())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { p.Close() })
+		return objstore.NewDurable(mustStore(t, fakeConfig(p.Addr())), "root/")
+	})
+}
+
+// fakeConfig is a store at endpoint with the credentials and bucket the s3test fake accepts.
+func fakeConfig(endpoint string) objstore.Config {
+	return objstore.Config{Endpoint: endpoint, AccessKey: "a", SecretKey: "b", Bucket: "bkt"}
+}
+
+func mustStore(t *testing.T, cfg objstore.Config) *objstore.Store {
+	t.Helper()
+	st, err := objstore.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// srcFile writes data to a temp file and returns its path and digest.
+func srcFile(t *testing.T, data []byte) (string, durable.Digest) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "src")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path, durabletest.DigestOf(data)
 }

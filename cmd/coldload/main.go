@@ -126,6 +126,7 @@ func (a *app) withStore(fn func(context.Context, *objstore.Store) error) error {
 	st, err := objstore.New(objstore.Config{
 		Endpoint: a.cfg.S3.Endpoint, AccessKey: a.cfg.S3.AccessKey, SecretKey: a.cfg.S3.SecretKey,
 		Bucket: a.cfg.S3.Bucket, MaxConns: max(1024, 2*coldload.MaxConcurrency(a.cfg.Levels())),
+		Logger: a.log,
 	})
 	if err != nil {
 		return errs.Wrap(module, err, "cannot connect to object storage")

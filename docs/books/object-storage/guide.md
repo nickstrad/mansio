@@ -244,9 +244,9 @@ Run `TestS3Compat` (OS-03) for every backend and version before using it. Record
 | X11 | `If-None-Match` on `CompleteMultipartUpload` | required before any generation over 5 GiB |
 | X12 | Scoped identity: the agent credential cannot LIST or delete outside its permissions | §9 |
 
-Known results: single-node SeaweedFS 4.47 passes X1–X4
-([verified note](../../../knowledge/writeback/2026-11-05-s3-conditional-put-verified.md)). Everything else
-is unverified.
+Known results: single-node SeaweedFS 4.47 passes X1–X11; X12 is not run (no scoped identity yet)
+([compat note](../../../knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md)). Identical bytes repeat the
+ETag there (X5). Multi-node SeaweedFS, MinIO and AWS are unverified.
 
 ## 8. Caching
 
@@ -285,7 +285,8 @@ hash.**
 **O1. Measure every S3 request: op, kind, bytes, duration.**
 - How: count every request. Log each failure once with key, status and kind (`logx`).
 - Why: request cost and 503s show up here first (Ch 11, Ch 14).
-- Example: the `durable.Metered` decorator (OS-08), shown in `Host.Stats`.
+- Example: `objstore.Store.Metrics()` (OS-08): attempts by op and `Kind`, retries, bytes, latency histogram;
+  retried attempts log `S3.REQUEST_RETRIED`. It counts HTTP requests, so retries and the HEAD after an upload show.
 
 **O2. Report requests, and dollars, per logical operation in benchmarks.**
 - Why: "2× faster but 10× the requests" can be a loss (Ch 11).
