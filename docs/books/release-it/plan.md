@@ -214,7 +214,7 @@ where it lands.
   - The vactor first-query timeout test asserts the actor is free afterward.
 - **Size.** S.
 
-#### RI-02 — Activation deadline and fetch bulkhead
+#### RI-02 — Activation deadline and fetch bulkhead — **Done** (3797f59)
 
 - **Goal.** No activation outlives its budget, and fetches stay below the measured knee (ch5 §5.3, ch9 §9.1).
 - **Files.** `internal/vactor/host.go`, `writeback.go`.
@@ -232,7 +232,7 @@ where it lands.
   - coldload `sizes` rerun at c=64 shows throughput ≥ the c=16 figure.
 - **Size.** M.
 
-#### RI-03 — S3 circuit breaker and per-key failure backoff
+#### RI-03 — S3 circuit breaker and per-key failure backoff — **Done** (7244750)
 
 - **Goal.** Stop calling S3 when it is failing (ch5 §5.2), and stop one broken key from being refetched on
   every request (ch4 §4.6).
@@ -280,7 +280,7 @@ where it lands.
     VMInFlight.
 - **Size.** S.
 
-#### RI-05 — Steady-state maintenance
+#### RI-05 — Steady-state maintenance — **Done** (8735cd4; paged listing + generation GC left to OS-06)
 
 - **Change.**
   - `Tick` wraps each job in `context.WithTimeout(ctx, WriteBackTimeout)` (`maintain.go:78-103`). `TickReport`
