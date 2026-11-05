@@ -21,20 +21,20 @@ const (
 
 // Database is a registry row.
 type Database struct {
-	Key     string // tenant ":" name: the placement key and the wire database id
-	Tenant  string
-	Name    string
-	Default bool
-	State   string
-	Target  string // the move's destination while State is StateMoving
+	Key     string `json:"db"` // tenant ":" name: the placement key and the wire database id
+	Tenant  string `json:"tenant"`
+	Name    string `json:"name"`
+	Default bool   `json:"default"`
+	State   string `json:"state"`
+	Target  string `json:"target,omitempty"` // the move's destination while State is StateMoving
 }
 
 // VMLoad is the placement policy's input for one VM not attested dead.
 type VMLoad struct {
-	VM           string
-	ActiveDBs    int64
-	Bytes        int64
-	HeartbeatAge time.Duration
+	VM           string        `json:"vm"`
+	ActiveDBs    int64         `json:"active_dbs"`
+	Bytes        int64         `json:"bytes"`
+	HeartbeatAge time.Duration `json:"heartbeat_age_ns"`
 }
 
 // VM is a VM registry row.
