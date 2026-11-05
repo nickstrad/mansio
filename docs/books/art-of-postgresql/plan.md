@@ -265,7 +265,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   for TTL; kill the listener connection mid-move: the locator reconnects, reloads, and the resolve is correct.
 - **Size:** M.
 
-#### PG-11 — Adopt the SQL guide
+#### PG-11 — Adopt the SQL guide — **Done** (guide linked from docs/coding-style.md §7, AGENTS.md and knowledge/index.md; testing lines in knowledge/testing/2026-11-05-book-guides-testing.md)
 
 Move [guide.md](guide.md) into force: link it from `knowledge/index.md` and the repo coding-style summary; add
 the three lines in §6 of this plan to `knowledge/testing/README.md`. **Size:** S.
