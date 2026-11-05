@@ -401,3 +401,16 @@ func TestInvalid(t *testing.T) {
 		t.Fatal("Invalid misclassifies")
 	}
 }
+
+func TestParsePermRoundTrips(t *testing.T) {
+	for _, p := range []ticket.Perm{ticket.Read, ticket.Write, ticket.Read | ticket.Write} {
+		if got, ok := ticket.ParsePerm(p.String()); !ok || got != p {
+			t.Errorf("%v: %v %v", p, got, ok)
+		}
+	}
+	for _, bad := range []string{"", "rw", "write|read", "perm(4)"} {
+		if _, ok := ticket.ParsePerm(bad); ok {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}

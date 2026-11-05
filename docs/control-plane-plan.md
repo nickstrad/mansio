@@ -26,7 +26,8 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Client retry | `internal/retry` | Policy done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`). **Not wired:** the only caller (`internal/bench/run.go:359`) never sets `ServerHint`, and `internal/outcome` has no `unavailable` code. |
 | Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `TSDB_PG_URL`). Not wired yet (CP-4). |
 | Control plane | `cmd/controld`, `internal/control` | Done (CP-4): registries (0002), M8 policy, create/move/suspend/drop/M5 restore, resumer from table scans; agentd on `placement_pg`; RI-16 admin + `agentctl`; OS-11 scoped identities, TLS. |
-| Locator, issuer, client | none | Not started. |
+| Locator, issuer | `internal/control/locator`, `cmd/controld` | Done (CP-5): `POST /v1/resolve` (API keys), notified cache (0003), key ring + `GET /v1/keys`, agentd `keys_url`. |
+| Client | none | Not started (CP-6). |
 
 ## 2. The three flows we need
 
@@ -163,12 +164,12 @@ modes during a load run (`RI H5`). Track fds, RSS, goroutines, cache-dir bytes, 
 `oldest_dirty_age` (`RI S3`); find the one constraint per workload; write the per-feature SLA table.
 - **Gate:** every steady-state gauge has slope ≈ 0 after the first hour; a results note in `knowledge/writeback/`.
 
-### CP-5. Locator and ticket issuer (PG-10)
+### CP-5. Locator and ticket issuer (PG-10) — **Done** (9f98cc4; deferred: per-database grants and revocation floors, TLS on the resolve/keys endpoints (CP-7), caching minted tickets, a shared atomic-file helper (now 4 copies), the locator as its own binary; notes in `knowledge/front/2026-11-05-locator.md`)
 
 Inside controld first; split out later.
 - `resolve(tenant, db, principal)` → endpoint, epoch, gen, ticket, TTL. Reads replicas, takes a primary read when
   `min_epoch` is set, single-flights per database, returns `MOVING` with `Retry-After`; bounded cache (`RI B6`).
-- **Invalidation (PG-10):** `0002_notify.sql` trigger `pg_notify('placement', database_id || ':' || epoch)`; the
+- **Invalidation (PG-10):** `0003_notify.sql` (0002 was CP-4's registries) trigger `pg_notify('placement', database_id || ':' || epoch)`; the
   locator LISTENs first, then loads, then applies. A lost notification only costs a `wrong_owner` and a
   re-resolve (`SQL G-11`).
 - The issuer signs with a rotating Ed25519 key ring; agents fetch public keys (`ticket.KeySet` already overlaps

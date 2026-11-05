@@ -253,7 +253,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   user statement fails leaves no request-id row (savepoint rolled back together).
 - **Size:** S.
 
-#### PG-10 — Locator cache invalidation with LISTEN/NOTIFY (ch 40)
+#### PG-10 — Locator cache invalidation with LISTEN/NOTIFY (ch 40) — **Done** (9f98cc4; trigger in `0003_notify.sql` on insert, update and delete; `pg.Listen`; gate in `cmd/controld` `TestLocatorGate`)
 
 - **Files:** `cmd/controld` locator (CP step 5), trigger `placement_notify` in `0002_notify.sql`.
 - **Change:** `after update on placement for each row` → `pg_notify('placement', database_id || ':' || epoch)`.

@@ -16,6 +16,8 @@ this guide adds failure-below-the-interface tests (§H).
 | Inbound HTTP | `internal/front`, `cmd/agentd` | yes | the client |
 | Client → locator / agent | CP step 6, `internal/retry` | yes | client, once |
 | Edge → agent | `internal/edge`, `cmd/edge` (CP-7) | yes | the client (the edge never retries) |
+| Locator → Postgres (resolve reads, LISTEN) | `internal/control/locator`, `placement/pg` `Locate`, `Listen` | yes (cache miss) | none (client re-resolves) |
+| Agent → issuer key set | `cmd/agentd/keys.go` (`keys_url`) | no (background) | the fetch loop (next period) |
 | Actor mailbox / read pool | `internal/actor` | yes | none (shed) |
 | Local disk (fsync, cache dir) | `owner.FileStore`, vactor cache | yes (commit) | none |
 
@@ -221,6 +223,20 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 - `MaxConnIdleTime` < the smallest NAT/LB idle timeout (ch4 §4.1 "5 a.m. problem").
 - Primary reads only for the port. A connection error never maps to `ErrConflict`/`ErrNotFound`. Breaker per
   pool.
+
+**Locator** (controld, CP-5)
+- `POST /v1/resolve`: own bulkhead (`locator.concurrency` 256, refused 503 when full, never queued behind admin
+  calls), deadline `locator.timeout` 3 s. Store loads single-flight per (database, primary), each under its own
+  `LoadTimeout` (= `locator.timeout`), so a caller that leaves does not cancel it for the others.
+- Cache bounded (`cache_max` 100 000, `cache_ttl` 5 min), trusted only while the LISTEN connection is up; API
+  keys cached `auth_ttl` 10 s (positive answers only). MOVING → 503 `moving` + `Retry-After` 1 s.
+- LISTEN on a dedicated connection (not the pool): connect 3 s + call timeout, `select 1` after `listen_ping`
+  5 s of silence, reconnect with jittered backoff 100 ms ×2 to 5 s; every connect resets the cache.
+
+**Issuer key set** (agentd `keys_url`)
+- GET every `keys_refresh` 30 s under `keys_timeout` 3 s, body ≤ 64 KiB; a failure keeps the ring and is counted
+  (`agentd_keys_fetch_failures_total`, `agentd_keys_age_seconds`). `ticket_keys.activate` (5 min) ≥ 2 ×
+  `keys_refresh`; a retired key stays published `ticket_ttl` + 2 min.
 
 **Inbound HTTP** (`agentd`)
 - `ReadHeaderTimeout` 5 s, body read deadline 5 s, write deadline = request deadline + grace, `MaxHeaderBytes`

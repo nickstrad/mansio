@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,13 @@ type Config struct {
 	LifecycleConcurrency int           `json:"lifecycle_concurrency"`
 	ReconcilePerKey      load.Duration `json:"reconcile_per_key"` // one key's reconcile deadline; workers = startup_workers
 
-	KeysFile     string        `json:"keys_file"` // ticket.PublicKeyFile JSON (required)
+	// Ticket public keys: keys_file (a ticket.PublicKeyFile; static, for dev and benches), or keys_url (the
+	// issuer's GET /v1/keys on controld, fetched every keys_refresh; CP-5). With keys_url, keys_file is
+	// optional and caches the last fetched set, so a restart while controld is down still verifies tickets.
+	KeysFile     string        `json:"keys_file"`
+	KeysURL      string        `json:"keys_url"`
+	KeysRefresh  load.Duration `json:"keys_refresh"` // default 30 s; controld's ticket_keys.activate must be at least twice this
+	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
 	ClockSkew    load.Duration `json:"clock_skew"`
 	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
 	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
@@ -158,6 +165,7 @@ func defaults() Config {
 	return Config{
 		Listen: "127.0.0.1:7070", Protocols: []string{"h1", "h2c"},
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
+		KeysRefresh: d(30 * time.Second), KeysTimeout: d(3 * time.Second),
 		Limits:         front.Limits{}.WithDefaults(),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
 		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ShutdownBudget: d(time.Minute), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
@@ -188,8 +196,16 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	} else if c.DBDir == "" {
 		bad("db_dir is required (or an s3 section for durable mode)")
 	}
-	if c.KeysFile == "" {
-		bad("keys_file is required")
+	if c.KeysFile == "" && c.KeysURL == "" {
+		bad("keys_file or keys_url is required (the ticket public keys)")
+	}
+	if c.KeysURL != "" {
+		if u, err := url.Parse(c.KeysURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("keys_url %q must be an http(s) URL", c.KeysURL)
+		}
+		if c.KeysRefresh.Duration <= 0 || c.KeysTimeout.Duration <= 0 || c.KeysTimeout.Duration >= c.KeysRefresh.Duration {
+			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
+		}
 	}
 	if c.Listen == "" {
 		bad("listen is required")
@@ -364,6 +380,10 @@ func loopback(addr string) bool {
 func (c *Config) checkDev() error {
 	if err := c.checkTLS(); err != nil {
 		return err
+	}
+	if strings.HasPrefix(c.KeysURL, "http:") && !c.Dev {
+		return errs.Wrap(module, nil, "keys_url is plain HTTP: whoever can change the answer can mint tickets; use https, or pass -dev "+
+			"for a local run").With("keys_url", c.KeysURL)
 	}
 	if c.Durable() && !c.S3.Secure && !c.Dev {
 		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+
