@@ -3,9 +3,12 @@ package pg
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/owner"
@@ -120,7 +123,6 @@ func TestSessionSettings(t *testing.T) {
 // the schema's answer, not an outage.
 func TestEdgeValidationAndAnswers(t *testing.T) {
 	p, _ := newPlacement(t, nil)
-	a1 := owner.Place{Owner: "vm-a", Epoch: 1, State: owner.PlaceActive}
 	for _, key := range []string{"", strings.Repeat("k", owner.MaxKeyLen+1), "a\x00b", "\xff"} {
 		if _, err := p.Get(ctx, key); !errors.Is(err, owner.ErrInvalid) {
 			t.Errorf("Get(%q) = %v, want ErrInvalid", key, err)
@@ -193,18 +195,13 @@ func TestFlipRecordsItsMove(t *testing.T) {
 	rows, err := c.Query(ctx, "select database_id, from_epoch, from_vm, to_vm, ack_generation from moves")
 	must(t, err)
 	type move struct {
-		key      string
-		from     int64
-		fvm, tvm string
-		ack      int64
+		Key      string
+		From     int64
+		FVM, TVM string
+		Ack      int64
 	}
-	var got []move
-	for rows.Next() {
-		var m move
-		must(t, rows.Scan(&m.key, &m.from, &m.fvm, &m.tvm, &m.ack))
-		got = append(got, m)
-	}
-	must(t, rows.Err())
+	got, err := pgx.CollectRows(rows, pgx.RowToStructByPos[move])
+	must(t, err)
 	if len(got) != 1 || got[0] != (move{"k", 2, "vm-a", "vm-b", 5}) {
 		t.Fatalf("moves = %+v, want exactly the flip k@2 vm-a→vm-b ack 5", got)
 	}
@@ -242,5 +239,15 @@ func must(t testing.TB, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestValidVMMatchesTheDomain(t *testing.T) {
+	domain := regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`) // 0001_placement.sql, vm_id
+	for _, vm := range []string{"", "a", "0", "vm-a", "a.b", "-a", ".a", "A", "a_b", "a b", "é",
+		strings.Repeat("a", 63), strings.Repeat("a", 64), "a" + strings.Repeat("-", 62)} {
+		if ValidVM(vm) != domain.MatchString(vm) {
+			t.Errorf("ValidVM(%q) = %v, the domain says %v", vm, ValidVM(vm), domain.MatchString(vm))
+		}
 	}
 }

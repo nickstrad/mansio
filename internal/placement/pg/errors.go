@@ -1,7 +1,6 @@
 package pg
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -69,6 +68,3 @@ func (e *openError) Is(target error) bool {
 
 // RetryAfter is the breaker's hint (front.RetryHint).
 func (e *openError) RetryAfter() time.Duration { return e.wait }
-
-// gaveUp reports whether the caller's own ctx ended (as opposed to the adapter's per-call deadline).
-func gaveUp(parent context.Context) bool { return parent.Err() != nil }

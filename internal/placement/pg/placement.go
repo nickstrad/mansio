@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -58,38 +58,66 @@ func (p *Placement) Breaker() *breaker.Breaker { return p.b }
 // Stat is the pool's counters (acquires, waits, idle, total).
 func (p *Placement) Stat() *pgxpool.Stat { return p.pool.Stat() }
 
-// call runs fn once under the breaker and a per-call deadline (RI T1, C1). what names the call for the
-// error; retry says whether a retry is safe after a system failure.
-func (p *Placement) call(ctx context.Context, what, retry string, fn func(ctx context.Context) error) error {
+// Retry hints for system failures (Release It R2: say whether a retry is safe).
+const (
+	retryRead  = "nothing changed, safe to retry"
+	retryWrite = "it may have applied: Get before retrying"
+)
+
+// call runs fn once under the breaker and a per-call deadline (RI T1, C1). Errors read "cannot <what>
+// <key>" (key may be empty), built only on failure; retry says whether a retry is safe after a system
+// failure.
+func (p *Placement) call(ctx context.Context, what, key, retry string, fn func(ctx context.Context) error) error {
 	if err := ctx.Err(); err != nil {
-		return errs.Wrap(module, err, "cannot %s: the caller gave up; nothing sent", what)
+		return errs.Wrap(module, err, "cannot %s: the caller gave up; nothing sent", subject(what, key))
 	}
 	permit, wait, ok := p.b.Allow(p.cfg.Now())
 	if !ok {
-		return errs.Wrap(module, &openError{wait: wait}, "cannot %s: the placement circuit breaker is open; nothing sent, retry after %v", what, wait)
+		return errs.Wrap(module, &openError{wait: wait}, "cannot %s: the placement circuit breaker is open; nothing sent, retry after %v", subject(what, key), wait)
 	}
 	cctx, cancel := context.WithTimeout(ctx, p.cfg.CallTimeout)
 	err := fn(cctx)
 	cancel()
+	o := breaker.Success
 	if err != nil && !isAnswer(err) {
 		err = classify(err)
-	}
-	o := breaker.Success
-	switch {
-	case err == nil || isAnswer(err):
-	case gaveUp(ctx):
-		o = breaker.Ignore // the caller left: says nothing about the authority
-	default:
-		o = breaker.Failure
+		switch {
+		case ctx.Err() != nil:
+			o = breaker.Ignore // the caller left: says nothing about the authority
+		case errors.Is(err, ErrUnavailable):
+			o = breaker.Failure
+		}
 	}
 	p.b.Done(permit, p.cfg.Now(), o)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, ErrUnavailable):
-		return errs.Wrap(module, err, "cannot %s: placement authority unavailable; %s", what, retry)
+		return errs.Wrap(module, err, "cannot %s: placement authority unavailable; %s", subject(what, key), retry)
 	}
-	return errs.Wrap(module, err, "cannot %s", what)
+	return errs.Wrap(module, err, "cannot %s", subject(what, key))
+}
+
+// subject is what a call did, for its error message: "read the placement of" + ` "k"`.
+func subject(what, key string) string {
+	if key == "" {
+		return what
+	}
+	return what + " " + strconv.Quote(key)
+}
+
+// list runs one bounded listing query under call and collects its rows.
+func list[T any](p *Placement, ctx context.Context, what, sql string, scan pgx.RowToFunc[T], args ...any) ([]T, error) {
+	var out []T
+	err := p.call(ctx, what, "", retryRead, func(ctx context.Context) error {
+		rows, err := p.pool.Query(ctx, sql, args...)
+		if err != nil {
+			return err
+		}
+		out, err = pgx.CollectRows(rows, scan)
+		return err
+	})
+	return out, err
 }
 
 // Get returns key's row, read from the primary. A missing key matches owner.ErrNotFound.
@@ -98,7 +126,7 @@ func (p *Placement) Get(ctx context.Context, key string) (owner.Place, error) {
 		return owner.Place{}, errs.Wrap(module, err, "cannot read the placement of %q; nothing sent", key)
 	}
 	var pl owner.Place
-	err := p.call(ctx, fmt.Sprintf("read the placement of %q", key), "nothing changed, safe to retry", func(ctx context.Context) error {
+	err := p.call(ctx, "read the placement of", key, retryRead, func(ctx context.Context) error {
 		var vm, state string
 		var epoch, gen int64
 		err := p.pool.QueryRow(ctx, q.get, key).Scan(&vm, &epoch, &gen, &state)
@@ -122,18 +150,18 @@ func (p *Placement) Get(ctx context.Context, key string) (owner.Place, error) {
 //	post: ErrInvariant, ErrUnknownVM, owner.ErrInvalid ⇒ refused; nothing changed
 //	post: ErrUnavailable ⇒ unknown: the change may have applied; Get before deciding
 func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Place) error {
-	what := fmt.Sprintf("set the placement of %q", key)
+	const what = "set the placement of"
 	if err := checkKey(key); err != nil {
-		return errs.Wrap(module, err, "cannot %s; nothing sent", what)
+		return errs.Wrap(module, err, "cannot %s %q; nothing sent", what, key)
 	}
 	if err := checkPlace(next); err != nil {
-		return errs.Wrap(module, err, "cannot %s: bad next row; nothing sent", what)
+		return errs.Wrap(module, err, "cannot %s %q: bad next row; nothing sent", what, key)
 	}
 	if expect.Epoch == 0 {
 		if expect != (owner.Place{}) {
-			return errs.Wrap(module, owner.ErrConflict, "cannot %s: expected \"no row\" with fields set: %+v", what, expect)
+			return errs.Wrap(module, owner.ErrConflict, "cannot %s %q: expected \"no row\" with fields set: %+v", what, key, expect)
 		}
-		return p.call(ctx, what, "it may have been created: Get before retrying", func(ctx context.Context) error {
+		return p.call(ctx, what, key, retryWrite, func(ctx context.Context) error {
 			var e int64
 			err := p.pool.QueryRow(ctx, q.create, key, next.Owner, int64(next.Epoch), int64(next.Gen), next.State.String()).Scan(&e)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -144,9 +172,9 @@ func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Plac
 	}
 	if checkPlace(expect) != nil {
 		// No stored row can equal it (the schema refuses such rows), so the row is not the expected one.
-		return errs.Wrap(module, owner.ErrConflict, "cannot %s: expected row %+v cannot exist", what, expect)
+		return errs.Wrap(module, owner.ErrConflict, "cannot %s %q: expected row %+v cannot exist", what, key, expect)
 	}
-	return p.call(ctx, what, "it may have applied: Get before retrying", func(ctx context.Context) error {
+	return p.call(ctx, what, key, retryWrite, func(ctx context.Context) error {
 		var n int64
 		err := p.pool.QueryRow(ctx, q.cas, key,
 			expect.Owner, int64(expect.Epoch), int64(expect.Gen), expect.State.String(),
@@ -164,11 +192,10 @@ func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Plac
 // RegisterVM adds vm to the registry (or refreshes its endpoint and heartbeat); a row may name it as owner
 // only after this. Idempotent.
 func (p *Placement) RegisterVM(ctx context.Context, vm, endpoint string) error {
-	what := fmt.Sprintf("register vm %q", vm)
 	if !ValidVM(vm) {
-		return errs.Wrap(module, owner.ErrInvalid, "cannot %s: a vm id is 1-63 of [a-z0-9.-], starting with [a-z0-9]", what)
+		return errs.Wrap(module, owner.ErrInvalid, "cannot register vm %q: a vm id is 1-63 of [a-z0-9.-], starting with [a-z0-9]", vm)
 	}
-	return p.call(ctx, what, "safe to retry", func(ctx context.Context) error {
+	return p.call(ctx, "register vm", vm, "safe to retry", func(ctx context.Context) error {
 		_, err := p.pool.Exec(ctx, q.registerVM, vm, endpoint)
 		return err
 	})
@@ -184,23 +211,13 @@ type Stuck struct {
 
 // Moving returns up to limit rows MOVING for longer than olderThan, oldest first (moving.sql).
 func (p *Placement) Moving(ctx context.Context, olderThan time.Duration, limit int) ([]Stuck, error) {
-	var out []Stuck
-	err := p.call(ctx, "list stuck moves", "nothing changed, safe to retry", func(ctx context.Context) error {
-		out = out[:0]
-		rows, err := p.pool.Query(ctx, q.moving, olderThan, limit)
-		if err != nil {
-			return err
-		}
+	return list(p, ctx, "list stuck moves", q.moving, func(row pgx.CollectableRow) (Stuck, error) {
 		var s Stuck
 		var e, g int64
-		_, err = pgx.ForEachRow(rows, []any{&s.Key, &s.Owner, &e, &g}, func() error {
-			s.Epoch, s.Gen = owner.Epoch(e), owner.Generation(g)
-			out = append(out, s)
-			return nil
-		})
-		return err
-	})
-	return out, err
+		err := row.Scan(&s.Key, &s.Owner, &e, &g)
+		s.Epoch, s.Gen = owner.Epoch(e), owner.Generation(g)
+		return s, err
+	}, olderThan, limit)
 }
 
 // VMLoad is one live VM with its count of ACTIVE databases.
@@ -212,21 +229,7 @@ type VMLoad struct {
 
 // Load returns up to limit live VMs, least loaded first (vm_load.sql).
 func (p *Placement) Load(ctx context.Context, limit int) ([]VMLoad, error) {
-	var out []VMLoad
-	err := p.call(ctx, "read vm load", "nothing changed, safe to retry", func(ctx context.Context) error {
-		out = out[:0]
-		rows, err := p.pool.Query(ctx, q.vmLoad, limit)
-		if err != nil {
-			return err
-		}
-		var l VMLoad
-		_, err = pgx.ForEachRow(rows, []any{&l.VM, &l.Endpoint, &l.ActiveDBs}, func() error {
-			out = append(out, l)
-			return nil
-		})
-		return err
-	})
-	return out, err
+	return list(p, ctx, "read vm load", q.vmLoad, pgx.RowToStructByPos[VMLoad], limit)
 }
 
 // Violation is a moves row whose placement row is missing (Epoch 0) or not above the flip's from_epoch.
@@ -238,33 +241,33 @@ type Violation struct {
 
 // Invariants returns up to limit violations of the move invariant (invariants.sql); none when consistent.
 func (p *Placement) Invariants(ctx context.Context, limit int) ([]Violation, error) {
-	var out []Violation
-	err := p.call(ctx, "check placement invariants", "nothing changed, safe to retry", func(ctx context.Context) error {
-		out = out[:0]
-		rows, err := p.pool.Query(ctx, q.invariants, limit)
-		if err != nil {
-			return err
-		}
+	return list(p, ctx, "check placement invariants", q.invariants, func(row pgx.CollectableRow) (Violation, error) {
 		var v Violation
 		var from int64
-		var epoch *int64
-		_, err = pgx.ForEachRow(rows, []any{&v.Key, &from, &epoch}, func() error {
-			v.FromEpoch, v.Epoch = owner.Epoch(from), 0
-			if epoch != nil {
-				v.Epoch = owner.Epoch(*epoch)
-			}
-			out = append(out, v)
-			return nil
-		})
-		return err
-	})
-	return out, err
+		var epoch *int64 // null when the placement row is missing
+		err := row.Scan(&v.Key, &from, &epoch)
+		v.FromEpoch = owner.Epoch(from)
+		if epoch != nil {
+			v.Epoch = owner.Epoch(*epoch)
+		}
+		return v, err
+	}, limit)
 }
 
-var vmID = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,62}$`) // the vm_id domain
-
-// ValidVM reports whether vm is a valid VM id (the schema's vm_id domain).
-func ValidVM(vm string) bool { return vmID.MatchString(vm) }
+// ValidVM reports whether vm is a valid VM id: the schema's vm_id domain, ^[a-z0-9][a-z0-9.-]{0,62}$
+// (TestValidVMMatchesTheDomain keeps the two in step).
+func ValidVM(vm string) bool {
+	if len(vm) < 1 || len(vm) > 63 {
+		return false
+	}
+	for i := range len(vm) {
+		c := vm[i]
+		if !('a' <= c && c <= 'z' || '0' <= c && c <= '9' || i > 0 && (c == '.' || c == '-')) {
+			return false
+		}
+	}
+	return true
+}
 
 // checkKey validates a key at the edge: owner.ValidKey, and text Postgres can store (valid UTF-8, no NUL).
 func checkKey(key string) error {

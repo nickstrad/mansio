@@ -35,21 +35,19 @@ func timed(f func() error) (error, time.Duration) {
 // proxied opens an adapter on schema through a faultnet proxy in front of TSDB_PG_URL. It does not migrate.
 func proxied(t *testing.T, schema string, mod func(*Config)) (*Placement, *faultnet.Proxy) {
 	t.Helper()
-	px, err := faultnet.New(upstream(t))
+	u, addr := pgAddr(t)
+	px, err := faultnet.New(addr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { px.Close() })
-	cfg := Config{DSN: viaProxy(t, pgURL(t), px.Addr()), Schema: schema, AppName: "test/proxied"}
-	if mod != nil {
-		mod(&cfg)
-	}
-	p, err := Open(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.Close)
-	return p, px
+	u.Host = px.Addr()
+	return open(t, u.String(), schema, mod), px
+}
+
+// short shrinks the timeouts so fault tests wait less; the assertions scale with p.cfg.
+func short(c *Config) {
+	c.StatementTimeout, c.LockTimeout, c.CallTimeout = 300*time.Millisecond, 200*time.Millisecond, 500*time.Millisecond
 }
 
 var a1 = owner.Place{Owner: "vm-a", Epoch: 1, State: owner.PlaceActive}
@@ -58,7 +56,7 @@ var a1m = owner.Place{Owner: "vm-a", Epoch: 1, State: owner.PlaceMoving}
 // A session holding the row in an open transaction makes CAS fail within lock_timeout, as a non-sentinel
 // error; reads are not blocked (MVCC), and the CAS works once the lock is gone.
 func TestLockHeldFailsWithinLockTimeout(t *testing.T) {
-	p, schema := newPlacement(t, nil)
+	p, schema := newPlacement(t, short)
 	must(t, p.CAS(ctx, "k", owner.Place{}, a1))
 	c := adminConn(t, schema)
 	tx, err := c.Begin(ctx)
@@ -67,7 +65,7 @@ func TestLockHeldFailsWithinLockTimeout(t *testing.T) {
 	must(t, err)
 	err, took := timed(func() error { return p.CAS(ctx, "k", a1, a1m) })
 	wantUnavailable(t, "CAS on a locked row", err, took, p.cfg.LockTimeout+slack)
-	if took < p.cfg.LockTimeout-100*time.Millisecond {
+	if took < p.cfg.LockTimeout-50*time.Millisecond {
 		t.Fatalf("CAS on a locked row gave up after %v, before lock_timeout %v", took, p.cfg.LockTimeout)
 	}
 	if got, err := p.Get(ctx, "k"); err != nil || got != a1 {
@@ -82,7 +80,7 @@ func TestLockHeldFailsWithinLockTimeout(t *testing.T) {
 func TestBlackholeFailsWithinCallTimeout(t *testing.T) {
 	direct, schema := newPlacement(t, nil)
 	must(t, direct.CAS(ctx, "k", owner.Place{}, a1))
-	p, px := proxied(t, schema, nil)
+	p, px := proxied(t, schema, short)
 	px.Set(faultnet.Hole(), 0)
 	limit := p.cfg.CallTimeout + slack
 	err, took := timed(func() error { _, err := p.Get(ctx, "k"); return err })
@@ -100,8 +98,8 @@ func TestBlackholeFailsWithinCallTimeout(t *testing.T) {
 func TestHalfOpenRecyclesTheStaleConnection(t *testing.T) {
 	direct, schema := newPlacement(t, nil)
 	must(t, direct.CAS(ctx, "k", owner.Place{}, a1))
-	p, px := proxied(t, schema, func(c *Config) { c.MaxConns = 1 })
-	if _, err := p.Get(ctx, "k"); err != nil { // warm the one pooled connection
+	p, px := proxied(t, schema, func(c *Config) { c.MaxConns = 1 }) // default timeouts: CallTimeout must exceed closeBudget here
+	if _, err := p.Get(ctx, "k"); err != nil {                      // warm the one pooled connection
 		t.Fatal(err)
 	}
 	px.Set(faultnet.Frozen(), 0) // freezes the live connection...

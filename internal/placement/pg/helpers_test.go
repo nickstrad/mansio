@@ -78,15 +78,7 @@ func newPlacement(t testing.TB, mod func(*Config)) (*Placement, string) {
 // openOn opens another adapter on an existing schema, migrating it and registering testVMs (idempotent).
 func openOn(t testing.TB, schema string, mod func(*Config)) *Placement {
 	t.Helper()
-	cfg := Config{DSN: pgURL(t), Schema: schema, AppName: "test/placement"}
-	if mod != nil {
-		mod(&cfg)
-	}
-	p, err := Open(cfg)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(p.Close)
+	p := open(t, pgURL(t), schema, mod)
 	if _, err := p.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -98,26 +90,30 @@ func openOn(t testing.TB, schema string, mod func(*Config)) *Placement {
 	return p
 }
 
-// viaProxy returns dsn with its host:port replaced by addr.
-func viaProxy(t testing.TB, dsn, addr string) string {
+// open opens an adapter on dsn and schema, closed when the test ends.
+func open(t testing.TB, dsn, schema string, mod func(*Config)) *Placement {
 	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil || u.Host == "" {
-		t.Fatalf("TSDB_PG_URL must be a postgres:// URL for proxy tests: %v", err)
+	cfg := Config{DSN: dsn, Schema: schema, AppName: "test/placement"}
+	if mod != nil {
+		mod(&cfg)
 	}
-	u.Host = addr
-	return u.String()
+	p, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(p.Close)
+	return p
 }
 
-// upstream is the host:port TSDB_PG_URL names.
-func upstream(t testing.TB) string {
+// pgAddr parses TSDB_PG_URL (it must be a URL) and returns it with its host:port.
+func pgAddr(t testing.TB) (*url.URL, string) {
 	t.Helper()
 	u, err := url.Parse(pgURL(t))
 	if err != nil || u.Host == "" {
 		t.Fatalf("TSDB_PG_URL must be a postgres:// URL for proxy tests: %v", err)
 	}
 	if u.Port() == "" {
-		return u.Host + ":5432"
+		return u, u.Host + ":5432"
 	}
-	return u.Host
+	return u, u.Host
 }

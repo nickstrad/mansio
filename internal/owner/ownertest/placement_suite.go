@@ -3,6 +3,7 @@ package ownertest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -81,17 +82,17 @@ func RunPlacementSuite(t *testing.T, newPlacement NewPlacementFunc) {
 	t.Run("expect must match all four fields", func(t *testing.T) {
 		base := active(vmA, 3, 5)
 		next := active(vmA, 3, 6)
-		for _, stale := range []owner.Place{
+		p := newPlacement(t) // one key per case: keys are independent
+		for i, stale := range []owner.Place{
 			active(vmB, 3, 5), active(vmA, 2, 5), active(vmA, 4, 5), active(vmA, 3, 4), active(vmA, 3, 6), moving(vmA, 3, 5),
 		} {
-			p := newPlacement(t)
-			cas(t, p, "k", owner.Place{}, base)
-			if err := p.CAS(ctx, "k", stale, next); !errors.Is(err, owner.ErrConflict) {
+			key := fmt.Sprintf("k%d", i)
+			cas(t, p, key, owner.Place{}, base)
+			if err := p.CAS(ctx, key, stale, next); !errors.Is(err, owner.ErrConflict) {
 				t.Fatalf("CAS from stale %+v = %v, want ErrConflict", stale, err)
 			}
-			wantRow(t, p, "k", base)
+			wantRow(t, p, key, base)
 		}
-		p := newPlacement(t)
 		cas(t, p, "k", owner.Place{}, base)
 		cas(t, p, "k", base, next) // on point
 		wantRow(t, p, "k", next)
@@ -117,21 +118,21 @@ func RunPlacementSuite(t *testing.T, newPlacement NewPlacementFunc) {
 	// A refused change is an error that is not ErrConflict (the expected row matched) and changes nothing.
 	t.Run("changes that break the invariants are refused, not conflicts", func(t *testing.T) {
 		base := active(vmA, 3, 5)
-		for _, bad := range []owner.Place{
+		p := newPlacement(t)
+		for i, bad := range []owner.Place{
 			active(vmA, 2, 5), // epoch decrease (off point of "never decrease")
 			active(vmB, 3, 5), // owner change at the same epoch (off point of "with an increase")
 			active(vmB, 2, 5), // owner change with a decrease
 			active(vmA, 0, 5), // epoch 0
 		} {
-			p := newPlacement(t)
-			cas(t, p, "k", owner.Place{}, base)
-			err := p.CAS(ctx, "k", base, bad)
+			key := fmt.Sprintf("bad%d", i)
+			cas(t, p, key, owner.Place{}, base)
+			err := p.CAS(ctx, key, base, bad)
 			if err == nil || errors.Is(err, owner.ErrConflict) || errors.Is(err, owner.ErrNotFound) {
 				t.Fatalf("CAS %+v → %+v = %v; want a refusal that is neither ErrConflict nor ErrNotFound", base, bad, err)
 			}
-			wantRow(t, p, "k", base)
+			wantRow(t, p, key, base)
 		}
-		p := newPlacement(t)
 		if err := p.CAS(ctx, "k", owner.Place{}, active(vmA, 0, 0)); err == nil || errors.Is(err, owner.ErrConflict) {
 			t.Fatalf("create at epoch 0 = %v; want a refusal that is not ErrConflict", err)
 		}

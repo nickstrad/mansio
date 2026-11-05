@@ -66,7 +66,7 @@ func (h *flipHook) CAS(ctx context.Context, key string, expect, next owner.Place
 func TestMoveCrashPoints(t *testing.T) {
 	t.Run("flip applied but its reply was lost", func(t *testing.T) {
 		direct, schema := newPlacement(t, nil)
-		moverPl, px := proxied(t, schema, func(c *Config) { c.AppName = "test/mover" })
+		moverPl, px := proxied(t, schema, func(c *Config) { c.AppName = "test/mover" }) // default 1 s lock_timeout: the poll below needs it
 		objs := ownertest.NewObjects()
 		procs := map[string]moveProc{}
 		for _, n := range []string{"a", "b"} {

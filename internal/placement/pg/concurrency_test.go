@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
 )
@@ -131,13 +133,8 @@ func TestMoveRaceManyKeys(t *testing.T) {
 		must(t, err)
 		rows, err := c.Query(ctx, "select from_epoch from moves where database_id = $1 order by from_epoch", key)
 		must(t, err)
-		var from []int64
-		for rows.Next() {
-			var e int64
-			must(t, rows.Scan(&e))
-			from = append(from, e)
-		}
-		must(t, rows.Err())
+		from, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+		must(t, err)
 		want := make([]int64, 0, row.Epoch)
 		for e := int64(1); e < int64(row.Epoch); e++ {
 			want = append(want, e)
@@ -176,10 +173,12 @@ func TestCASLatency(t *testing.T) {
 				}
 				return fmt.Sprintf("%s%d", prefix, w)
 			}
-			for w := range workers {
-				if w == 0 || !shared {
-					must(t, p.CAS(ctx, keyOf(w), owner.Place{}, owner.Place{Owner: "vm-a", Epoch: 1, State: owner.PlaceActive}))
-				}
+			created := workers
+			if shared {
+				created = 1
+			}
+			for w := range created {
+				must(t, p.CAS(ctx, keyOf(w), owner.Place{}, owner.Place{Owner: "vm-a", Epoch: 1, State: owner.PlaceActive}))
 			}
 			lat := make([][]time.Duration, workers)
 			conflicts := make([]int, workers)
