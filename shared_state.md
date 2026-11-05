@@ -575,3 +575,14 @@ Branch `cp/cp7`. Details: `knowledge/front/2026-11-05-edge.md`.
 - **Test helper:** `internal/edge/edgetest` — throwaway private CA (`NewCA`, `Issue`, `TLS`, `WriteFiles`, `Pool`).
 - **Edge keys:** `keys_url`/`keys_refresh`/`keys_timeout` as agentd. agentd's key fetcher moved to **`internal/keyfetch`** (`Open`, `LoadFile`, `Fetcher.Run/Fetch/Register(reg, prefix)`); agentd behavior and `agentd_*` metric names unchanged.
 - **Shared helpers:** `internal/tlsx` (`ServerConfig(cert, key)`, `LoadPool(ca)`); `metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker)` for breaker sets that change while serving (edge: `dep="agent:<vm>"`).
+
+## 2026-11-05 15:36 — cp6: Go client, unavailable outcome, frontbench locator (CP-6)
+
+Branch `cp/cp6`. Details: `knowledge/front/2026-11-05-client.md`.
+
+- **New `internal/client`** (CP-6): `client.New(Config{Locator, APIKey, Tenant[, Scheme, CAFile, Retry, Budget, Timeout, MaxReroutes, Hooks]})`, `Do(ctx, Request{DB, Kind, SQL, Args[, RequestID]}) (Result, error)`; errors are `*client.Error` (`Op`, `Code`, `MayHaveApplied`), `client.CodeOf(err)`. Re-resolves on wrong_owner/fenced (min_epoch = epoch+1), ticket_invalid, no answer; retries shed/unavailable/aborted with Retry-After as `ServerHint` and a windowed budget; sends `X-Timeout-Ms`; one request id per write across attempts.
+- **`internal/outcome`:** new code `Unavailable` (appended; numbers unchanged). **`internal/retry`:** the zero Policy's `RetryOn` is now {shed, unavailable, aborted}; `retry.HintOf(err)`.
+- **`front.WireArgs`** (blob args → wire form) and **`tlsx.ClientConfig(caFile)`** are new shared helpers.
+- **frontbench:** new subcommand `frontbench locator` (env `TSDB_API_KEY`, `TSDB_ADMIN_TOKEN`; `-setup`, `-move-every`); `run` shares `summarize`/`finish`.
+- **controld gate harness:** agents get `admin_listen`; `agentProc.admin` holds its address.
+- **Known locator gap (follow-up):** the locator routes to a new owner before its claim lands; that owner answers `wrong_owner` at the current epoch for a few ms. The client tolerates it (a primary answer ends min_epoch; ≤ 5 re-resolves). Better: locator answers `moving` until the registry says active (needs a NOTIFY on the registry flip).
