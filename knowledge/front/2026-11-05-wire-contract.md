@@ -53,7 +53,7 @@ Integers above 2^53 lose precision in JavaScript clients (same rule as ts-db's n
 | code | HTTP | Retry-After | from | client should |
 |---|---|---|---|---|
 | `ok` | 200 | — | | done |
-| `shed` | 503 | 1 | admission queue full, actor mailbox full, SQLITE_BUSY/LOCKED, agent draining, actor closed | nothing ran; retry after Retry-After with backoff + jitter |
+| `shed` | 503 | 1, or the VM queue's drain estimate when admission sheds ([metrics](2026-11-05-metrics.md)) | admission queue full, actor mailbox full, SQLITE_BUSY/LOCKED, agent draining, actor closed | nothing ran; retry after Retry-After with backoff + jitter |
 | `expired` | 504 | — | deadline passed in the admission queue or the actor's queue; or no reply by deadline + grace | not ambiguous: never ran, retry with a fresh deadline; `ambiguous: true`: a write may have committed, retry with the same `request_id` |
 | `stmt_timeout` | 422 | — | statement timeout interrupted SQLite | nothing changed; don't retry unchanged |
 | `aborted` | 409 | — | a batch-mate write timed out, the batch rolled back | nothing changed; retry at once |
@@ -71,8 +71,28 @@ The ticket's distinct sentinels are kept for logs (debug level) and tests; the w
 `GET /healthz` → 200 `{"status":"ok","in_flight":N}`, or 503 `{"status":"draining"}` once shutdown started.
 It touches neither admission nor actors; `health_listen` puts it on a second listener as well.
 
+Liveness ≠ readiness (Release It H2, RI-07). Both live on the lifecycle listener (`health_listen`; without
+one they share the query listener):
+
+- `GET /livez` → always 200 `{"status":"live","draining":…}` while the process answers — also while draining,
+  so an orchestrator does not restart an agent mid-drain.
+- `GET /readyz` → 200 `{"status":"ready"}`, or 503 `{"status":"draining"}` / `{"status":"not_ready","failed":{check: why}}`.
+  It answers from the last probe (every `ready_interval`, each bounded by `ready_timeout`; a result older than
+  3 intervals is not trusted). Checks: `startup` (every database tried once), `canary` (a marked read on the
+  `~canary` database through admission → executor → actor; `~` is not a valid client db id, so it never
+  touches tenant data; an admission shed passes — overload is not a reason to leave rotation — but a shed from its own actor fails), and at CP-1 one
+  `<dep>_breaker` per remote dependency. Transitions log `AGENT.READY` / `AGENT.NOT_READY`.
+
+Startup listens first, then opens databases in the background (`startup_workers` at a time, failures retried
+with backoff). A database not open yet answers `unavailable` (503 + Retry-After), not `wrong_owner`.
+
 ## Shutdown (agentd)
 
-SIGINT/SIGTERM → `Server.Drain` (new requests `shed`, healthz 503) → `http.Server.Shutdown` bounded by
-`drain_timeout` → close listeners → close every actor (queued work is answered `shed`). Exit 0 when the drain
-finished; exit 1 with a log ID when it did not (requests cut, writes among them ambiguous).
+SIGINT/SIGTERM starts one `shutdown_budget` (default 60 s; Release It H3, RI-06), spent in phases, in order:
+`front.drain` — `Server.Drain` (new requests `shed`, healthz 503) and `http.Server.Shutdown`, at most
+`drain_timeout` (≤ the budget) → `host.close` with what is left — close every actor (queued work is answered
+`shed`); a vactor host's `Shutdown(ctx)` goes here at CP-1: dirty databases written back oldest-unpublished
+first, the rest closed with their local copies kept and counted → `lifecycle.close`. A phase that runs out does
+not skip the next. Each phase logs `AGENT.PHASE_DONE`/`AGENT.PHASE_FAILED`, then `AGENT.SHUTDOWN_DONE`. Exit 0
+when every phase finished; exit 1 with a log ID otherwise (requests cut — writes among them ambiguous — or
+databases not closed in time).

@@ -114,3 +114,6 @@ func contextCanceled() (context.Context, context.CancelFunc) {
 	cancel()
 	return c, cancel
 }
+
+// second drops a two-value result's first value.
+func second[T any](_ T, err error) error { return err }

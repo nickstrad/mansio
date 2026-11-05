@@ -124,6 +124,8 @@ func (e *Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) 
 		}
 		kv[k] = v
 		return front.Reply{Count: 1}, nil
+	case front.CanarySQL:
+		return front.Reply{Columns: []string{"1"}, Rows: [][]any{{int64(1)}}, Count: 1}, nil
 	case SlowSQL:
 		e.mu.Unlock()
 		time.Sleep(c.StmtTimeout)
