@@ -297,7 +297,7 @@ where it lands.
   - A 10k-object prefix listed with constant memory.
 - **Size.** M.
 
-#### RI-06 — Bounded shutdown
+#### RI-06 — Bounded shutdown — **Done** (4d7d756; agentd has no vactor host until CP-1: its `host.close` phase bounds the actors, and `vactor.Host.Shutdown(ctx)` slots in there)
 
 - **Change.**
   - agentd gets one `shutdown_budget` (default 60 s), split into three phases: front drain
@@ -309,7 +309,7 @@ where it lands.
   ε, and kept files equal un-written keys). The e2e SIGTERM run meets the budget.
 - **Size.** M.
 
-#### RI-07 — Startup readiness and real health
+#### RI-07 — Startup readiness and real health — **Done** (1ece893; agentd opens databases in the background as the stand-in for `owner.ReconcileUntilDone` until CP-1; the CP-1 kill -9 gate and the S3 canary HEAD wait for CP-1)
 
 - **Change.**
   - Listen early. `ReconcileAll` becomes `ReconcileAll(ctx, workers, perKeyTimeout)` (bounded concurrency,
@@ -327,7 +327,7 @@ where it lands.
   - The CP-1 kill -9 e2e gate also asserts time-to-first-served-key < time-to-all-reconciled.
 - **Size.** M.
 
-#### RI-11 — Transparency
+#### RI-11 — Transparency — **Done** (aaaaf61; S3, breaker, vactor and owner adapters are tested but registered at CP-1; placement waits for RI-12; shed Retry-After queue-drain estimate done)
 
 - **Change.**
   - The lifecycle listener serves `/metrics` (Prometheus text format, from stdlib counters; no new dependency
