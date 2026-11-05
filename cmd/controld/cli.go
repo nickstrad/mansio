@@ -63,6 +63,20 @@ var commands = map[string]*command{
 			return http.MethodPost, "/v1/vms/" + url.PathEscape(*vm) + "/restore", nil, need(*vm)
 		}
 	}},
+	"create-key": {"-tenant T -principal P [-perms read|write|read|write]", func(fs *flag.FlagSet) func() (string, string, any, error) {
+		tenant, principal := fs.String("tenant", "", "tenant id"), fs.String("principal", "", "who the key is for (the tickets' sub)")
+		perms := fs.String("perms", "read|write", "read, write or read|write")
+		return func() (string, string, any, error) {
+			return http.MethodPost, "/v1/tenants/" + url.PathEscape(*tenant) + "/api-keys", map[string]string{"principal": *principal, "perms": *perms},
+				need(*tenant, *principal)
+		}
+	}},
+	"revoke-key": {"-id KEY_ID", func(fs *flag.FlagSet) func() (string, string, any, error) {
+		id := fs.String("id", "", "the key's id (the 16 hex digits after tsdb_)")
+		return func() (string, string, any, error) {
+			return http.MethodPost, "/v1/api-keys/" + url.PathEscape(*id) + "/revoke", nil, need(*id)
+		}
+	}},
 	"vms": {"", func(fs *flag.FlagSet) func() (string, string, any, error) {
 		return func() (string, string, any, error) { return http.MethodGet, "/v1/vms", nil, nil }
 	}},

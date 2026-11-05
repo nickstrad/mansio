@@ -12,6 +12,7 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/control/agenthttp"
+	"github.com/nickstrad/ts-db-go/internal/control/locator"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
@@ -28,8 +29,11 @@ import (
 //	code         | status | meaning
 //	-------------+--------+---------------------------------------------------------------------------
 //	bad_request  | 400    | malformed body, tenant, name or key
-//	unauthorized | 401    | missing or wrong admin token
+//	unauthorized | 401    | missing or wrong admin token; resolve: unknown, malformed or revoked api key
+//	forbidden    | 403    | resolve: the api key belongs to another tenant
 //	not_found    | 404    | no such database or vm
+//	suspended    | 409    | resolve: the database is suspended
+//	moving       | 503    | resolve: the database is moving or being created; resolve again after Retry-After
 //	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation
 //	no_capacity  | 503    | no live vm under the policy's caps
 //	unavailable  | 503    | Postgres, S3 or an agent cannot do it now; the flow is recorded and resumes; Retry-After
@@ -48,6 +52,7 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 		}
 		w.Write([]byte("ok\n"))
 	})
+	d.resolveRoutes(mux)
 	mux.HandleFunc("POST /v1/databases", d.handle("create", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ Tenant, Name string }
 		if err := decode(r, &req); err != nil {
@@ -164,6 +169,16 @@ func classify(err error) *apiError {
 	switch {
 	case errors.As(err, &ae):
 		return ae
+	case errors.Is(err, locator.ErrUnauthorized):
+		return &apiError{"unauthorized", http.StatusUnauthorized, "api key required: unknown, malformed or revoked"}
+	case errors.Is(err, locator.ErrForbidden):
+		return &apiError{"forbidden", http.StatusForbidden, "the api key belongs to another tenant"}
+	case errors.Is(err, locator.ErrNotFound):
+		return &apiError{"not_found", http.StatusNotFound, "no such database"}
+	case errors.Is(err, locator.ErrMoving):
+		return &apiError{"moving", http.StatusServiceUnavailable, "the database is moving or being created; resolve again after Retry-After"}
+	case errors.Is(err, locator.ErrSuspended):
+		return &apiError{"suspended", http.StatusConflict, "the database is suspended"}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return &apiError{"timeout", http.StatusGatewayTimeout, "deadline passed; the flow is recorded and resumes; call again to follow it"}
 	case errors.Is(err, owner.ErrInvalid):
@@ -195,7 +210,7 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 		id := logx.NewID()
 		d.log.Error("control call failed (bug)", "event", "CONTROLD.FAILED", "path", r.URL.Path, "log_id", id, "error", err.Error(), "chain", errs.Chain(err))
 		ae, body["log_id"] = &apiError{"internal", http.StatusInternalServerError, "internal error"}, id
-	} else if ae.status >= 500 {
+	} else if ae.status >= 500 && ae.code != "moving" { // moving is the normal answer during a move, not an incident
 		d.log.Warn("control call refused", "event", "CONTROLD.REFUSED", "path", r.URL.Path, "code", ae.code, "error", err.Error())
 	}
 	if ae.status == http.StatusServiceUnavailable {

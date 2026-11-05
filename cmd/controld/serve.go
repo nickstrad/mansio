@@ -21,6 +21,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/control/agenthttp"
+	"github.com/nickstrad/ts-db-go/internal/control/locator"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
@@ -28,6 +29,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
 // daemon is a running controld: the authority, the controller and one client per agent.
@@ -44,6 +46,15 @@ type daemon struct {
 	agentUp    sync.Map    // vm → bool: last health answer ok (transitions logged)
 	resumed    atomic.Int64
 	resumeFail atomic.Int64 // keys that failed in the last pass
+
+	// The locator and issuer (CP-5, locator.go).
+	replica     *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
+	loc         *locator.Locator
+	signer      *ticket.Signer
+	keys        *keyDir
+	listening   atomic.Bool // the placement listener is connected
+	resolveSem  chan struct{}
+	resolveShed atomic.Int64
 }
 
 func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
@@ -90,7 +101,7 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 	if err != nil {
 		return rep.report(err)
 	}
-	defer d.pg.Close()
+	defer d.close()
 	return d.serve(ctx, *addrFile, rep, stderr)
 }
 
@@ -106,15 +117,32 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		p.Close()
 		return nil, err
 	}
-	d := &daemon{cfg: cfg, log: log, pg: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken,
-		sem: make(chan struct{}, cfg.APIConcurrency)}
+	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken,
+		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
+	if sec.PGReplicaDSN != "" {
+		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
+			Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "placement-replica")}}); err != nil {
+			p.Close()
+			return nil, err
+		}
+	}
+	tk, lc := cfg.TicketKeys, cfg.Locator
+	d.keys = &keyDir{dir: tk.Dir, signer: d.signer, policy: ticket.RotationPolicy{Rotate: tk.Rotate.Duration, Activate: tk.Activate.Duration,
+		Overlap: lc.TicketTTL.Duration + ticketKeySkew}}
+	if _, _, err := d.keys.rotate(time.Now()); err != nil {
+		d.close()
+		return nil, err
+	}
+	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
+		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
+		MovingRetry: lc.MovingRetry.Duration})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
 		c, err := agenthttp.New(agenthttp.Config{VM: a.VM, BaseURL: a.Lifecycle, Token: sec.ControlToken, Timeout: cfg.AgentTimeout.Duration,
 			HTTP: httpc, Breaker: breaker.Config{MinCalls: cfg.AgentBreaker.MinCalls, CoolDown: cfg.AgentBreaker.CoolDown.Duration,
 				OnChange: logx.BreakerLog(log, "agent:"+a.VM)}})
 		if err != nil {
-			p.Close()
+			d.close()
 			return nil, err
 		}
 		d.agents[a.VM] = c
@@ -129,6 +157,18 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 			return nil, errs.Wrap(module, nil, "vm %q is not in controld's agents list", vm)
 		}}
 	return d, nil
+}
+
+// ticketKeySkew is added to the ticket lifetime to keep a retired key published: agents accept tickets up to
+// their clock_skew past exp (default 5 s), with margin.
+const ticketKeySkew = 2 * time.Minute
+
+// close closes the Postgres pools.
+func (d *daemon) close() {
+	if d.replica != d.pg {
+		d.replica.Close()
+	}
+	d.pg.Close()
 }
 
 // serve runs the API until ctx ends, with the startup job (migrate, register agents), the heartbeat poller
@@ -155,7 +195,11 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stder
 	fmt.Fprintf(stderr, "controld: serving on %s\n", ln.Addr())
 	bctx, stop := context.WithCancel(context.Background())
 	var bg sync.WaitGroup
-	bg.Go(func() { d.startup(bctx) })
+	bg.Go(func() {
+		d.startup(bctx)
+		d.listen(bctx) // after the migration: the trigger exists before the cache is trusted
+	})
+	bg.Go(func() { d.every(bctx, d.cfg.TicketKeys.Check.Duration, d.rotateKeys) })
 	bg.Go(func() { d.every(bctx, d.cfg.HeartbeatInterval.Duration, d.heartbeat) })
 	bg.Go(func() { d.every(bctx, d.cfg.ResumeInterval.Duration, d.resume) })
 	var serveErr error
@@ -291,7 +335,11 @@ func (d *daemon) register(reg *metrics.Registry) {
 	for vm, c := range d.agents {
 		deps["agent:"+vm] = c.Breaker()
 	}
+	if d.replica != d.pg {
+		deps["placement-replica"] = d.replica.Breaker()
+	}
 	metrics.Breakers(reg, deps)
+	d.registerLocator(reg)
 	reg.Add("controld_agent_up", "1 when the agent's last health call answered.", metrics.Gauge, func(e *metrics.Emit) {
 		for _, vm := range slices.Sorted(maps.Keys(d.agents)) {
 			v := 0.0

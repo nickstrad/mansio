@@ -64,6 +64,30 @@ type Config struct {
 	APIConcurrency    int           `json:"api_concurrency"`    // API calls at once; more are refused 503; default 16
 	ShutdownBudget    load.Duration `json:"shutdown_budget"`    // default 10 s
 
+	// Locator is the resolve API (CP-5): POST /v1/resolve with an API key, answered from a placement cache
+	// that Postgres notifications invalidate (PG-10). Its own bulkhead: resolves never queue behind admin calls.
+	Locator struct {
+		TicketTTL   load.Duration `json:"ticket_ttl"`   // default 60 s; must not exceed the agents' max_ticket_ttl
+		CacheTTL    load.Duration `json:"cache_ttl"`    // default 5 min (notifications invalidate sooner)
+		CacheMax    int           `json:"cache_max"`    // default 100 000
+		AuthTTL     load.Duration `json:"auth_ttl"`     // API key rows cached; default 10 s
+		Timeout     load.Duration `json:"timeout"`      // one resolve; default 3 s
+		Concurrency int           `json:"concurrency"`  // resolves at once; more are refused 503; default 256
+		MovingRetry load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
+		ListenPing  load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
+	} `json:"locator"`
+
+	// TicketKeys is the issuer's Ed25519 key ring: one file per key in dir (0700, files 0600; never shared with
+	// agents, which fetch the public keys from GET /v1/keys). A key is created every rotate, published at
+	// once, signs after activate (so agents fetch it first), and is deleted ticket_ttl + 2 min after its
+	// successor began signing.
+	TicketKeys struct {
+		Dir      string        `json:"dir"`      // required
+		Rotate   load.Duration `json:"rotate"`   // default 24 h
+		Activate load.Duration `json:"activate"` // default 5 min: at least twice the agents' keys_refresh
+		Check    load.Duration `json:"check"`    // how often the ring is re-planned; default 1 min
+	} `json:"ticket_keys"`
+
 	AgentBreaker struct {
 		MinCalls int           `json:"min_calls"`
 		CoolDown load.Duration `json:"cool_down"`
@@ -88,6 +112,10 @@ func defaults() Config {
 		PerKeyTimeout: d(time.Minute), APITimeout: d(2 * time.Minute), APIConcurrency: 16, ShutdownBudget: d(10 * time.Second),
 		LogLevel: "info"}
 	c.PG.MaxConns = 20
+	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
+	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
+	c.Locator.MovingRetry, c.Locator.ListenPing = d(time.Second), d(5*time.Second)
+	c.TicketKeys.Rotate, c.TicketKeys.Activate, c.TicketKeys.Check = d(24*time.Hour), d(5*time.Minute), d(time.Minute)
 	return c
 }
 
@@ -132,6 +160,23 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 			bad("agents[%d]: endpoint is required", i)
 		}
 	}
+	if c.TicketKeys.Dir == "" {
+		bad("ticket_keys.dir is required (the issuer's signing keys)")
+	}
+	lc, tk := c.Locator, c.TicketKeys
+	for name, d := range map[string]time.Duration{"locator.ticket_ttl": lc.TicketTTL.Duration, "locator.cache_ttl": lc.CacheTTL.Duration,
+		"locator.auth_ttl": lc.AuthTTL.Duration, "locator.timeout": lc.Timeout.Duration, "locator.moving_retry": lc.MovingRetry.Duration,
+		"locator.listen_ping": lc.ListenPing.Duration, "ticket_keys.rotate": tk.Rotate.Duration, "ticket_keys.check": tk.Check.Duration} {
+		if d <= 0 {
+			bad("%s must be > 0", name)
+		}
+	}
+	if lc.CacheMax < 1 || lc.Concurrency < 1 || tk.Activate.Duration < 0 {
+		bad("locator.cache_max and locator.concurrency must be >= 1, ticket_keys.activate >= 0")
+	}
+	if tk.Rotate.Duration <= tk.Activate.Duration {
+		bad("ticket_keys.rotate %v must exceed ticket_keys.activate %v", tk.Rotate, tk.Activate)
+	}
 	if c.Policy.MaxDatabases < 0 || c.Policy.MaxBytes < 0 || c.Policy.MaxHeartbeatAge.Duration < 0 {
 		bad("policy: caps must be >= 0")
 	}
@@ -162,7 +207,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile} {
+	for _, p := range []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile, &c.TicketKeys.Dir} {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
@@ -200,6 +245,9 @@ type Secrets struct {
 	AdminToken   string `json:"admin_token"`   // this API's token (operators, scripts)
 	S3AccessKey  string `json:"s3_access_key"` // the gc identity
 	S3SecretKey  string `json:"s3_secret_key"`
+	// PGReplicaDSN, if set, is a read replica the locator reads placement from (stale is safe; min_epoch
+	// and notified keys read the primary). Default: the primary.
+	PGReplicaDSN string `json:"pg_replica_dsn"`
 }
 
 const minToken = 16
