@@ -1,0 +1,20 @@
+{
+  "name": "ramp",
+  "workers": 2048,
+  "statement_timeout": "200ms",
+  "request_timeout": "2s",
+  "sample_every": "250ms",
+  "record_fraction": 1.0,
+  "keep_dbs": true,
+  "actor": { "mailbox_size": 256, "max_batch": 64, "synchronous": "NORMAL", "cache_kib": 256 },
+  "schema": { "min_tables": 1, "max_tables": 5, "min_columns": 2, "max_columns": 8, "min_rows": 50, "max_rows": 500 },
+  "distribution": { "kind": "uniform" },
+  "phases": [
+    { "name": "100-dbs",   "dbs": 100,   "duration": "15s", "start_qps": 1000,  "end_qps": 10000 },
+    { "name": "1k-dbs",    "dbs": 1000,  "duration": "15s", "start_qps": 10000, "end_qps": 20000 },
+    { "name": "5k-dbs",    "dbs": 5000,  "duration": "20s", "start_qps": 20000, "end_qps": 40000 },
+    { "name": "10k-dbs",   "dbs": 10000, "duration": "20s", "start_qps": 40000, "end_qps": 60000 },
+    { "name": "10k-hold",  "dbs": 10000, "duration": "15s", "start_qps": 60000, "shape": "step" },
+    { "name": "ramp-down", "dbs": 10000, "duration": "10s", "start_qps": 60000, "end_qps": 1000 }
+  ]
+}

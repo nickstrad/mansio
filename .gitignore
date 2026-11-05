@@ -1,0 +1,7 @@
+bin/
+results/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+results-*.log
+.locks/

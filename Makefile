@@ -85,3 +85,45 @@ coldload-disk:
 	@echo "seaweedfs volume: $$(docker system df -v 2>/dev/null | awk '$$1 == "seaweedfs_seaweed-data" {print $$3}' || true)"
 	@echo "go fuzz cache:    $$(du -sh $$(go env GOCACHE)/fuzz 2>/dev/null | cut -f1)"
 	@echo "host free:        $$(df -h . | awk 'NR == 2 {print $$4}')"
+
+# ---------------------------------------------------------------------------------------------------------
+# sqlbench (owner: sqlbench agent): one goroutine (actor) per SQLite database, open-loop load. State: STATE.md
+#
+#   make sqlbench-test                   vet + unit/integration tests, -race and -tags noassert
+#   make sqlbench-e2e                    build the binary and run it end to end (-tags e2e)
+#   make sqlbench-check                  gofmt + sqlbench-test + sqlbench-e2e
+#   make sqlbench-fuzz                   every sqlbench fuzz target for FUZZTIME each, under the bench lock
+#   make sqlbench-cover                  coverage of sqlbench packages (per function, lowest first)
+#   make sqlbench-run CONFIG=smoke       build, run configs/$(CONFIG).json under the bench lock, print the report
+
+SQLBENCH_PKGS := ./internal/actor ./internal/bench ./internal/panicx ./internal/load ./internal/stats ./internal/schema \
+                 ./internal/workload ./internal/retry ./internal/outcome ./cmd/sqlbench
+SQLBENCH_FUZZ := internal/actor:FuzzActorModel internal/schema:FuzzGenerate internal/workload:FuzzStatementsRun \
+                 internal/load:FuzzPacerSendsTheIntegratedRate internal/stats:FuzzRecordFormatRoundTrip \
+                 internal/retry:FuzzDelayBounds internal/outcome:FuzzParse
+
+.PHONY: sqlbench-test sqlbench-e2e sqlbench-check sqlbench-fuzz sqlbench-cover sqlbench-run
+
+sqlbench-test:
+	go vet $(SQLBENCH_PKGS)
+	go test -race -count=1 $(SQLBENCH_PKGS)
+	go test -count=1 -tags noassert $(SQLBENCH_PKGS)
+
+sqlbench-e2e:
+	go test -count=1 -tags e2e ./cmd/sqlbench
+
+sqlbench-check:
+	@test -z "$$(gofmt -l $(patsubst ./%,%,$(SQLBENCH_PKGS)))" || (echo "needs gofmt:"; gofmt -l $(patsubst ./%,%,$(SQLBENCH_PKGS)); exit 1)
+	$(MAKE) sqlbench-test sqlbench-e2e
+
+sqlbench-fuzz:
+	LOCK_WHO=sqlbench scripts/lock.sh results/.bench-lock sh -c 'set -e; for t in $(SQLBENCH_FUZZ); do \
+		go test -run="^$$" -fuzz="^$${t#*:}$$" -fuzztime=$(FUZZTIME) ./$${t%%:*}; done'
+
+sqlbench-cover:
+	go test -count=1 -coverpkg=$$(echo $(SQLBENCH_PKGS) | tr ' ' ,) -coverprofile=results/sqlbench-cover.out $(SQLBENCH_PKGS) >/dev/null
+	go tool cover -func=results/sqlbench-cover.out | sort -k3 -n | head -25
+	go tool cover -func=results/sqlbench-cover.out | tail -1
+
+sqlbench-run:
+	scripts/run.sh configs/$(CONFIG).json

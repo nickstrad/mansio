@@ -1,0 +1,74 @@
+{
+  "name": "smoke",
+  "workers": 256,
+  "statement_timeout": "200ms",
+  "request_timeout": "2s",
+  "schema": {
+    "min_tables": 1,
+    "max_tables": 4,
+    "min_rows": 50,
+    "max_rows": 300
+  },
+  "phases": [
+    {
+      "name": "warm",
+      "dbs": 10,
+      "duration": "5s",
+      "start_qps": 200,
+      "end_qps": 1000
+    },
+    {
+      "name": "grow",
+      "dbs": 100,
+      "duration": "5s",
+      "start_qps": 1000,
+      "end_qps": 3000
+    },
+    {
+      "name": "more",
+      "dbs": 500,
+      "duration": "5s",
+      "start_qps": 3000,
+      "shape": "step"
+    },
+    {
+      "name": "down",
+      "dbs": 500,
+      "duration": "5s",
+      "start_qps": 3000,
+      "end_qps": 200
+    }
+  ],
+  "clients": [
+    {
+      "name": "good",
+      "share": 0.7,
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "base": "20ms",
+        "max": "1s",
+        "jitter": "full",
+        "retry_on": [
+          "shed",
+          "aborted",
+          "expired"
+        ],
+        "budget_ratio": 0.1,
+        "total_timeout": "3s"
+      }
+    },
+    {
+      "name": "bad",
+      "share": 0.3,
+      "retry": {
+        "max_attempts": 10,
+        "backoff": "none",
+        "jitter": "none",
+        "retry_on": [
+          "any"
+        ]
+      }
+    }
+  ]
+}
