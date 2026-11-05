@@ -421,7 +421,7 @@ func (a *Actor) apply(ctx context.Context, r *Request, nowMS int64) Result {
 		return a.run1(a.w, r)
 	}
 	t0 := time.Now()
-	claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}})
+	claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}, Write: true})
 	switch {
 	case claim.Err != nil:
 		return Result{Err: claim.Err, QueueWait: t0.Sub(r.enqueued), Exec: time.Since(t0)}

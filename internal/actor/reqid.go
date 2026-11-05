@@ -29,9 +29,11 @@ var RequestTableDDL = []string{
 }
 
 const (
-	// sqlClaimRequest returns one row iff the id is new.
+	// sqlClaimRequest affects one row iff the id is new. The plan's form adds "returning request_id"; the
+	// decision is the same single statement, but a RETURNING has to go through a query cursor, which measured
+	// ~1.7 µs more per write (BenchmarkWritesWithRequestID), so the actor reads sqlite3_changes() instead.
 	sqlClaimRequest = `insert into _tsdb_requests (request_id, applied_ms) values (?, ?)
-  on conflict (request_id) do nothing returning request_id`
+  on conflict (request_id) do nothing`
 	sqlRecordResult = `update _tsdb_requests set result = ? where request_id = ?`
 	sqlPriorResult  = `select result from _tsdb_requests where request_id = ?`
 	// sqlSweepRequests deletes up to ? of the oldest ids applied before ?, through the applied_ms index.

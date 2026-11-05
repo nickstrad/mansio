@@ -98,3 +98,32 @@ func BenchmarkFanOut1000Actors(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkWritesWithRequestID: the cost of CP-2's claim + result record per write, at batch 1 and 64.
+func BenchmarkWritesWithRequestID(b *testing.B) {
+	for _, withID := range []bool{false, true} {
+		for _, batch := range []int{1, 64} {
+			b.Run(fmt.Sprintf("request_id=%v/max_batch=%d", withID, batch), func(b *testing.B) {
+				a := startedKV(b, Config{MaxBatch: batch, MailboxSize: 1024}, 0)
+				c := context.Background()
+				var next atomic.Int64
+				b.SetParallelism(16)
+				b.RunParallel(func(pb *testing.PB) {
+					for pb.Next() {
+						id := next.Add(1)
+						r := &Request{SQL: `INSERT INTO kv (id, v) VALUES (?, ?)`, Args: []any{id, id}, Write: true}
+						if withID {
+							r.RequestID = fmt.Sprintf("req-%d", id)
+						}
+						if err := a.Submit(r); err != nil {
+							b.Fatal(err)
+						}
+						if res := r.Wait(c); res.Err != nil {
+							b.Fatal(res.Err)
+						}
+					}
+				})
+			})
+		}
+	}
+}
