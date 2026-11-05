@@ -44,10 +44,7 @@ func (t *tool) inspect(ctx context.Context, key string) error {
 		t.printf("manifest  generation %d epoch %d object %s size %d sha256 %s\n          version %s written %s modified %s\n",
 			m.Generation, m.Epoch, base(m.Object), m.Size, m.SHA256, v, stamp(m.WrittenAt), stamp(l.Manifest.Modified))
 	}
-	var deletable []string
-	if l.Manifest != nil && merr == nil && v == l.Manifest.Version {
-		deletable = durable.PlanGC(m, l.Manifest.Modified, l.Generations, t.now(), t.gc)
-	}
+	deletable, _, _ := durable.PlanSweep(l, m, v, merr, t.now(), t.gc) // the sweep's own decision
 	t.printf("generations (%d, %d bytes listed):\n", len(l.Generations), l.Bytes())
 	for _, o := range l.Generations {
 		role := "retained"
@@ -95,7 +92,7 @@ func (t *tool) verify(ctx context.Context, key string) error {
 	return nil
 }
 
-// rebuildArgs are rebuild-manifest's inputs.
+// rebuildArgs are rebuild-manifest's inputs (key already validated).
 type rebuildArgs struct {
 	key       string
 	gen       uint64
@@ -110,9 +107,6 @@ type rebuildArgs struct {
 // (If-Match). A readable stored manifest also bounds it: the new (epoch, generation) must be greater (W3),
 // and the epoch never lower (W2). A rollback to an older generation therefore needs a new epoch.
 func (t *tool) rebuildManifest(ctx context.Context, a rebuildArgs) error {
-	if err := durable.ValidateKey(a.key); err != nil {
-		return err
-	}
 	obj, err := t.pickObject(ctx, a)
 	if err != nil {
 		return err

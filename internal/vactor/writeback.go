@@ -270,8 +270,9 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 // retain is owner-side retention (object-storage guide GC2), right after obj was published: it deletes the
 // generations this entry published more than K publishes ago (durable.PlanRetention), by computed name with no
 // LIST. It runs under e.wb, the publish serialization, so it never races a publish of the key and a fence
-// drains it like one. A failed delete does not fail the write-back (it is published): the names are dropped
-// here and the orphan sweeper deletes them later.
+// drains it like one; the cost is one DELETE (a batch of K+1's leftovers, usually 1 name) on the write-back's
+// own path, accepted for that ordering. A failed delete does not fail the write-back (it is published): the
+// names are dropped here and the orphan sweeper deletes them later. Skipped once Shutdown has begun.
 //
 //	pre: e.wb is held; obj is the object e.man now names
 func (h *Host) retain(ctx context.Context, key string, e *entry, obj string) {
@@ -420,7 +421,13 @@ func (h *Host) keepGeneration(key string, e *entry, uploaded bool) {
 		return // not a single-file copy
 	}
 	d := m.Digest()
+	if !h.gens.wants(d) {
+		return // already cached, or over the budget: not worth a hash
+	}
 	if !uploaded { // sha256 only: the cache never uploads, so it needs no md5
+		if fi, err := os.Stat(path); err != nil || fi.Size() != m.Size {
+			return
+		}
 		var err error
 		if d, err = digestFile(path, false); err != nil || d.Size != m.Size || d.SHA256 != m.SHA256 {
 			return

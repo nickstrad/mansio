@@ -116,17 +116,20 @@ type GCPolicy struct {
 // DefaultGCPolicy is K = 2 and a 10-minute grace window.
 var DefaultGCPolicy = GCPolicy{Keep: 2, Grace: 10 * time.Minute}
 
-// Normalize fills the defaults: zero fields take DefaultGCPolicy's values.
+// Normalize fills the defaults: a zero Keep or Grace takes DefaultGCPolicy's value. It is idempotent: a
+// negative Keep (K = 0) stays negative, and the planners read it as 0.
 func (p GCPolicy) Normalize() GCPolicy {
 	if p.Keep == 0 {
 		p.Keep = DefaultGCPolicy.Keep
 	}
-	p.Keep = max(p.Keep, 0)
 	if p.Grace <= 0 {
 		p.Grace = DefaultGCPolicy.Grace
 	}
 	return p
 }
+
+// keep is K as the planners use it.
+func (p GCPolicy) keep() int { return max(p.Keep, 0) }
 
 // PlanGC decides which of key's generation objects the sweeper may delete. Pure. m is the current manifest,
 // mod its LastModified, objs the listed generation objects, now the time of the decision (on a clock
@@ -162,7 +165,7 @@ func PlanGC(m Manifest, mod time.Time, objs []StoredObject, now time.Time, p GCP
 	slices.SortFunc(below, func(a, b gen) int { // highest first
 		return cmp.Or(cmp.Compare(b.num, a.num), cmp.Compare(b.epoch, a.epoch))
 	})
-	below = below[min(p.Keep, len(below)):] // the K highest below the current one stay
+	below = below[min(p.keep(), len(below)):] // the K highest below the current one stay
 	var del []string
 	for _, g := range append(below, rest...) {
 		if g.o.Modified.Add(p.Grace).Before(mod) && now.Sub(g.o.Modified) > p.Grace {
@@ -176,9 +179,9 @@ func PlanGC(m Manifest, mod time.Time, objs []StoredObject, now time.Time, p GCP
 // PlanRetention is owner-side retention (guide GC2): given the objects this owner published, oldest first
 // and distinct, it keeps the current one and the p.Keep before it, and returns the rest to delete. Pure.
 //
-//	post: keep is the last min(len, Keep+1) of published; drop + keep == published
+//	post: keep is the last min(len, K+1) of published; drop + keep == published
 func PlanRetention(published []string, p GCPolicy) (keep, drop []string) {
-	n := max(len(published)-p.Keep-1, 0)
+	n := max(len(published)-p.keep()-1, 0)
 	return published[n:], published[:n]
 }
 
@@ -209,22 +212,14 @@ func Sweep(ctx context.Context, s GCStore, key string, now time.Time, p GCPolicy
 		return r, errs.Wrap(module, err, "cannot sweep %s: listing failed; nothing deleted, safe to retry", key)
 	}
 	r.Objects, r.Bytes = len(l.Generations), l.Bytes()
-	if l.Manifest == nil {
-		r.Skipped = "no manifest"
-		return r, nil
+	var m Manifest
+	var v Version
+	if l.Manifest != nil { // no manifest: nothing to read
+		m, v, err = s.ReadManifest(ctx, key)
 	}
-	m, v, err := s.ReadManifest(ctx, key)
-	switch {
-	case errors.Is(err, ErrNoManifest):
-		r.Skipped = "no manifest"
-		return r, nil
-	case err != nil:
+	if r.Deleted, r.Skipped, err = PlanSweep(l, m, v, err, now, p); err != nil {
 		return r, errs.Wrap(module, err, "cannot sweep %s: manifest read failed; nothing deleted, safe to retry", key)
-	case v != l.Manifest.Version:
-		r.Skipped = "manifest moved"
-		return r, nil
 	}
-	r.Deleted = PlanGC(m, l.Manifest.Modified, l.Generations, now, p)
 	for _, o := range l.Generations {
 		if _, found := slices.BinarySearch(r.Deleted, o.Name); found {
 			r.DeletedBytes += o.Size
@@ -237,6 +232,23 @@ func Sweep(ctx context.Context, s GCStore, key string, now time.Time, p GCPolicy
 		return r, errs.Wrap(module, err, "cannot sweep %s: deleting %d orphans failed; some may remain, safe to retry", key, len(r.Deleted))
 	}
 	return r, nil
+}
+
+// PlanSweep is Sweep's decision for one key, from its listing and the manifest read that followed (m, v,
+// readErr; ignored when the listing has no manifest). Pure. skipped is "no manifest" or "manifest moved"
+// (see SweepResult); err is a failed read.
+//
+//	pre: p is normalized
+func PlanSweep(l Listing, m Manifest, v Version, readErr error, now time.Time, p GCPolicy) (del []string, skipped string, err error) {
+	switch {
+	case l.Manifest == nil, errors.Is(readErr, ErrNoManifest):
+		return nil, "no manifest", nil
+	case readErr != nil:
+		return nil, "", readErr
+	case v != l.Manifest.Version: // the listed LastModified is not this manifest's
+		return nil, "manifest moved", nil
+	}
+	return PlanGC(m, l.Manifest.Modified, l.Generations, now, p), "", nil
 }
 
 // CheckDeletable checks names before a DeleteGenerations of key: every one must be a generation object of

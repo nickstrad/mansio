@@ -139,15 +139,12 @@ func parseCommand(name string, args []string, stderr io.Writer) (func(context.Co
 		if !ok {
 			return nil, false
 		}
-		return func(ctx context.Context, t *tool) error {
-			switch name {
-			case "inspect":
-				return t.inspect(ctx, key)
-			case "verify":
-				return t.verify(ctx, key)
-			}
-			return t.sweep(ctx, func(fn func(string) error) error { return fn(key) }, true)
-		}, true
+		cmd := map[string]func(*tool, context.Context, string) error{
+			"inspect": (*tool).inspect,
+			"verify":  (*tool).verify,
+			"orphans": func(t *tool, ctx context.Context, key string) error { return t.sweep(ctx, one(key), true) },
+		}[name]
+		return func(ctx context.Context, t *tool) error { return cmd(t, ctx, key) }, true
 
 	case "gc":
 		dry := fs.Bool("dry-run", false, "only report what would be deleted")
@@ -157,35 +154,35 @@ func parseCommand(name string, args []string, stderr io.Writer) (func(context.Co
 		if fs.Parse(args) != nil || fs.NArg() != 0 {
 			return nil, false
 		}
-		var keys func(context.Context, *tool, func(string) error) error
+		var shards []string
 		switch {
 		case *key != "" && *shard == "" && !*all:
 			if err := durable.ValidateKey(*key); err != nil {
 				fmt.Fprintf(stderr, "dbtool gc: %v\n", err)
 				return nil, false
 			}
-			keys = func(_ context.Context, _ *tool, fn func(string) error) error { return fn(*key) }
+			return func(ctx context.Context, t *tool) error { return t.sweep(ctx, one(*key), *dry) }, true
 		case *shard != "" && *key == "" && !*all:
 			if !durable.ValidShard(*shard) {
 				fmt.Fprintf(stderr, "dbtool gc: shard %q is not two lower-case hex digits\n", *shard)
 				return nil, false
 			}
-			keys = func(ctx context.Context, t *tool, fn func(string) error) error { return t.s.ListKeys(ctx, *shard, fn) }
+			shards = []string{*shard}
 		case *all && *key == "" && *shard == "":
-			keys = func(ctx context.Context, t *tool, fn func(string) error) error {
-				for _, sh := range durable.Shards() {
-					if err := t.s.ListKeys(ctx, sh, fn); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
+			shards = durable.Shards()
 		default:
 			fmt.Fprintln(stderr, "dbtool gc: give exactly one of -key, -shard, -all")
 			return nil, false
 		}
 		return func(ctx context.Context, t *tool) error {
-			return t.sweep(ctx, func(fn func(string) error) error { return keys(ctx, t, fn) }, *dry)
+			return t.sweep(ctx, func(fn func(string) error) error {
+				for _, sh := range shards {
+					if err := t.s.ListKeys(ctx, sh, fn); err != nil {
+						return err
+					}
+				}
+				return nil
+			}, *dry)
 		}, true
 
 	case "rebuild-manifest":
@@ -210,6 +207,11 @@ func parseCommand(name string, args []string, stderr io.Writer) (func(context.Co
 	}
 	fmt.Fprintf(stderr, "dbtool: unknown command %q\n", name)
 	return nil, false
+}
+
+// one iterates over a single key.
+func one(key string) func(func(string) error) error {
+	return func(fn func(string) error) error { return fn(key) }
 }
 
 // report logs an expected failure once with a log ID and tells the operator; a malformed error is a bug.

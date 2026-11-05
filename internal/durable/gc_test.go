@@ -93,10 +93,10 @@ func TestPlanRetention(t *testing.T) {
 func TestGCPolicyNormalize(t *testing.T) {
 	for _, tc := range []struct{ in, want durable.GCPolicy }{
 		{durable.GCPolicy{}, durable.DefaultGCPolicy},
-		{durable.GCPolicy{Keep: -1, Grace: -1}, durable.GCPolicy{Keep: 0, Grace: durable.DefaultGCPolicy.Grace}},
+		{durable.GCPolicy{Keep: -1, Grace: -1}, durable.GCPolicy{Keep: -1, Grace: durable.DefaultGCPolicy.Grace}},
 		{durable.GCPolicy{Keep: 1, Grace: time.Nanosecond}, durable.GCPolicy{Keep: 1, Grace: time.Nanosecond}},
 	} {
-		if got := tc.in.Normalize(); got != tc.want {
+		if got := tc.in.Normalize(); got != tc.want || got.Normalize() != got {
 			t.Errorf("Normalize(%+v) = %+v, want %+v", tc.in, got, tc.want)
 		}
 	}
@@ -190,4 +190,19 @@ func (m *movingStore) ListKey(c context.Context, key string) (durable.Listing, e
 	l, err := m.Store.ListKey(c, key)
 	m.Store.Bump(key, 7)
 	return l, err
+}
+
+// K = 0 survives normalizing twice (dbtool normalizes, then Sweep does): only the current one stays.
+func TestSweepKeepZeroAfterNormalize(t *testing.T) {
+	s := durabletest.NewStore()
+	clk := t0
+	s.SetClock(func() time.Time { clk = clk.Add(time.Hour); return clk })
+	for i := range 3 {
+		s.Seed("k", 1, []byte{byte(i)})
+	}
+	p := durable.GCPolicy{Keep: -1, Grace: time.Minute}.Normalize()
+	r, err := durable.Sweep(ctx, s, "k", clk.Add(time.Hour), p, false)
+	if err != nil || len(r.Deleted) != 2 {
+		t.Fatalf("Sweep with K = 0 = %+v, %v; want 2 deleted", r, err)
+	}
 }

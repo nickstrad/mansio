@@ -169,12 +169,7 @@ func (d *Durable) StatGeneration(ctx context.Context, object string) (durable.Ge
 
 // stat HEADs the full object name.
 func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error) {
-	var st minio.ObjectInfo
-	err := d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
-		var err error
-		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
-		return err
-	})
+	st, err := d.s.head(ctx, name)
 	return genInfo(st.Size, st.Metadata), err
 }
 
