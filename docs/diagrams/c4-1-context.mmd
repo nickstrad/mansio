@@ -1,0 +1,7 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  ENG[Engineer] -->|1| SB[sqlbench]
+  SB -->|2| FS[SQLite files]
+  SB -->|3| RES[results CSV]
+  RES -->|4| DUCK[DuckDB CLI]
+  DUCK -->|5| REP[report]

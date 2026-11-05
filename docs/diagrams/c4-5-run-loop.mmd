@@ -1,0 +1,9 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  D[dispatcher] -->|1| Q[jobs queue]
+  Q -->|2| W[N workers]
+  W -->|3| A[actor Submit/Wait]
+  W -->|4| RW[RequestWriter]
+  A -->|5| R[retry.Decide]
+  R -->|6| B[backoff timer]
+  B -->|7| Q

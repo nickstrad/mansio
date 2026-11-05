@@ -1,0 +1,7 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  CFG[configs/*.json] -->|1| CLI[sqlbench process]
+  CLI -->|2| DB[SQLite DB files]
+  CLI -->|3| CSV[results/run CSV]
+  CSV -->|4| SQL[queries/*.sql]
+  CLI -->|5| LOG[sqlbench.log]
