@@ -72,12 +72,14 @@ func TestPlacementCAS(t *testing.T) {
 
 func TestMigrateIsIdempotentAndRefusesNewerSchemas(t *testing.T) {
 	p, schema := newPlacement(t, nil) // migrated once
-	if v, err := p.Migrate(ctx); err != nil || v != 1 {
-		t.Fatalf("second Migrate = %d, %v; want a no-op at 1", v, err)
+	ms, err := migrations()
+	must(t, err)
+	if v, err := p.Migrate(ctx); err != nil || v != len(ms) {
+		t.Fatalf("second Migrate = %d, %v; want a no-op at %d", v, err, len(ms))
 	}
 	c := adminConn(t, schema)
 	var n int
-	if err := c.QueryRow(ctx, "select count(*) from schema_version").Scan(&n); err != nil || n != 1 {
+	if err := c.QueryRow(ctx, "select count(*) from schema_version").Scan(&n); err != nil || n != len(ms) {
 		t.Fatalf("schema_version rows = %d, %v", n, err)
 	}
 	if _, err := c.Exec(ctx, "insert into schema_version (version) values (99)"); err != nil {

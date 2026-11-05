@@ -207,6 +207,10 @@ type Stuck struct {
 	Owner string
 	Epoch owner.Epoch
 	Gen   owner.Generation
+	// Intent is the database's lifecycle state in the registry ("moving", "suspended", "dropping", …), ""
+	// when the registry has no row for the key; Target is the move's destination when Intent is "moving".
+	Intent string
+	Target string
 }
 
 // Moving returns up to limit rows MOVING for longer than olderThan, oldest first (moving.sql).
@@ -214,17 +218,20 @@ func (p *Placement) Moving(ctx context.Context, olderThan time.Duration, limit i
 	return list(p, ctx, "list stuck moves", q.moving, func(row pgx.CollectableRow) (Stuck, error) {
 		var s Stuck
 		var e, g int64
-		err := row.Scan(&s.Key, &s.Owner, &e, &g)
+		err := row.Scan(&s.Key, &s.Owner, &e, &g, &s.Intent, &s.Target)
 		s.Epoch, s.Gen = owner.Epoch(e), owner.Generation(g)
 		return s, err
 	}, olderThan, limit)
 }
 
-// VMLoad is one live VM with its count of ACTIVE databases.
+// VMLoad is one VM not attested dead: its ACTIVE databases, the bytes it last reported, and how long ago its
+// last heartbeat was.
 type VMLoad struct {
-	VM        string
-	Endpoint  string
-	ActiveDBs int64
+	VM           string
+	Endpoint     string
+	ActiveDBs    int64
+	Bytes        int64
+	HeartbeatAge float64 // seconds
 }
 
 // Load returns up to limit live VMs, least loaded first (vm_load.sql).

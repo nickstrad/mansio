@@ -60,8 +60,40 @@ insert into moves (database_id, from_epoch, from_vm, to_vm, ack_generation) valu
 -- A placement row that a move names cannot be deleted from under it.
 delete from placement where database_id = 'k';
 
+-- 0002 registries. tenant_id domain: on point 63 chars; off points 64 chars, uppercase, leading dash.
+insert into tenants (tenant_id) values ('t23456789012345678901234567890123456789012345678901234567890123');
+insert into tenants (tenant_id) values ('t234567890123456789012345678901234567890123456789012345678901234');
+insert into tenants (tenant_id) values ('Acme');
+insert into tenants (tenant_id) values ('-acme');
+insert into tenants (tenant_id) values ('acme');
+
+-- database_name domain: on point 56 chars; off points 57 chars, a colon. The key must be tenant ':' name.
+insert into databases (database_id, tenant_id, name) values ('acme:' || repeat('n', 56), 'acme', repeat('n', 56));
+insert into databases (database_id, tenant_id, name) values ('acme:' || repeat('n', 57), 'acme', repeat('n', 57));
+insert into databases (database_id, tenant_id, name) values ('acme:a:b', 'acme', 'a:b');
+insert into databases (database_id, tenant_id, name) values ('acme:x', 'acme', 'y');
+insert into databases (database_id, tenant_id, name) values ('nobody:x', 'nobody', 'x');
+
+-- databases_state_check, and databases_target_iff_moving (on points: moving with a target, active without).
+insert into databases (database_id, tenant_id, name, state) values ('acme:s', 'acme', 's', 'gone');
+insert into databases (database_id, tenant_id, name, state) values ('acme:m', 'acme', 'm', 'moving');
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'active', 'vm-a');
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'moving', 'vm-z');
+insert into databases (database_id, tenant_id, name, state, target_vm) values ('acme:m', 'acme', 'm', 'moving', 'vm-a');
+
+-- databases_one_default: one live default per tenant; a dropped default frees the slot.
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d1', 'acme', 'd1', true, 'active');
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d2', 'acme', 'd2', true, 'active');
+update databases set state = 'dropped' where database_id = 'acme:d1';
+insert into databases (database_id, tenant_id, name, is_default, state) values ('acme:d2', 'acme', 'd2', true, 'active');
+
+-- vms_bytes_check: on point 0, off point -1.
+update vms set bytes = 0 where vm_id = 'vm-a';
+update vms set bytes = -1 where vm_id = 'vm-a';
+
 -- What is left.
 select database_id, owner_vm, epoch, generation, state from placement order by database_id;
 select database_id, from_epoch, from_vm, to_vm, ack_generation from moves order by database_id, from_epoch;
 select vm_id, dead_attested_at is null as alive from vms order by vm_id;
+select database_id, is_default, state, target_vm from databases order by database_id;
 select version from schema_version order by version;
