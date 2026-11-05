@@ -42,8 +42,8 @@ the next request re-warms. The placement row doesn't change.
 
 ## 3. Build order
 
-Each step ends with a test gate. Steps 1–2 need no new service. Docker must be up for the S3 and Postgres
-gates; until then they're env-gated and skipped.
+Each step ends with a test gate. Steps 1–2 need no new service. The S3 gate (`COLDLOAD_S3`) runs now that Docker is up; the
+Postgres gate needs a `docker compose` Postgres.
 
 1. **Wire agentd on one node.** This is the glue every agent report specified.
    - **Host:** replace `openHost` with a `vactor` host in durable mode (`Options.Store` = objstore or fake). The
@@ -101,7 +101,6 @@ gates; until then they're env-gated and skipped.
    - Garbage-collect old generations and orphans; the bucket currently grows without bound.
    - Snapshot through the SQLite backup API from a read connection, to remove the write stall during
      `VACUUM INTO` (~170 ms per 128 MiB).
-   - Run the real S3 conditional-PUT contract tests on SeaweedFS (`COLDLOAD_S3`).
    - Measure on Linux with `F_FULLFSYNC`-equivalent durability.
    - Decide on leases, to bound a partitioned zombie's stale reads in time. Today only its next publish stops
      it.
@@ -116,7 +115,7 @@ replacing raw SQL on the wire (the reserved `op` field).
 ## 4. Assumptions the plan rests on (from the fencing safety argument)
 
 - Postgres CAS is atomic, epochs only move forward, and Claim and Reconcile read the primary.
-- S3 conditional PUT is atomic. SeaweedFS documents it; it's unverified here.
+- S3 conditional PUT is atomic. **Verified 2026-11-05 on single-node SeaweedFS** (`knowledge/writeback/2026-11-05-s3-conditional-put-verified.md`); a multi-node cluster isn't tested.
 - `fsync` is durable. On macOS it isn't, without `F_FULLFSYNC`.
 - An operator restores around a VM only when it's really dead. There are no leases and no clocks in the safety
   path.

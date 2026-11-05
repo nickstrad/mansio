@@ -7,6 +7,7 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-05 (coordinator): [S3 conditional PUT verified on SeaweedFS](2026-11-05-s3-conditional-put-verified.md): full contract suite passes; 200 × 8 concurrent `If-Match` publishes → exactly one winner each round. Single node only.
 - 2026-11-05 [wbbench](2026-11-05-wbbench.md): VACUUM INTO snapshot ~0.8 GB/s and it **blocks that
   database's writes for its whole duration** (512 MiB: 640 ms stall); passivation uploads the closed file,
   ~2× cheaper; sha256 ~2.9 GB/s; dirty check 0.28 ns; a tick ~2.4 µs per warm db. Fake store (Docker down).
