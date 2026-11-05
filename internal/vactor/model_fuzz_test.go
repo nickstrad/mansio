@@ -74,7 +74,7 @@ func FuzzHostModel(f *testing.F) {
 					active[key], onDisk[key] = true, true
 				}
 			case 1:
-				h.Passivate(key)
+				h.Passivate(ctx, key)
 				if active[key] {
 					onDisk[key] = keep
 				}

@@ -52,6 +52,7 @@ type Request struct {
 
 	enqueued time.Time
 	reply    chan Result
+	onWriter bool // a read that must run on the write connection (Snapshot); never sent to the read pool
 }
 
 // Result carries the answer and where the time went.
@@ -101,6 +102,7 @@ type Actor struct {
 	readQueued atomic.Int64 // requests waiting for a reader; read by any goroutine
 	isOpen     atomic.Bool
 	opens      atomic.Int64
+	commits    atomic.Uint64 // write transactions committed since New
 }
 
 // New creates an actor; it does not open the database or start the goroutine.
@@ -174,6 +176,33 @@ func (a *Actor) Close() {
 func (a *Actor) IsOpen() bool  { return a.isOpen.Load() }
 func (a *Actor) Opens() int64  { return a.opens.Load() }
 func (a *Actor) QueueLen() int { return len(a.mailbox) + int(a.readQueued.Load()) }
+
+// Commits counts write transactions this actor committed since New (a batch that rolled back or whose COMMIT
+// failed does not count). It survives IdleClose reopens and Close. One atomic load: cheap enough to use as a
+// dirty check ("any writes since the last copy?").
+//
+//	post: monotonic; it increases only after a COMMIT returned success, before any write in it is answered
+func (a *Actor) Commits() uint64 { return a.commits.Load() }
+
+// Snapshot writes a consistent copy of the database to path (which must not exist) with VACUUM INTO, on the
+// actor's own write connection, between batches. Writes queued meanwhile wait in the mailbox; none are lost.
+// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline becomes the
+// statement timeout.
+//
+//	post: err == nil ⇒ path is a complete database holding at least the first `commits` committed write
+//	      transactions (commits is read before the snapshot is queued, so it may hold more)
+//	post: err != nil ⇒ nothing is guaranteed about path; the caller removes it
+func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
+	commits = a.Commits()
+	r := &Request{SQL: "VACUUM INTO ?", Args: []any{path}, onWriter: true}
+	if d, ok := ctx.Deadline(); ok {
+		r.StmtTimeout = max(time.Until(d), time.Millisecond)
+	}
+	if err := a.Submit(r); err != nil {
+		return commits, err
+	}
+	return commits, r.Wait(ctx).Err
+}
 
 func (a *Actor) run() {
 	defer close(a.stopped)
@@ -263,7 +292,7 @@ func (a *Actor) process(batch []*Request) {
 		switch {
 		case r.expiredAt(time.Now()): // may have expired while the writes ran
 			meta.fail(r, ErrExpired)
-		case a.readQ != nil:
+		case a.readQ != nil && !r.onWriter:
 			a.readQueued.Add(1)
 			select {
 			case a.readQ <- r:
@@ -304,6 +333,9 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	c0 := time.Now()
 	endErr := a.w.run(ctx, end)
 	commit := time.Since(c0)
+	if !aborted && endErr == nil {
+		a.commits.Add(1) // before the replies: a caller that saw its write acknowledged sees it counted
+	}
 	settle(results, aborted, endErr)
 	for i, r := range writes {
 		results[i].Commit = commit

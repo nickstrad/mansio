@@ -6,6 +6,7 @@ package objstore
 import (
 	"context"
 	"errors"
+	"hash"
 	"io"
 	"net"
 	"net/http"
@@ -127,7 +128,7 @@ func (s *Store) GetToFile(ctx context.Context, key, path string) (FetchStats, er
 	defer body.Close()
 	st := FetchStats{TTFB: time.Since(t0)}
 
-	n, err := s.writeFile(path+".part", body)
+	n, err := s.writeFile(path+".part", body, nil)
 	if err == nil && info.Size >= 0 && n != info.Size {
 		err = io.ErrUnexpectedEOF
 	}
@@ -143,9 +144,10 @@ func (s *Store) GetToFile(ctx context.Context, key, path string) (FetchStats, er
 	return st, nil
 }
 
-// writeFile copies r into a new file at path through a pooled 1 MiB buffer. A plain read/write loop on
-// purpose: io.CopyBuffer would hand the copy to (*os.File).ReadFrom, which ignores the buffer.
-func (s *Store) writeFile(path string, r io.Reader) (int64, error) {
+// writeFile copies r into a new file at path through a pooled 1 MiB buffer, feeding h too if it is not nil.
+// A plain read/write loop on purpose: io.CopyBuffer would hand the copy to (*os.File).ReadFrom, which
+// ignores the buffer.
+func (s *Store) writeFile(path string, r io.Reader, h hash.Hash) (int64, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return 0, err
@@ -156,6 +158,9 @@ func (s *Store) writeFile(path string, r io.Reader) (int64, error) {
 	for {
 		m, rerr := io.ReadFull(r, buf)
 		if m > 0 {
+			if h != nil {
+				h.Write(buf[:m])
+			}
 			if _, werr := f.Write(buf[:m]); werr != nil {
 				f.Close()
 				return n, werr

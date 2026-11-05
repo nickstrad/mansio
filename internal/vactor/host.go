@@ -1,6 +1,12 @@
 // Package vactor hosts virtual actors: one open database per key, created on first use from an object in
 // storage and removed again on passivation.
 //
+// Two modes. Plain (Options.Store nil, the coldload benchmark): the Fetcher downloads object `key`, and
+// passivation just drops the local copy. Durable (Options.Store set): activation reads the key's manifest
+// and fetches its generation (internal/durable); warm writes are written back as new generations; passivation
+// writes back before it deletes anything, and a failed write-back leaves the database warm. See writeback.go
+// and maintain.go.
+//
 // Get(key) returns the key's open database. If it is not active, the first caller starts an activation:
 // fetch the object to a local file, open it, run the first query, then optional warm-up queries. Callers
 // that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, so a
@@ -24,6 +30,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
@@ -63,6 +70,19 @@ type DB interface {
 	Close()
 }
 
+// DurableDB is what durable mode needs from an open database. actordb implements it over internal/actor.
+type DurableDB interface {
+	DB
+	// Commits counts committed write transactions since open; it stays readable after Close.
+	//
+	//	post: monotonic; a write the caller saw acknowledged is already counted
+	Commits() uint64
+	// Snapshot writes a consistent copy to path (which does not exist).
+	//
+	//	post: err == nil ⇒ path holds at least the first `commits` commits
+	Snapshot(ctx context.Context, path string) (commits uint64, err error)
+}
+
 // Options apply to every activation.
 type Options struct {
 	CacheDir string // local copies live here; emptied by NewHost, removed by Close
@@ -75,6 +95,27 @@ type Options struct {
 	KeepLocal bool
 	// QueryTimeout bounds each first/warm query. Default 5 min.
 	QueryTimeout time.Duration
+
+	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
+	Store durable.Store
+	// CreateMissing: activating a key with no manifest starts an empty database (first write-back creates
+	// the manifest). Otherwise such a Get fails with ErrNotFound.
+	CreateMissing bool
+	// Policy drives Tick / RunMaintenance: periodic write-back and eviction.
+	Policy Policy
+	// WriteBackTimeout bounds each write-back that has no caller context: PassivateAll, Close. Default 5 min.
+	WriteBackTimeout time.Duration
+	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
+	Workers int
+	// Now is the clock (tests). Default time.Now.
+	Now func() time.Time
+
+	// CheckActivation, if set, runs after the manifest is read and before anything is fetched; an error
+	// fails the activation (fencing: owner.Table.CheckActivation). m is the zero manifest for a new key.
+	CheckActivation func(key string, epoch uint64, m durable.Manifest) error
+	// Guard, if set, wraps every write-back and passivation that Tick starts (fencing: owner.Table.Publish,
+	// so a fence drains them). Direct calls (WriteBack, Passivate) are not guarded: the fence itself makes them.
+	Guard func(ctx context.Context, key string, epoch uint64, do func(context.Context) error) error
 }
 
 // Activation says where one activation's time went.
@@ -105,6 +146,10 @@ type Stats struct {
 	Failures    int64
 	Fetches     int64
 	LocalHits   int64
+
+	WriteBacks        int64 // generations published
+	WriteBackFailures int64
+	BytesUploaded     int64
 }
 
 type entry struct {
@@ -115,6 +160,8 @@ type entry struct {
 	panic any // set if the activation panicked (a bug); re-raised in every caller
 
 	gone chan struct{} // non-nil while passivating; closed when the local copy is gone
+
+	durableState
 }
 
 // Host owns the active databases. Safe for concurrent use.
@@ -129,13 +176,32 @@ type Host struct {
 	entries map[string]*entry
 	closed  bool
 
-	activations, failures, fetches, localHits atomic.Int64
+	activations, failures, fetches, localHits    atomic.Int64
+	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 }
 
 // NewHost creates a host with an empty cache directory.
 func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.CacheDir == "" {
 		return nil, errs.Wrap(module, nil, "cannot create host: no cache directory given")
+	}
+	switch {
+	case f == nil && opts.Store == nil:
+		return nil, errs.Wrap(module, nil, "cannot create host: neither a Fetcher nor a durable Store given")
+	case opts.Store != nil && opts.KeepLocal:
+		return nil, errs.Wrap(module, nil, "cannot create host: KeepLocal and a durable Store do not mix (a kept copy may be older than the manifest)")
+	}
+	if err := opts.Policy.Validate(); err != nil {
+		return nil, errs.Wrap(module, err, "cannot create host")
+	}
+	if opts.WriteBackTimeout <= 0 {
+		opts.WriteBackTimeout = 5 * time.Minute
+	}
+	if opts.Workers <= 0 {
+		opts.Workers = 8
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
 	}
 	if err := os.RemoveAll(opts.CacheDir); err != nil {
 		return nil, errs.Wrap(module, err, "cannot clear cache directory %s", opts.CacheDir)
@@ -150,7 +216,12 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		opts.QueryTimeout = 5 * time.Minute
 	}
 	if assert.Enabled {
-		f = checkedFetcher{f}
+		if f != nil {
+			f = checkedFetcher{f}
+		}
+		if opts.Store != nil {
+			opts.Store = checkedStore{opts.Store}
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry)}, nil
@@ -163,14 +234,21 @@ func (h *Host) LocalPath(key string) string {
 	return filepath.Join(h.opts.CacheDir, keyToFile.Replace(key))
 }
 
-// Get returns key's open database, activating it if needed. ctx bounds only this caller's wait: cancelling
+// Get is GetAt with epoch 0 (no fencing).
+func (h *Host) Get(ctx context.Context, key string) (Result, error) { return h.GetAt(ctx, key, 0) }
+
+// GetAt returns key's open database, activating it if needed. ctx bounds only this caller's wait: cancelling
 // it does not stop an activation other callers may be waiting on.
+//
+// epoch is the caller's ownership epoch (internal/owner admits it; the host does not decide ownership). In
+// durable mode write-backs publish at the highest epoch any caller of this activation passed, and an
+// activation whose manifest holds a higher epoch fails with durable.ErrStale.
 //
 //	post: err == nil ⇒ res.DB != nil, and the key stays active until passivated
 //	post: res.Act != nil ⇒ this caller started the activation, so res.Waited is false
 //	post: a failed activation is not cached: the next Get tries again
 //	post: if the activation panicked, Get panics with the same value in every caller (a bug)
-func (h *Host) Get(ctx context.Context, key string) (Result, error) {
+func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, error) {
 	for {
 		h.mu.Lock()
 		if h.closed {
@@ -189,6 +267,8 @@ func (h *Host) Get(ctx context.Context, key string) (Result, error) {
 		}
 		if !ok {
 			e = &entry{done: make(chan struct{})}
+			e.epoch.Store(epoch)
+			e.touch(h.opts.Now())
 			h.entries[key] = e
 			h.mu.Unlock()
 			go h.activate(key, e) // own goroutine: one caller's cancel must not fail the others
@@ -200,6 +280,8 @@ func (h *Host) Get(ctx context.Context, key string) (Result, error) {
 			}
 		}
 		h.mu.Unlock()
+		e.raiseEpoch(epoch)
+		e.touch(h.opts.Now())
 		select {
 		case <-e.done:
 			return e.result(nil, false)
@@ -236,7 +318,7 @@ func (h *Host) activate(key string, e *entry) {
 		}
 	}()
 	t0 := time.Now()
-	e.db, e.err = h.load(key, &e.act)
+	e.db, e.err = h.load(key, e)
 	e.act.Total = time.Since(t0)
 	h.activations.Add(1)
 	// Invariant: an activation either fully succeeded (db open) or left nothing behind.
@@ -259,9 +341,14 @@ func (h *Host) forget(key string, e *entry) {
 	}
 }
 
-func (h *Host) load(key string, act *Activation) (DB, error) {
+func (h *Host) load(key string, e *entry) (DB, error) {
+	act := &e.act
 	path := h.LocalPath(key)
-	if size, ok := h.localCopy(path); ok {
+	if h.opts.Store != nil {
+		if err := h.fetchDurable(key, e, path); err != nil {
+			return nil, err
+		}
+	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
 	} else {
@@ -278,6 +365,15 @@ func (h *Host) load(key string, act *Activation) (DB, error) {
 	act.Open = time.Since(t)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot activate %s: open failed; safe to retry", key)
+	}
+	if h.opts.Store != nil {
+		ddb, ok := db.(DurableDB)
+		if !ok {
+			db.Close()
+			return nil, errs.Wrap(module, nil, "cannot activate %s: the Opener's database (%T) cannot be written back; use a DurableDB opener", key, db)
+		}
+		e.pubCommits.Store(ddb.Commits())
+		e.lastWB.Store(h.opts.Now().UnixNano())
 	}
 
 	t = time.Now()
@@ -317,71 +413,6 @@ func (h *Host) query(db DB, q string) error {
 	return db.Query(ctx, q)
 }
 
-// Passivate closes key's database and, unless KeepLocal, deletes its local files. It waits for an activation
-// in progress to finish first. Passivating an inactive key does nothing.
-func (h *Host) Passivate(key string) {
-	h.mu.Lock()
-	e, ok := h.entries[key]
-	if !ok || e.gone != nil {
-		h.mu.Unlock()
-		return
-	}
-	e.gone = make(chan struct{})
-	h.mu.Unlock()
-	h.release(key, e)
-}
-
-// release finishes a passivation that the caller marked (e.gone set) under the lock.
-func (h *Host) release(key string, e *entry) {
-	<-e.done
-	if e.db != nil {
-		e.db.Close()
-	}
-	if !h.opts.KeepLocal {
-		RemoveDB(h.LocalPath(key))
-	}
-	h.mu.Lock()
-	if h.entries[key] == e {
-		delete(h.entries, key)
-	}
-	h.mu.Unlock()
-	close(e.gone)
-}
-
-// PassivateAll passivates every active key, at most workers at a time.
-func (h *Host) PassivateAll(workers int) {
-	h.mu.Lock()
-	marked := make(map[string]*entry, len(h.entries))
-	for k, e := range h.entries {
-		if e.gone == nil {
-			e.gone = make(chan struct{})
-			marked[k] = e
-		}
-	}
-	h.mu.Unlock()
-	sem := make(chan struct{}, max(1, workers))
-	var wg sync.WaitGroup
-	for k, e := range marked {
-		sem <- struct{}{}
-		wg.Go(func() {
-			defer func() { <-sem }()
-			h.release(k, e)
-		})
-	}
-	wg.Wait()
-}
-
-// Close cancels activations in flight, passivates everything, removes the cache directory, and makes later
-// Gets return ErrClosed.
-func (h *Host) Close() error {
-	h.mu.Lock()
-	h.closed = true
-	h.mu.Unlock()
-	h.cancel()
-	h.PassivateAll(64)
-	return os.RemoveAll(h.opts.CacheDir)
-}
-
 // Active counts keys that are active or activating.
 func (h *Host) Active() int {
 	h.mu.Lock()
@@ -391,10 +422,13 @@ func (h *Host) Active() int {
 
 func (h *Host) Stats() Stats {
 	return Stats{
-		Activations: h.activations.Load(),
-		Failures:    h.failures.Load(),
-		Fetches:     h.fetches.Load(),
-		LocalHits:   h.localHits.Load(),
+		Activations:       h.activations.Load(),
+		Failures:          h.failures.Load(),
+		Fetches:           h.fetches.Load(),
+		LocalHits:         h.localHits.Load(),
+		WriteBacks:        h.writeBacks.Load(),
+		WriteBackFailures: h.writeBackFailures.Load(),
+		BytesUploaded:     h.bytesUploaded.Load(),
 	}
 }
 
