@@ -51,6 +51,17 @@ func RequestCost(counts map[string]int64, p Prices) float64 {
 	return usd
 }
 
+// SubCounts is after − before by op, without ops that did not change.
+func SubCounts(after, before map[string]int64) map[string]int64 {
+	out := map[string]int64{}
+	for op, n := range after {
+		if d := n - before[op]; d != 0 {
+			out[op] = d
+		}
+	}
+	return out
+}
+
 // Requests sums counts.
 func Requests(counts map[string]int64) int64 {
 	var n int64

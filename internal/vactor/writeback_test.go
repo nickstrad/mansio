@@ -263,12 +263,7 @@ func TestStatsCountRequestsPerWriteBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := r.h.Stats()
-	wb := map[string]int64{}
-	for op, n := range st.Requests {
-		if d := n - act[op]; d != 0 {
-			wb[op] = d
-		}
-	}
+	wb := durable.SubCounts(st.Requests, act)
 	want := map[string]int64{durable.OpPutGen: 1, durable.OpHead: 1, durable.OpGetManifest: 1, durable.OpPublish: 1}
 	if !maps.Equal(wb, want) {
 		t.Fatalf("one write-back sent %v, want %v", wb, want)

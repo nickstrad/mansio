@@ -265,10 +265,7 @@ func measure(ctx context.Context, dir string, size int64, rep int) (row, error) 
 	t := time.Now()
 	wb, err := h.WriteBack(ctx, "bench/db")
 	r.total = time.Since(t)
-	sent := s.RequestCounts()
-	for op, n := range before {
-		sent[op] -= n
-	}
+	sent := durable.SubCounts(s.RequestCounts(), before)
 	r.requests, r.usdPerMillion = durable.Requests(sent), durable.RequestCost(sent, durable.S3Standard)*1e6
 	time.Sleep(5 * time.Millisecond)
 	close(stop)

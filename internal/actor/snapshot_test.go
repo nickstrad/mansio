@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
 )
 
 // Commits and Snapshot are the additive hooks vactor's write-back uses (posted in shared_state.md by the
@@ -129,11 +131,7 @@ func TestSnapshotAfterCloseFails(t *testing.T) {
 // checkSnapshot opens a snapshot read-only and checks it is intact and one committed state (sum(v) == 0).
 func checkSnapshot(t *testing.T, path string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := openRO(t, path)
 	var ok string
 	var sum int64
 	if err := db.QueryRow("PRAGMA integrity_check").Scan(&ok); err != nil || ok != "ok" {
@@ -144,13 +142,20 @@ func checkSnapshot(t *testing.T, path string) {
 	}
 }
 
-func countRows(t *testing.T, path string) int {
+// openRO opens path read-only; closed at the end of the test.
+func openRO(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", sqlitedsn.Build(path, "query_only(1)"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func countRows(t *testing.T, path string) int {
+	t.Helper()
+	db := openRO(t, path)
 	var n int
 	if err := db.QueryRow("SELECT count(*) FROM kv").Scan(&n); err != nil {
 		t.Fatal(err)

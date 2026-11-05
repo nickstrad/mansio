@@ -90,8 +90,12 @@ func (s *Store) Metrics() map[string]OpStats {
 // RequestCounts is attempts by operation, retries included (durable.RequestCounter).
 func (s *Store) RequestCounts() map[string]int64 {
 	out := make(map[string]int64, len(s.metrics))
-	for op, st := range s.Metrics() {
-		if n := st.Requests(); n > 0 {
+	for op, c := range s.metrics {
+		var n int64
+		for k := range c.byKind {
+			n += c.byKind[k].Load()
+		}
+		if n > 0 {
 			out[op] = n
 		}
 	}

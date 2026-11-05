@@ -230,7 +230,7 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 //	post: err != nil ⇒ nothing is guaranteed about path; the caller removes it
 func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
 	commits = a.Commits()
-	r := &Request{SQL: "-- snapshot", backupTo: path}
+	r := &Request{backupTo: path}
 	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return commits, err

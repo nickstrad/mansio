@@ -17,20 +17,9 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
 )
 
-// requests is the number of attempts per op, ops with none left out.
-// requests is through the durable adapter, as vactor.Host reads it (durable.RequestCounter).
+// requests is attempts per op through the durable adapter, as vactor.Host reads them (durable.RequestCounter).
 func requests(st *objstore.Store) map[string]int64 {
 	return durable.RequestCounter(objstore.NewDurable(st, "")).RequestCounts()
-}
-
-func diff(after, before map[string]int64) map[string]int64 {
-	out := map[string]int64{}
-	for op, n := range after {
-		if d := n - before[op]; d > 0 {
-			out[op] = d
-		}
-	}
-	return out
 }
 
 func sameCounts(t *testing.T, what string, got, want map[string]int64) {
@@ -60,7 +49,7 @@ func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 	if _, err := d.PublishManifest(ctx, m, durable.NoVersion); err != nil {
 		t.Fatal(err)
 	}
-	sameCounts(t, "write-back", diff(requests(st), before),
+	sameCounts(t, "write-back", durable.SubCounts(requests(st), before),
 		map[string]int64{objstore.OpPutGen: 1, objstore.OpHead: 1, objstore.OpGetManifest: 1, objstore.OpPublish: 1})
 	if n := fake.Count(""); n != 4 {
 		t.Fatalf("server saw %d requests for a write-back, want 4", n)
@@ -71,7 +60,7 @@ func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 	if _, _, err := durable.Stamp(ctx, d, "k", 2, 1, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	sameCounts(t, "stamp", diff(requests(st), before), map[string]int64{objstore.OpGetManifest: 2, objstore.OpPublish: 1})
+	sameCounts(t, "stamp", durable.SubCounts(requests(st), before), map[string]int64{objstore.OpGetManifest: 2, objstore.OpPublish: 1})
 
 	// Activation: GET manifest, GET generation = 2.
 	before = requests(st)
@@ -82,7 +71,7 @@ func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 	if _, err := d.FetchGeneration(ctx, cur, filepath.Join(t.TempDir(), "db")); err != nil {
 		t.Fatal(err)
 	}
-	sameCounts(t, "activation", diff(requests(st), before), map[string]int64{objstore.OpGetManifest: 1, objstore.OpFetch: 1})
+	sameCounts(t, "activation", durable.SubCounts(requests(st), before), map[string]int64{objstore.OpGetManifest: 1, objstore.OpFetch: 1})
 
 	got := st.Metrics()
 	if got[objstore.OpFetch].Bytes != int64(len(data)) || got[objstore.OpPutGen].Bytes != int64(len(data)) {

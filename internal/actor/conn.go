@@ -133,7 +133,8 @@ func (k *sqliteConn) backup(ctx context.Context, dst string) error {
 		if !ok {
 			return fmt.Errorf("driver connection %T has no backup API", dc)
 		}
-		bk, err := b.NewBackup(sqlitedsn.Build(dst))
+		// The copy is a temp file made durable by its upload: no journal, no fsync per step.
+		bk, err := b.NewBackup(sqlitedsn.Build(dst, "synchronous(OFF)", "journal_mode(OFF)"))
 		if err != nil {
 			return err
 		}
