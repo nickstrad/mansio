@@ -93,3 +93,29 @@ func TestSQLiteCrashLosesOnlyUnpublishedWrites(t *testing.T) {
 		t.Fatalf("%d rows; want the 1 published", n)
 	}
 }
+
+// OS-10 over real SQLite: a passivated database, clean or dirty, is re-warmed from the generation cache
+// (its bytes are exactly the published generation's), and its rows are intact.
+func TestGenCacheRewarmRealSQLite(t *testing.T) {
+	s := durabletest.NewStore()
+	h, err := vactor.NewHost(nil, actordb.Opener{}, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s,
+		CreateMissing: true, GenCacheBytes: 64 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	do(t, h, "k", `CREATE TABLE t (v TEXT)`)
+	do(t, h, "k", `INSERT INTO t VALUES ('a')`)
+	for round := range 2 { // dirty, then clean
+		if err := h.Passivate(context.Background(), "k"); err != nil {
+			t.Fatal(err)
+		}
+		res, err := h.Get(context.Background(), "k")
+		if err != nil || !res.Act.LocalHit {
+			t.Fatalf("round %d: re-warm = %+v, %v; want a local hit", round, res.Act, err)
+		}
+		if n := do(t, h, "k", `SELECT count(*) FROM t`).First; n != 1 {
+			t.Fatalf("round %d: %d rows", round, n)
+		}
+	}
+}

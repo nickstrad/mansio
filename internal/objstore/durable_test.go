@@ -62,11 +62,13 @@ func s3Store(t *testing.T, ep string) *objstore.Store {
 
 func runS3Suite(t *testing.T, ep string) {
 	st := s3Store(t, ep)
-	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
+	fresh := func(t *testing.T) *objstore.Durable {
 		root := "test-" + logx.NewID() + "/"
 		t.Cleanup(func() { st.DeletePrefix(context.Background(), root) })
 		return objstore.NewDurable(st, root)
-	})
+	}
+	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store { return fresh(t) })
+	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore { return fresh(t) })
 }
 
 // Runs without a store: every call against an unreachable endpoint is a wrapped objstore error, and never
@@ -129,6 +131,16 @@ func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 	})
 }
 
+// The inventory contract (OS-06: paged listing, shard listing with a delimiter, batch delete) against the
+// in-process S3.
+func TestDurableGCStoreContractAgainstFakeS3(t *testing.T) {
+	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore {
+		fake := s3test.New()
+		t.Cleanup(fake.Close)
+		return objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "root/")
+	})
+}
+
 // The same suite through a faultnet proxy with every fault off: the harness itself must be transparent
 // before any fault test through it means something (RI-13).
 func TestDurableStoreContractThroughHealthyProxy(t *testing.T) {
@@ -166,4 +178,35 @@ func srcFile(t *testing.T, data []byte) (string, durable.Digest) {
 		t.Fatal(err)
 	}
 	return path, durabletest.DigestOf(data)
+}
+
+// A stored manifest that does not decode is ErrBadManifest (not "no manifest"), and only a publish
+// conditional on its listed version replaces it: the repair dbtool rebuild-manifest makes.
+func TestBadManifestIsReplacedOnlyOnItsListedVersion(t *testing.T) {
+	fake := s3test.New()
+	t.Cleanup(fake.Close)
+	d := objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "")
+	ctx := context.Background()
+	path, dg := srcFile(t, []byte("g1"))
+	m := durable.NextManifest("k", 1, 2, dg, time.Now())
+	if err := d.PutGeneration(ctx, m, path); err != nil {
+		t.Fatal(err)
+	}
+	fake.Put("bkt", durable.ManifestObject("k"), []byte("{not json"))
+	if _, _, err := d.ReadManifest(ctx, "k"); !errors.Is(err, durable.ErrBadManifest) || errors.Is(err, durable.ErrNoManifest) {
+		t.Fatalf("ReadManifest = %v, want ErrBadManifest", err)
+	}
+	if _, err := d.PublishManifest(ctx, m, durable.NoVersion); !errors.Is(err, durable.ErrStale) {
+		t.Fatalf("create-only publish over a bad manifest = %v, want ErrStale", err)
+	}
+	l, err := d.ListKey(ctx, "k")
+	if err != nil || l.Manifest == nil {
+		t.Fatal(l, err)
+	}
+	if _, err := d.PublishManifest(ctx, m, l.Manifest.Version); err != nil {
+		t.Fatalf("publish on the listed version: %v", err)
+	}
+	if got, _, err := d.ReadManifest(ctx, "k"); err != nil || !got.Same(m) {
+		t.Fatalf("after the repair: %+v, %v", got, err)
+	}
 }

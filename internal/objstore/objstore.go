@@ -168,6 +168,30 @@ func (s *Store) PutFile(ctx context.Context, key, path string) (int64, error) {
 	return info.Size, nil
 }
 
+// Size returns the size of object key (one HEAD, retried while Transient). A missing object matches
+// ErrNotFound.
+func (s *Store) Size(ctx context.Context, key string) (int64, error) {
+	st, err := s.head(ctx, key)
+	if err != nil {
+		if noSuchKey(err) {
+			err = errors.Join(ErrNotFound, err)
+		}
+		return 0, wrap(err, "cannot stat %s; nothing changed, safe to retry", key).With("bucket", s.bucket)
+	}
+	return st.Size, nil
+}
+
+// head is one HEAD of the full object name, retried while Transient.
+func (s *Store) head(ctx context.Context, name string) (minio.ObjectInfo, error) {
+	var st minio.ObjectInfo
+	err := s.retryIdempotent(ctx, OpHead, name, s.cfg.OpTimeout, func(a *attempt) error {
+		var err error
+		st, err = s.c.StatObject(a.ctx, s.bucket, name, minio.StatObjectOptions{})
+		return err
+	})
+	return st, err
+}
+
 // FetchStats splits a download into time to first byte and the rest.
 type FetchStats struct {
 	Bytes int64
@@ -312,59 +336,4 @@ func (s *Store) putBuf(b []byte) {
 	case s.bufs <- b:
 	default:
 	}
-}
-
-// List returns key → size for every object under prefix. Each page must arrive within OpTimeout; a
-// Transient failure restarts the listing.
-func (s *Store) List(ctx context.Context, prefix string) (map[string]int64, error) {
-	var out map[string]int64
-	err := s.retryIdempotent(ctx, OpList, prefix, s.cfg.OpTimeout, func(a *attempt) error {
-		out = make(map[string]int64)
-		for o := range s.c.ListObjects(a.ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-			if o.Err != nil {
-				return o.Err
-			}
-			out[o.Key] = o.Size
-			a.rearm(s.cfg.OpTimeout)
-		}
-		return a.ctx.Err()
-	})
-	if err != nil {
-		return nil, wrap(err, "cannot list %s/%s (is the store up?); nothing changed, safe to retry", s.bucket, prefix)
-	}
-	return out, nil
-}
-
-// DeletePrefix removes every object under prefix and returns how many it removed.
-func (s *Store) DeletePrefix(ctx context.Context, prefix string) (int, error) {
-	have, err := s.List(ctx, prefix)
-	if err != nil {
-		return 0, err
-	}
-	budget := s.cfg.OpTimeout * time.Duration(1+len(have)/1000) // one request per 1000 keys
-	err = s.retryIdempotent(ctx, OpDelete, prefix, budget, func(a *attempt) error {
-		objs := make(chan minio.ObjectInfo, len(have)) // buffered to the count: the feeder never blocks
-		for k := range have {
-			objs <- minio.ObjectInfo{Key: k}
-		}
-		close(objs)
-		var first error
-		for e := range s.c.RemoveObjects(a.ctx, s.bucket, objs, minio.RemoveObjectsOptions{}) { // reports failures only
-			if e.Err != nil && first == nil {
-				first = fmt.Errorf("delete %s: %w", e.ObjectName, e.Err)
-			}
-		}
-		return first
-	})
-	if err != nil {
-		return 0, wrap(err, "cannot delete under %s; some objects may remain, safe to retry", prefix)
-	}
-	left, err := s.List(ctx, prefix)
-	if err != nil {
-		return 0, err
-	}
-	if len(left) > 0 {
-		return len(have) - len(left), errs.Wrap(module, nil, "%d objects under %s were not deleted; safe to retry", len(left), prefix)
-	}
-	return len(have), nil
 }

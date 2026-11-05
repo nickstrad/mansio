@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -59,6 +61,16 @@ func NewDurable(s *Store, root string) *Durable { return &Durable{s: s, root: ro
 const maxSinglePut = 5 << 30
 
 func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
+	m, v, err := d.readManifest(ctx, key)
+	if err != nil {
+		return durable.Manifest{}, durable.NoVersion, err
+	}
+	return m, v, nil
+}
+
+// readManifest is ReadManifest that also returns the version of a manifest that does not decode
+// (ErrBadManifest), so a publish conditional on that version can replace it.
+func (d *Durable) readManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
 	name := d.root + durable.ManifestObject(key)
 	var b []byte
 	var etag string
@@ -79,12 +91,12 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 		return durable.Manifest{}, durable.NoVersion, wrap(err, "cannot read manifest %s; nothing changed, safe to retry", name)
 	}
 	d.s.moved(OpGetManifest, int64(len(b)))
-	m, err := durable.Decode(key, b)
-	if err != nil {
-		return durable.Manifest{}, durable.NoVersion, wrap(err, "manifest %s is unreadable", name)
-	}
 	if etag == "" {
 		return durable.Manifest{}, durable.NoVersion, errs.Wrap(module, nil, "manifest %s has no ETag; conditional publish impossible", name)
+	}
+	m, err := durable.Decode(key, b)
+	if err != nil {
+		return durable.Manifest{}, durable.Version(etag), wrap(err, "manifest %s (version %s) is unreadable; repair it with dbtool rebuild-manifest", name, etag)
 	}
 	return m, durable.Version(etag), nil
 }
@@ -157,12 +169,7 @@ func (d *Durable) StatGeneration(ctx context.Context, object string) (durable.Ge
 
 // stat HEADs the full object name.
 func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error) {
-	var st minio.ObjectInfo
-	err := d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
-		var err error
-		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
-		return err
-	})
+	st, err := d.s.head(ctx, name)
 	return genInfo(st.Size, st.Metadata), err
 }
 
@@ -213,10 +220,11 @@ func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path 
 
 func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
 	name := d.root + durable.ManifestObject(m.Key)
-	stored, v, err := d.ReadManifest(ctx, m.Key)
+	stored, v, err := d.readManifest(ctx, m.Key)
 	switch {
 	case errors.Is(err, durable.ErrNoManifest):
 		v = durable.NoVersion
+	case errors.Is(err, durable.ErrBadManifest): // no epoch to compare: only If-Match on its version applies
 	case err != nil:
 		return durable.NoVersion, wrap(err, "cannot publish %s; nothing changed, safe to retry", name)
 	case stored.Epoch > m.Epoch:
@@ -251,4 +259,64 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		return durable.NoVersion, errs.Wrap(module, nil, "published %s but got no ETag; re-read before retrying", name)
 	}
 	return durable.Version(info.ETag), nil
+}
+
+var _ durable.GCStore = (*Durable)(nil)
+
+// DeleteGenerations deletes key's generation objects in batches of up to 1000 (guide GC5), after checking
+// every name is one (CheckDeletable, GC4).
+func (d *Durable) DeleteGenerations(ctx context.Context, key string, names []string) error {
+	if err := durable.CheckDeletable(key, names); err != nil {
+		return err
+	}
+	full := make([]string, len(names))
+	for i, n := range names {
+		full[i] = d.root + n
+	}
+	return d.s.Delete(ctx, full)
+}
+
+// ListKey lists KeyPrefix(key) page by page (GC and dbtool only, guide K2).
+func (d *Durable) ListKey(ctx context.Context, key string) (durable.Listing, error) {
+	var l durable.Listing
+	man, gen := durable.ManifestObject(key), durable.GenPrefix(key)
+	err := d.s.EachPage(ctx, d.root+durable.KeyPrefix(key), "", func(p Page) error {
+		for _, o := range p.Objects {
+			name := strings.TrimPrefix(o.Key, d.root)
+			so := durable.StoredObject{Name: name, Size: o.Size, Modified: o.Modified, Version: durable.Version(o.ETag)}
+			switch {
+			case name == man:
+				l.Manifest = &so
+			case strings.HasPrefix(name, gen):
+				l.Generations = append(l.Generations, so)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return durable.Listing{}, err
+	}
+	slices.SortFunc(l.Generations, func(a, b durable.StoredObject) int { return strings.Compare(a.Name, b.Name) })
+	return l, nil
+}
+
+// ListKeys lists the database keys of one shard ("dbs/<shard>/<escaped key>/"), one page at a time.
+// Prefixes that are not the canonical KeyPrefix of their unescaped key are not ours and are skipped.
+func (d *Durable) ListKeys(ctx context.Context, shard string, fn func(key string) error) error {
+	if !durable.ValidShard(shard) {
+		return errs.Wrap(module, nil, "cannot list shard %q: not two lower-case hex digits", shard)
+	}
+	base := d.root + "dbs/" + shard + "/"
+	return d.s.EachPage(ctx, base, "/", func(p Page) error {
+		for _, pre := range p.Prefixes {
+			key, err := url.PathUnescape(strings.TrimSuffix(strings.TrimPrefix(pre, base), "/"))
+			if err != nil || d.root+durable.KeyPrefix(key) != pre {
+				continue
+			}
+			if err := fn(key); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

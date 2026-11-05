@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,9 @@ type durableState struct {
 	lastGen  uint64            // highest generation this host tried to upload for the key
 	pending  *durable.Manifest // a publish or stamp of ours whose outcome we never learned (ambiguous error)
 	stranded bool              // passivation's write-back failed and the file could not be reopened
+	// published are the generation objects this entry saw published, oldest first: the current one and the
+	// ones owner-side retention has not deleted yet (guide GC2).
+	published []string
 
 	epoch      atomic.Uint64
 	pubCommits atomic.Uint64
@@ -87,6 +91,9 @@ func (h *Host) readManifest(ctx context.Context, key string, e *entry) (durable.
 		}
 	}
 	e.man, e.ver, e.lastGen = m, v, m.Generation
+	if m.Generation > 0 {
+		e.published = []string{m.Object}
+	}
 	return m, nil
 }
 
@@ -248,6 +255,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		}
 		return fail(err, "cannot write back %s: publishing generation %d failed or its reply was lost; database still warm, safe to retry", key, gen)
 	}
+	h.retain(ctx, key, e, next.Object)
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
 	now := h.opts.Now().UnixNano()
@@ -257,6 +265,30 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	h.bytesUploaded.Add(d.Size)
 	res.Wrote, res.Generation = true, gen
 	return res, nil
+}
+
+// retain is owner-side retention (object-storage guide GC2), right after obj was published: it deletes the
+// generations this entry published more than K publishes ago (durable.PlanRetention), by computed name with no
+// LIST. It runs under e.wb, the publish serialization, so it never races a publish of the key and a fence
+// drains it like one; the cost is one DELETE (a batch of K+1's leftovers, usually 1 name) on the write-back's
+// own path, accepted for that ordering. A failed delete does not fail the write-back (it is published): the
+// names are dropped here and the orphan sweeper deletes them later. Skipped once Shutdown has begun.
+//
+//	pre: e.wb is held; obj is the object e.man now names
+func (h *Host) retain(ctx context.Context, key string, e *entry, obj string) {
+	if n := len(e.published); n == 0 || e.published[n-1] != obj {
+		e.published = append(e.published, obj)
+	}
+	keep, drop := durable.PlanRetention(e.published, h.opts.GC)
+	if len(drop) == 0 || h.closing() {
+		return // while shutting down, the budget is for write-backs: the sweeper deletes these later
+	}
+	e.published = slices.Clone(keep)
+	if err := h.opts.Store.DeleteGenerations(ctx, key, drop); err != nil {
+		h.retentionFailures.Add(1)
+		return
+	}
+	h.generationsDeleted.Add(int64(len(drop)))
 }
 
 // holds reports whether the stored object name holds exactly the snapshot d: the re-read that settles an
@@ -359,9 +391,11 @@ func (h *Host) Passivate(ctx context.Context, key string) error {
 func (h *Host) release(ctx context.Context, key string, e *entry) error {
 	<-e.done
 	if h.opts.Store != nil && (e.db != nil || e.stranded) {
-		if err := h.writeBackClosed(ctx, key, e); err != nil {
+		uploaded, err := h.writeBackClosed(ctx, key, e)
+		if err != nil {
 			return err
 		}
+		h.keepGeneration(key, e, uploaded)
 	} else if e.db != nil {
 		e.db.Close()
 	}
@@ -370,6 +404,43 @@ func (h *Host) release(ctx context.Context, key string, e *entry) error {
 	}
 	h.drop(key, e)
 	return nil
+}
+
+// keepGeneration moves a passivated key's closed file into the generation cache if it holds exactly the
+// generation e.man names (guide CA1): known when the file itself was just uploaded, otherwise checked by
+// hashing it (SQLite may have rewritten its header). Not while the host is closing: Close deletes the cache.
+//
+//	pre: the key's write-back on passivation succeeded, so e.man is the published manifest and e is clean
+func (h *Host) keepGeneration(key string, e *entry, uploaded bool) {
+	m := e.man
+	if h.gens == nil || h.closing() || m.Generation == 0 {
+		return
+	}
+	path := h.LocalPath(key)
+	if fi, err := os.Stat(path + "-wal"); err == nil && fi.Size() > 0 {
+		return // not a single-file copy
+	}
+	d := m.Digest()
+	if !h.gens.wants(d) {
+		return // already cached, or over the budget: not worth a hash
+	}
+	if !uploaded { // sha256 only: the cache never uploads, so it needs no md5
+		if fi, err := os.Stat(path); err != nil || fi.Size() != m.Size {
+			return
+		}
+		var err error
+		if d, err = digestFile(path, false); err != nil || d.Size != m.Size || d.SHA256 != m.SHA256 {
+			return
+		}
+	}
+	h.gens.put(path, d)
+}
+
+// closing reports whether Shutdown (or Close) has begun.
+func (h *Host) closing() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.closed
 }
 
 // drop removes e from the map and wakes Gets waiting on its passivation.
@@ -383,14 +454,15 @@ func (h *Host) drop(key string, e *entry) {
 }
 
 // writeBackClosed is passivation's write-back: close, upload if dirty, and on failure put the key back warm.
-func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) error {
+// uploaded reports that the local file itself was uploaded as e.man's generation.
+func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) (uploaded bool, _ error) {
 	e.wb.Lock()
 	defer e.wb.Unlock()
 	if e.db != nil {
 		e.db.Close()
 	}
 	if !e.dirty() {
-		return nil
+		return false, nil
 	}
 	var err error
 	if e.stale.Load() {
@@ -405,14 +477,15 @@ func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) error 
 			err = perr
 		} else {
 			_, err = h.upload(ctx, key, e, path, commits)
+			uploaded = path == h.LocalPath(key)
 			cleanup()
 		}
 	}
 	if err == nil {
-		return nil
+		return uploaded, nil
 	}
 	h.reinstate(key, e)
-	return errs.Wrap(module, err, "passivation of %s cancelled: nothing deleted, the local copy is kept", key).With("local", h.LocalPath(key))
+	return false, errs.Wrap(module, err, "passivation of %s cancelled: nothing deleted, the local copy is kept", key).With("local", h.LocalPath(key))
 }
 
 // closedCopy returns a single-file copy of key's closed database. Normally that is the file itself (SQLite
@@ -449,7 +522,7 @@ func (h *Host) closedCopy(key string) (string, func(), error) {
 func (h *Host) reinstate(key string, e *entry) {
 	n := &entry{done: make(chan struct{})}
 	close(n.done)
-	n.man, n.ver, n.lastGen, n.pending = e.man, e.ver, e.lastGen, e.pending
+	n.man, n.ver, n.lastGen, n.pending, n.published = e.man, e.ver, e.lastGen, e.pending, e.published
 	n.epoch.Store(e.epoch.Load())
 	n.stale.Store(e.stale.Load())
 	n.lastUsed.Store(e.lastUsed.Load())
@@ -596,19 +669,30 @@ func (h *Host) parallel(keys []string, workers int, fn func(string) error) []err
 	return out
 }
 
-// hashFile returns a file's size, sha256 and md5, in one read of the file.
-func hashFile(path string) (durable.Digest, error) {
+// hashFile returns a file's size, sha256 and md5 (an upload's Content-MD5), in one read of the file.
+func hashFile(path string) (durable.Digest, error) { return digestFile(path, true) }
+
+// digestFile returns a file's size and sha256, and its md5 if withMD5, in one read of the file.
+func digestFile(path string, withMD5 bool) (durable.Digest, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return durable.Digest{}, err
 	}
 	defer f.Close()
 	h, m := sha256.New(), md5.New()
-	n, err := io.Copy(io.MultiWriter(h, m), f)
+	w := io.Writer(h)
+	if withMD5 {
+		w = io.MultiWriter(h, m)
+	}
+	n, err := io.Copy(w, f)
 	if err != nil {
 		return durable.Digest{}, err
 	}
-	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MD5: hex.EncodeToString(m.Sum(nil))}, nil
+	d := durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}
+	if withMD5 {
+		d.MD5 = hex.EncodeToString(m.Sum(nil))
+	}
+	return d, nil
 }
 
 // checkedStore asserts the durable.Store postconditions the host relies on (assertion builds only). A broken

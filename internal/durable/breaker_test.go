@@ -43,6 +43,7 @@ func TestIsSystemFailure(t *testing.T) {
 		{durable.ErrNoManifest, false},
 		{durable.ErrNotFound, false},
 		{durable.ErrCorrupt, false},
+		{durable.ErrBadManifest, false},
 		{context.Canceled, true},                                // WithBreaker ignores it only when the caller's ctx ended
 		{fmt.Errorf("get: %w", context.DeadlineExceeded), true}, // a store timeout
 		{durabletest.ErrInjected, true},

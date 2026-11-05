@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -287,12 +290,163 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 		}
 	})
 
+	t.Run("delete generations: the named ones go, the rest stay, a missing one is fine", func(t *testing.T) {
+		s := newStore(t)
+		const key = "suite/del"
+		g1, g2, g3 := put(t, s, key, 1, []byte("g1")), put(t, s, key, 2, []byte("g2")), put(t, s, key, 3, []byte("g3"))
+		v := publish(t, s, g3, durable.NoVersion)
+		if err := s.DeleteGenerations(ctx, key, []string{g1.Object, g2.Object, durable.GenObject(key, 9, 1)}); err != nil {
+			t.Fatalf("DeleteGenerations: %v", err)
+		}
+		for _, o := range []string{g1.Object, g2.Object} {
+			if _, err := s.StatGeneration(ctx, o); !errors.Is(err, durable.ErrNotFound) {
+				t.Fatalf("%s after delete: %v, want ErrNotFound", o, err)
+			}
+		}
+		if _, err := s.StatGeneration(ctx, g3.Object); err != nil {
+			t.Fatalf("an object not named was deleted: %v", err)
+		}
+		if got, gv, err := s.ReadManifest(ctx, key); err != nil || gv != v || !got.Same(g3) {
+			t.Fatalf("delete touched the manifest: %+v %q %v", got, gv, err)
+		}
+		if err := s.DeleteGenerations(ctx, key, nil); err != nil {
+			t.Fatalf("empty delete: %v", err)
+		}
+	})
+
+	t.Run("delete refuses any name that is not one of the key's generations, and deletes nothing", func(t *testing.T) {
+		s := newStore(t)
+		const key = "suite/del2"
+		g1 := put(t, s, key, 1, []byte("g1"))
+		other := put(t, s, "suite/del2/gen", 1, []byte("o1")) // a key whose name nests: another database
+		publish(t, s, g1, durable.NoVersion)
+		for _, bad := range []string{durable.ManifestObject(key), other.Object, durable.GenPrefix(key) + "x.db", durable.KeyPrefix(key)} {
+			if err := s.DeleteGenerations(ctx, key, []string{g1.Object, bad}); err == nil {
+				t.Fatalf("DeleteGenerations(%q) succeeded", bad)
+			}
+		}
+		for _, o := range []string{g1.Object, other.Object} {
+			if _, err := s.StatGeneration(ctx, o); err != nil {
+				t.Fatalf("a refused delete removed %s: %v", o, err)
+			}
+		}
+		if _, _, err := s.ReadManifest(ctx, key); err != nil {
+			t.Fatalf("a refused delete removed the manifest: %v", err)
+		}
+	})
+
 	t.Run("cancelled context fails", func(t *testing.T) {
 		s := newStore(t)
 		c, cancel := context.WithCancel(ctx)
 		cancel()
 		if _, _, err := s.ReadManifest(c, "suite/x"); err == nil || errors.Is(err, durable.ErrNoManifest) {
 			t.Fatalf("ReadManifest with a cancelled context: %v", err)
+		}
+	})
+}
+
+// NewGCStoreFunc returns an empty GCStore under test (a fresh namespace per call).
+type NewGCStoreFunc func(t *testing.T) durable.GCStore
+
+// RunGCStoreSuite checks the inventory contract (durable.Lister) and one sweep end to end. Run it against
+// every GCStore, fake and real.
+func RunGCStoreSuite(t *testing.T, newStore NewGCStoreFunc) {
+	ctx := context.Background()
+	put := func(t *testing.T, s durable.Store, key string, gen uint64, data []byte) durable.Manifest {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "snap.db")
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m := durable.NextManifest(key, gen, 1, DigestOf(data), time.Now())
+		if err := s.PutGeneration(ctx, m, p); err != nil {
+			t.Fatalf("PutGeneration(%s): %v", m.Object, err)
+		}
+		return m
+	}
+
+	t.Run("list a key: manifest version and time, generations sorted, nested keys apart", func(t *testing.T) {
+		s := newStore(t)
+		const key = "suite/ls"
+		if l, err := s.ListKey(ctx, key); err != nil || l.Manifest != nil || len(l.Generations) != 0 {
+			t.Fatalf("ListKey of an empty key = %+v, %v", l, err)
+		}
+		g2, g1 := put(t, s, key, 2, []byte("two")), put(t, s, key, 1, []byte("1"))
+		put(t, s, key+"/gen", 1, []byte("nested")) // another database whose name nests
+		v, err := s.PublishManifest(ctx, g2, durable.NoVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, err := s.ListKey(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Manifest == nil || l.Manifest.Name != durable.ManifestObject(key) || l.Manifest.Version != v || l.Manifest.Modified.IsZero() {
+			t.Fatalf("listed manifest %+v, want version %q", l.Manifest, v)
+		}
+		if len(l.Generations) != 2 || l.Generations[0].Name != g1.Object || l.Generations[1].Name != g2.Object ||
+			l.Generations[0].Size != 1 || l.Generations[1].Size != 3 || l.Generations[0].Modified.IsZero() {
+			t.Fatalf("listed generations %+v", l.Generations)
+		}
+	})
+
+	t.Run("list a shard's keys in name order; an error from fn stops it", func(t *testing.T) {
+		s := newStore(t)
+		want := map[string][]string{}
+		for i := range 6 {
+			k := fmt.Sprintf("suite/keys/%d", i)
+			put(t, s, k, 1, []byte{byte(i)})
+			sh := durable.KeyPrefix(k)[4:6]
+			want[sh] = append(want[sh], k)
+		}
+		for sh, keys := range want {
+			slices.SortFunc(keys, func(a, b string) int { return strings.Compare(durable.KeyPrefix(a), durable.KeyPrefix(b)) })
+			var got []string
+			if err := s.ListKeys(ctx, sh, func(k string) error { got = append(got, k); return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, keys) {
+				t.Fatalf("shard %s: keys %q, want %q", sh, got, keys)
+			}
+			stop := errors.New("stop")
+			n := 0
+			if err := s.ListKeys(ctx, sh, func(string) error { n++; return stop }); !errors.Is(err, stop) || n != 1 {
+				t.Fatalf("fn error: err %v after %d calls", err, n)
+			}
+		}
+	})
+
+	t.Run("sweep keeps the current and K below it, deletes older ones and old orphans", func(t *testing.T) {
+		s := newStore(t)
+		const key = "suite/sweep"
+		var gens []durable.Manifest
+		for g := uint64(1); g <= 6; g++ {
+			gens = append(gens, put(t, s, key, g, []byte{byte(g)}))
+		}
+		// LastModified has 1 s resolution on some stores: publish strictly later.
+		time.Sleep(1100 * time.Millisecond)
+		if _, err := s.PublishManifest(ctx, gens[4], durable.NoVersion); err != nil { // 5 is current; 6 an orphan
+			t.Fatal(err)
+		}
+		p := durable.GCPolicy{Keep: 2, Grace: time.Nanosecond}
+		later := time.Now().Add(time.Hour)
+		dry, err := durable.Sweep(ctx, s, key, later, p, true)
+		want := []string{gens[0].Object, gens[1].Object, gens[5].Object}
+		if err != nil || !slices.Equal(dry.Deleted, want) || dry.Objects != 6 || dry.DeletedBytes != 3 {
+			t.Fatalf("dry run = %+v, %v; want to delete %q", dry, err, want)
+		}
+		if l, _ := s.ListKey(ctx, key); len(l.Generations) != 6 {
+			t.Fatalf("a dry run deleted: %d left", len(l.Generations))
+		}
+		if r, err := durable.Sweep(ctx, s, key, later, p, false); err != nil || !slices.Equal(r.Deleted, want) {
+			t.Fatalf("Sweep = %+v, %v", r, err)
+		}
+		l, err := s.ListKey(ctx, key)
+		if err != nil || len(l.Generations) != 3 || l.Generations[0].Name != gens[2].Object || l.Generations[2].Name != gens[4].Object {
+			t.Fatalf("after the sweep: %+v, %v", l.Generations, err)
+		}
+		if r, err := durable.Sweep(ctx, s, key, time.Now(), durable.GCPolicy{Keep: 2}, false); err != nil || len(r.Deleted) != 0 {
+			t.Fatalf("a sweep inside the default grace window deleted %q (%v)", r.Deleted, err)
 		}
 	})
 }

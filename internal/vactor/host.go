@@ -28,10 +28,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,6 +66,16 @@ var (
 //	post: a missing object gives an error matching errors.Is(err, ErrNotFound)
 type Fetcher interface {
 	Fetch(ctx context.Context, key, path string) (Fetched, error)
+}
+
+// Sizer is an optional extension of a Fetcher: it says how large object key is before the fetch (one HEAD).
+// With it, plain mode bounds fetches by bytes as well as by count (Options.MaxFetchBytes) and grows the
+// activation deadline by size/MinThroughput, exactly as durable mode does with the manifest's size. Without
+// it a plain fetch counts 0 bytes, and only MaxFetches bounds how many large transfers share the link.
+//
+//	post: a missing object gives an error matching errors.Is(err, ErrNotFound)
+type Sizer interface {
+	Size(ctx context.Context, key string) (int64, error)
 }
 
 // Fetched describes one download.
@@ -120,8 +130,14 @@ type Options struct {
 	// MinThroughput (bytes/s) is the slowest fetch rate the activation deadline allows for. Default 32 MiB/s.
 	MinThroughput int64
 	// MaxFetches and MaxFetchBytes bound fetches in flight, by count and by bytes (the bytes are known in
-	// durable mode only; a plain Fetch counts 0 bytes). One fetch larger than MaxFetchBytes runs alone.
-	// Defaults 16 and 1 GiB: the measured coldload knee (Release It B2).
+	// durable mode, and in plain mode when the Fetcher is a Sizer; otherwise a plain Fetch counts 0 bytes).
+	// One fetch larger than MaxFetchBytes runs alone. Defaults 16 and 1 GiB: the measured coldload knee
+	// (Release It B2).
+	//
+	// The byte bound is what keeps the bulkhead consistent with a store's per-transfer deadline (objstore:
+	// OpTimeout + size/MinThroughput): the fetches in flight share the link, so each must still finish in
+	// time when MaxFetchBytes moves at the link's rate. At ~260 MB/s, 1 GiB in flight takes ~4.1 s, inside
+	// the 5 s OpTimeout alone; 16 × 128 MiB counted as 0 bytes did not (knowledge/coldload RI-02 note).
 	MaxFetches    int
 	MaxFetchBytes int64
 	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
@@ -134,8 +150,14 @@ type Options struct {
 	FailBackoff    time.Duration
 	MaxFailBackoff time.Duration
 
-	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
+	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal: a kept
+	// copy may be older than the manifest; use GenCacheBytes.
 	Store durable.Store
+	// GenCacheBytes turns on the local generation cache in durable mode (object-storage guide CA1, plan
+	// OS-10): a clean passivation keeps the database file as <CacheDir>/gen/<sha256>.db, and an activation
+	// whose manifest names that exact sha256 and size moves it back instead of downloading (1 GET in all).
+	// The cache holds at most this many bytes, least recently cached evicted first. 0: off.
+	GenCacheBytes int64
 	// CreateMissing: activating a key with no manifest starts an empty database (first write-back creates
 	// the manifest). Otherwise such a Get fails with ErrNotFound.
 	CreateMissing bool
@@ -144,6 +166,10 @@ type Options struct {
 	// WriteBackTimeout bounds each write-back that has no caller context (PassivateAll, Close) and each job of
 	// a maintenance tick. Default 5 min.
 	WriteBackTimeout time.Duration
+	// GC is owner-side retention (object-storage guide GC1, GC2): after each publish the host deletes the
+	// generations it published more than GC.Keep publishes ago (default 2; negative: keep none but the
+	// current). GC.Grace is unused here: it is the orphan sweeper's (durable.Sweep). Durable mode only.
+	GC durable.GCPolicy
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
 	// Now is the clock (tests). Default time.Now.
@@ -191,6 +217,11 @@ type Stats struct {
 	BytesUploaded     int64
 	// LastWriteBackOK is when a write-back last published (the gauge last_writeback_ok); zero if none yet.
 	LastWriteBackOK time.Time
+
+	// GenerationsDeleted counts generations deleted by owner-side retention (guide GC2, GC5);
+	// RetentionFailures counts failed retention deletes (those objects are left to the orphan sweeper).
+	GenerationsDeleted int64
+	RetentionFailures  int64
 }
 
 type entry struct {
@@ -208,12 +239,14 @@ type entry struct {
 // Host owns the active databases. Safe for concurrent use.
 type Host struct {
 	fetch  Fetcher
+	size   Sizer // fetch's Sizer, if it is one (plain mode)
 	open   Opener
 	opts   Options
 	ctx    context.Context // cancelled by Close: stops fetches and queries in flight
 	cancel context.CancelFunc
 
 	gate *fetchGate // fetch bulkhead
+	gens *genCache  // local generation cache; nil when off
 
 	mu      sync.Mutex
 	entries map[string]*entry
@@ -225,6 +258,7 @@ type Host struct {
 	activations, failures, fetches, localHits    atomic.Int64
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
+	generationsDeleted, retentionFailures        atomic.Int64
 }
 
 // NewHost creates a host with an empty cache directory.
@@ -236,7 +270,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	case f == nil && opts.Store == nil:
 		return nil, errs.Wrap(module, nil, "cannot create host: neither a Fetcher nor a durable Store given")
 	case opts.Store != nil && opts.KeepLocal:
-		return nil, errs.Wrap(module, nil, "cannot create host: KeepLocal and a durable Store do not mix (a kept copy may be older than the manifest)")
+		return nil, errs.Wrap(module, nil, "cannot create host: KeepLocal and a durable Store do not mix (a kept copy may be older than the manifest); use GenCacheBytes")
 	}
 	if err := opts.Policy.Validate(); err != nil {
 		return nil, errs.Wrap(module, err, "cannot create host")
@@ -247,6 +281,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.Workers <= 0 {
 		opts.Workers = 8
 	}
+	opts.GC = opts.GC.Normalize()
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -286,6 +321,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	case opts.MaxFetchQueue < 0:
 		opts.MaxFetchQueue = 0
 	}
+	size, _ := f.(Sizer)
 	if assert.Enabled {
 		if f != nil {
 			f = checkedFetcher{f}
@@ -298,17 +334,23 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if err := backoff.Normalize(); err != nil {
 		return nil, errs.Wrap(module, err, "cannot create host: invalid failure backoff")
 	}
+	var gens *genCache
+	if opts.Store != nil && opts.GenCacheBytes > 0 {
+		var err error
+		if gens, err = newGenCache(filepath.Join(opts.CacheDir, "gen"), opts.GenCacheBytes); err != nil {
+			return nil, errs.Wrap(module, err, "cannot create the generation cache in %s", opts.CacheDir)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+	return &Host{fetch: f, size: size, gens: gens, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
 		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
-var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
-
-// LocalPath is where key's local copy lives.
+// LocalPath is where key's local copy lives: <CacheDir>/<escaped key>.db. The escaping is one-to-one and the
+// name always ends in ".db", so no key's file is another key's side file (-wal, .snap) or the gen/ cache.
 func (h *Host) LocalPath(key string) string {
-	return filepath.Join(h.opts.CacheDir, keyToFile.Replace(key))
+	return filepath.Join(h.opts.CacheDir, url.PathEscape(key)+".db")
 }
 
 // Get is GetAt with epoch 0 (no fencing).
@@ -468,16 +510,29 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 			cancel()
 			ctx, cancel = h.activationCtx(start, m.Size)
 		}
-		if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
+		if m.Generation > 0 && h.gens != nil && h.gens.take(m.Digest(), path) {
+			act.LocalHit, act.Bytes = true, m.Size
+			h.localHits.Add(1)
+		} else if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
 			return nil, err
 		}
 	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
-	} else if err := h.gatedFetch(ctx, key, 0, e, func(ctx context.Context) (Fetched, error) {
-		return h.fetch.Fetch(ctx, key, path)
-	}); err != nil {
-		return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
+	} else {
+		var n int64 // 0: unknown
+		if h.size != nil {
+			if n, err = h.size.Size(ctx, key); err != nil {
+				return nil, errs.Wrap(module, err, "cannot activate %s: size lookup failed; nothing cached, safe to retry", key)
+			}
+			cancel()
+			ctx, cancel = h.activationCtx(start, n)
+		}
+		if err := h.gatedFetch(ctx, key, n, e, func(ctx context.Context) (Fetched, error) {
+			return h.fetch.Fetch(ctx, key, path)
+		}); err != nil {
+			return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
+		}
 	}
 
 	t := time.Now()
@@ -630,6 +685,9 @@ func (h *Host) Stats() Stats {
 		WriteBackFailures: h.writeBackFailures.Load(),
 		BytesUploaded:     h.bytesUploaded.Load(),
 		LastWriteBackOK:   unixNano(h.lastWriteBackOK.Load()),
+
+		GenerationsDeleted: h.generationsDeleted.Load(),
+		RetentionFailures:  h.retentionFailures.Load(),
 	}
 }
 

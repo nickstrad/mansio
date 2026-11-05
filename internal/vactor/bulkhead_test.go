@@ -170,3 +170,60 @@ func TestQueryTimeoutIsNotActivationTimeout(t *testing.T) {
 		t.Fatalf("Get = %v, want the query's DeadlineExceeded and not ErrBusy", err)
 	}
 }
+
+// A plain Fetcher that is a Sizer is bounded by bytes too, like durable mode: with 100-byte objects and
+// MaxFetchBytes 250 (on point: 2 fit, the third would make 300), only 2 of 8 cold keys fetch at once, though
+// MaxFetches would allow 16. This is what keeps many large plain fetches inside objstore's per-transfer
+// deadline (knowledge/coldload 2026-11-05 RI-02 note).
+func TestFetchBulkheadBoundsPlainFetchesByBytesWithSizer(t *testing.T) {
+	const keys = 8
+	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
+	for i := range keys {
+		f.Put(fmt.Sprint(i), make([]byte, 100))
+	}
+	hold := make(chan struct{})
+	f.Hold = hold
+	h, err := vactor.NewHost(vactortest.SizedFetcher{Fetcher: f}, o, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"),
+		MaxFetches: 16, MaxFetchBytes: 250})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	errc := make(chan error, keys)
+	for i := range keys {
+		go func() { _, err := h.Get(ctx, fmt.Sprint(i)); errc <- err }()
+	}
+	vactor.WaitFor(t, func() bool { _, _, q := vactor.FetchGate(h); return q == keys-2 })
+	if n, b, _ := vactor.FetchGate(h); n != 2 || b != 200 {
+		t.Fatalf("in flight: %d fetches, %d bytes; want 2 and 200", n, b)
+	}
+	close(hold)
+	for range keys {
+		if err := <-errc; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, b, q := vactor.FetchGate(h); n != 0 || b != 0 || q != 0 {
+		t.Fatalf("bulkhead not empty after the fetches: %d %d %d", n, b, q)
+	}
+}
+
+// A Sizer's answer sets the activation deadline as the manifest's size does in durable mode, and a missing
+// object fails at the size lookup with ErrNotFound, before any fetch.
+func TestSizerGrowsDeadlineAndReportsMissing(t *testing.T) {
+	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
+	f.Put("a", make([]byte, 1<<10))
+	f.Delay = 80 * time.Millisecond // > ActivationTimeout, < it + 1 KiB at 10 KiB/s
+	h, err := vactor.NewHost(vactortest.SizedFetcher{Fetcher: f}, o, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"),
+		ActivationTimeout: 50 * time.Millisecond, MinThroughput: 10 << 10, FailBackoff: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	if _, err := h.Get(ctx, "a"); err != nil {
+		t.Fatalf("Get within the size-derived deadline: %v", err)
+	}
+	if _, err := h.Get(ctx, "missing"); !errors.Is(err, vactor.ErrNotFound) || f.Calls("missing") != 0 {
+		t.Fatalf("Get(missing) = %v after %d fetches; want ErrNotFound and no fetch", err, f.Calls("missing"))
+	}
+}

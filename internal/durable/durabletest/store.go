@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,8 +37,12 @@ type Faults struct {
 	ApplyThenStale bool
 	// LoseUploadReply: PutGeneration stores the object, then reports ErrInjected (ambiguous outcome).
 	LoseUploadReply bool
+	FailList        bool          // ListKey and ListKeys fail
+	FailDelete      bool          // DeleteGenerations deletes the first half of the names, then fails
 	Delay           time.Duration // every call sleeps this long first (or until ctx ends)
 }
+
+var _ durable.GCStore = (*Store)(nil)
 
 // Store keeps objects and manifests in memory.
 type Store struct {
@@ -44,19 +50,52 @@ type Store struct {
 	objects   map[string][]byte          // object name → bytes
 	meta      map[string]durable.GenInfo // object name → metadata recorded at upload
 	manifests map[string]stored
-	next      uint64 // version counter
+	mod       map[string]time.Time // object name → when it was stored (the store's LastModified)
+	next      uint64               // version counter
 	f         Faults
+	clock     func() time.Time
 
 	puts, publishes, fetches int
 }
 
 type stored struct {
-	m durable.Manifest
-	v durable.Version
+	m   durable.Manifest
+	v   durable.Version
+	mod time.Time
+	bad bool // the stored bytes do not decode (CorruptManifest)
 }
 
 func NewStore() *Store {
-	return &Store{objects: map[string][]byte{}, meta: map[string]durable.GenInfo{}, manifests: map[string]stored{}}
+	return &Store{objects: map[string][]byte{}, meta: map[string]durable.GenInfo{}, manifests: map[string]stored{},
+		mod: map[string]time.Time{}, clock: time.Now}
+}
+
+// SetClock sets the store's own clock, which stamps LastModified on every write (the server's clock in S3).
+func (s *Store) SetClock(now func() time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clock = now
+}
+
+// Names returns the names of the stored generation objects of key, sorted (test inspection).
+func (s *Store) Names(key string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for n := range s.objects {
+		if strings.HasPrefix(n, durable.GenPrefix(key)) {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// SetModified backdates (or postdates) a stored object's LastModified (tests of the grace window).
+func (s *Store) SetModified(name string, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mod[name] = t
 }
 
 // SetFaults replaces the switches.
@@ -95,6 +134,25 @@ func (s *Store) DeleteObject(name string) {
 	defer s.mu.Unlock()
 	delete(s.objects, name)
 	delete(s.meta, name)
+	delete(s.mod, name)
+}
+
+// CorruptManifest makes key's stored manifest undecodable (a new version): ReadManifest then fails with
+// ErrBadManifest, and only a publish conditional on that version replaces it.
+func (s *Store) CorruptManifest(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.manifests[key]
+	s.next++
+	st.v, st.mod, st.bad = durable.Version(strconv.FormatUint(s.next, 10)), s.clock(), true
+	s.manifests[key] = st
+}
+
+// DeleteManifest removes key's manifest (simulates a lost manifest).
+func (s *Store) DeleteManifest(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.manifests, key)
 }
 
 // Corrupt flips one byte of an object (or appends one to an empty object).
@@ -120,7 +178,7 @@ func (s *Store) Bump(key string, epoch uint64) {
 	}
 	st.m.Epoch = epoch
 	s.next++
-	st.v = durable.Version(strconv.FormatUint(s.next, 10))
+	st.v, st.mod = durable.Version(strconv.FormatUint(s.next, 10)), s.clock()
 	s.manifests[key] = st
 }
 
@@ -139,8 +197,9 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 	m := durable.NextManifest(key, gen, epoch, DigestOf(data), time.Now())
 	s.objects[m.Object] = bytes.Clone(data)
 	s.meta[m.Object] = m.ObjectInfo()
+	s.mod[m.Object] = s.clock()
 	s.next++
-	s.manifests[key] = stored{m, durable.Version(strconv.FormatUint(s.next, 10))}
+	s.manifests[key] = stored{m: m, v: durable.Version(strconv.FormatUint(s.next, 10)), mod: s.clock()}
 	return m
 }
 
@@ -182,8 +241,11 @@ func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.manifests[key]
-	if !ok {
+	switch {
+	case !ok:
 		return durable.Manifest{}, durable.NoVersion, fmt.Errorf("read manifest %s: %w", key, durable.ErrNoManifest)
+	case st.bad:
+		return durable.Manifest{}, durable.NoVersion, fmt.Errorf("read manifest %s: %w", key, durable.ErrBadManifest)
 	}
 	return st.m, st.v, nil
 }
@@ -210,6 +272,7 @@ func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path stri
 	}
 	s.objects[m.Object] = data
 	s.meta[m.Object] = m.ObjectInfo()
+	s.mod[m.Object] = s.clock()
 	s.puts++
 	if f.LoseUploadReply {
 		return fmt.Errorf("upload %s: reply lost: %w", m.Object, ErrInjected)
@@ -283,12 +346,12 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 	switch {
 	case st.v != prev:
 		return durable.NoVersion, fmt.Errorf("publish %s: stored version %q, caller read %q: %w", m.Key, st.v, prev, durable.ErrStale)
-	case ok && st.m.Epoch > m.Epoch:
+	case ok && !st.bad && st.m.Epoch > m.Epoch:
 		return durable.NoVersion, fmt.Errorf("publish %s: stored epoch %d > %d: %w", m.Key, st.m.Epoch, m.Epoch, durable.ErrStale)
 	}
 	s.next++
 	v := durable.Version(strconv.FormatUint(s.next, 10))
-	s.manifests[m.Key] = stored{m, v}
+	s.manifests[m.Key] = stored{m: m, v: v, mod: s.clock()}
 	s.publishes++
 	switch {
 	case f.LosePublishReply:
@@ -297,4 +360,80 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 		return durable.NoVersion, fmt.Errorf("publish %s: reply lost, the re-send found version %q: %w", m.Key, v, durable.ErrStale)
 	}
 	return v, nil
+}
+
+func (s *Store) DeleteGenerations(ctx context.Context, key string, names []string) error {
+	f, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	if err := durable.CheckDeletable(key, names); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, n := range names {
+		if f.FailDelete && i >= len(names)/2 {
+			return fmt.Errorf("delete %s: %w", n, ErrInjected)
+		}
+		delete(s.objects, n)
+		delete(s.meta, n)
+		delete(s.mod, n)
+	}
+	return nil
+}
+
+func (s *Store) ListKey(ctx context.Context, key string) (durable.Listing, error) {
+	f, err := s.begin(ctx)
+	if err != nil {
+		return durable.Listing{}, err
+	}
+	if f.FailList {
+		return durable.Listing{}, fmt.Errorf("list %s: %w", key, ErrInjected)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var l durable.Listing
+	if st, ok := s.manifests[key]; ok {
+		l.Manifest = &durable.StoredObject{Name: durable.ManifestObject(key), Size: int64(len(durable.Encode(st.m))), Modified: st.mod, Version: st.v}
+	}
+	for n, b := range s.objects {
+		if strings.HasPrefix(n, durable.GenPrefix(key)) {
+			l.Generations = append(l.Generations, durable.StoredObject{Name: n, Size: int64(len(b)), Modified: s.mod[n]})
+		}
+	}
+	slices.SortFunc(l.Generations, func(a, b durable.StoredObject) int { return strings.Compare(a.Name, b.Name) })
+	return l, nil
+}
+
+func (s *Store) ListKeys(ctx context.Context, shard string, fn func(key string) error) error {
+	f, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	if f.FailList {
+		return fmt.Errorf("list shard %s: %w", shard, ErrInjected)
+	}
+	s.mu.Lock()
+	seen := map[string]bool{}
+	for k := range s.manifests {
+		seen[k] = true
+	}
+	for _, g := range s.meta {
+		seen[g.Key] = true
+	}
+	var keys []string
+	for k := range seen {
+		if strings.HasPrefix(durable.KeyPrefix(k), "dbs/"+shard+"/") {
+			keys = append(keys, k)
+		}
+	}
+	s.mu.Unlock()
+	slices.SortFunc(keys, func(a, b string) int { return strings.Compare(durable.KeyPrefix(a), durable.KeyPrefix(b)) })
+	for _, k := range keys {
+		if err := fn(k); err != nil {
+			return err
+		}
+	}
+	return nil
 }

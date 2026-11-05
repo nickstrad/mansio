@@ -1,5 +1,8 @@
 # 2026-11-05 — design note: WAL shipping on top of generations (not built)
 
+Amended (OS-13): [WAL-shipping amendments](2026-11-05-wal-shipping-amendments.md) win where they disagree
+(epoch-qualified segment names, header/footer, no foreign-epoch adoption, HEAD probe instead of LIST, GC).
+
 Author: writeback agent. Status: design only; out of scope for code in this workstream. Nothing here is
 measured.
 

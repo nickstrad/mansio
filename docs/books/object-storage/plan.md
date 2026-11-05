@@ -308,7 +308,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
     - `Validate` rejects an object whose name carries an epoch greater than the manifest's. The rule is
       `objEpoch <= m.Epoch`, because a Stamp raises the manifest's epoch without renaming the object.
 
-### OS-06: Generation GC (fixes G1)
+### OS-06: Generation GC (fixes G1) — **Done** (092ac13; sweeper runs as `dbtool gc`; "bucket bytes flat" is `TestBucketBytesFlatThroughS3` on SeaweedFS, not a 10-minute wbbench run)
 
 - **Goal:** storage per database is bounded by about (K+1) × its size, plus orphans younger than the
   grace window. The guide's GC rules GC1–GC6 are enforced in code.
@@ -374,7 +374,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - A unit test checks the counts across a scripted write-back on the fake.
   - A wbbench run shows 4 requests per write-back, matching G7. The note goes to `knowledge/writeback/`.
 
-### OS-09: Drop the redundant manifest pre-read (G7, optional)
+### OS-09: Drop the redundant manifest pre-read (G7, optional) — **Skipped**: the pre-read is 1 GET of 5 requests per write-back (~5% of its AWS request cost: GET $0.0004/1k vs PUT $0.005/1k) and a few ms next to a whole-file upload; it keeps the stored-epoch check as defence in depth and is what lets an operator replace an unreadable manifest (OS-12)
 
 - **Goal:** a write-back makes 3 requests instead of 4, and a Stamp makes 2 instead of 3.
 - **Change:**
@@ -387,7 +387,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
 - **Acceptance:** all suites and fuzzers pass, and the OS-08 counts drop by one per publish.
 - **Do it only if** OS-08 shows publish requests matter. Otherwise the defense in depth is worth one GET.
 
-### OS-10: Local generation cache (fixes G6)
+### OS-10: Local generation cache (fixes G6) — **Done** (9c79330; `Options.GenCacheBytes`, off by default; 256 MiB re-warm ~1 s → 1–4 ms on SeaweedFS)
 
 - **Goal:** a re-warm of an idle database whose manifest has not moved costs 1 GET and no download.
 - **Files:**
@@ -419,7 +419,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - OS-03 includes a check that the `agent` identity cannot LIST.
   - An agentd config test covers the TLS refusal.
 
-### OS-12: Storage recovery tool and runbook (fixes G9)
+### OS-12: Storage recovery tool and runbook (fixes G9) — **Done** (8dc01c5; runbook `knowledge/writeback/2026-11-05-storage-runbook.md`)
 
 - **Change:** add `cmd/dbtool` with these subcommands:
   - `inspect <key>`: shows the manifest, the generations with their metadata, and orphans.
@@ -431,7 +431,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
 - **Acceptance:** an integration test against the fake and SeaweedFS: corrupt a generation and see
   `verify` fail; delete the manifest, rebuild it, and activate.
 
-### OS-13: WAL-shipping amendments (fixes G10, docs only)
+### OS-13: WAL-shipping amendments (fixes G10, docs only) — **Done** (7861533; `knowledge/writeback/2026-11-05-wal-shipping-amendments.md`)
 
 - Amend the WAL note before any code is written:
   - Segment key: `gen/<G>-e<E>/wal/<seq 20d>-e<E>.wal`. Segments are create-only.
