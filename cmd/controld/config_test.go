@@ -139,3 +139,15 @@ func TestCommandUsage(t *testing.T) {
 		t.Fatalf("no config: %d", code)
 	}
 }
+
+func TestShippedConfigsParse(t *testing.T) {
+	paths, _ := filepath.Glob("../../configs/controld/*.json")
+	if len(paths) == 0 {
+		t.Fatal("no shipped configs")
+	}
+	for _, p := range paths {
+		if _, err := loadConfig(p); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+}
