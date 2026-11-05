@@ -23,6 +23,9 @@ import (
 const (
 	opTimeout    = 300 * time.Millisecond
 	stallTimeout = 200 * time.Millisecond
+	// loadSlack bounds "did not hang" checks. Under go test -race ./... with other agents' builds the
+	// scheduler can lose a second; the precise claims are made by lower bounds and attempt counts instead.
+	loadSlack = 3 * time.Second
 )
 
 type rig struct {
@@ -343,8 +346,12 @@ func TestSilentPeerFailsAtTheOpTimeout(t *testing.T) {
 		if _, _, err := d.ReadManifest(context.Background(), "k"); err != nil {
 			t.Fatalf("%v: %v", f.Kind, err)
 		}
-		if el := time.Since(t0); el < opTimeout || el > opTimeout+time.Second {
+		if el := time.Since(t0); el < opTimeout || el > opTimeout+loadSlack {
 			t.Fatalf("%v: read took %v, want one op timeout (%v) plus a backoff", f.Kind, el, opTimeout)
+		}
+		// Exactly one timed-out attempt, then one that succeeded: what the elapsed time used to show.
+		if got := d.RequestCounts()[objstore.OpGetManifest]; got != 2 {
+			t.Fatalf("%v: %d attempts, want 2 (one timeout, one retry)", f.Kind, got)
 		}
 	}
 }
@@ -360,7 +367,7 @@ func TestHalfOpenPooledConnectionIsRecycled(t *testing.T) {
 	if _, _, err := r.d.ReadManifest(context.Background(), "k"); err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(t0); d > opTimeout+time.Second {
+	if d := time.Since(t0); d > opTimeout+loadSlack {
 		t.Fatalf("read took %v", d)
 	}
 }
@@ -375,7 +382,7 @@ func TestSilentPutIsSentOnceAndFailsAtTheDeadline(t *testing.T) {
 	t0 := time.Now()
 	err := d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, durabletest.DigestOf([]byte("x")), time.Now()), path)
 	wantKind(t, err, objstore.Transient)
-	if el := time.Since(t0); el < opTimeout || el > opTimeout+500*time.Millisecond {
+	if el := time.Since(t0); el < opTimeout || el > opTimeout+loadSlack {
 		t.Fatalf("PUT failed after %v, want ≈ %v: %v", el, opTimeout, err)
 	}
 	if n := r.proxy.Accepted() - before; n != 1 {
