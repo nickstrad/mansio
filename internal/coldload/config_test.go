@@ -65,6 +65,8 @@ func TestNormalizeRejects(t *testing.T) {
 		{"class concurrency 0", func(c *coldload.Config) { c.Sizes[0].Concurrency = []int{0} }, "concurrency"},
 		{"duplicate class names", func(c *coldload.Config) { c.Sizes = append(c.Sizes, c.Sizes[0]) }, "duplicate name"},
 		{"negative per_level", func(c *coldload.Config) { c.PerLevel = -1 }, "must not be negative"},
+		{"negative max_fetches", func(c *coldload.Config) { c.MaxFetches = -1 }, "must not be negative"},
+		{"negative max_fetch_queue", func(c *coldload.Config) { c.MaxFetchQueue = -1 }, "must not be negative"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,8 +101,9 @@ func TestNormalizeDefaults(t *testing.T) {
 		t.Fatalf("class override lost: %v", s1.Concurrency)
 	case c.S3.Endpoint != "localhost:8333" || c.S3.Bucket != "coldload" || c.Prefix != "dbs":
 		t.Fatalf("S3 defaults: %+v prefix %q", c.S3, c.Prefix)
-	case c.PerLevel != 100 || c.QueryTimeout.Duration != 10*time.Minute || c.UploadWorkers != 16:
-		t.Fatalf("numeric defaults: %d %v %d", c.PerLevel, c.QueryTimeout, c.UploadWorkers)
+	case c.PerLevel != 100 || c.QueryTimeout.Duration != 10*time.Minute || c.UploadWorkers != 16 ||
+		c.ActivationTimeout.Duration != 10*time.Minute || c.MaxFetches != 0 || c.MaxFetchQueue != 0:
+		t.Fatalf("numeric defaults: %d %v %d %v %d %d", c.PerLevel, c.QueryTimeout, c.UploadWorkers, c.ActivationTimeout, c.MaxFetches, c.MaxFetchQueue)
 	case c.OutDir != "results/coldload/t" || c.CacheDir != "results/coldload/t/cache":
 		t.Fatalf("dirs: %q %q", c.OutDir, c.CacheDir)
 	}

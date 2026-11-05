@@ -36,7 +36,8 @@ func FuzzHostModel(f *testing.F) {
 		for _, k := range keys {
 			fetcher.Put(k, []byte(k))
 		}
-		h, err := vactor.NewHost(fetcher, opener, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), KeepLocal: keep})
+		h, err := vactor.NewHost(fetcher, opener, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), KeepLocal: keep,
+			FailBackoff: -1}) // tombstones are tested on their own (TestFailedActivationIsNotCachedAndIsRetried)
 		if err != nil {
 			t.Fatal(err)
 		}

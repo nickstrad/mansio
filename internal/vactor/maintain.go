@@ -2,7 +2,9 @@ package vactor
 
 import (
 	"context"
+	"errors"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -15,15 +17,29 @@ type TickReport struct {
 	Plan      Plan
 	WroteBack []WriteBackResult
 	Errors    map[string]error
+	// TimedOut lists the keys (sorted) whose job hit its own deadline (Options.WriteBackTimeout); they are in
+	// Errors too.
+	TimedOut []string
+	// OldestDirtyAge is the steady-state gauge oldest_dirty_age (Release It S3): how long the dirty database
+	// with the oldest last write-back (or activation) has gone unpublished, at the start of the tick. It
+	// bounds the writes a crash would lose (RPO). 0 when nothing is dirty.
+	OldestDirtyAge time.Duration
+	// Took is the tick's duration; Missed counts the intervals RunMaintenance skipped while it ran (ticks
+	// never overlap: a slow tick is reported, not stacked). Missed is 0 from a direct Tick.
+	Took   time.Duration
+	Missed int
 }
 
 // Tick runs one maintenance round: it plans with PlanTick over the warm databases, then carries the plan out,
-// at most Options.Workers at a time. Passivations write back first. ctx bounds every write-back.
+// at most Options.Workers at a time. Passivations write back first. Each job runs under its own deadline,
+// Options.WriteBackTimeout, derived from ctx: one hung write-back cannot hold the tick, only its worker for
+// that long (Release It T2, S2).
 //
 //	post: err != nil only if the host is closed
 //	post: every planned key is either done or in r.Errors
 func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 	now := h.opts.Now()
+	h.pruneTombs(now)
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -62,7 +78,8 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		}
 		cands[i] = c
 	}
-	r := TickReport{Plan: PlanTick(now, cands, h.opts.Policy), Errors: map[string]error{}}
+	r := TickReport{Plan: PlanTick(now, cands, h.opts.Policy), Errors: map[string]error{}, OldestDirtyAge: oldestDirtyAge(now, cands)}
+	t0 := time.Now()
 
 	var jobs []string
 	passivate := map[string]bool{}
@@ -76,6 +93,8 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		epochs[keys[i]] = e.epoch.Load()
 	}
 	h.parallel(jobs, h.opts.Workers, func(k string) error {
+		ctx, cancel := context.WithTimeout(ctx, h.opts.WriteBackTimeout)
+		defer cancel()
 		do := func(ctx context.Context) error {
 			if passivate[k] {
 				return h.Passivate(ctx, k)
@@ -97,15 +116,33 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		if err != nil {
 			mu.Lock()
 			r.Errors[k] = err
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				r.TimedOut = append(r.TimedOut, k)
+			}
 			mu.Unlock()
 		}
 		return nil
 	})
+	slices.Sort(r.TimedOut)
+	r.Took = time.Since(t0)
 	return r, nil
 }
 
+// oldestDirtyAge is the age of the oldest unpublished state among cands.
+func oldestDirtyAge(now time.Time, cands []Candidate) time.Duration {
+	var age time.Duration
+	for _, c := range cands {
+		if c.Dirty {
+			age = max(age, now.Sub(c.LastWriteBack))
+		}
+	}
+	return age
+}
+
 // RunMaintenance calls Tick every interval until ctx ends or the host closes, passing each report to report
-// (on this goroutine). The caller owns the goroutine it runs on; cancel ctx to stop it.
+// (on this goroutine). Ticks never overlap: the next interval starts when a tick ends, and a tick that ran
+// past its interval reports the intervals it missed (TickReport.Missed). The caller owns the goroutine it
+// runs on; cancel ctx to stop it.
 //
 //	pre:  every > 0
 //	post: returns a wrapped ctx.Err() or ErrClosed
@@ -125,6 +162,8 @@ func (h *Host) RunMaintenance(ctx context.Context, every time.Duration, report f
 		if err != nil {
 			return err
 		}
+		r.Missed = int(r.Took / every)
+		t.Reset(every) // a full interval after a slow tick, not a burst of queued ones
 		if report != nil {
 			report(r)
 		}

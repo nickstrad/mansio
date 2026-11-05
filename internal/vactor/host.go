@@ -9,9 +9,15 @@
 //
 // Get(key) returns the key's open database. If it is not active, the first caller starts an activation:
 // fetch the object to a local file, open it, run the first query, then optional warm-up queries. Callers
-// that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, so a
-// later Get tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
+// that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, but the
+// key keeps a short, jittered tombstone (Options.FailBackoff, doubling per failure in a row up to
+// MaxFailBackoff): until it ends, Gets fail fast with the same cause instead of hitting storage again
+// (Release It R6); the first Get after it tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
 // key is passivating waits for it to finish, then activates afresh.
+//
+// Every activation has a deadline (Options.ActivationTimeout, grown by size/MinThroughput once the size is
+// known) and goes through a fetch bulkhead (Options.MaxFetches, MaxFetchBytes, MaxFetchQueue): a full queue
+// sheds with ErrBusy instead of waiting (Release It T1, B1, B2).
 //
 // The host reaches storage and SQLite only through two ports, Fetcher and Opener, so it can be tested with
 // fakes (see vactortest). It owns its cache directory: NewHost empties it and Close removes it.
@@ -21,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -30,8 +37,10 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/retry"
 )
 
 const module = "vactor"
@@ -41,6 +50,13 @@ var (
 	ErrClosed = errors.New("vactor: host closed")
 	// ErrNotFound is what a Fetcher returns (wrapped) when the object does not exist.
 	ErrNotFound = errors.New("vactor: object not found")
+	// ErrBusy: the host cannot take this activation now. Either the fetch queue is full (Options.MaxFetchQueue;
+	// Get fails at once), or the activation did not finish within its deadline (Options.ActivationTimeout).
+	// Nothing was cached; retry later. agentd answers it 503 unavailable (Release It B1, F2).
+	ErrBusy = errors.New("vactor: busy")
+
+	errShed              = fmt.Errorf("%w: the fetch queue is full", ErrBusy)    // shed: nothing attempted, no tombstone
+	errActivationTimeout = fmt.Errorf("%w: activation deadline passed", ErrBusy) // the activation ctx's own cause
 )
 
 // Fetcher downloads the object key to the local file path.
@@ -93,8 +109,30 @@ type Options struct {
 	WarmQueries []string
 	// KeepLocal keeps the local file on passivation; the next activation then skips the fetch (local hit).
 	KeepLocal bool
-	// QueryTimeout bounds each first/warm query. Default 5 min.
+	// QueryTimeout bounds each first/warm query (within the activation's own deadline). Default 5 min.
 	QueryTimeout time.Duration
+
+	// ActivationTimeout bounds one activation as a whole: manifest read, the wait for a fetch slot, the fetch,
+	// open, first and warm queries. Once the manifest gives the generation's size, the bound grows by
+	// size/MinThroughput, so a large database is not cut off for being large. An activation that hits it fails
+	// with ErrBusy (Release It T1). Default 30 s.
+	ActivationTimeout time.Duration
+	// MinThroughput (bytes/s) is the slowest fetch rate the activation deadline allows for. Default 32 MiB/s.
+	MinThroughput int64
+	// MaxFetches and MaxFetchBytes bound fetches in flight, by count and by bytes (the bytes are known in
+	// durable mode only; a plain Fetch counts 0 bytes). One fetch larger than MaxFetchBytes runs alone.
+	// Defaults 16 and 1 GiB: the measured coldload knee (Release It B2).
+	MaxFetches    int
+	MaxFetchBytes int64
+	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
+	// ErrBusy instead of queueing (Release It B1). Default 256; negative: no queue.
+	MaxFetchQueue int
+	// FailBackoff is how long a key fails fast after a failed activation; it doubles with each failure in a
+	// row up to MaxFailBackoff, jittered to [d/2, d]. Not after shedding (ErrBusy without a timeout), an open
+	// breaker, a stale epoch or Close: those are not the key's failures. Defaults 100 ms and 5 s; a negative
+	// FailBackoff turns tombstones off.
+	FailBackoff    time.Duration
+	MaxFailBackoff time.Duration
 
 	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
 	Store durable.Store
@@ -103,7 +141,8 @@ type Options struct {
 	CreateMissing bool
 	// Policy drives Tick / RunMaintenance: periodic write-back and eviction.
 	Policy Policy
-	// WriteBackTimeout bounds each write-back that has no caller context: PassivateAll, Close. Default 5 min.
+	// WriteBackTimeout bounds each write-back that has no caller context (PassivateAll, Close) and each job of
+	// a maintenance tick. Default 5 min.
 	WriteBackTimeout time.Duration
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
@@ -150,6 +189,8 @@ type Stats struct {
 	WriteBacks        int64 // generations published
 	WriteBackFailures int64
 	BytesUploaded     int64
+	// LastWriteBackOK is when a write-back last published (the gauge last_writeback_ok); zero if none yet.
+	LastWriteBackOK time.Time
 }
 
 type entry struct {
@@ -172,12 +213,18 @@ type Host struct {
 	ctx    context.Context // cancelled by Close: stops fetches and queries in flight
 	cancel context.CancelFunc
 
+	gate *fetchGate // fetch bulkhead
+
 	mu      sync.Mutex
 	entries map[string]*entry
+	tombs   map[string]tomb // keys whose last activation failed: fail fast until tomb.until
+	backoff retry.Policy    // the tombstones' backoff: FailBackoff doubling to MaxFailBackoff, equal jitter
+	rng     *rand.Rand      // jitter for backoff; guarded by mu
 	closed  bool
 
 	activations, failures, fetches, localHits    atomic.Int64
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
+	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
 }
 
 // NewHost creates a host with an empty cache directory.
@@ -215,6 +262,30 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.QueryTimeout <= 0 {
 		opts.QueryTimeout = 5 * time.Minute
 	}
+	if opts.ActivationTimeout <= 0 {
+		opts.ActivationTimeout = 30 * time.Second
+	}
+	if opts.MinThroughput <= 0 {
+		opts.MinThroughput = 32 << 20
+	}
+	if opts.MaxFetches <= 0 {
+		opts.MaxFetches = 16
+	}
+	if opts.MaxFetchBytes <= 0 {
+		opts.MaxFetchBytes = 1 << 30
+	}
+	if opts.FailBackoff == 0 {
+		opts.FailBackoff = 100 * time.Millisecond
+	}
+	if opts.MaxFailBackoff <= 0 {
+		opts.MaxFailBackoff = 5 * time.Second
+	}
+	switch {
+	case opts.MaxFetchQueue == 0:
+		opts.MaxFetchQueue = 256
+	case opts.MaxFetchQueue < 0:
+		opts.MaxFetchQueue = 0
+	}
 	if assert.Enabled {
 		if f != nil {
 			f = checkedFetcher{f}
@@ -223,8 +294,14 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 			opts.Store = checkedStore{opts.Store}
 		}
 	}
+	backoff := retry.Policy{Backoff: retry.Exponential, Base: max(opts.FailBackoff, 1), Max: opts.MaxFailBackoff, Jitter: retry.Equal}
+	if err := backoff.Normalize(); err != nil {
+		return nil, errs.Wrap(module, err, "cannot create host: invalid failure backoff")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry)}, nil
+	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
 var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
@@ -246,7 +323,8 @@ func (h *Host) Get(ctx context.Context, key string) (Result, error) { return h.G
 //
 //	post: err == nil ⇒ res.DB != nil, and the key stays active until passivated
 //	post: res.Act != nil ⇒ this caller started the activation, so res.Waited is false
-//	post: a failed activation is not cached: the next Get tries again
+//	post: a failed activation is not cached; until its tombstone ends, Gets for key fail fast with its cause
+//	      (and a RetryAfter hint), and the first Get after that tries again
 //	post: if the activation panicked, Get panics with the same value in every caller (a bug)
 func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, error) {
 	for {
@@ -266,6 +344,16 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			}
 		}
 		if !ok {
+			if t, wait, ok := h.tombstoned(key); ok {
+				h.mu.Unlock()
+				return Result{}, errs.Wrap(module, &hinted{t.err, wait},
+					"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
+			}
+			if h.gate.shedding() { // fail fast before any storage call (guide F1)
+				h.mu.Unlock()
+				return Result{}, errs.Wrap(module, errShed, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
+					key, h.opts.MaxFetchQueue)
+			}
 			e = &entry{done: make(chan struct{})}
 			e.epoch.Store(epoch)
 			e.touch(h.opts.Now())
@@ -318,7 +406,7 @@ func (h *Host) activate(key string, e *entry) {
 		}
 	}()
 	t0 := time.Now()
-	e.db, e.err = h.load(key, e)
+	e.db, e.err = h.load(t0, key, e)
 	e.act.Total = time.Since(t0)
 	h.activations.Add(1)
 	// Invariant: an activation either fully succeeded (db open) or left nothing behind.
@@ -329,35 +417,67 @@ func (h *Host) activate(key string, e *entry) {
 			RemoveDB(h.LocalPath(key)) // a fetched copy that failed to open must not leak disk
 		}
 		h.forget(key, e)
+		return
 	}
+	h.mu.Lock()
+	delete(h.tombs, key)
+	h.mu.Unlock()
 }
 
-// forget removes a failed entry so the next Get retries.
+// forget removes a failed entry so a later Get retries, and leaves a tombstone if the failure was the key's.
 func (h *Host) forget(key string, e *entry) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.entries[key] == e {
 		delete(h.entries, key)
 	}
+	if e.err != nil && h.backsOff(e.err) {
+		now := h.opts.Now()
+		t := h.tombs[key]
+		if t.stale(now, h.opts.MaxFailBackoff) {
+			t.n = 0 // the last failure is long past: start the backoff over
+		}
+		t.n++
+		t.until, t.err = now.Add(h.backoff.Delay(h.rng, t.n+1, 0)), e.err
+		h.tombs[key] = t
+	}
 }
 
-func (h *Host) load(key string, e *entry) (DB, error) {
+// load runs one activation from start under a ctx whose deadline is start + ActivationTimeout, grown by
+// size/MinThroughput once the size is known (guide T3). No step uses h.ctx alone (Release It T2): Close
+// cancels them all through ctx. Hitting that deadline fails with ErrBusy; the context's cause, not the
+// error chain, tells it apart from a query's own QueryTimeout.
+func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
+	ctx, cancel := h.activationCtx(start, 0)
+	defer func() {
+		if err != nil && errors.Is(context.Cause(ctx), errActivationTimeout) {
+			err = errs.Wrap(module, fmt.Errorf("%w: %w", errActivationTimeout, err),
+				"cannot activate %s: no answer within its deadline (ActivationTimeout %v + size/MinThroughput); nothing cached, retry later",
+				key, h.opts.ActivationTimeout)
+		}
+		cancel()
+	}()
 	act := &e.act
 	path := h.LocalPath(key)
 	if h.opts.Store != nil {
-		if err := h.fetchDurable(key, e, path); err != nil {
+		m, err := h.readManifest(ctx, key, e)
+		if err != nil {
+			return nil, err
+		}
+		if m.Size > 0 {
+			cancel()
+			ctx, cancel = h.activationCtx(start, m.Size)
+		}
+		if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
 			return nil, err
 		}
 	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
-	} else {
-		h.fetches.Add(1)
-		f, err := h.fetch.Fetch(h.ctx, key, path)
-		act.Bytes, act.TTFB, act.Fetch = f.Bytes, f.TTFB, f.Total
-		if err != nil {
-			return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
-		}
+	} else if err := h.gatedFetch(ctx, key, 0, e, func(ctx context.Context) (Fetched, error) {
+		return h.fetch.Fetch(ctx, key, path)
+	}); err != nil {
+		return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
 	}
 
 	t := time.Now()
@@ -377,7 +497,7 @@ func (h *Host) load(key string, e *entry) (DB, error) {
 	}
 
 	t = time.Now()
-	err = h.query(db, h.opts.FirstQuery)
+	err = h.query(ctx, db, h.opts.FirstQuery)
 	act.FirstQuery = time.Since(t)
 	if err != nil {
 		db.Close()
@@ -386,7 +506,7 @@ func (h *Host) load(key string, e *entry) (DB, error) {
 
 	t = time.Now()
 	for _, q := range h.opts.WarmQueries {
-		if err := h.query(db, q); err != nil {
+		if err := h.query(ctx, db, q); err != nil {
 			db.Close()
 			return nil, errs.Wrap(module, err, "cannot activate %s: warm query %q failed; safe to retry", key, q)
 		}
@@ -407,8 +527,88 @@ func (h *Host) localCopy(path string) (int64, bool) {
 	return fi.Size(), true
 }
 
-func (h *Host) query(db DB, q string) error {
-	ctx, cancel := context.WithTimeout(h.ctx, h.opts.QueryTimeout)
+// tomb is a key whose activation failed n times in a row; Gets fail fast with err until until.
+type tomb struct {
+	until time.Time
+	n     int
+	err   error
+}
+
+// stale reports whether t's backoff ended so long ago (more than the longest backoff) that a new failure
+// starts over, and the reaper may drop it.
+func (t tomb) stale(now time.Time, longest time.Duration) bool {
+	return now.After(t.until.Add(longest))
+}
+
+// backsOff reports whether a failed activation's error is the key's own failure, which earns a tombstone.
+// pre: h.mu held.
+func (h *Host) backsOff(err error) bool {
+	switch {
+	case h.opts.FailBackoff < 0, h.closed:
+		return false
+	case errors.Is(err, errShed), errors.Is(err, breaker.ErrOpen), errors.Is(err, durable.ErrStale):
+		return false // not attempted, or not this key's failure
+	}
+	return true
+}
+
+// tombstoned returns key's tombstone and the wait left if key is in its backoff. pre: h.mu held.
+func (h *Host) tombstoned(key string) (tomb, time.Duration, bool) {
+	t, ok := h.tombs[key]
+	if !ok {
+		return t, 0, false
+	}
+	wait := t.until.Sub(h.opts.Now())
+	return t, wait, wait > 0
+}
+
+// pruneTombs drops tombstones whose backoff ended long enough ago that a new failure starts over (S1: every
+// map that grows has a reaper). Tick calls it.
+func (h *Host) pruneTombs(now time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for k, t := range h.tombs {
+		if t.stale(now, h.opts.MaxFailBackoff) {
+			delete(h.tombs, k)
+		}
+	}
+}
+
+// hinted carries a retry hint (front.RetryHint) on err without changing its message or chain.
+type hinted struct {
+	err   error
+	after time.Duration
+}
+
+func (e *hinted) Error() string             { return e.err.Error() }
+func (e *hinted) Unwrap() error             { return e.err }
+func (e *hinted) RetryAfter() time.Duration { return e.after }
+
+// activationCtx is the activation's ctx for a generation of size bytes (0: unknown), from h.ctx.
+func (h *Host) activationCtx(start time.Time, size int64) (context.Context, context.CancelFunc) {
+	return context.WithDeadlineCause(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(size, h.opts.MinThroughput)), errActivationTimeout)
+}
+
+// gatedFetch runs fetch through the fetch bulkhead and records it in e.act.
+func (h *Host) gatedFetch(ctx context.Context, key string, size int64, e *entry, fetch func(context.Context) (Fetched, error)) error {
+	release, err := h.gate.acquire(ctx, size)
+	if err != nil {
+		return errs.Wrap(module, err, "no fetch slot for %s (%d bytes); retry later", key, size)
+	}
+	defer release()
+	h.fetches.Add(1)
+	f, err := fetch(ctx)
+	e.act.Bytes, e.act.TTFB, e.act.Fetch = f.Bytes, f.TTFB, f.Total
+	return err
+}
+
+// transferTime is how long size bytes take at the minimum throughput.
+func transferTime(size, bytesPerSec int64) time.Duration {
+	return time.Duration(float64(size) / float64(bytesPerSec) * float64(time.Second))
+}
+
+func (h *Host) query(ctx context.Context, db DB, q string) error {
+	ctx, cancel := context.WithTimeout(ctx, h.opts.QueryTimeout)
 	defer cancel()
 	return db.Query(ctx, q)
 }
@@ -429,7 +629,16 @@ func (h *Host) Stats() Stats {
 		WriteBacks:        h.writeBacks.Load(),
 		WriteBackFailures: h.writeBackFailures.Load(),
 		BytesUploaded:     h.bytesUploaded.Load(),
+		LastWriteBackOK:   unixNano(h.lastWriteBackOK.Load()),
 	}
+}
+
+// unixNano is the time n UnixNano stands for; 0 is the zero time.
+func unixNano(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n)
 }
 
 // RemoveDB deletes a SQLite database file and its side files (-wal, -shm, -journal). Missing files are fine.

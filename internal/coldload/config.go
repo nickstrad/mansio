@@ -35,6 +35,13 @@ type Config struct {
 	ReadConns    int      `json:"read_conns"`   // actor read pool per database
 	CacheKiB     int      `json:"cache_kib"`    // SQLite page cache per connection
 	QueryTimeout Duration `json:"query_timeout"`
+	// ActivationTimeout bounds one whole activation (fetch + open + queries); default 10m, so the large classes
+	// are measured rather than cut off. The vactor host's own default is 30 s.
+	ActivationTimeout Duration `json:"activation_timeout"`
+	// MaxFetches and MaxFetchQueue are the host's fetch bulkhead (vactor.Options); 0 = vactor's defaults (16
+	// in flight, 256 queued). Concurrency levels above max_fetches measure queueing behind the bulkhead.
+	MaxFetches    int `json:"max_fetches"`
+	MaxFetchQueue int `json:"max_fetch_queue"`
 
 	UploadWorkers int    `json:"upload_workers"`
 	WorkDir       string `json:"work_dir"`  // templates; default results/coldload/templates
@@ -123,8 +130,8 @@ func (c *Config) Normalize() error {
 			return bad("sizes[%d] %s concurrency: %v", i, s.Name, err)
 		}
 	}
-	if c.PerLevel < 0 || c.DupCallers < 0 || c.ReadConns < 0 || c.CacheKiB < 0 || c.UploadWorkers < 0 {
-		return bad("per_level, dup_callers, read_conns, cache_kib and upload_workers must not be negative")
+	if c.PerLevel < 0 || c.DupCallers < 0 || c.ReadConns < 0 || c.CacheKiB < 0 || c.UploadWorkers < 0 || c.MaxFetches < 0 || c.MaxFetchQueue < 0 {
+		return bad("per_level, dup_callers, read_conns, cache_kib, upload_workers, max_fetches and max_fetch_queue must not be negative")
 	}
 	setDefault(&c.S3.Endpoint, "localhost:8333")
 	setDefault(&c.S3.AccessKey, "coldload")
@@ -140,6 +147,9 @@ func (c *Config) Normalize() error {
 	}
 	if c.QueryTimeout.Duration <= 0 {
 		c.QueryTimeout.Duration = 10 * time.Minute
+	}
+	if c.ActivationTimeout.Duration <= 0 {
+		c.ActivationTimeout.Duration = 10 * time.Minute
 	}
 	if c.UploadWorkers == 0 {
 		c.UploadWorkers = 16

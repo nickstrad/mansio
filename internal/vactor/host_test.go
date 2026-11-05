@@ -20,9 +20,10 @@ import (
 var ctx = context.Background()
 
 type rig struct {
-	h *vactor.Host
-	f *vactortest.Fetcher
-	o *vactortest.Opener
+	h   *vactor.Host
+	f   *vactortest.Fetcher
+	o   *vactortest.Opener
+	clk *clock
 }
 
 func newRig(t *testing.T, keep bool, keys ...string) rig {
@@ -31,16 +32,18 @@ func newRig(t *testing.T, keep bool, keys ...string) rig {
 	for _, k := range keys {
 		f.Put(k, []byte("db:"+k))
 	}
+	clk := &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
 	h, err := vactor.NewHost(f, o, vactor.Options{
 		CacheDir:    filepath.Join(t.TempDir(), "cache"),
 		WarmQueries: []string{"warm"},
 		KeepLocal:   keep,
+		Now:         clk.Now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { h.Close() })
-	return rig{h, f, o}
+	return rig{h, f, o, clk}
 }
 
 func exists(path string) bool { _, err := os.Stat(path); return err == nil }
@@ -153,6 +156,12 @@ func TestFailedActivationIsNotCachedAndIsRetried(t *testing.T) {
 				t.Fatalf("failed activation leaked an open db: opened %d closed %d", opened, closed)
 			}
 			tc.fixIt(r)
+			calls := r.f.Calls(tc.key)
+			if _, err := r.h.Get(ctx, tc.key); !errors.Is(err, tc.wantErr) || r.f.Calls(tc.key) != calls {
+				t.Fatalf("Get inside the tombstone = %v (fetches %d → %d); want a fast failure with the same cause",
+					err, calls, r.f.Calls(tc.key))
+			}
+			r.clk.Add(5 * time.Second) // the longest first backoff is FailBackoff (100 ms)
 			if _, err := r.h.Get(ctx, tc.key); err != nil {
 				t.Fatalf("Get after fix: %v", err)
 			}

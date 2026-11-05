@@ -22,6 +22,8 @@
 //
 // Domain code: the decisions here (CheckPublish, CheckStamp, NextManifest) are pure. Storage is reached
 // through the Store port; durabletest has a fake and the contract suite, internal/objstore the S3 adapter.
+// WithBreaker guards any Store with a circuit breaker (internal/breaker): refused and failing calls are
+// ErrUnavailable (Release It C1–C3).
 package durable
 
 import (
