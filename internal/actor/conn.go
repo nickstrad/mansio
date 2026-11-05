@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
 
-	_ "modernc.org/sqlite" // registers the "sqlite" driver (pure Go, no cgo)
+	"modernc.org/sqlite" // also registers the "sqlite" driver (pure Go, no cgo)
 )
 
 // executor is the actor's port to one database connection. sqliteConn is the real adapter; tests use fakes
@@ -22,6 +22,8 @@ type executor interface {
 	exec(ctx context.Context, r *Request) Result
 	// run executes a statement with no arguments and no result rows (BEGIN, COMMIT, ROLLBACK, DDL).
 	run(ctx context.Context, q string) error
+	// backup copies the database to dst, which must not exist, from one read transaction.
+	backup(ctx context.Context, dst string) error
 	close()
 }
 
@@ -98,6 +100,56 @@ func (k *sqliteConn) close() {
 	}
 	k.c.Close()
 	k.db.Close()
+}
+
+// backupStepPages is how many pages one backup step copies (16 MiB at 4 KiB pages); ctx is checked between steps.
+var backupStepPages int32 = 4096 // a var so tests can force many steps
+
+// backuper is the modernc driver connection's backup hook (sqlite3_backup_*), reached through sql.Conn.Raw.
+type backuper interface {
+	NewBackup(dstURI string) (*sqlite.Backup, error)
+}
+
+// backup copies the database to dst with the online backup API. It holds one read transaction across every
+// step, so the copy is one consistent snapshot even while another connection commits (in WAL mode the writer is
+// not blocked; the backup does not restart). dst is created exclusively first, so an existing file is an error,
+// never overwritten.
+func (k *sqliteConn) backup(ctx context.Context, dst string) error {
+	f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close() // an empty file is a valid empty database for the backup to fill
+	if _, err := k.c.ExecContext(ctx, "BEGIN"); err != nil {
+		return err
+	}
+	defer k.c.ExecContext(context.Background(), "ROLLBACK") //nolint:errcheck // read-only transaction
+	// A deferred BEGIN takes no snapshot until the first read; pin it now so every step reads the same one.
+	if _, err := k.c.ExecContext(ctx, "SELECT count(*) FROM sqlite_schema"); err != nil {
+		return err
+	}
+	return k.c.Raw(func(dc any) error {
+		b, ok := dc.(backuper)
+		if !ok {
+			return fmt.Errorf("driver connection %T has no backup API", dc)
+		}
+		// The copy is a temp file made durable by its upload: no journal, no fsync per step.
+		bk, err := b.NewBackup(sqlitedsn.Build(dst, "synchronous(OFF)", "journal_mode(OFF)"))
+		if err != nil {
+			return err
+		}
+		for more := true; more; {
+			if err := ctx.Err(); err != nil {
+				bk.Finish()
+				return err
+			}
+			if more, err = bk.Step(backupStepPages); err != nil {
+				bk.Finish()
+				return err
+			}
+		}
+		return bk.Finish()
+	})
 }
 
 // stmt returns a prepared statement for q, preparing it and evicting the least recently used one if needed.

@@ -194,7 +194,7 @@ A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
 Option 4 §3.6: a stateless proxy that routes on the ticket's `vm` claim, so agents stay private. Rate-limit
 garbage tickets there (each costs a 26 µs verify). TLS client → edge → agent.
 
-### CP-8. Operations debt
+### CP-8. Operations debt — **Done** (3339c71; deferred: leases decision (options note, needs the user); Linux fsync only in a Docker Desktop VM, re-measure on target hardware; SQLite page-cache mutex follow-up; snapshot does not compact free pages)
 
 - Snapshot through the SQLite backup API from a read connection, removing the `VACUUM INTO` write stall (~170 ms
   per 128 MiB).
@@ -218,14 +218,17 @@ on the wire (the reserved `op` field).
 | Remote breakers (S3, placement) never fail readiness. S3 open → cold activations 503, warm traffic unaffected, write-backs deferred, alert on `oldest_dirty_age` | Made (user, 2026-11-05) | `RI C5`, `RI H2` |
 | Layout v2; retention current + 2; orphan sweeper as `dbtool gc` | Made | `knowledge/writeback/2026-11-05-layout-v2.md`, `knowledge/writeback/2026-11-05-gc-and-gen-cache.md` |
 | WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [release-it plan §4](books/release-it/plan.md) (after RI-15), `knowledge/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
-| Placement policy (M8); leases | Open | CP-4, CP-8 |
+| Placement policy (M8); leases | Open (leases: options + recommendation, needs the user with the placement-outage question) | CP-4, `knowledge/fencing/2026-11-05-leases-options.md` |
 
 ## 5. Assumptions the plan rests on (from the fencing safety argument)
 
 - Postgres CAS is atomic, epochs only move forward, and Claim and Reconcile read the primary.
 - S3 conditional PUT is atomic. **Verified 2026-11-05 on single-node SeaweedFS**
   (`knowledge/writeback/2026-11-05-s3-conditional-put-verified.md`; `TestS3Compat` X1–X11:
-  `knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md`); a multi-node cluster isn't tested.
-- `fsync` is durable. On macOS it isn't, without `F_FULLFSYNC`.
+  `knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md`). **Also on MinIO and on a 2-filer SeaweedFS
+  cluster with a shared Postgres store, raced across gateways** (CP-8,
+  `knowledge/writeback/2026-11-05-s3-compat-minio-and-cluster.md`); filers with separate stores are not safe.
+- `fsync` is durable. On macOS it isn't, without `F_FULLFSYNC`. On Linux (Docker Desktop VM) a durable commit
+  costs ~93 µs, 4.3 µs per write with group commit (`knowledge/sqlbench/2026-11-05-linux-fsync.md`).
 - An operator restores around a VM only when it's really dead. There are no leases and no clocks in the safety
   path (`OS W6`).

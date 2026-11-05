@@ -222,6 +222,12 @@ type Stats struct {
 	// RetentionFailures counts failed retention deletes (those objects are left to the orphan sweeper).
 	GenerationsDeleted int64
 	RetentionFailures  int64
+
+	// Requests counts store requests by operation (durable.Op* names), retries included, when the Store
+	// counts them (durable.RequestCounter); nil otherwise. A Store shared by several hosts counts them all.
+	Requests map[string]int64
+	// RequestCostUSD is Requests priced at durable.S3Standard list prices.
+	RequestCostUSD float64
 }
 
 type entry struct {
@@ -259,6 +265,7 @@ type Host struct {
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
 	generationsDeleted, retentionFailures        atomic.Int64
+	requests                                     durable.RequestCounter // opts.Store, if it counts; else nil
 }
 
 // NewHost creates a host with an empty cache directory.
@@ -322,6 +329,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		opts.MaxFetchQueue = 0
 	}
 	size, _ := f.(Sizer)
+	reqs, _ := opts.Store.(durable.RequestCounter)
 	if assert.Enabled {
 		if f != nil {
 			f = checkedFetcher{f}
@@ -342,7 +350,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, size: size, gens: gens, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+	return &Host{fetch: f, size: size, requests: reqs, gens: gens, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
 		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
@@ -676,7 +684,13 @@ func (h *Host) Active() int {
 }
 
 func (h *Host) Stats() Stats {
+	var reqs map[string]int64
+	if h.requests != nil {
+		reqs = h.requests.RequestCounts()
+	}
 	return Stats{
+		Requests:          reqs,
+		RequestCostUSD:    durable.RequestCost(reqs, durable.S3Standard),
 		Activations:       h.activations.Load(),
 		Failures:          h.failures.Load(),
 		Fetches:           h.fetches.Load(),

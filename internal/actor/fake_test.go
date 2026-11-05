@@ -89,6 +89,13 @@ func (f *faultExec) run(_ context.Context, q string) error {
 	return nil
 }
 
+func (f *faultExec) backup(_ context.Context, dst string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ran = append(f.ran, "BACKUP "+dst)
+	return f.FailOn["BACKUP"]
+}
+
 func (f *faultExec) close() { f.mu.Lock(); f.closed = true; f.mu.Unlock() }
 
 func (f *faultExec) statements() []string {

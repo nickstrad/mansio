@@ -263,6 +263,9 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 
 var _ durable.GCStore = (*Durable)(nil)
 
+// RequestCounts is the underlying Store's (durable.RequestCounter); it counts every user of that Store.
+func (d *Durable) RequestCounts() map[string]int64 { return d.s.RequestCounts() }
+
 // DeleteGenerations deletes key's generation objects in batches of up to 1000 (guide GC5), after checking
 // every name is one (CheckDeletable, GC4).
 func (d *Durable) DeleteGenerations(ctx context.Context, key string, names []string) error {
