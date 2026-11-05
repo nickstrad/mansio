@@ -1,8 +1,7 @@
 // Package metrics is a small, dependency-free metrics exposition (Release It O1, O2): counters, gauges and
 // latency histograms written in the Prometheus text format (version 0.0.4) for scraping from the lifecycle
 // listener. Values are pulled at scrape time from the components' own Stats (collect funcs), so the hot paths
-// keep their atomics and import nothing from here; Histogram and HighWater are the two primitives a component
-// may embed. Thresholds and alert rules live in the monitoring config, never here.
+// keep their atomics and import nothing from here; LatencyHistogram is the one primitive a component may embed. Thresholds and alert rules live in the monitoring config, never here.
 //
 // Error module: none; misuse (a bad metric name, a duplicate family) is a bug and panics at registration.
 package metrics
@@ -78,7 +77,9 @@ func (e *Emit) sample(name string, l Labels, v float64) {
 			if i > 0 {
 				e.w.WriteByte(',')
 			}
-			assert.That(validName.MatchString(l[i]), "metrics: %s: bad label name %q", name, l[i])
+			if assert.Enabled && !validName.MatchString(l[i]) { // guarded: the check runs per sample
+				assert.That(false, "metrics: %s: bad label name %q", name, l[i])
+			}
 			e.w.WriteString(l[i])
 			e.w.WriteString(`="`)
 			e.w.WriteString(escape.Replace(l[i+1]))
@@ -114,10 +115,21 @@ type family struct {
 	collect    func(*Emit)
 }
 
-// Registry holds metric families. Safe for concurrent use.
+// Registry holds metric families. Safe for concurrent use; scrapes run one at a time.
 type Registry struct {
-	mu   sync.Mutex
-	fams map[string]family
+	mu     sync.Mutex
+	fams   map[string]family
+	before []func()
+
+	scrape sync.Mutex // serializes WriteText, so OnScrape snapshots are shared by one scrape's collectors
+}
+
+// OnScrape registers fn to run at the start of every scrape, before any collector: a component takes one
+// snapshot there and its families read it, instead of each family locking the component again.
+func (r *Registry) OnScrape(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.before = append(r.before, fn)
 }
 
 func NewRegistry() *Registry { return &Registry{fams: map[string]family{}} }
@@ -136,12 +148,18 @@ func (r *Registry) Add(name, help string, typ Type, collect func(*Emit)) {
 
 // WriteText writes every family, sorted by name, in the Prometheus text format.
 func (r *Registry) WriteText(w io.Writer) error {
+	r.scrape.Lock()
+	defer r.scrape.Unlock()
 	r.mu.Lock()
 	fams := make([]family, 0, len(r.fams))
 	for _, f := range r.fams {
 		fams = append(fams, f)
 	}
+	before := slices.Clone(r.before)
 	r.mu.Unlock()
+	for _, fn := range before {
+		fn()
+	}
 	slices.SortFunc(fams, func(a, b family) int { return strings.Compare(a.name, b.name) })
 	bw := bufio.NewWriter(w)
 	for _, f := range fams {
@@ -207,17 +225,3 @@ func (h *LatencyHistogram) Snapshot() (bounds []time.Duration, counts []uint64, 
 	}
 	return h.bounds, counts, time.Duration(h.sum.Load())
 }
-
-// HighWater tracks a level (in flight, queued) and the highest it has been.
-type HighWater struct{ cur, max atomic.Int64 }
-
-// Add moves the level by d and returns the new level.
-func (h *HighWater) Add(d int64) int64 {
-	n := h.cur.Add(d)
-	for m := h.max.Load(); n > m && !h.max.CompareAndSwap(m, n); m = h.max.Load() {
-	}
-	return n
-}
-
-// Load returns the level and its high-water mark.
-func (h *HighWater) Load() (cur, max int64) { return h.cur.Load(), h.max.Load() }

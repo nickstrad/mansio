@@ -26,69 +26,72 @@ import (
 // metricsPath serves the registry on the lifecycle listener.
 const metricsPath = "/metrics"
 
-// frontMetrics exposes the request pipeline and its admission (point="front").
+// frontMetrics exposes the request pipeline and its admission (point="front"). One snapshot per scrape: the
+// admission lock is the request path's.
 func frontMetrics(reg *metrics.Registry, srv *front.Server) {
+	var st front.ServerStats
+	var adm front.AdmissionStats
+	reg.OnScrape(func() { st, adm = srv.Stats(), srv.Admission().Stats() })
 	reg.Add("tsdb_requests_total", "Answers per integration point by outcome class and wire code.", metrics.Counter, func(e *metrics.Emit) {
-		st := srv.Stats()
-		for _, c := range front.Codes {
-			n := st.Outcomes[c]
-			if c == front.Expired {
-				e.Value(metrics.Labels{"point", "front", "class", front.ClassAmbiguous, "code", string(c)}, float64(st.Ambiguous))
-				n -= st.Ambiguous
+		for i, c := range front.Codes {
+			n := st.Outcomes[i]
+			if front.OutcomeClass(c, true) == front.OutcomeClass(c, false) {
+				n = [2]int64{n[0] + n[1], 0}
+			} else {
+				e.Value(metrics.Labels{"point", "front", "class", front.OutcomeClass(c, true), "code", string(c)}, float64(n[1]))
 			}
-			e.Value(metrics.Labels{"point", "front", "class", front.OutcomeClass(c, false), "code", string(c)}, float64(n))
+			e.Value(metrics.Labels{"point", "front", "class", front.OutcomeClass(c, false), "code", string(c)}, float64(n[0]))
 		}
 	})
 	reg.Add("tsdb_request_latency_seconds", "Answer latency per integration point (requests that hang are counted at their deadline).",
 		metrics.Histogram, func(e *metrics.Emit) {
-			st := srv.Stats()
 			e.Histogram(metrics.Labels{"point", "front"}, st.LatencyBounds, st.LatencyCounts, st.LatencySum)
 		})
 	reg.Add("tsdb_in_flight", "Requests in flight per integration point.", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(metrics.Labels{"point", "front"}, float64(srv.InFlight()))
+		e.Value(metrics.Labels{"point", "front"}, float64(st.InFlight))
 	})
 	reg.Add("tsdb_in_flight_high_water", "Most requests in flight at once since start, per integration point.", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(metrics.Labels{"point", "front"}, float64(srv.Stats().InFlightHighWater))
+		e.Value(metrics.Labels{"point", "front"}, float64(st.InFlightHighWater))
 	})
 	reg.Add("tsdb_admission", "Admission (VM-wide): in use, queued, their high-water marks, tenants and databases with state.",
 		metrics.Gauge, func(e *metrics.Emit) {
-			st := srv.Admission().Stats()
 			for _, v := range []struct {
 				stat string
 				n    int
-			}{{"in_flight", st.InFlight}, {"queued", st.Queued}, {"in_flight_high_water", st.InFlightHighWater},
-				{"queued_high_water", st.QueuedHighWater}, {"tenants", st.Tenants}, {"dbs", st.DBs}} {
+			}{{"in_flight", adm.InFlight}, {"queued", adm.Queued}, {"in_flight_high_water", adm.InFlightHighWater},
+				{"queued_high_water", adm.QueuedHighWater}, {"tenants", adm.Tenants}, {"dbs", adm.DBs}} {
 				e.Value(metrics.Labels{"stat", v.stat}, float64(v.n))
 			}
 		})
 	reg.Add("tsdb_admission_shed_total", "Requests admission refused because a queue was full (times full).", metrics.Counter, func(e *metrics.Emit) {
-		e.Value(nil, float64(srv.Admission().Stats().Shed))
+		e.Value(nil, float64(adm.Shed))
 	})
 	reg.Add("tsdb_admission_drain_per_second", "Admission completions in the last whole second (the shed Retry-After's rate).",
-		metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, srv.Admission().Stats().DrainPerSec) })
+		metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, adm.DrainPerSec) })
 }
 
-// actorMetrics exposes the actors' queue depths.
+// actorMetrics exposes the actors' queue depths (one scan of the actors per scrape).
 func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
+	var q front.QueueStats
+	reg.OnScrape(func() { q = host.QueueStats() })
 	reg.Add("tsdb_actor_queue_depth", "Requests queued in actors: total, deepest, and the p99 across actors.", metrics.Gauge, func(e *metrics.Emit) {
-		q := host.QueueStats()
 		e.Value(metrics.Labels{"stat", "total"}, float64(q.Total))
 		e.Value(metrics.Labels{"stat", "max"}, float64(q.Max))
 		e.Value(metrics.Labels{"stat", "p99"}, float64(q.P99))
 	})
 	reg.Add("tsdb_actors", "Actors served (databases open, plus the canary).", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(nil, float64(host.QueueStats().Actors))
+		e.Value(nil, float64(q.Actors))
 	})
 }
 
 // lifecycleMetrics exposes startup and readiness (Release It S3: the oldest unfinished thing).
 func lifecycleMetrics(reg *metrics.Registry, st *startup, ready *front.Readiness, started time.Time) {
 	reg.Add("tsdb_startup_pending", "Databases not open yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(nil, float64(st.pending.Load()))
+		e.Value(nil, float64(st.host.PendingCount()))
 	})
 	reg.Add("tsdb_startup_pending_age_seconds", "How long the oldest unopened database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
 		age := 0.0
-		if st.pending.Load() > 0 {
+		if st.host.PendingCount() > 0 {
 			age = time.Since(started).Seconds()
 		}
 		e.Value(nil, age)
@@ -115,38 +118,37 @@ func s3Class(k objstore.Kind) string {
 	return front.Class5xx // transient: 5xx, throttling, connection errors and our own timeouts
 }
 
-// s3Metrics exposes objstore's per-operation counters (point="s3"; one series per op and kind).
+// s3Metrics exposes objstore's per-operation counters (point="s3"; one series per op and kind), from one
+// snapshot per scrape.
 func s3Metrics(reg *metrics.Registry, snapshot func() map[string]objstore.OpStats) {
-	reg.Add("tsdb_s3_requests_total", "S3 attempts (retries included) by operation, outcome class and kind.", metrics.Counter, func(e *metrics.Emit) {
-		snap := snapshot()
-		for _, op := range slices.Sorted(maps.Keys(snap)) {
-			st := snap[op]
+	var ops []string
+	var snap map[string]objstore.OpStats
+	reg.OnScrape(func() { snap = snapshot(); ops = slices.Sorted(maps.Keys(snap)) })
+	family := func(name, help string, typ metrics.Type, fn func(e *metrics.Emit, op string, st objstore.OpStats)) {
+		reg.Add(name, help, typ, func(e *metrics.Emit) {
+			for _, op := range ops {
+				fn(e, op, snap[op])
+			}
+		})
+	}
+	family("tsdb_s3_requests_total", "S3 attempts (retries included) by operation, outcome class and kind.", metrics.Counter,
+		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			for k := objstore.OK; k <= objstore.Canceled; k++ {
 				e.Value(metrics.Labels{"point", "s3", "op", op, "class", s3Class(k), "kind", k.String()}, float64(st.ByKind[k]))
 			}
-		}
-	})
-	reg.Add("tsdb_s3_retries_total", "Failed S3 attempts the retry layer followed with another attempt.", metrics.Counter, func(e *metrics.Emit) {
-		snap := snapshot()
-		for _, op := range slices.Sorted(maps.Keys(snap)) {
-			st := snap[op]
+		})
+	family("tsdb_s3_retries_total", "Failed S3 attempts the retry layer followed with another attempt.", metrics.Counter,
+		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Value(metrics.Labels{"op", op}, float64(st.Retried))
-		}
-	})
-	reg.Add("tsdb_s3_bytes_total", "Body bytes moved by successful S3 attempts.", metrics.Counter, func(e *metrics.Emit) {
-		snap := snapshot()
-		for _, op := range slices.Sorted(maps.Keys(snap)) {
-			st := snap[op]
+		})
+	family("tsdb_s3_bytes_total", "Body bytes moved by successful S3 attempts.", metrics.Counter,
+		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Value(metrics.Labels{"op", op}, float64(st.Bytes))
-		}
-	})
-	reg.Add("tsdb_s3_latency_seconds", "S3 attempt latency by operation (_sum is 0: objstore keeps buckets only).", metrics.Histogram, func(e *metrics.Emit) {
-		snap := snapshot()
-		for _, op := range slices.Sorted(maps.Keys(snap)) {
-			st := snap[op]
+		})
+	family("tsdb_s3_latency_seconds", "S3 attempt latency by operation (_sum is 0: objstore keeps buckets only).", metrics.Histogram,
+		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Histogram(metrics.Labels{"point", "s3", "op", op}, objstore.LatencyBuckets, toUint(st.Latency), 0)
-		}
-	})
+		})
 }
 
 func toUint(c []int64) []uint64 {
@@ -199,8 +201,10 @@ func breakerLog(log *slog.Logger, dep string) func(breaker.Transition) {
 // vactorMetrics exposes a virtual-actor host: Stats counters, Gauges, and the last maintenance tick (its
 // oldest_dirty_age is the RPO gauge, Release It S3). CP-1 wiring point, with tickLog as the tick reporter.
 func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor.TickReport) {
+	var st vactor.Stats
+	var tick vactor.TickReport
+	reg.OnScrape(func() { st, tick = h.Stats(), lastTick() })
 	reg.Add("tsdb_vactor_events_total", "Virtual-actor host counters since start.", metrics.Counter, func(e *metrics.Emit) {
-		st := h.Stats()
 		for _, v := range []struct {
 			event string
 			n     int64
@@ -212,7 +216,7 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 	reg.Add("tsdb_vactor_last_writeback_ok_timestamp_seconds", "When a write-back last published (0 = never).", metrics.Gauge,
 		func(e *metrics.Emit) {
 			v := 0.0
-			if t := h.Stats().LastWriteBackOK; !t.IsZero() {
+			if t := st.LastWriteBackOK; !t.IsZero() {
 				v = float64(t.UnixNano()) / 1e9
 			}
 			e.Value(nil, v)
@@ -225,13 +229,12 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 		e.Value(metrics.Labels{"stat", "fetch_queued"}, float64(g.FetchQueued))
 	})
 	reg.Add("tsdb_vactor_oldest_dirty_age_seconds", "Age of the oldest unpublished writes at the last tick (the RPO).", metrics.Gauge,
-		func(e *metrics.Emit) { e.Value(nil, lastTick().OldestDirtyAge.Seconds()) })
+		func(e *metrics.Emit) { e.Value(nil, tick.OldestDirtyAge.Seconds()) })
 	reg.Add("tsdb_vactor_tick", "The last maintenance tick: duration, intervals missed, jobs that hit their deadline.", metrics.Gauge,
 		func(e *metrics.Emit) {
-			r := lastTick()
-			e.Value(metrics.Labels{"stat", "took_seconds"}, r.Took.Seconds())
-			e.Value(metrics.Labels{"stat", "missed"}, float64(r.Missed))
-			e.Value(metrics.Labels{"stat", "timed_out"}, float64(len(r.TimedOut)))
+			e.Value(metrics.Labels{"stat", "took_seconds"}, tick.Took.Seconds())
+			e.Value(metrics.Labels{"stat", "missed"}, float64(tick.Missed))
+			e.Value(metrics.Labels{"stat", "timed_out"}, float64(len(tick.TimedOut)))
 		})
 }
 

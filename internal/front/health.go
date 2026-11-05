@@ -30,7 +30,9 @@ const (
 
 // Canary runs one marked read on db through the real path behind ticket checks: admission → executor
 // (→ actor). A canary that admission sheds passes: the VM is busy, not wedged, and readiness must not take an
-// overloaded agent out of rotation (that only moves the load). A wedged actor shows as expired or no reply.
+// overloaded agent out of rotation (that only moves the load). Anything else but ok fails — an executor shed
+// included: the canary has its own actor, so a shed there means it is closed or stuck. A wedged actor shows as
+// expired or no reply.
 func (s *Server) Canary(ctx context.Context, db string, timeout time.Duration) error {
 	deadline := s.clock().Add(timeout)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
@@ -45,9 +47,6 @@ func (s *Server) Canary(ctx context.Context, db string, timeout time.Duration) e
 	defer slot()
 	_, err = s.exec.Exec(ctx, Call{Tenant: CanaryTenant, DB: db, RequestID: "canary", Kind: KindRead, SQL: CanarySQL,
 		Deadline: deadline, StmtTimeout: min(s.cfg.StmtTimeout, timeout), MaxRows: 1})
-	if errors.Is(err, ErrShed) {
-		return nil
-	}
 	return err
 }
 

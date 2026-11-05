@@ -1,13 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,49 +15,45 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/retry"
 )
 
 // startup opens the databases while the agent already serves (Release It H1): each database is served the
-// moment it is open; until then its requests are refused unavailable (503 + Retry-After). It is the static
-// stand-in for the owner table's reconcile: at CP-1, owner.Table.ReconcileUntilDone takes its place (the
-// table's Admit already refuses an unreconciled key with owner.ErrUnavailable), and startupAdmitter goes away.
+// moment it is open; until then the host refuses it unavailable (503 + Retry-After; StaticHost.Expect). It is
+// the static stand-in for the owner table's reconcile: at CP-1, owner.Table.ReconcileUntilDone takes its place
+// (the table's Admit already refuses an unreconciled key with owner.ErrUnavailable), and startupAdmitter goes
+// away.
 type startup struct {
-	open      sync.Map    // db → struct{}: open and added to the host
+	host      *front.StaticHost
 	firstDone atomic.Bool // every database was tried once
-	pending   atomic.Int64
 }
 
 // startupAdmitter refuses databases that are not open yet, before admission (fail fast, Release It F1).
 type startupAdmitter struct {
 	front.Admitter
-	st *startup
+	host *front.StaticHost
 }
 
 func (a startupAdmitter) Admit(db string, epoch uint64) (func(), error) {
-	release, err := a.Admitter.Admit(db, epoch)
-	if err != nil {
+	if err := a.host.Pending(db); err != nil {
 		return nil, err
 	}
-	if _, ok := a.st.open.Load(db); !ok {
-		release()
-		return nil, fmt.Errorf("%w: database %s is not open yet (agent starting)", front.ErrUnavailable, db)
-	}
-	return release, nil
+	return a.Admitter.Admit(db, epoch)
 }
 
 // readyCheck passes once every database was tried at least once (some may still be retrying).
 func (st *startup) readyCheck(context.Context) error {
 	if !st.firstDone.Load() {
-		return fmt.Errorf("startup: %d database(s) not tried yet", st.pending.Load())
+		return fmt.Errorf("startup: %d database(s) not open yet, first round running", st.host.PendingCount())
 	}
 	return nil
 }
 
-// openAll opens dbs into host, at most workers at a time, and retries the failures with a growing jittered
-// backoff until every one is open or ctx ends. One log line per round (AGENT.STARTUP_ROUND; WARN while some
-// fail), and AGENT.ALL_OPEN at the end.
-func (st *startup) openAll(ctx context.Context, cfg *Config, dbs []string, host *front.StaticHost, log *slog.Logger) {
+// openAll opens dbs into the host, cfg.StartupWorkers at a time, and retries the failures with a growing
+// jittered backoff until every one is open or ctx ends. One log line per round (AGENT.STARTUP_ROUND; WARN while
+// some fail), and AGENT.ALL_OPEN at the end.
+func (st *startup) openAll(ctx context.Context, cfg *Config, dbs []string, log *slog.Logger) {
 	acfg := cfg.Actor.Actor()
 	ids := make(map[string]int, len(dbs))
 	for i, db := range dbs {
@@ -67,23 +63,26 @@ func (st *startup) openAll(ctx context.Context, cfg *Config, dbs []string, host 
 	_ = backoff.Normalize() // a constant policy: cannot fail
 	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	todo := dbs
-	st.pending.Store(int64(len(todo)))
 	var delay time.Duration
 	for round := 1; ; round++ {
 		t0 := time.Now()
-		failed, first := st.openRound(ctx, todo, cfg.StartupWorkers, func(db string) error {
+		var failed []string
+		var first error
+		for i, err := range parallel.ForEach(ctx, len(todo), cfg.StartupWorkers, func(_ context.Context, i int) error {
+			db := todo[i]
 			a := actor.New(ids[db], dbPath(cfg, db), acfg)
 			if err := a.Start(true); err != nil {
 				return errs.Wrap(module, err, "cannot open database %s; it is refused (unavailable) until a retry opens it", db).With("db", db)
 			}
-			if !host.Add(db, a) { // shutting down
+			if !st.host.Add(db, a) { // shutting down
 				a.Close()
-				return nil
 			}
-			st.open.Store(db, struct{}{})
 			return nil
-		})
-		st.pending.Store(int64(len(failed)))
+		}) {
+			if err != nil {
+				failed, first = append(failed, todo[i]), cmp.Or(first, err)
+			}
+		}
 		st.firstDone.Store(true)
 		attrs := []any{"event", "AGENT.STARTUP_ROUND", "round", round, "tried", len(todo), "failed", len(failed), "took_ms", time.Since(t0).Milliseconds()}
 		if len(failed) == 0 {
@@ -100,39 +99,6 @@ func (st *startup) openAll(ctx context.Context, cfg *Config, dbs []string, host 
 		case <-time.After(delay):
 		}
 	}
-}
-
-// openRound runs open over dbs, at most n at a time, and returns the ones that failed and the first error.
-func (st *startup) openRound(ctx context.Context, dbs []string, n int, open func(string) error) (failed []string, first error) {
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, n)
-	for _, db := range dbs {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			mu.Lock()
-			failed = append(failed, db)
-			mu.Unlock()
-			continue
-		}
-		wg.Go(func() {
-			defer func() { <-sem }()
-			if err := open(db); err != nil {
-				mu.Lock()
-				failed = append(failed, db)
-				if first == nil {
-					first = err
-				}
-				mu.Unlock()
-			}
-		})
-	}
-	wg.Wait()
-	if first == nil && len(failed) > 0 {
-		first = errs.Wrap(module, ctx.Err(), "startup stopped before %d database(s) were tried", len(failed))
-	}
-	return failed, first
 }
 
 // openCanary creates the canary database (one marked row, nothing else) in a fresh temporary directory and

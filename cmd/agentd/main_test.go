@@ -185,12 +185,13 @@ func TestDrainTimeoutIsReported(t *testing.T) {
 	}
 }
 
-func waitAddr(t *testing.T, path string, done chan int) string {
+// waitAddr returns the addr-file's first line once agentd wrote it; done reports agentd's exit (code or error).
+func waitAddr[T any](t *testing.T, path string, done <-chan T) string {
 	t.Helper()
-	for range 500 {
+	for range 1000 {
 		select {
 		case code := <-done:
-			t.Fatalf("agentd exited %d before serving", code)
+			t.Fatalf("agentd exited (%v) before serving", code)
 		default:
 		}
 		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {

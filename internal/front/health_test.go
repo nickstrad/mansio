@@ -36,7 +36,7 @@ func TestCanaryOutcomes(t *testing.T) {
 	}{
 		{"answers", func(*fronttest.Executor) {}, nil},
 		{"wedged: no reply by the deadline", func(e *fronttest.Executor) { e.Block = true }, front.ErrNoReply},
-		{"shed by the actor: busy, not wedged", func(e *fronttest.Executor) { e.Err = front.ErrShed }, nil},
+		{"shed by its own actor: closed or stuck", func(e *fronttest.Executor) { e.Err = front.ErrShed }, front.ErrShed},
 		{"dependency down", func(e *fronttest.Executor) { e.Err = front.ErrUnavailable }, front.ErrUnavailable},
 	}
 	for _, tc := range tests {
@@ -157,5 +157,20 @@ func TestReadinessProbe(t *testing.T) {
 	clk.Advance(time.Nanosecond)
 	if st := r.State(); st.Ready || st.Failed["probe"] == "" {
 		t.Fatalf("stale result: %+v", st)
+	}
+}
+
+// A database expected but not open yet is unavailable (not unknown) until Add serves it.
+func TestStaticHostPending(t *testing.T) {
+	h := front.NewStaticHost(nil)
+	h.Expect("a", "b")
+	if _, err := h.Lookup(context.Background(), "a"); !errors.Is(err, front.ErrUnavailable) || h.PendingCount() != 2 {
+		t.Fatalf("pending lookup: %v, count %d", err, h.PendingCount())
+	}
+	if _, err := h.Lookup(context.Background(), "zz"); !errors.Is(err, front.ErrUnknownDB) {
+		t.Fatalf("unknown: %v", err)
+	}
+	if !h.Add("a", nil) || h.Pending("a") != nil || h.Pending("b") == nil || h.PendingCount() != 1 {
+		t.Fatal("Add did not clear pending")
 	}
 }

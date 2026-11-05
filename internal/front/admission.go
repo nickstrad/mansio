@@ -19,8 +19,10 @@ type Admission struct {
 }
 
 // NewAdmission returns admission with lim's caps (zero fields take defaults).
-func NewAdmission(lim AdmissionLimits) *Admission {
-	return &Admission{l: newLimiter(lim), now: time.Now}
+func NewAdmission(lim AdmissionLimits) *Admission { return newAdmission(lim, time.Now) }
+
+func newAdmission(lim AdmissionLimits, now Clock) *Admission {
+	return &Admission{l: newLimiter(lim), now: now}
 }
 
 // Acquire takes a slot for (tenant, db), waiting in the queue until ctx ends if both are at their caps.
@@ -30,6 +32,7 @@ func NewAdmission(lim AdmissionLimits) *Admission {
 //	      Either way nothing is held.
 func (a *Admission) Acquire(ctx context.Context, tenant, db string) (release func(), err error) {
 	k := dbKey{tenant, db}
+	now := a.now() // outside the lock: the request path takes it
 	a.mu.Lock()
 	d, w := a.l.acquire(k)
 	if w != nil {
@@ -38,7 +41,7 @@ func (a *Admission) Acquire(ctx context.Context, tenant, db string) (release fun
 	var drain time.Duration
 	if d == shed {
 		a.shed++
-		drain = queueDrain(a.l.vm.queued, a.drained.perSec(a.now()))
+		drain = queueDrain(a.l.vm.queued, a.drained.perSec(now))
 	}
 	a.inFlightHW, a.qHW = max(a.inFlightHW, a.l.vm.inFlight), max(a.qHW, a.l.vm.queued)
 	a.mu.Unlock()
@@ -66,9 +69,10 @@ func (a *Admission) releaser(k dbKey) func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
+			now := a.now()
 			a.mu.Lock()
 			granted := a.l.release(k)
-			a.drained.done(a.now())
+			a.drained.done(now)
 			a.inFlightHW = max(a.inFlightHW, a.l.vm.inFlight)
 			a.mu.Unlock()
 			for _, w := range granted {
@@ -83,19 +87,20 @@ type AdmissionStats struct {
 	Tenants, DBs, InFlight, Queued     int
 	InFlightHighWater, QueuedHighWater int
 	Shed                               int64   // requests refused because a queue was full (times full)
-	Completed                          int64   // slots released
 	DrainPerSec                        float64 // completions in the last whole second (the shed Retry-After's rate)
 }
 
 // Idle reports whether nothing is held or queued.
-func (s AdmissionStats) Idle() bool { return s.Tenants == 0 && s.DBs == 0 && s.InFlight == 0 && s.Queued == 0 }
+func (s AdmissionStats) Idle() bool {
+	return s.Tenants == 0 && s.DBs == 0 && s.InFlight == 0 && s.Queued == 0
+}
 
 // Stats returns the current totals (O(1)).
 func (a *Admission) Stats() AdmissionStats {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AdmissionStats{Tenants: len(a.l.tenants), DBs: len(a.l.dbs), InFlight: a.l.vm.inFlight, Queued: a.l.vm.queued,
-		InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed, Completed: a.drained.total,
+		InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed,
 		DrainPerSec: a.drained.perSec(a.now())}
 }
 
@@ -104,7 +109,6 @@ func (a *Admission) Stats() AdmissionStats {
 type drainRate struct {
 	sec       int64 // the current second (Unix)
 	cur, prev int64 // completions in sec, and in sec-1
-	total     int64
 }
 
 func (d *drainRate) roll(now time.Time) {
@@ -120,7 +124,6 @@ func (d *drainRate) roll(now time.Time) {
 func (d *drainRate) done(now time.Time) {
 	d.roll(now)
 	d.cur++
-	d.total++
 }
 
 // perSec is the completions in the last whole second before now; 0 when there were none (rate unknown).

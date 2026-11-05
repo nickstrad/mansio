@@ -137,18 +137,23 @@ func TestBreakerCheck(t *testing.T) {
 	}
 }
 
-// A probe must end before the next starts (Release It T4: the inner deadline is the shorter one).
-func TestReadyTimeoutUnderInterval(t *testing.T) {
+// Lifecycle config bounds: the drain is part of the shutdown (drain_timeout <= shutdown_budget), and a probe
+// ends before the next starts (ready_timeout < ready_interval; Release It T4).
+func TestLifecycleConfigBounds(t *testing.T) {
 	for _, tc := range []struct {
-		timeout, interval string
-		ok                bool
-	}{{"999ms", "1s", true}, {"1s", "1s", false}, {"500ms", "1s", true}} {
-		_, err := parseConfig(strings.NewReader(`{"vm":"v","db_dir":"d","keys_file":"k","ready_timeout":"`+tc.timeout+`","ready_interval":"`+tc.interval+`"}`), "/")
+		fields string
+		ok     bool
+	}{
+		{`"drain_timeout":"1s","shutdown_budget":"1s"`, true},
+		{`"drain_timeout":"1001ms","shutdown_budget":"1s"`, false},
+		{`"drain_timeout":"10s","shutdown_budget":"60s"`, true},
+		{`"ready_timeout":"999ms","ready_interval":"1s"`, true},
+		{`"ready_timeout":"1s","ready_interval":"1s"`, false},
+		{`"startup_workers":0`, false},
+	} {
+		_, err := parseConfig(strings.NewReader(`{"vm":"v","db_dir":"d","keys_file":"k",`+tc.fields+`}`), "/")
 		if (err == nil) != tc.ok {
-			t.Errorf("timeout %s interval %s: %v", tc.timeout, tc.interval, err)
+			t.Errorf("%s: err %v", tc.fields, err)
 		}
-	}
-	if _, err := parseConfig(strings.NewReader(`{"vm":"v","db_dir":"d","keys_file":"k","startup_workers":0}`), "/"); err == nil {
-		t.Error("startup_workers 0 accepted")
 	}
 }

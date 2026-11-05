@@ -8,8 +8,10 @@ import (
 )
 
 func TestOutcomeClassTable(t *testing.T) {
-	if numCodes != len(Codes) {
-		t.Fatalf("numCodes %d, %d codes", numCodes, len(Codes))
+	for i, c := range Codes {
+		if c.index() != i {
+			t.Errorf("%s: index %d, want %d", c, c.index(), i)
+		}
 	}
 	want := map[Code]string{OK: ClassOK, Shed: ClassRefused, Unavailable: ClassRefused, Expired: ClassTimeout,
 		StmtTimeout: ClassAppError, Aborted: ClassAppError, WrongOwner: ClassAppError, Fenced: ClassAppError,
@@ -66,9 +68,6 @@ func TestDrainRateWindows(t *testing.T) {
 	if r := d.perSec(t0.Add(2 * time.Second)); r != 0 {
 		t.Fatalf("a quiet second later: %v, want 0", r)
 	}
-	if d.total != 5 {
-		t.Fatalf("total %d", d.total)
-	}
 }
 
 // RI-10's deferred estimate: a shed answer's Retry-After is the VM queue's drain time at the measured rate.
@@ -97,7 +96,7 @@ func TestShedRetryAfterIsQueueDrain(t *testing.T) {
 	if !errors.Is(err, ErrShed) || !errors.As(err, &h) || h.RetryAfter() != time.Second { // (1 queued + 1) / 2 per s
 		t.Fatalf("err %v", err)
 	}
-	if st := a.Stats(); st.Shed != 1 || st.DrainPerSec != 2 || st.InFlightHighWater != 1 || st.QueuedHighWater != 1 || st.Completed != 2 {
+	if st := a.Stats(); st.Shed != 1 || st.DrainPerSec != 2 || st.InFlightHighWater != 1 || st.QueuedHighWater != 1 {
 		t.Fatalf("stats %+v", st)
 	}
 }

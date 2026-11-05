@@ -121,7 +121,7 @@ func TestSIGTERMMeetsBudget(t *testing.T) {
 			exited := make(chan error, 1)
 			go func() { exited <- cmd.Wait() }()
 			defer cmd.Process.Kill()
-			addr := waitAddrProc(t, addrFile, exited)
+			addr := waitAddr(t, addrFile, exited)
 			if tc.slow {
 				b, _ := json.Marshal(map[string]any{"db": "db-1", "kind": "read", "sql": fronttest.SlowSQL})
 				req, _ := http.NewRequest(http.MethodPost, "http://"+addr+front.QueryPath, bytes.NewReader(b))
@@ -145,35 +145,5 @@ func TestSIGTERMMeetsBudget(t *testing.T) {
 				t.Fatalf("log:\n%s", logb)
 			}
 		})
-	}
-}
-
-func waitAddrProc(t *testing.T, path string, exited chan error) string {
-	t.Helper()
-	for range 1000 {
-		select {
-		case err := <-exited:
-			t.Fatalf("agentd exited before serving: %v", err)
-		default:
-		}
-		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
-			return strings.Fields(string(b))[0]
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("agentd did not start")
-	return ""
-}
-
-// The drain is part of the shutdown, so drain_timeout may not exceed shutdown_budget.
-func TestDrainFitsShutdownBudget(t *testing.T) {
-	for _, tc := range []struct {
-		drain, budget string
-		ok            bool
-	}{{"1s", "1s", true}, {"1001ms", "1s", false}, {"10s", "60s", true}} {
-		_, err := parseConfig(strings.NewReader(`{"vm":"v","db_dir":"d","keys_file":"k","drain_timeout":"`+tc.drain+`","shutdown_budget":"`+tc.budget+`"}`), "/")
-		if (err == nil) != tc.ok {
-			t.Errorf("drain %s budget %s: err %v", tc.drain, tc.budget, err)
-		}
 	}
 }

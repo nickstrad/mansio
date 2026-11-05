@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
@@ -92,9 +93,11 @@ func actorError(err error, timedOut bool) error {
 
 // StaticHost serves a fixed set of started actors. Safe for concurrent Lookup; Close closes every actor.
 type StaticHost struct {
-	mu     sync.RWMutex
-	actors map[string]*actor.Actor
-	closed bool
+	mu      sync.RWMutex
+	actors  map[string]*actor.Actor
+	pending map[string]bool // expected (Expect) but not served yet
+	npend   atomic.Int64    // len(pending): once 0, Pending takes no lock (the request path asks it)
+	closed  bool
 }
 
 // NewStaticHost returns a host serving actors (db id → started actor; may be nil). It takes ownership of them.
@@ -102,8 +105,38 @@ func NewStaticHost(actors map[string]*actor.Actor) *StaticHost {
 	if actors == nil {
 		actors = map[string]*actor.Actor{}
 	}
-	return &StaticHost{actors: actors}
+	return &StaticHost{actors: actors, pending: map[string]bool{}}
 }
+
+// Expect marks dbs as served here but not open yet (startup opens them while the agent already serves): until
+// Add serves one, Lookup and Pending refuse it as unavailable, not unknown.
+func (h *StaticHost) Expect(dbs ...string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, db := range dbs {
+		if h.actors[db] == nil {
+			h.pending[db] = true
+		}
+	}
+	h.npend.Store(int64(len(h.pending)))
+}
+
+// Pending returns an error wrapping ErrUnavailable while db is expected but not open yet; nil otherwise.
+func (h *StaticHost) Pending(db string) error {
+	if h.npend.Load() == 0 {
+		return nil
+	}
+	h.mu.RLock()
+	p := h.pending[db]
+	h.mu.RUnlock()
+	if p {
+		return fmt.Errorf("%w: database %s is not open yet (agent starting)", ErrUnavailable, db)
+	}
+	return nil
+}
+
+// PendingCount is how many expected databases are not open yet.
+func (h *StaticHost) PendingCount() int { return int(h.npend.Load()) }
 
 // Add serves a started actor for db from now on (startup opens databases while the agent already serves). It
 // reports false, taking nothing, once the host is closed: the caller closes a.
@@ -117,6 +150,8 @@ func (h *StaticHost) Add(db string, a *actor.Actor) bool {
 	}
 	assert.That(h.actors[db] == nil, "StaticHost.Add(%s): already served", db)
 	h.actors[db] = a
+	delete(h.pending, db)
+	h.npend.Store(int64(len(h.pending)))
 	return true
 }
 
@@ -130,6 +165,9 @@ func (h *StaticHost) Lookup(_ context.Context, db string) (*actor.Actor, error) 
 	case closed:
 		return nil, fmt.Errorf("%w: host closed", ErrShed)
 	case !ok:
+		if err := h.Pending(db); err != nil {
+			return nil, err
+		}
 		return nil, ErrUnknownDB
 	}
 	return a, nil

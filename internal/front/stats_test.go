@@ -23,16 +23,16 @@ func TestServerStatsCountEveryAnswer(t *testing.T) {
 	}
 	st := r.s.Stats()
 	want := map[front.Code]int64{front.OK: 2, front.BadRequest: 1, front.TicketInvalid: 1, front.Expired: 1}
-	for _, c := range front.Codes {
-		if st.Outcomes[c] != want[c] {
-			t.Errorf("%s: %d, want %d", c, st.Outcomes[c], want[c])
+	for i, c := range front.Codes {
+		if n := st.Outcomes[i][0] + st.Outcomes[i][1]; n != want[c] {
+			t.Errorf("%s: %d, want %d", c, n, want[c])
 		}
 	}
 	var n uint64
 	for _, c := range st.LatencyCounts {
 		n += c
 	}
-	if st.Ambiguous != 1 || n != 5 || st.InFlight != 0 || st.InFlightHighWater != 1 || len(st.LatencyCounts) != len(st.LatencyBounds)+1 {
+	if st.Outcomes[3][1] != 1 || n != 5 || st.InFlight != 0 || st.InFlightHighWater != 1 || len(st.LatencyCounts) != len(st.LatencyBounds)+1 {
 		t.Fatalf("stats %+v", st)
 	}
 }

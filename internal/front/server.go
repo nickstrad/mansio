@@ -81,7 +81,7 @@ type Server struct {
 	idle       chan struct{} // closed when draining and inFlight reaches 0
 
 	// Outcomes by code (and ambiguity) and latency of every pipeline answer (Release It O1).
-	outcomes [numCodes][2]atomic.Int64
+	outcomes [len(Codes)][2]atomic.Int64 // [code index][1 if ambiguous]
 	latency  *metrics.LatencyHistogram
 }
 
@@ -91,8 +91,7 @@ func NewServer(cfg Config, tickets TicketVerifier, admitter Admitter, exec Execu
 		clock = time.Now
 	}
 	cfg = cfg.WithDefaults()
-	adm := NewAdmission(cfg.Admission)
-	adm.now = clock
+	adm := newAdmission(cfg.Admission, clock)
 	return &Server{cfg: cfg, tickets: tickets, admitter: admitter, adm: adm, exec: exec,
 		clock: clock, idle: make(chan struct{}), latency: metrics.NewLatency(nil)}
 }
@@ -155,7 +154,7 @@ func (s *Server) Handle(ctx context.Context, in Input) Output {
 	if out.Resp.Ambiguous {
 		amb = 1
 	}
-	s.outcomes[codeIndex[out.Resp.Code]][amb].Add(1)
+	s.outcomes[out.Resp.Code.index()][amb].Add(1)
 	return out
 }
 
@@ -291,8 +290,9 @@ func (s *Server) InFlight() int {
 // answered; Handle is bounded by the request deadline plus the executor's grace, so a hung request shows in the
 // latency histogram at its deadline, not never.
 type ServerStats struct {
-	Outcomes          map[Code]int64 // answers by wire code
-	Ambiguous         int64          // of the expired answers, writes that may have committed
+	// Outcomes counts answers by wire code (indexed like Codes) and ambiguity: [i][1] are answers that may
+	// have committed a write (front.OutcomeClass(c, true)).
+	Outcomes          [len(Codes)][2]int64
 	InFlight          int
 	InFlightHighWater int
 	LatencyBounds     []time.Duration
@@ -302,10 +302,9 @@ type ServerStats struct {
 
 // Stats returns a snapshot.
 func (s *Server) Stats() ServerStats {
-	st := ServerStats{Outcomes: make(map[Code]int64, len(Codes))}
-	for i, c := range Codes {
-		st.Outcomes[c] = s.outcomes[i][0].Load() + s.outcomes[i][1].Load()
-		st.Ambiguous += s.outcomes[i][1].Load()
+	var st ServerStats
+	for i := range Codes {
+		st.Outcomes[i] = [2]int64{s.outcomes[i][0].Load(), s.outcomes[i][1].Load()}
 	}
 	st.LatencyBounds, st.LatencyCounts, st.LatencySum = s.latency.Snapshot()
 	s.mu.Lock()

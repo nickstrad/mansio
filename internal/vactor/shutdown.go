@@ -62,7 +62,7 @@ func (h *Host) Shutdown(ctx context.Context) (ShutdownReport, error) {
 		mu       sync.Mutex
 		failures []error
 	)
-	h.parallel(shutdownOrder(marked), h.opts.Workers, func(k string) error {
+	h.parallel(h.shutdownOrder(marked), h.opts.Workers, func(k string) error {
 		e := marked[k]
 		<-e.done // activations were cancelled above; each also has its own deadline
 		dirty := h.unpublished(e)
@@ -106,7 +106,7 @@ func (h *Host) Shutdown(ctx context.Context) (ShutdownReport, error) {
 
 // shutdownOrder lists the marked keys dirty first, oldest last write-back first; then the rest by key. A key
 // still activating counts as clean (it has no writes yet).
-func shutdownOrder(marked map[string]*entry) []string {
+func (h *Host) shutdownOrder(marked map[string]*entry) []string {
 	type item struct {
 		key   string
 		dirty bool
@@ -117,7 +117,7 @@ func shutdownOrder(marked map[string]*entry) []string {
 		it := item{key: k}
 		select {
 		case <-e.done:
-			it.dirty, it.since = (e.db != nil || e.stranded) && e.dirty(), e.lastWB.Load()
+			it.dirty, it.since = h.unpublished(e), e.lastWB.Load()
 		default:
 		}
 		items = append(items, it)
@@ -150,12 +150,17 @@ func (h *Host) unpublished(e *entry) bool {
 //
 //	pre: e.gone was set by the caller under h.mu, and e.done is closed
 func (h *Host) keep(key string, e *entry) {
+	e.closeDB()
+	h.drop(key, e)
+}
+
+// closeDB closes e's database, if any, keeping its file. pre: e.done is closed.
+func (e *entry) closeDB() {
 	e.wb.Lock()
+	defer e.wb.Unlock()
 	if e.db != nil {
 		e.db.Close()
 	}
-	e.wb.Unlock()
-	h.drop(key, e)
 }
 
 // closeRemaining closes the databases still in the host after Shutdown's passivations: those left warm by a
@@ -191,11 +196,7 @@ func (h *Host) closeRemaining(ctx context.Context) (kept []string, busy int) {
 		delete(h.entries, key) // closed: no Get can find it again
 		h.mu.Unlock()
 		<-e.done
-		e.wb.Lock()
-		if e.db != nil {
-			e.db.Close()
-		}
-		e.wb.Unlock()
+		e.closeDB()
 		kept = append(kept, key)
 	}
 }

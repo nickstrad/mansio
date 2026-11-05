@@ -80,7 +80,7 @@ one they share the query listener):
   It answers from the last probe (every `ready_interval`, each bounded by `ready_timeout`; a result older than
   3 intervals is not trusted). Checks: `startup` (every database tried once), `canary` (a marked read on the
   `~canary` database through admission → executor → actor; `~` is not a valid client db id, so it never
-  touches tenant data; a shed canary passes — overload is not a reason to leave rotation), and at CP-1 one
+  touches tenant data; an admission shed passes — overload is not a reason to leave rotation — but a shed from its own actor fails), and at CP-1 one
   `<dep>_breaker` per remote dependency. Transitions log `AGENT.READY` / `AGENT.NOT_READY`.
 
 Startup listens first, then opens databases in the background (`startup_workers` at a time, failures retried

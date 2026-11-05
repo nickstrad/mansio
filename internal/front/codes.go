@@ -18,6 +18,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
@@ -39,18 +40,35 @@ const (
 )
 
 // Codes lists every wire code in spec order.
-var Codes = []Code{OK, Shed, Unavailable, Expired, StmtTimeout, Aborted, WrongOwner, Fenced, TicketInvalid, BadRequest, Internal}
+var Codes = [...]Code{OK, Shed, Unavailable, Expired, StmtTimeout, Aborted, WrongOwner, Fenced, TicketInvalid, BadRequest, Internal}
 
-const numCodes = 11
-
-// codeIndex is each code's position in Codes.
-var codeIndex = func() map[Code]int {
-	m := make(map[Code]int, len(Codes))
-	for i, c := range Codes {
-		m[c] = i
+// index is c's position in Codes (a switch: no hashing on the request path).
+func (c Code) index() int {
+	switch c {
+	case OK:
+		return 0
+	case Shed:
+		return 1
+	case Unavailable:
+		return 2
+	case Expired:
+		return 3
+	case StmtTimeout:
+		return 4
+	case Aborted:
+		return 5
+	case WrongOwner:
+		return 6
+	case Fenced:
+		return 7
+	case TicketInvalid:
+		return 8
+	case BadRequest:
+		return 9
 	}
-	return m
-}()
+	assert.That(c == Internal, "front: unknown code %q", c)
+	return 10
+}
 
 // Outcome classes per integration point (Release It guide O1): the same six for every dependency, so
 // dashboards and alerts compare them.

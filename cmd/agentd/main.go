@@ -124,14 +124,14 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string)
 		return nil, err
 	}
 	host.Add(front.CanaryDB, canary)
-	st := &startup{}
-	st.pending.Store(int64(len(dbs)))
+	host.Expect(dbs...)
+	st := &startup{host: host}
 	srv := front.NewServer(front.Config{
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		depAdmitter{startupAdmitter{epochs(dbs, cfg), st}}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
+		depAdmitter{startupAdmitter{epochs(dbs, cfg), host}}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
 	probe := cfg.ReadyTimeout.Duration
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
 		front.Check{Name: "startup", Run: st.readyCheck},
@@ -153,7 +153,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string)
 	mux.Handle(front.ReadyPath, front.ReadyHandler(srv, ready))
 	return &agent{cfg: cfg, log: log, srv: srv, host: host, lifecycle: mux, cleanup: cleanCanary,
 		background: []func(context.Context){
-			func(ctx context.Context) { st.openAll(ctx, cfg, dbs, host, log) },
+			func(ctx context.Context) { st.openAll(ctx, cfg, dbs, log) },
 			func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) },
 		}}, nil
 }
@@ -175,9 +175,14 @@ func logReadiness(log *slog.Logger) func(prev, cur front.ReadyState) {
 // listener. Without a lifecycle listener (health_listen), its endpoints share the query listener.
 func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr io.Writer) int {
 	cfg, srv, log := a.cfg, a.srv, a.log
+	served := false
+	defer func() {
+		if !served { // failed before serving: the shutdown phases never ran
+			a.host.Close()
+		}
+	}()
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
-		a.host.Close()
 		return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.Listen))
 	}
 	protos := new(http.Protocols)
@@ -200,7 +205,6 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		hl, err := net.Listen("tcp", cfg.HealthListen)
 		if err != nil {
 			ln.Close()
-			a.host.Close()
 			return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
 		}
 		servers = append(servers, healthServer(cfg, a.lifecycle))
@@ -220,7 +224,6 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 			for _, s := range servers {
 				s.Close()
 			}
-			a.host.Close()
 			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
@@ -232,6 +235,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		bg.Go(func() { job(bctx) })
 	}
 
+	served = true
 	var serveErr error
 	select {
 	case <-ctx.Done():

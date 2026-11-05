@@ -1,14 +1,13 @@
 package owner
 
 import (
+	"cmp"
 	"context"
 	"math/rand/v2"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/retry"
 )
 
@@ -29,7 +28,7 @@ func (o *ReconcileOptions) normalize() {
 	if o.PerKey <= 0 {
 		o.PerKey = 5 * time.Second
 	}
-	o.Backoff.Backoff, o.Backoff.Jitter, o.Backoff.MaxAttempts = retry.Exponential, retry.Equal, retry.MaxAttemptsCap
+	o.Backoff.Backoff, o.Backoff.Jitter = retry.Exponential, retry.Equal
 	if o.Backoff.Base <= 0 {
 		o.Backoff.Base = 100 * time.Millisecond
 	}
@@ -62,43 +61,19 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 			keys = append(keys, k)
 		}
 	}
-	var (
-		failed atomic.Int64
-		mu     sync.Mutex
-		first  error
-		pan    *panicx.Panic
-		wg     sync.WaitGroup
-		next   atomic.Int64
-	)
-	for range min(o.Workers, len(keys)) {
-		wg.Go(func() {
-			defer func() {
-				if p := panicx.From(recover()); p != nil {
-					mu.Lock()
-					pan = p
-					mu.Unlock()
-				}
-			}()
-			for i := int(next.Add(1)) - 1; i < len(keys); i = int(next.Add(1)) - 1 {
-				kctx, cancel := context.WithTimeout(ctx, o.PerKey)
-				err := t.Reconcile(kctx, keys[i])
-				cancel()
-				if err != nil {
-					failed.Add(1)
-					mu.Lock()
-					if first == nil {
-						first = err
-					}
-					mu.Unlock()
-				}
-			}
-		})
+	var first error
+	failed := 0
+	for _, err := range parallel.ForEach(ctx, len(keys), o.Workers, func(ctx context.Context, i int) error {
+		kctx, cancel := context.WithTimeout(ctx, o.PerKey)
+		defer cancel()
+		return t.Reconcile(kctx, keys[i])
+	}) {
+		if err != nil {
+			failed++
+			first = cmp.Or(first, err)
+		}
 	}
-	wg.Wait()
-	if pan != nil {
-		panic(pan) // a bug in a worker: re-raise in the caller (Cox-Buday ch. 4)
-	}
-	rep := ReconcileReport{Round: 1, Tried: len(keys), Failed: int(failed.Load()), Took: time.Since(start)}
+	rep := ReconcileReport{Round: 1, Tried: len(keys), Failed: failed, Took: time.Since(start)}
 	if first != nil {
 		return rep, errs.Wrap(module, first, "%d of %d key(s) stay closed after reconcile; safe to retry", rep.Failed, rep.Tried)
 	}
@@ -123,7 +98,7 @@ func (t *Table) ReconcileUntilDone(ctx context.Context, o ReconcileOptions, repo
 		if err == nil {
 			return nil
 		}
-		prev = o.Backoff.Delay(rng, min(round+1, retry.MaxAttemptsCap), prev)
+		prev = o.Backoff.Delay(rng, round+1, prev)
 		select {
 		case <-ctx.Done():
 			return errs.Wrap(module, ctx.Err(), "reconcile stopped after %d round(s); %d key(s) stay closed", round, rep.Failed)

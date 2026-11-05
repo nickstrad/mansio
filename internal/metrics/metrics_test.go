@@ -2,7 +2,6 @@ package metrics_test
 
 import (
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -60,16 +59,18 @@ func TestRegistrationMistakesPanic(t *testing.T) {
 	}
 }
 
-func TestHighWater(t *testing.T) {
-	var h metrics.HighWater
-	var wg sync.WaitGroup
-	for range 50 {
-		wg.Go(func() { h.Add(1); h.Add(-1) })
+// OnScrape hooks run once per scrape, before the collectors that read their snapshot.
+func TestOnScrapeSnapshotsOncePerScrape(t *testing.T) {
+	r := metrics.NewRegistry()
+	calls, snap := 0, 0
+	r.OnScrape(func() { calls++; snap = calls * 10 })
+	for _, name := range []string{"a", "b"} {
+		r.Add(name, "", metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, float64(snap)) })
 	}
-	wg.Wait()
-	h.Add(3)
-	h.Add(-2)
-	if cur, max := h.Load(); cur != 1 || max < 3 || max > 50 {
-		t.Fatalf("cur %d max %d", cur, max)
+	var b strings.Builder
+	r.WriteText(&b)
+	r.WriteText(&b)
+	if calls != 2 || !strings.Contains(b.String(), "a 20\n") || !strings.Contains(b.String(), "b 20\n") {
+		t.Fatalf("calls %d:\n%s", calls, b.String())
 	}
 }
