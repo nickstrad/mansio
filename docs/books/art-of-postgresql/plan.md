@@ -142,7 +142,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
 | PG-10 | Locator cache invalidation with LISTEN/NOTIFY | M | PG-03 | With CP step 5 |
 | PG-11 | Adopt the SQL guide | S | — | Now |
 
-#### PG-01 — Savepoint per write; detect a transaction ended under the actor (ch 7, 37)
+#### PG-01 — Savepoint per write; detect a transaction ended under the actor (ch 7, 37) — **Done** (345c802)
 
 - **Files:** `internal/actor/actor.go` (`writeBatch`), `internal/actor/plan.go` (`settle`), `actor/fake_test.go`,
   `actor/model_fuzz_test.go`, `actor/sqlite_test.go`.
@@ -204,7 +204,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   64 workers in `knowledge/fencing/` (first Postgres numbers for the safety path).
 - **Size:** M.
 
-#### PG-05 — Enforce FKs and types in SQLite (ch 10, 22, 29)
+#### PG-05 — Enforce FKs and types in SQLite (ch 10, 22, 29) — **Done** (864a5a1)
 
 - **Files:** `internal/actor/config.go` (new `ForeignKeys bool`, default true; JSON `foreign_keys`),
   `internal/actor/conn.go:85` (`&_pragma=foreign_keys(1)`), `internal/schema/schema.go:156-166` (emit
@@ -216,7 +216,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   the run. `keep_dbs` fingerprint bumps to `v3` (`schema.go:291`) so old seeded databases are not reused.
 - **Size:** S.
 
-#### PG-06 — Typed shared views and golden tests for `queries/*.sql` (ch 8, 16, 38)
+#### PG-06 — Typed shared views and golden tests for `queries/*.sql` (ch 8, 16, 38) — **Done** (fcde79c)
 
 - **Files:** new `queries/views.sql` (typed `read_csv(..., columns = {...})` for `requests`, `samples`, `phases`,
   `schemas`, generated from the column list in `internal/stats/writer.go`), `report.sql` and `compare.sql`
@@ -227,7 +227,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   column list in `views.sql`, so a rename fails `make sqlbench-check`, not a report.
 - **Size:** S.
 
-#### PG-07 — SQL hygiene fixes (ch 2, 8)
+#### PG-07 — SQL hygiene fixes (ch 2, 8) — **Done** (fbb2c82)
 
 - **Files/changes:** `workload.go:190,194` → `count(*) AS n … ORDER BY n DESC`; `template.go:57` → explicit
   `(k, v)`; `template.go:41` → a shared `sqlitedsn.Build(path, pragmas)` (move `actor.dsn`'s escaping into a tiny
@@ -235,7 +235,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
 - **Acceptance:** existing tests pass; a template test opens a directory named `a#b?c`.
 - **Size:** S.
 
-#### PG-08 — Multi-row seed fill, measured (ch 36)
+#### PG-08 — Multi-row seed fill, measured (ch 36) — **Skipped**: measured −14% seed time (< 20% bar), reverted; null result in knowledge/sqlbench/2026-11-05-pg08-multirow-seed.md (fbfc410)
 
 - **Files:** `internal/schema/schema.go:246-264`: fixed chunks of 100 rows via `InsertSQL(100)` plus one tail
   statement (a fixed chunk size keeps the statement cache hot; 100 × 9 binds is far below SQLite's 32766 limit).
