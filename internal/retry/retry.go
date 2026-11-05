@@ -11,6 +11,7 @@
 package retry
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"slices"
@@ -48,7 +49,7 @@ type Policy struct {
 	Base         time.Duration // first delay; default 50ms when backing off
 	Max          time.Duration // cap on any jittered delay (a server hint may exceed it); default 5s
 	Jitter       Jitter        // default full
-	RetryOn      outcome.Set   // default {shed, aborted}
+	RetryOn      outcome.Set   // default {shed, unavailable, aborted}
 	BudgetRatio  float64       // retries allowed per first attempt (see Budget); 0 = unlimited
 	TotalTimeout time.Duration // no retry may start later than this after the first attempt; 0 = never
 }
@@ -94,7 +95,7 @@ func (p *Policy) Normalize() error {
 		return fmt.Errorf("budget_ratio must be >= 0, got %g", p.BudgetRatio)
 	}
 	if p.RetryOn == 0 {
-		p.RetryOn = outcome.SetOf(outcome.Shed, outcome.Aborted)
+		p.RetryOn = outcome.SetOf(outcome.Shed, outcome.Unavailable, outcome.Aborted)
 	}
 	return nil
 }
@@ -138,6 +139,17 @@ type Attempt struct {
 	Elapsed    time.Duration // since the first attempt was scheduled
 	Prev       time.Duration // delay before this attempt (0 for the first)
 	ServerHint time.Duration // the server's Retry-After (0 = none); the next attempt waits at least this long
+}
+
+// HintOf returns the retry hint carried by err's chain: the RetryAfter of the first error that has one
+// (front.RetryHint, a breaker's time to half-open), or 0. In-process callers pass it as Attempt.ServerHint;
+// network clients take the response's Retry-After instead.
+func HintOf(err error) time.Duration {
+	var h interface{ RetryAfter() time.Duration }
+	if errors.As(err, &h) {
+		return max(h.RetryAfter(), 0)
+	}
+	return 0
 }
 
 // MaxAttemptsCap bounds attempts regardless of policy (records store the attempt number in a byte).

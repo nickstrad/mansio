@@ -1,5 +1,7 @@
 // Package outcome names what happened to one request attempt. It is the single list of outcome codes used by
-// the actor result classifier, the retry policies (which outcomes to retry) and the request records.
+// the actor result classifier, the retry policies (which outcomes to retry), the request records and the
+// network client (internal/client), which parses the front's wire codes with Parse. New codes are appended:
+// a code's number never changes.
 package outcome
 
 import (
@@ -20,10 +22,11 @@ const (
 	Aborted            // rolled back because another write in its batch timed out
 	Closed             // the database was closed
 	Error              // any other SQLite or driver error
+	Unavailable        // a dependency (storage, placement) was down; nothing ran (wire code "unavailable", RI-10)
 	numCodes
 )
 
-var names = [numCodes]string{"ok", "shed", "stmt_timeout", "expired", "client_timeout", "gen_full", "aborted", "closed", "error"}
+var names = [numCodes]string{"ok", "shed", "stmt_timeout", "expired", "client_timeout", "gen_full", "aborted", "closed", "error", "unavailable"}
 
 func (c Code) String() string {
 	if c < numCodes {

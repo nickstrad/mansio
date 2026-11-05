@@ -2,6 +2,8 @@ package retry
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math/rand/v2"
 	"testing"
 	"time"
@@ -28,7 +30,7 @@ func TestNormalizeDefaults(t *testing.T) {
 	if p.MaxAttempts != 3 || p.Backoff != Exponential || p.Jitter != Full || p.Base != 50*ms || p.Max != 5*time.Second {
 		t.Fatalf("%+v", p)
 	}
-	if !p.RetryOn.Has(outcome.Shed) || !p.RetryOn.Has(outcome.Aborted) || p.RetryOn.Has(outcome.StmtTimeout) {
+	if !p.RetryOn.Has(outcome.Shed) || !p.RetryOn.Has(outcome.Unavailable) || !p.RetryOn.Has(outcome.Aborted) || p.RetryOn.Has(outcome.StmtTimeout) {
 		t.Fatalf("default retry_on = %b", p.RetryOn)
 	}
 	if b := policy(t, Policy{MaxAttempts: 10, Backoff: NoBackoff, Jitter: NoJitter}); b.Backoff != NoBackoff || b.Jitter != NoJitter ||
@@ -285,4 +287,28 @@ func FuzzDelayBounds(f *testing.F) {
 			t.Fatalf("Decide delay %s outside [hint %s, max(%s, hint)]", dd, hint, p.Max)
 		}
 	})
+}
+
+type hintErr time.Duration
+
+func (h hintErr) Error() string             { return "hinted" }
+func (h hintErr) RetryAfter() time.Duration { return time.Duration(h) }
+
+func TestHintOf(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{"nil", nil, 0},
+		{"no hint", errors.New("x"), 0},
+		{"hint", hintErr(2 * time.Second), 2 * time.Second},
+		{"hint deep in the chain", fmt.Errorf("outer: %w", hintErr(time.Second)), time.Second},
+		{"negative hint is none", hintErr(-time.Second), 0},
+	}
+	for _, tc := range tests {
+		if got := HintOf(tc.err); got != tc.want {
+			t.Errorf("%s: HintOf = %s, want %s", tc.name, got, tc.want)
+		}
+	}
 }

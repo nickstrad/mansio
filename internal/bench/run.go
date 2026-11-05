@@ -328,7 +328,7 @@ func (r *runner) worker(w int) {
 		r.inFlight.Add(-1)
 		r.completed.Add(1)
 		rec := answered(j, res, send, done, r.start)
-		rec.Final = !r.maybeRetry(j, rec, rng, done)
+		rec.Final = !r.maybeRetry(j, rec, retry.HintOf(res.Err), rng, done)
 		if j.pick.Record {
 			r.record(buf, rec)
 		}
@@ -352,12 +352,13 @@ func (r *runner) send(j job) (res actor.Result, send, done time.Time) {
 }
 
 // maybeRetry schedules the next attempt if the client's policy and budget allow it, and reports whether it did.
-func (r *runner) maybeRetry(j job, rec stats.Record, rng *rand.Rand, now time.Time) bool {
+// hint is the answer's retry hint (retry.HintOf): actor errors carry none today, so it is 0 until one does.
+func (r *runner) maybeRetry(j job, rec stats.Record, hint time.Duration, rng *rand.Rand, now time.Time) bool {
 	if r.stopping.Load() {
 		return false
 	}
 	delay, ok := r.policies[j.pick.Client].Decide(rng, retry.Attempt{
-		N: int(j.attempt), Outcome: rec.Outcome, Elapsed: now.Sub(j.first), Prev: j.prevDelay})
+		N: int(j.attempt), Outcome: rec.Outcome, Elapsed: now.Sub(j.first), Prev: j.prevDelay, ServerHint: hint})
 	if !ok || !r.budgets[j.pick.Client].TryRetry() {
 		return false
 	}
