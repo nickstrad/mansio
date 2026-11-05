@@ -30,7 +30,9 @@ import (
 //
 // Env: COLDLOAD_S3 (endpoint, required), S3_BACKEND (label), S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET (default:
 // the coldload identity), S3_COMPAT_ROUNDS (X3 rounds, default 200), S3_AGENT_ACCESS_KEY / S3_AGENT_SECRET_KEY
-// (a scoped identity for X12; skipped without one).
+// (a scoped identity for X12; skipped without one), S3_COMPAT_PEER (a second gateway of the same cluster, e.g.
+// localhost:8344 for deploy/seaweedfs-cluster: X3's odd writers and its read-back go through it, so the
+// conditional PUT races across gateways).
 func TestS3Compat(t *testing.T) {
 	ep := s3Endpoint(t)
 	env := func(k, def string) string {
@@ -70,12 +72,20 @@ func TestS3Compat(t *testing.T) {
 		}
 		results = append(results, result{id, status, detail})
 	}
-	put := func(name string, data []byte, set func(*minio.PutObjectOptions)) (minio.UploadInfo, error) {
+	peerEP := os.Getenv("S3_COMPAT_PEER")
+	peer := c // X3's second gateway; the same one without S3_COMPAT_PEER
+	if peerEP != "" {
+		peer = rawClient(t, peerEP, env("S3_ACCESS_KEY", "coldload"), env("S3_SECRET_KEY", "coldload-secret"))
+	}
+	putVia := func(c *minio.Client, name string, data []byte, set func(*minio.PutObjectOptions)) (minio.UploadInfo, error) {
 		opts := minio.PutObjectOptions{DisableMultipart: true}
 		if set != nil {
 			set(&opts)
 		}
 		return c.PutObject(ctx, bucket, root+name, bytes.NewReader(data), int64(len(data)), opts)
+	}
+	put := func(name string, data []byte, set func(*minio.PutObjectOptions)) (minio.UploadInfo, error) {
+		return putVia(c, name, data, set)
 	}
 	status := func(err error) int { return minio.ToErrorResponse(err).StatusCode }
 
@@ -113,13 +123,18 @@ func TestS3Compat(t *testing.T) {
 		info, err := put("x3", []byte("base"), nil)
 		etag := info.ETag
 		var bad error
+		peerWins := 0
 		for r := 0; r < rounds && err == nil && bad == nil; r++ {
 			errs := make([]error, writers)
 			infos := make([]minio.UploadInfo, writers)
 			var wg sync.WaitGroup
 			for w := range writers {
 				wg.Go(func() {
-					infos[w], errs[w] = put("x3", fmt.Appendf(nil, "round %d writer %d", r, w),
+					via := c
+					if w%2 == 1 {
+						via = peer
+					}
+					infos[w], errs[w] = putVia(via, "x3", fmt.Appendf(nil, "round %d writer %d", r, w),
 						func(o *minio.PutObjectOptions) { o.SetMatchETag(etag) })
 				})
 			}
@@ -139,7 +154,7 @@ func TestS3Compat(t *testing.T) {
 				bad = fmt.Errorf("round %d: no writer won", r)
 			}
 			if bad == nil {
-				got, gerr := c.GetObject(ctx, bucket, root+"x3", minio.GetObjectOptions{})
+				got, gerr := peer.GetObject(ctx, bucket, root+"x3", minio.GetObjectOptions{})
 				var b bytes.Buffer
 				if gerr == nil {
 					_, gerr = b.ReadFrom(got)
@@ -148,9 +163,14 @@ func TestS3Compat(t *testing.T) {
 					bad = fmt.Errorf("round %d: stored %q (%v), winner wrote %q", r, b.String(), gerr, want)
 				}
 				etag = infos[won].ETag
+				peerWins += won % 2
 			}
 		}
-		record(t, "X3", true, errors.Join(err, bad), fmt.Sprintf("%d rounds × %d If-Match writers: exactly 1 winner each, stored bytes = winner's", rounds, writers))
+		detail := fmt.Sprintf("%d rounds × %d If-Match writers: exactly 1 winner each, stored bytes = winner's", rounds, writers)
+		if peerEP != "" {
+			detail += fmt.Sprintf(" (odd writers and the read-back via %s; it won %d rounds)", peerEP, peerWins)
+		}
+		record(t, "X3", true, errors.Join(err, bad), detail)
 	})
 
 	t.Run("X4 strong read-after-write", func(t *testing.T) {
