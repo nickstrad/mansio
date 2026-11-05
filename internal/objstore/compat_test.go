@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -24,13 +25,14 @@ import (
 // TestS3Compat records, for one S3 backend and version, every S3 behavior ts-db-go relies on (object-storage
 // guide §7, plan OS-03). Run it before using a backend or version, and record the table it prints in
 // knowledge/writeback/<date>-s3-compat-<backend>.md. A failure in X1–X5 fails the test (it blocks the
-// backend); X6–X12 are recorded as pass / fail / skip and fail nothing.
+// backend); X6–X11 are recorded as pass / fail / skip and fail nothing.
 //
 //	COLDLOAD_S3=localhost:8333 S3_BACKEND=seaweedfs-4.47 go test -count=1 -v -run TestS3Compat ./internal/objstore
 //
 // Env: COLDLOAD_S3 (endpoint, required), S3_BACKEND (label), S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET (default:
 // the coldload identity), S3_COMPAT_ROUNDS (X3 rounds, default 200), S3_AGENT_ACCESS_KEY / S3_AGENT_SECRET_KEY
-// (a scoped identity for X12; skipped without one).
+// (the scoped agent identity for X12; default the dev keys of deploy/seaweedfs/s3.json, "-" skips X12; a
+// backend that does not know the identity records a skip). X12 blocks when the identity exists.
 func TestS3Compat(t *testing.T) {
 	ep := s3Endpoint(t)
 	env := func(k, def string) string {
@@ -344,25 +346,64 @@ func TestS3Compat(t *testing.T) {
 	})
 
 	t.Run("X12 scoped identity", func(t *testing.T) {
-		ak, sk := os.Getenv("S3_AGENT_ACCESS_KEY"), os.Getenv("S3_AGENT_SECRET_KEY")
-		if ak == "" {
-			results = append(results, result{"X12", "skip", "no scoped identity configured (S3_AGENT_ACCESS_KEY); deploy/seaweedfs/s3.json has only the admin identity"})
+		// The agent identity (deploy/seaweedfs/s3.json, OS-11) may read, write and delete objects in the bucket,
+		// and nothing else: no LIST (guide K: no LIST on a request path), no bucket creation, no other bucket.
+		// When the identity exists the checks block; when the backend does not know it, X12 is skipped.
+		ak, sk := env("S3_AGENT_ACCESS_KEY", "agent"), env("S3_AGENT_SECRET_KEY", "agent-secret-dev")
+		if ak == "-" {
+			results = append(results, result{"X12", "skip", "S3_AGENT_ACCESS_KEY=-"})
 			return
 		}
+		st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: ak, SecretKey: sk, Bucket: bucket})
+		if err != nil {
+			t.Fatal(err)
+		}
+		local := filepath.Join(t.TempDir(), "x12")
+		os.WriteFile(local, []byte("x12"), 0o644)
+		name := root + "x12/obj"
+		var resp minio.ErrorResponse
+		if _, err := st.PutFile(ctx, name, local); errors.As(err, &resp) && resp.Code == "InvalidAccessKeyId" {
+			results = append(results, result{"X12", "skip", "the backend has no identity " + ak})
+			return
+		}
+		var problems []error
+		check := func(what string, err error) {
+			if err != nil {
+				problems = append(problems, fmt.Errorf("%s: %w", what, err))
+			}
+		}
+		denied := func(what string, err error) {
+			if err == nil {
+				problems = append(problems, fmt.Errorf("%s: allowed, want AccessDenied", what))
+			} else if k := objstore.Classify(err); k != objstore.Permanent || !strings.Contains(err.Error(), "Access Denied") &&
+				!strings.Contains(err.Error(), "AccessDenied") {
+				problems = append(problems, fmt.Errorf("%s: %v (%v), want AccessDenied (permanent)", what, err, k))
+			}
+		}
+		check("bucket check (HEAD bucket)", st.EnsureBucket(ctx))
+		_, err = st.PutFile(ctx, name, local)
+		check("PUT", err)
+		_, err = st.Size(ctx, name)
+		check("HEAD", err)
+		_, err = st.GetToFile(ctx, name, local+".got")
+		check("GET", err)
+		check("DELETE (batch)", st.Delete(ctx, []string{name}))
+		if _, err := st.Size(ctx, name); !errors.Is(err, objstore.ErrNotFound) {
+			problems = append(problems, fmt.Errorf("after DELETE: %v, want not found", err))
+		}
+		_, err = st.ListPage(ctx, root, "", "", 10)
+		denied("LIST", err)
 		agent := rawClient(t, ep, ak, sk)
-		var err error
-		for o := range agent.ListObjects(ctx, bucket, minio.ListObjectsOptions{Prefix: root}) {
-			if o.Err == nil {
-				err = errors.New("the agent identity can LIST")
-			}
-			break
+		other := "compat-x12-" + strings.ToLower(logx.NewID())
+		denied("create bucket", agent.MakeBucket(ctx, other, minio.MakeBucketOptions{}))
+		if err := c.MakeBucket(ctx, other, minio.MakeBucketOptions{}); err == nil { // the admin identity makes one
+			_, perr := agent.PutObject(ctx, other, "x", bytes.NewReader([]byte("x")), 1, minio.PutObjectOptions{})
+			denied("PUT into another bucket", perr)
+			c.RemoveObject(ctx, other, "x", minio.RemoveObjectOptions{})
+			c.RemoveBucket(ctx, other)
 		}
-		if _, perr := put("x12", []byte("x"), nil); perr == nil {
-			if derr := agent.RemoveObject(ctx, bucket, root+"x12", minio.RemoveObjectOptions{}); derr == nil {
-				err = errors.Join(err, errors.New("the agent identity can DELETE"))
-			}
-		}
-		record(t, "X12", false, err, "agent identity: LIST and DELETE denied")
+		err = errors.Join(problems...)
+		record(t, "X12", true, err, "agent identity: HEAD bucket, PUT, HEAD, GET, batch DELETE allowed; LIST, create bucket, other bucket → AccessDenied (permanent)")
 	})
 
 	var b strings.Builder
