@@ -199,7 +199,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
 | OS-12 | Storage recovery tool and runbook | M | OS-05 | Post-CP |
 | OS-13 | WAL-shipping design amendments | S (doc) | OS-05 | Before any WAL code |
 
-### OS-01: Own the retries (fixes G2)
+### OS-01: Own the retries (fixes G2) — **Done** (20c4311)
 
 - **Goal:** every S3 request is sent once per decision our code makes. Retries happen in one place and
   follow guide rules R1–R5.
@@ -247,7 +247,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
   - `FuzzDurableHostModel` and `FuzzOwnershipModel` get the new faults as ops, and invariants I1–I3
     still hold.
 
-### OS-03: Per-backend S3 compatibility suite (fixes G4)
+### OS-03: Per-backend S3 compatibility suite (fixes G4) — **Done** (b6b8ae2; SeaweedFS 4.47 single-node only, MinIO and multi-node not run)
 
 - **Goal:** one env-gated test that records, for each backend and version, every S3 behavior we rely on.
   It must pass before a backend or version is used.
@@ -343,7 +343,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
     ran must succeed, or fail with `ErrNotFound` only for keys this host does not own.
   - wbbench reports bytes in the bucket per database, flat over a 10-minute run.
 
-### OS-07: Server-checked upload integrity (fixes G5)
+### OS-07: Server-checked upload integrity (fixes G5) — **Done** (c9f25b7)
 
 - **Goal:** the server rejects a PUT whose body differs from what we hashed.
 - **Files:** `internal/objstore/durable.go`
@@ -356,7 +356,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
 - **Acceptance:** an `httptest` proxy that flips one body byte makes `PutGeneration` fail with
   `Permanent` (BadDigest), and no object exists afterwards.
 
-### OS-08: Per-operation metrics (fixes G7)
+### OS-08: Per-operation metrics (fixes G7) — **Done** (873461f; in `objstore.Store.Metrics`, not a `durable.Metered` decorator; Host.Stats/wbbench columns not done)
 
 - **Goal:** for each S3 operation kind (GET manifest, GET generation, PUT generation, PUT manifest, HEAD,
   LIST, DELETE), count requests by `Kind`, plus bytes and a latency histogram.

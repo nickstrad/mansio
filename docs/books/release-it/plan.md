@@ -156,7 +156,7 @@ where it lands.
 | RI-16 | Runtime controls + scriptable admin (`agentctl`), secrets file | G10 | M | CP 4 | RI-11 |
 | RI-15 | Longevity, capacity-knee and fault-under-load runs | all | L | after CP 4 | RI-13 |
 
-#### RI-13 — Fault-injecting network harness
+#### RI-13 — Fault-injecting network harness — **Done** (32dfce4; Postgres side not built yet: no Postgres adapter exists)
 
 - **Goal.** Ch5 §5.7: a *devious* stand-in that breaks transport and protocol, not only the Go interface.
   Today's fakes (`durabletest`, `ownertest`) behave only within the interface. Ch5 §5.7 says mocks cannot
@@ -175,7 +175,7 @@ where it lands.
   proxy with all faults off.
 - **Size.** M.
 
-#### RI-01 — S3 client budget
+#### RI-01 — S3 client budget — **Done** (20c4311; a GET makes ≤ 5 requests under 503s, a PUT exactly 1, not "2 per call")
 
 - **Goal.** Exactly one retry layer, and a deadline on every S3 call (guide rules T1, R1).
 - **Files.** `internal/objstore/objstore.go`, `durable.go`.
