@@ -33,6 +33,17 @@ create or replace table steady as
          or s.series like 'dir_bytes%' or s.series = 'tsdb_vactor_oldest_dirty_age_seconds'
          or s.series = 'tsdb_vactor{stat="active"}' or s.series = 'tsdb_actors'
          or s.series = 'controld_locator_cached' or s.series like 'tsdb_edge_state%');
+select '1a. client view per phase (frontbench summaries)' as section;
+select regexp_extract(filename, '([a-z0-9]+)\.json$', 1) as phase, requests, round(ok_per_sec) as ok_per_sec,
+       round(p50_us) as p50_us, round(p99_us) as p99_us, round(p999_us) as p999_us, round(max_us) as max_us,
+       round(error_rate, 5) as error_rate, moves, move_failed, codes
+from read_json(getvariable('dir') || '/*.json', filename = true, union_by_name = true)
+where filename similar to '.*/(load[0-9]+|idle)\.json' order by phase;
+
+select '1b. CPU per phase (cores; a restart inside a phase undercounts that process)' as section;
+select p.phase, s.proc, round((max(s.v) - min(s.v)) / nullif(epoch(max(s.t)) - epoch(min(s.t)), 0), 3) as cores
+from s, phases p where s.series = 'ps_cpu_seconds' and s.t between p.t0 and p.t1 group by all order by p.phase, s.proc;
+
 select '2. steady-state slopes (load2 after 5 min warm-up)' as section;
 -- change = slope × window as a fraction of the mean; flat = |change| < 10 % or the series barely moves.
 select proc, series, count(*) as n, round(avg(v), 1) as mean, round(min(v), 1) as min, round(max(v), 1) as max,

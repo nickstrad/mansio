@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The soak's sampler (scripts/soak/run.sh starts it): every SAMPLE_EVERY s, one row per series into
-# $OUT/samples.tsv (t, proc, series, value): each daemon's /metrics (minus histogram buckets), its RSS from ps,
+# $OUT/samples.tsv (t, proc, series, value): each daemon's /metrics (minus histogram buckets), its RSS and CPU time from ps,
 # the agents' cache-dir bytes, and the bucket's object count and bytes under PREFIX (aws CLI, every other
 # sample). A daemon that does not answer (restarting, stopped) is skipped for that sample.
 # Env: OUT, CA, PREFIX, SAMPLE_EVERY; AWS_* for the bucket listing.
@@ -19,6 +19,8 @@ while :; do
         '!/^#/ && !/_bucket\{/ && NF >= 2 { v = $NF; $NF = ""; sub(/ +$/, ""); print t "\t" p "\t" $0 "\t" v }'
       if pid="$(cat "$OUT/$p.pid" 2>/dev/null)" && rss="$(ps -o rss= -p "$pid" 2>/dev/null)"; then
         printf '%s\t%s\tps_rss_bytes\t%s\n' "$t" "$p" "$(( ${rss// /} * 1024 ))"
+        ps -o time= -p "$pid" 2>/dev/null | awk -v t="$t" -v p="$p" '{ n = split($1, a, /[:-]/); s = 0; m = 1
+          for (i = n; i >= 1; i--) { s += a[i] * m; m = (m == 60 && i == n - 1) ? 3600 : m * 60 } print t "\t" p "\tps_cpu_seconds\t" s }'
       fi
     done
     for vm in vm-a vm-b; do

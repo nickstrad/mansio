@@ -12,7 +12,8 @@
 # `frontbench verify` checks every acknowledged write against the rows, and analyze.sql (DuckDB) computes the
 # slopes and the error attribution.
 #
-# Plan and fault times: configs/soak/soak.env (override any of them from the environment). Needs: go, docker
+# Plan and fault times: configs/soak/soak.env (override any of them from the environment; NOFAULTS=1 skips
+# the fault windows, a phase of 0 s is skipped, RATE=0 is closed loop: capacity runs). Needs: go, docker
 # (tsdb-postgres, coldload-seaweedfs running), openssl, curl, jq, aws (bucket listing), duckdb.
 # Leaves the containers running (SeaweedFS is paused, then unpaused, in its fault window); stops every process it started.
 set -euo pipefail
@@ -148,17 +149,17 @@ fault_windows() {
   act "$bin/agentctl" -addr 127.0.0.1:17075 breaker placement reset; mark fault_end pg_breaker_vm-b
 }
 
-phase() { # NAME SECONDS RATE CONC MOVE
+phase() { # NAME SECONDS RATE CONC MOVE (0 seconds: skipped)
+  [ "$2" -gt 0 ] || return 0
   mark phase_start "$1"
   "${fb[@]}" -run-id "$1" -duration "${2}s" -rate "$3" -conc "$4" -move-every "$5" -seed "$RANDOM" \
     -out "$out/$1.json" >> "$out/frontbench.txt" 2>&1 || log "frontbench $1 exited $?"
   mark phase_end "$1"
 }
 
-fault_windows "$(date +%s)" &
-faults=$!
+if [ "${NOFAULTS:-0}" != 1 ]; then fault_windows "$(date +%s)" & faults=$!; fi
 phase load1 "$LOAD1" "$RATE" "$CONC" "$MOVE_EVERY"
-wait "$faults" || true; faults=
+[ -n "${faults:-}" ] && { wait "$faults" || true; }; faults=
 phase idle "$IDLE" "$IDLE_RATE" 1 0
 phase load2 "$LOAD2" "$RATE" "$CONC" "$MOVE_EVERY"
 sleep 30 # let write-backs settle before verifying
