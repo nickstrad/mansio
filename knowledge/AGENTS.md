@@ -16,6 +16,12 @@ More than one agent works in this repo at the same time. This folder holds what 
 6. Each agent's live plan and status stays in its state file at the repo root (`STATE.md`,
    `docs/state_files/STATE-coldload.md` (archived)), not here. This folder is for findings that should outlast the work.
 
+## Coding rules
+
+Before planning or writing code, read [../docs/coding-style.md](../docs/coding-style.md) and the guide for the
+area you touch ([../docs/books/README.md](../docs/books/README.md)): release-it (integration points and
+stability), art-of-postgresql (SQL), object-storage (S3 patterns), plus `testing/` and `concurrency-in-go/` here.
+
 ## Agents and state files
 
 | Agent | State file | Topic folders |

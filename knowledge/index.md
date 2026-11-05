@@ -4,6 +4,7 @@ One line per topic folder or key note. Newest first within a section. Rules: `AG
 
 ## Topics
 
+- [coding style](../docs/coding-style.md): one-page rules for all code, summarizing the guides in [docs/books/](../docs/books/README.md) (Release It!, Art of PostgreSQL, Object Storage, plus testing and concurrency here). Read before planning. Owner: coordinator.
 - [control-plane plan](../docs/control-plane-plan.md): 2026-11-05 standing after writeback/fencing/front landed, the three flows (route, new db, place+warm cold db), and the build order to a client that reaches the right process. Owner: coordinator.
 - [front/](front/README.md): the agent's network front: Ed25519 tickets, per-tenant/per-db admission, `Admitter`/`Executor` ports, wire codes; pipeline −7% vs in-process actor, loopback HTTP ~7× slower; ticket verify 26 µs (cached 53 ns). Owner: front agent.
 - [writeback/](writeback/README.md): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; VACUUM INTO stalls writes ~0.8 GB/s; SeaweedFS conditional PUT documented but unverified. Owner: writeback agent.
