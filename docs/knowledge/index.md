@@ -16,6 +16,20 @@ read and edit entries with zero tooling.
 | [glossary.md](glossary.md)                               | Project terms: items, batches, side quests, review protocol           |
 | [haiku-experiment-record.md](haiku-experiment-record.md) | Preserved 2026-10-10 verdicts from the retired Haiku experiment track |
 
+## Topics
+
+One folder per part of the system, one dated entry per thread that explained it. Rules:
+[AGENTS.md](AGENTS.md).
+
+- [compiler/](compiler/README.md): how plans and schemas become SQL (`core/compile/`), and which process runs
+  it.
+  - [2026-11-05 select-all walkthrough](compiler/2026-11-05-select-all-walkthrough.md): `db.find("games")`
+    from SDK call → plan → SQL → read-only SQLite in the server process → decoded documents.
+  - [2026-11-05 table lookup and compileSelect](compiler/2026-11-05-table-lookup-and-compile-select.md): check
+    order, placeholder numbering, per-dialect field access, and refusals.
+  - [2026-11-05 SQLite-only simplification](compiler/2026-11-05-sqlite-only-simplification.md): DuckDB app
+    queries are dead code; the event log is what keeps DuckDB.
+
 ## Where the project stands
 
 - `docs/plans/ffi-implementation.md` — the FFI statement execution layer: FFI-01 to FFI-08, including FFI-04b,
