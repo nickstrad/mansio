@@ -9,6 +9,12 @@ what is the next limit?
 
 ## Findings (newest first)
 
+### 2026-11-05 — durable commit on Linux (CP-8)
+
+[Linux fsync](2026-11-05-linux-fsync.md): in Docker Desktop's Linux VM a `synchronous=FULL` commit costs ~93 µs
+(one txn per write) vs 60 µs on macOS without `F_FULLFSYNC`; group commit brings FULL to 4.3 µs per write.
+Indicative only (virtual disk); re-measure on target hardware.
+
 ### 2026-11-04 — one actor's ceiling vs Cloudflare's per-object limit
 
 See [2026-11-04-cloudflare-durable-objects.md](2026-11-04-cloudflare-durable-objects.md). One actor: ~151k point

@@ -8,6 +8,9 @@ are stale (ts-db `scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4)
 
 ## Findings (newest first)
 
+- 2026-11-05 (CP-8) [leases: options](2026-11-05-leases-options.md) (**decision open, for the user**): status
+  quo, owner lease, read stamp check, ticket-bound. Recommends a per-VM owner lease (T ≈ 30 s) plus
+  ticket-bound routes, after deciding what a VM does when placement is unreachable longer than T.
 - 2026-11-05 [Postgres placement adapter built](2026-11-05-postgres-placement-adapter.md) (`internal/placement/pg`,
   CP-3): contract suite, lost-flip-reply crash point and the PG-04 gate pass on Postgres 17; CAS p50 177 µs
   alone, 1.9 ms at 64 workers (20k CAS/s); one hot key at 64 workers: p99 45 ms, 85 % conflicts. pgx held a
@@ -51,4 +54,4 @@ scripts/lock.sh results/.bench-lock go test -run='^$' -bench=Admit ./internal/ow
 ```
 
 Open: request-id de-duplication (option 4 §3.5) lives in the database, not here; leases (time-bounded
-zombie window) not built. Postgres adapter: `internal/placement/pg` (not yet wired; CP-4).
+zombie window) not built; options in [2026-11-05-leases-options.md](2026-11-05-leases-options.md). Postgres adapter: `internal/placement/pg` (not yet wired; CP-4).

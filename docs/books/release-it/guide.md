@@ -232,4 +232,5 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 
 **Actor / read pool**
 - Every request carries `Deadline` and `StmtTimeout`. Mailbox 256, read queue = mailbox. A full queue sheds.
-- `VACUUM INTO` snapshots count as writer time; keep them under the write-back deadline.
+- Snapshots use the backup API on a reader in WAL mode (no writer time); without WAL or a read pool they run on
+  the writer and count as writer time: keep them under the write-back deadline.
