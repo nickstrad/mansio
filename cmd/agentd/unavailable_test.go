@@ -10,6 +10,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
 	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/ts-db-go/internal/vactor"
 )
 
 // Every dependency source agentd wires today, through the adapters, to its wire code: unavailable sources are
@@ -25,6 +26,8 @@ func TestDependencyErrorsMapToUnavailable(t *testing.T) {
 		{"nil stays ok", nil, front.OK},
 		{"owner not reconciled (bare sentinel, as Admit returns it)", owner.ErrUnavailable, front.Unavailable},
 		{"owner authority unreadable (wrapped)", ownerWrapped, front.Unavailable},
+		{"fetch bulkhead full", errs.Wrap("vactor", vactor.ErrBusy, "cannot activate db-1"), front.Unavailable},
+		{"activation deadline", errs.Wrap("vactor", fmt.Errorf("%w: %w", vactor.ErrBusy, context.DeadlineExceeded), "cannot activate db-1"), front.Unavailable},
 		{"already front.ErrUnavailable", front.ErrUnavailable, front.Unavailable},
 		{"owner fenced keeps its class", fmt.Errorf("%w: %w", front.ErrFenced, owner.ErrFenced), front.Fenced},
 		{"shed keeps its class", front.ErrShed, front.Shed},

@@ -13,6 +13,10 @@
 // later Get tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
 // key is passivating waits for it to finish, then activates afresh.
 //
+// Every activation has a deadline (Options.ActivationTimeout, grown by size/MinThroughput once the size is
+// known) and goes through a fetch bulkhead (Options.MaxFetches, MaxFetchBytes, MaxFetchQueue): a full queue
+// sheds with ErrBusy instead of waiting (Release It T1, B1, B2).
+//
 // The host reaches storage and SQLite only through two ports, Fetcher and Opener, so it can be tested with
 // fakes (see vactortest). It owns its cache directory: NewHost empties it and Close removes it.
 package vactor
@@ -41,6 +45,10 @@ var (
 	ErrClosed = errors.New("vactor: host closed")
 	// ErrNotFound is what a Fetcher returns (wrapped) when the object does not exist.
 	ErrNotFound = errors.New("vactor: object not found")
+	// ErrBusy: the host cannot take this activation now. Either the fetch queue is full (Options.MaxFetchQueue;
+	// Get fails at once), or the activation did not finish within its deadline (Options.ActivationTimeout).
+	// Nothing was cached; retry later. agentd answers it 503 unavailable (Release It B1, F2).
+	ErrBusy = errors.New("vactor: busy")
 )
 
 // Fetcher downloads the object key to the local file path.
@@ -93,8 +101,24 @@ type Options struct {
 	WarmQueries []string
 	// KeepLocal keeps the local file on passivation; the next activation then skips the fetch (local hit).
 	KeepLocal bool
-	// QueryTimeout bounds each first/warm query. Default 5 min.
+	// QueryTimeout bounds each first/warm query (within the activation's own deadline). Default 5 min.
 	QueryTimeout time.Duration
+
+	// ActivationTimeout bounds one activation as a whole: manifest read, the wait for a fetch slot, the fetch,
+	// open, first and warm queries. Once the manifest gives the generation's size, the bound grows by
+	// size/MinThroughput, so a large database is not cut off for being large. An activation that hits it fails
+	// with ErrBusy (Release It T1). Default 30 s.
+	ActivationTimeout time.Duration
+	// MinThroughput (bytes/s) is the slowest fetch rate the activation deadline allows for. Default 32 MiB/s.
+	MinThroughput int64
+	// MaxFetches and MaxFetchBytes bound fetches in flight, by count and by bytes (the bytes are known in
+	// durable mode only; a plain Fetch counts 0 bytes). One fetch larger than MaxFetchBytes runs alone.
+	// Defaults 16 and 1 GiB: the measured coldload knee (Release It B2).
+	MaxFetches    int
+	MaxFetchBytes int64
+	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
+	// ErrBusy instead of queueing (Release It B1). Default 256; negative: no queue.
+	MaxFetchQueue int
 
 	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal.
 	Store durable.Store
@@ -172,6 +196,8 @@ type Host struct {
 	ctx    context.Context // cancelled by Close: stops fetches and queries in flight
 	cancel context.CancelFunc
 
+	gate *fetchGate // fetch bulkhead
+
 	mu      sync.Mutex
 	entries map[string]*entry
 	closed  bool
@@ -215,6 +241,24 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	if opts.QueryTimeout <= 0 {
 		opts.QueryTimeout = 5 * time.Minute
 	}
+	if opts.ActivationTimeout <= 0 {
+		opts.ActivationTimeout = 30 * time.Second
+	}
+	if opts.MinThroughput <= 0 {
+		opts.MinThroughput = 32 << 20
+	}
+	if opts.MaxFetches <= 0 {
+		opts.MaxFetches = 16
+	}
+	if opts.MaxFetchBytes <= 0 {
+		opts.MaxFetchBytes = 1 << 30
+	}
+	switch {
+	case opts.MaxFetchQueue == 0:
+		opts.MaxFetchQueue = 256
+	case opts.MaxFetchQueue < 0:
+		opts.MaxFetchQueue = 0
+	}
 	if assert.Enabled {
 		if f != nil {
 			f = checkedFetcher{f}
@@ -224,7 +268,8 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry)}, nil
+	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
+		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
 var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
@@ -266,6 +311,11 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			}
 		}
 		if !ok {
+			if h.gate.shedding() { // fail fast before any storage call (guide F1)
+				h.mu.Unlock()
+				return Result{}, errs.Wrap(module, ErrBusy, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
+					key, h.opts.MaxFetchQueue)
+			}
 			e = &entry{done: make(chan struct{})}
 			e.epoch.Store(epoch)
 			e.touch(h.opts.Now())
@@ -318,8 +368,15 @@ func (h *Host) activate(key string, e *entry) {
 		}
 	}()
 	t0 := time.Now()
-	e.db, e.err = h.load(key, e)
+	ctx, cancel := context.WithDeadline(h.ctx, t0.Add(h.opts.ActivationTimeout))
+	defer cancel()
+	e.db, e.err = h.load(ctx, t0, key, e)
 	e.act.Total = time.Since(t0)
+	if e.err != nil && errors.Is(e.err, context.DeadlineExceeded) && h.ctx.Err() == nil {
+		e.err = errs.Wrap(module, fmt.Errorf("%w: %w", ErrBusy, e.err),
+			"cannot activate %s: no answer within its deadline (ActivationTimeout %v + size/MinThroughput); nothing cached, retry later",
+			key, h.opts.ActivationTimeout)
+	}
 	h.activations.Add(1)
 	// Invariant: an activation either fully succeeded (db open) or left nothing behind.
 	assert.That((e.err == nil) == (e.db != nil), "activate(%s): err=%v but db=%v", key, e.err, e.db)
@@ -341,19 +398,35 @@ func (h *Host) forget(key string, e *entry) {
 	}
 }
 
-func (h *Host) load(key string, e *entry) (DB, error) {
+// load runs one activation under ctx, whose deadline is start + ActivationTimeout. No step uses h.ctx alone
+// (Release It T2): Close cancels them all through ctx.
+func (h *Host) load(ctx context.Context, start time.Time, key string, e *entry) (DB, error) {
 	act := &e.act
 	path := h.LocalPath(key)
 	if h.opts.Store != nil {
-		if err := h.fetchDurable(key, e, path); err != nil {
+		m, err := h.readManifest(ctx, key, e)
+		if err != nil {
+			return nil, err
+		}
+		if m.Size > 0 { // the size is known now: allow for the transfer (guide T3)
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(m.Size, h.opts.MinThroughput)))
+			defer cancel()
+		}
+		if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
 			return nil, err
 		}
 	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
 	} else {
+		release, err := h.gate.acquire(ctx, 0)
+		if err != nil {
+			return nil, errs.Wrap(module, err, "cannot activate %s: no fetch slot; nothing cached, retry later", key)
+		}
 		h.fetches.Add(1)
-		f, err := h.fetch.Fetch(h.ctx, key, path)
+		f, err := h.fetch.Fetch(ctx, key, path)
+		release()
 		act.Bytes, act.TTFB, act.Fetch = f.Bytes, f.TTFB, f.Total
 		if err != nil {
 			return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
@@ -377,7 +450,7 @@ func (h *Host) load(key string, e *entry) (DB, error) {
 	}
 
 	t = time.Now()
-	err = h.query(db, h.opts.FirstQuery)
+	err = h.query(ctx, db, h.opts.FirstQuery)
 	act.FirstQuery = time.Since(t)
 	if err != nil {
 		db.Close()
@@ -386,7 +459,7 @@ func (h *Host) load(key string, e *entry) (DB, error) {
 
 	t = time.Now()
 	for _, q := range h.opts.WarmQueries {
-		if err := h.query(db, q); err != nil {
+		if err := h.query(ctx, db, q); err != nil {
 			db.Close()
 			return nil, errs.Wrap(module, err, "cannot activate %s: warm query %q failed; safe to retry", key, q)
 		}
@@ -407,8 +480,13 @@ func (h *Host) localCopy(path string) (int64, bool) {
 	return fi.Size(), true
 }
 
-func (h *Host) query(db DB, q string) error {
-	ctx, cancel := context.WithTimeout(h.ctx, h.opts.QueryTimeout)
+// transferTime is how long size bytes take at the minimum throughput.
+func transferTime(size, bytesPerSec int64) time.Duration {
+	return time.Duration(float64(size) / float64(bytesPerSec) * float64(time.Second))
+}
+
+func (h *Host) query(ctx context.Context, db DB, q string) error {
+	ctx, cancel := context.WithTimeout(ctx, h.opts.QueryTimeout)
 	defer cancel()
 	return db.Query(ctx, q)
 }

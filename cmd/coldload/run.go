@@ -29,7 +29,8 @@ func (a *app) run(ctx context.Context, st *objstore.Store) (err error) {
 
 	host, err := vactor.NewHost(s3Fetcher{st}, actorOpener{actor.Config{ReadConns: c.ReadConns, CacheKiB: c.CacheKiB}},
 		vactor.Options{CacheDir: c.CacheDir, FirstQuery: c.FirstQuery, WarmQueries: c.WarmQueries,
-			KeepLocal: c.KeepLocal, QueryTimeout: c.QueryTimeout.Duration})
+			KeepLocal: c.KeepLocal, QueryTimeout: c.QueryTimeout.Duration, ActivationTimeout: c.ActivationTimeout.Duration,
+			MaxFetches: c.MaxFetches, MaxFetchQueue: c.MaxFetchQueue})
 	if err != nil {
 		return errs.Wrap(module, err, "cannot run")
 	}

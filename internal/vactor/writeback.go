@@ -62,46 +62,56 @@ type WriteBackResult struct {
 	Publish    time.Duration
 }
 
-// fetchDurable puts key's current generation at path (or an empty file for a new database) and records the
-// manifest in e.
-func (h *Host) fetchDurable(key string, e *entry, path string) error {
+// readManifest reads key's manifest for an activation and checks it may be activated at e's epoch. A missing
+// manifest is the zero manifest of a new database (with CreateMissing).
+func (h *Host) readManifest(ctx context.Context, key string, e *entry) (durable.Manifest, error) {
 	if err := durable.ValidateKey(key); err != nil {
-		return errs.Wrap(module, err, "cannot activate %s", key)
+		return durable.Manifest{}, errs.Wrap(module, err, "cannot activate %s", key)
 	}
-	m, v, err := h.opts.Store.ReadManifest(h.ctx, key)
+	m, v, err := h.opts.Store.ReadManifest(ctx, key)
 	switch {
 	case errors.Is(err, durable.ErrNoManifest):
 		if !h.opts.CreateMissing {
-			return errs.Wrap(module, errors.Join(ErrNotFound, err), "cannot activate %s: it has no manifest; nothing cached", key)
+			return m, errs.Wrap(module, errors.Join(ErrNotFound, err), "cannot activate %s: it has no manifest; nothing cached", key)
 		}
 		m, v = durable.Manifest{Key: key}, durable.NoVersion
 	case err != nil:
-		return errs.Wrap(module, err, "cannot activate %s: manifest read failed; nothing cached, safe to retry", key)
+		return m, errs.Wrap(module, err, "cannot activate %s: manifest read failed; nothing cached, safe to retry", key)
 	case m.Epoch > e.epoch.Load():
-		return errs.Wrap(module, durable.ErrStale, "cannot activate %s at epoch %d: the manifest is at epoch %d (a newer owner); nothing cached",
+		return m, errs.Wrap(module, durable.ErrStale, "cannot activate %s at epoch %d: the manifest is at epoch %d (a newer owner); nothing cached",
 			key, e.epoch.Load(), m.Epoch)
 	}
 	if c := h.opts.CheckActivation; c != nil {
 		if err := c(key, e.epoch.Load(), m); err != nil {
-			return errs.Wrap(module, err, "cannot activate %s: refused by the ownership check; nothing cached", key)
+			return m, errs.Wrap(module, err, "cannot activate %s: refused by the ownership check; nothing cached", key)
 		}
 	}
+	e.man, e.ver, e.lastGen = m, v, m.Generation
+	return m, nil
+}
+
+// fetchGeneration puts m's generation at path (an empty file for generation 0), through the fetch bulkhead.
+func (h *Host) fetchGeneration(ctx context.Context, key string, e *entry, m durable.Manifest, path string) error {
 	if m.Generation == 0 {
 		if err := os.WriteFile(path, nil, 0o644); err != nil { // an empty file is an empty SQLite database
 			return errs.Wrap(module, err, "cannot activate %s: cannot create an empty database file; safe to retry", key)
 		}
-	} else {
-		h.fetches.Add(1)
-		f, err := h.opts.Store.FetchGeneration(h.ctx, m, path)
-		e.act.Bytes, e.act.TTFB, e.act.Fetch = f.Bytes, f.TTFB, f.Total
-		if err != nil {
-			if errors.Is(err, durable.ErrNotFound) {
-				err = errors.Join(ErrNotFound, err)
-			}
-			return errs.Wrap(module, err, "cannot activate %s: download of generation %d failed; nothing cached, safe to retry", key, m.Generation)
-		}
+		return nil
 	}
-	e.man, e.ver, e.lastGen = m, v, m.Generation
+	release, err := h.gate.acquire(ctx, m.Size)
+	if err != nil {
+		return errs.Wrap(module, err, "cannot activate %s: no fetch slot for generation %d (%d bytes); nothing cached, retry later", key, m.Generation, m.Size)
+	}
+	defer release()
+	h.fetches.Add(1)
+	f, err := h.opts.Store.FetchGeneration(ctx, m, path)
+	e.act.Bytes, e.act.TTFB, e.act.Fetch = f.Bytes, f.TTFB, f.Total
+	if err != nil {
+		if errors.Is(err, durable.ErrNotFound) {
+			err = errors.Join(ErrNotFound, err)
+		}
+		return errs.Wrap(module, err, "cannot activate %s: download of generation %d failed; nothing cached, safe to retry", key, m.Generation)
+	}
 	return nil
 }
 

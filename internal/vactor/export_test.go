@@ -19,3 +19,6 @@ func Crash(h *Host) {
 	}
 	os.RemoveAll(h.opts.CacheDir)
 }
+
+// FetchGate reports the fetch bulkhead's fetches and bytes in flight and its queue length. Test-only.
+func FetchGate(h *Host) (n int, bytes int64, queued int) { return h.gate.inFlight() }

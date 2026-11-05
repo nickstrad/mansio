@@ -27,6 +27,9 @@ type Fetcher struct {
 
 	Down  bool          // every Fetch fails with ErrInjected
 	Delay time.Duration // each Fetch sleeps this long first (or until ctx ends)
+	// Hold, if set, makes each Fetch wait for a receive from it (or until ctx ends) before answering: a fetch
+	// stays in flight until the test lets it go.
+	Hold chan struct{}
 }
 
 func NewFetcher() *Fetcher {
@@ -70,8 +73,15 @@ func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, 
 	f.mu.Lock()
 	f.calls[key]++
 	data, ok := f.objects[key]
-	down, delay := f.Down, f.Delay
+	down, delay, hold := f.Down, f.Delay, f.Hold
 	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return vactor.Fetched{}, ctx.Err()
+		}
+	}
 
 	if delay > 0 {
 		select {
