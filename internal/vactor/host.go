@@ -109,6 +109,13 @@ type Options struct {
 	Workers int
 	// Now is the clock (tests). Default time.Now.
 	Now func() time.Time
+
+	// CheckActivation, if set, runs after the manifest is read and before anything is fetched; an error
+	// fails the activation (fencing: owner.Table.CheckActivation). m is the zero manifest for a new key.
+	CheckActivation func(key string, epoch uint64, m durable.Manifest) error
+	// Guard, if set, wraps every write-back and passivation that Tick starts (fencing: owner.Table.Publish,
+	// so a fence drains them). Direct calls (WriteBack, Passivate) are not guarded: the fence itself makes them.
+	Guard func(ctx context.Context, key string, epoch uint64, do func(context.Context) error) error
 }
 
 // Activation says where one activation's time went.

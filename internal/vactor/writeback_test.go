@@ -3,6 +3,7 @@ package vactor_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -649,4 +650,43 @@ type noVersionStore struct{ *durabletest.Store }
 func (s noVersionStore) PublishManifest(c context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
 	s.Store.PublishManifest(c, m, prev)
 	return durable.NoVersion, nil
+}
+
+func TestOwnershipHooks(t *testing.T) {
+	refuse := errors.New("not the owner")
+	var guarded []string
+	r := newDurable(t, func(o *vactor.Options) {
+		o.CheckActivation = func(key string, epoch uint64, m durable.Manifest) error {
+			if key == "t/no" {
+				return refuse
+			}
+			return nil
+		}
+		o.Guard = func(c context.Context, key string, epoch uint64, do func(context.Context) error) error {
+			guarded = append(guarded, fmt.Sprint(key, "@", epoch))
+			return do(c)
+		}
+		o.Policy = vactor.Policy{WriteBackCommits: 1}
+	})
+	if _, err := r.h.Get(ctx, "t/no"); !errors.Is(err, refuse) {
+		t.Fatalf("CheckActivation refusal: %v", err)
+	}
+	if _, err := r.h.GetAt(ctx, "t/a", 2); err != nil {
+		t.Fatal(err)
+	}
+	r.put("t/a", "v1")
+	if rep, _ := r.h.Tick(ctx); len(rep.WroteBack) != 1 || len(guarded) != 1 || guarded[0] != "t/a@2" {
+		t.Fatalf("Tick write-back not guarded: %+v, %v", rep, guarded)
+	}
+	res, err := r.h.WriteBackAt(ctx, "t/a", 3)
+	if err != nil || res.Wrote || res.Generation != 1 {
+		t.Fatalf("clean WriteBackAt = %+v, %v; want the current generation 1", res, err)
+	}
+	r.put("t/a", "v2")
+	if res, err := r.h.WriteBackAt(ctx, "t/a", 3); err != nil || res.Generation != 2 {
+		t.Fatalf("WriteBackAt = %+v, %v", res, err)
+	}
+	if m, _ := r.s.Manifest("t/a"); m.Epoch != 3 {
+		t.Fatalf("published at epoch %d, want 3", m.Epoch)
+	}
 }

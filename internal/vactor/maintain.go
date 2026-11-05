@@ -69,17 +69,28 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 	}
 	jobs = append(jobs, r.Plan.WriteBack...)
 	var mu sync.Mutex
+	epochs := make(map[string]uint64, len(ready))
+	for i, e := range ready {
+		epochs[keys[i]] = e.epoch.Load()
+	}
 	h.parallel(jobs, h.opts.Workers, func(k string) error {
-		var err error
-		if passivate[k] {
-			err = h.Passivate(ctx, k)
-		} else {
-			var res WriteBackResult
-			if res, err = h.WriteBack(ctx, k); err == nil && res.Wrote {
+		do := func(ctx context.Context) error {
+			if passivate[k] {
+				return h.Passivate(ctx, k)
+			}
+			res, err := h.WriteBack(ctx, k)
+			if err == nil && res.Wrote {
 				mu.Lock()
 				r.WroteBack = append(r.WroteBack, res)
 				mu.Unlock()
 			}
+			return err
+		}
+		var err error
+		if g := h.opts.Guard; g != nil {
+			err = g(ctx, k, epochs[k], do)
+		} else {
+			err = do(ctx)
 		}
 		if err != nil {
 			mu.Lock()

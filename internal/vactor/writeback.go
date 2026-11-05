@@ -52,8 +52,8 @@ func (d *durableState) raiseEpoch(epoch uint64) {
 // WriteBackResult says what one write-back did and where its time went.
 type WriteBackResult struct {
 	Key        string
-	Wrote      bool // false: the database was clean (or not active); nothing uploaded
-	Generation uint64
+	Wrote      bool   // false: the database was clean (or not active); nothing uploaded
+	Generation uint64 // the generation now published (also when clean and active; 0 if inactive)
 	Bytes      int64
 	Snapshot   time.Duration
 	Hash       time.Duration
@@ -79,6 +79,11 @@ func (h *Host) fetchDurable(key string, e *entry, path string) error {
 	case m.Epoch > e.epoch.Load():
 		return errs.Wrap(module, durable.ErrStale, "cannot activate %s at epoch %d: the manifest is at epoch %d (a newer owner); nothing cached",
 			key, e.epoch.Load(), m.Epoch)
+	}
+	if c := h.opts.CheckActivation; c != nil {
+		if err := c(key, e.epoch.Load(), m); err != nil {
+			return errs.Wrap(module, err, "cannot activate %s: refused by the ownership check; nothing cached", key)
+		}
 	}
 	if m.Generation == 0 {
 		if err := os.WriteFile(path, nil, 0o644); err != nil { // an empty file is an empty SQLite database
@@ -146,7 +151,7 @@ func (h *Host) WriteBack(ctx context.Context, key string) (WriteBackResult, erro
 	e.wb.Lock()
 	defer e.wb.Unlock()
 	if !e.dirty() {
-		return WriteBackResult{Key: key}, nil
+		return WriteBackResult{Key: key, Generation: e.man.Generation}, nil
 	}
 	if e.stale.Load() {
 		h.writeBackFailures.Add(1)
@@ -169,6 +174,15 @@ func (h *Host) WriteBack(ctx context.Context, key string) (WriteBackResult, erro
 	res, err := h.upload(ctx, key, e, snap, commits)
 	res.Snapshot = time.Since(t) - res.Hash - res.Upload - res.Publish
 	return res, err
+}
+
+// WriteBackAt is WriteBack at epoch: it first raises the epoch the key's publishes carry (never lowers
+// it). fencing's port: Publish(ctx, key, epoch).
+func (h *Host) WriteBackAt(ctx context.Context, key string, epoch uint64) (WriteBackResult, error) {
+	if e := h.active(key); e != nil {
+		e.raiseEpoch(epoch)
+	}
+	return h.WriteBack(ctx, key)
 }
 
 // upload publishes the file at path as key's next generation. commits is the db commit count the file holds.
