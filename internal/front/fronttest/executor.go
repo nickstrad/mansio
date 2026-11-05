@@ -34,6 +34,14 @@ type Executor struct {
 	Panic bool
 	Err   error
 	calls int
+	last  front.Call
+}
+
+// Last returns the most recent call.
+func (e *Executor) Last() front.Call {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.last
 }
 
 // NewExecutor serves the given databases, each starting with KVRows.
@@ -67,6 +75,7 @@ func (e *Executor) Set(fn func(*Executor)) {
 func (e *Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
 	e.mu.Lock()
 	e.calls++
+	e.last = c
 	delay, block, p, ferr := e.Delay, e.Block, e.Panic, e.Err
 	e.mu.Unlock()
 	if p {

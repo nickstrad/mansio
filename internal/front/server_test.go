@@ -89,6 +89,9 @@ func TestPipelineWireCodes(t *testing.T) {
 					t.Errorf("%+v", o.Resp)
 				}
 			}},
+		{"call carries the ticket's tenant, epoch and gen", func(t *testing.T, r *rig) front.Input {
+			return front.Input{Ticket: r.tok(t, "db-1", func(c *ticket.Claims) { c.Epoch, c.Gen = 1, 9 }), Body: get(1)}
+		}, front.OK, 200, nil},
 		{"ok write", func(t *testing.T, r *rig) front.Input {
 			return front.Input{Ticket: r.tok(t, "db-1", nil), Body: put(9)}
 		},
@@ -225,6 +228,9 @@ func TestPipelineWireCodes(t *testing.T) {
 			}
 			if tc.check != nil {
 				tc.check(t, out)
+			}
+			if c := r.ex.Last(); tc.code == front.OK && (c.Tenant != "tenant-1" || c.Epoch != 1 || (c.Gen != 1 && c.Gen != 9) || c.Deadline.IsZero() || c.StmtTimeout <= 0) {
+				t.Errorf("call %+v", c)
 			}
 			r.balanced(t)
 		})

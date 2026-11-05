@@ -166,7 +166,7 @@ func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
 	defer slot()
 	t1 := time.Now()
 	stmt := min(s.cfg.StmtTimeout, max(deadline.Sub(s.clock()), time.Millisecond))
-	reply, err := s.exec.Exec(ctx, Call{Tenant: claims.TID, DB: req.DB, RequestID: req.RequestID, Kind: req.Kind,
+	reply, err := s.exec.Exec(ctx, Call{Tenant: claims.TID, DB: req.DB, Epoch: claims.Epoch, Gen: claims.Gen, RequestID: req.RequestID, Kind: req.Kind,
 		SQL: req.SQL, Args: req.Args, Deadline: deadline, StmtTimeout: stmt, MaxRows: s.cfg.Limits.MaxRows})
 	t2 := time.Now()
 	out = s.answer(req, info, err)

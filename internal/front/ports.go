@@ -22,6 +22,8 @@ type Admitter interface {
 type Call struct {
 	Tenant      string
 	DB          string
+	Epoch       uint64 // the ticket's placement epoch (admitted by the Admitter)
+	Gen         uint64 // the ticket's generation
 	RequestID   string
 	Kind        Kind
 	SQL         string // today: parameterized SQL; later an operation (see the package comment)
