@@ -4,6 +4,7 @@
 //	frontbench keygen -out DIR                  issuer key (DIR/issuer.key) and agent key set (DIR/keys.json)
 //	frontbench seed   -dir DIR -dbs N           N databases db-0..db-N-1 with sqlbench's generated schemas
 //	frontbench run    -mode inproc|pipeline|http ...
+//	frontbench locator -locator URL ...          through controld's locator with internal/client (locator.go)
 //
 // Modes: inproc calls the actor directly (Submit/Wait, as actor.Do does, plus row collection); pipeline runs
 // front.Server.Handle in this process (ticket verify, admission, JSON decode, actor) without HTTP; http sends
@@ -47,7 +48,7 @@ func main() {
 	os.Exit(code)
 }
 
-const usage = "usage: frontbench keygen|seed|run [flags] (frontbench <cmd> -h for flags)"
+const usage = "usage: frontbench keygen|seed|run|locator [flags] (frontbench <cmd> -h for flags)"
 
 func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) (code int) {
 	defer func() {
@@ -68,6 +69,8 @@ func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) (cod
 		err = seedCmd(args[1:], stderr)
 	case "run":
 		err = runCmd(ctx, args[1:], stdout, stderr)
+	case "locator":
+		err = locatorCmd(ctx, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintln(stderr, usage)
 		return exitUsage
@@ -82,7 +85,7 @@ func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) (cod
 		fmt.Fprintln(stderr, "interrupted")
 		return exitInterrupted
 	}
-	if e, ok := errs.Outermost(err); ok && (e.Module == module || e.Module == "actor") {
+	if e, ok := errs.Outermost(err); ok && (e.Module == module || e.Module == "actor" || e.Module == "client") {
 		fmt.Fprintf(stderr, "error: %s\n", e.Error())
 		return exitError
 	}

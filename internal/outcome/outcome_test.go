@@ -22,7 +22,8 @@ func TestParse(t *testing.T) {
 	}{
 		{"ok", OK, true},
 		{"STMT_TIMEOUT", StmtTimeout, true}, // case-insensitive
-		{"error", Error, true},              // last code: on point
+		{"error", Error, true},
+		{"unavailable", Unavailable, true}, // last code: on point (a wire code, RI-10)
 		{"", 0, false},
 		{"any", 0, false}, // "any" is a set name, not a code
 		{"timeout", 0, false},
@@ -36,7 +37,7 @@ func TestParse(t *testing.T) {
 }
 
 func TestStringOfUnknownCode(t *testing.T) {
-	if got := numCodes.String(); got != "outcome(9)" {
+	if got := numCodes.String(); got != "outcome(10)" {
 		t.Fatalf("String() = %q", got)
 	}
 }

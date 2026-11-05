@@ -19,6 +19,15 @@ func ServerConfig(certFile, keyFile string) (*tls.Config, error) {
 	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}, nil
 }
 
+// ClientConfig trusts only caFile's CAs: TLS 1.2 or later (the edge → agent hop, clients of a private CA).
+func ClientConfig(caFile string) (*tls.Config, error) {
+	pool, err := LoadPool(caFile)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+}
+
 // LoadPool reads a PEM CA bundle into a pool holding only those CAs.
 func LoadPool(caFile string) (*x509.CertPool, error) {
 	pem, err := os.ReadFile(caFile)

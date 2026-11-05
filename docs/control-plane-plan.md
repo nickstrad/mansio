@@ -23,11 +23,11 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Single owner | `internal/owner` | Done. `Admit`, `Fence`, `Reconcile`, `Mover`; `ReconcileAll(ctx, ReconcileOptions)` (16 workers, 5 s per key), `ReconcileUntilDone`, `Config.OnChange`. **`Placement` exists only as the fake** (`ownertest`). |
 | Network front | `front`, `ticket`, `cmd/agentd` | Done. 11 wire codes incl. **`unavailable`** (503 + computed `Retry-After`; `cmd/agentd/unavailable.go`). HTTP body/write deadlines, VM-wide admission cap (RI-09). `/livez`, `/readyz` (canary), `/metrics` on the lifecycle listener (RI-07, RI-11). Phased shutdown under one budget (`cmd/agentd/lifecycle.go`). **agentd still runs `front.StaticHost` + `startupAdmitter{epochs(...)}`**: no vactor, no owner, no S3 config, no Claim/Fence endpoints. CP-1 wiring points are marked in `cmd/agentd/main.go` (`newAgent`, `serve`). |
 | Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
-| Client retry | `internal/retry` | Policy done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`). **Not wired:** the only caller (`internal/bench/run.go:359`) never sets `ServerHint`, and `internal/outcome` has no `unavailable` code. |
+| Client retry | `internal/retry` | Done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`); wired in CP-6: `internal/client` passes Retry-After, `outcome.Unavailable` retried by default, `internal/bench` passes `retry.HintOf`. |
 | Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `TSDB_PG_URL`). Not wired yet (CP-4). |
 | Control plane | `cmd/controld`, `internal/control` | Done (CP-4): registries (0002), M8 policy, create/move/suspend/drop/M5 restore, resumer from table scans; agentd on `placement_pg`; RI-16 admin + `agentctl`; OS-11 scoped identities, TLS. |
 | Locator, issuer | `internal/control/locator`, `cmd/controld` | Done (CP-5): `POST /v1/resolve` (API keys), notified cache (0003), key ring + `GET /v1/keys`, agentd `keys_url`. |
-| Client | none | Not started (CP-6). |
+| Client | `internal/client` | Done (CP-6): locator-routed, cached routes, re-resolve on wrong_owner/fenced/ticket_invalid/no answer, Retry-After + windowed budget, `X-Timeout-Ms`, one request id per write; `frontbench locator`. |
 
 ## 2. The three flows we need
 
@@ -178,7 +178,7 @@ Inside controld first; split out later.
   VM within one re-resolve; a cached locator sees a move before TTL; killing the LISTEN connection mid-move →
   reconnect, reload, correct resolve.
 
-### CP-6. Client (RI-10 client part)
+### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `knowledge/front/2026-11-05-client.md`)
 
 A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
 - Location cache refreshed ahead of TTL with jitter; re-resolve on `wrong_owner`, `fenced`, `ticket_invalid` or a

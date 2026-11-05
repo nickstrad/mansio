@@ -21,6 +21,8 @@ Notes:
 - [2026-11-05 edge](2026-11-05-edge.md) (CP-7): the stateless edge (`internal/edge`, `cmd/edge`): ticket filter
   (cache, per-source rate limit on misses, bounded verifies), routing on the vm claim, per-agent bulkhead and
   breaker, TLS on both hops with a private CA; gate results and overhead numbers.
+- [2026-11-05 client](2026-11-05-client.md) (CP-6): `internal/client` (locator-routed, Retry-After + budget, one request id per
+  write) and `frontbench locator`; 0 failures in 140k requests overlapping moves; resolve hit 0.2 µs, miss ~0.7 ms.
 - [2026-11-05 locator](2026-11-05-locator.md) (CP-5, PG-10): resolve API, notified cache, API keys, rotating
   ticket key ring, agentd key fetch; gate results.
 - [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed

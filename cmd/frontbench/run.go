@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/tls"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -102,19 +100,41 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	fmt.Fprintf(stdout, "%s conc=%d write=%.2f dbs=%d: %d req, %.0f ok/s, p50 %.0f µs, p99 %.0f µs, p99.9 %.0f µs, codes %v\n",
 		mode, sum.Conc, sum.WriteFrac, sum.DBs, sum.Requests,
 		sum.OKPerSec, sum.P50us, sum.P99us, sum.P999us, sum.Codes)
-	if f.out != "" {
+	return finish(f.out, sum, sum.Codes)
+}
+
+// finish writes the summary JSON to out (if set) and fails a run in which nothing succeeded.
+func finish(out string, sum any, codes map[string]int) error {
+	if out != "" {
 		b, _ := json.MarshalIndent(sum, "", "  ")
-		if err := os.MkdirAll(filepath.Dir(f.out), 0o755); err != nil {
-			return errs.Wrap(module, err, "cannot create %s", filepath.Dir(f.out))
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return errs.Wrap(module, err, "cannot create %s", filepath.Dir(out))
 		}
-		if err := os.WriteFile(f.out, append(b, '\n'), 0o644); err != nil {
-			return errs.Wrap(module, err, "cannot write %s", f.out)
+		if err := os.WriteFile(out, append(b, '\n'), 0o644); err != nil {
+			return errs.Wrap(module, err, "cannot write %s", out)
 		}
 	}
-	if sum.Codes["ok"] == 0 {
-		return errs.Wrap(module, nil, "no request succeeded: codes %v", sum.Codes)
+	if codes["ok"] == 0 {
+		return errs.Wrap(module, nil, "no request succeeded: codes %v", codes)
 	}
 	return nil
+}
+
+// quantileUS is the p quantile of sorted latencies in microseconds (nearest rank; 0 when empty).
+func quantileUS(sorted []time.Duration, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	return float64(sorted[min(len(sorted)-1, int(p*float64(len(sorted))))].Nanoseconds()) / 1e3
+}
+
+// summarize sorts lat and fills the fields every mode shares.
+func summarize(mode string, dbs, conc int, write float64, duration time.Duration, start time.Time, lat []time.Duration, codes map[string]int) Summary {
+	slices.Sort(lat)
+	q := func(p float64) float64 { return quantileUS(lat, p) }
+	return Summary{Mode: mode, DBs: dbs, Conc: conc, WriteFrac: write, Duration: duration.String(), Requests: len(lat),
+		Codes: codes, OKPerSec: float64(codes["ok"]) / duration.Seconds(), P50us: q(0.5), P90us: q(0.9), P99us: q(0.99),
+		P999us: q(0.999), MaxUS: q(1), GoVersion: runtime.Version(), CPUs: runtime.NumCPU(), StartedUTC: start.UTC().Format(time.RFC3339)}
 }
 
 // target sends one statement to database db and returns its wire code.
@@ -244,13 +264,7 @@ var (
 )
 
 func requestBody(db int, st workload.Statement) []byte {
-	args := make([]any, len(st.Args))
-	for i, a := range st.Args {
-		if b, ok := a.([]byte); ok {
-			a = front.Blob{B64: base64.StdEncoding.EncodeToString(b)}
-		}
-		args[i] = a
-	}
+	args := front.WireArgs(slices.Clone(st.Args))
 	kind := front.KindRead
 	if st.Write {
 		kind = front.KindWrite
@@ -269,11 +283,11 @@ func httpTarget(f runFlags, toks []string) (target, func(), error) {
 		tr.ForceAttemptHTTP2 = true
 	}
 	if f.ca != "" {
-		pool, err := tlsx.LoadPool(f.ca)
+		cfg, err := tlsx.ClientConfig(f.ca)
 		if err != nil {
 			return nil, nil, errs.Wrap(module, err, "cannot load -ca").With("path", f.ca)
 		}
-		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		tr.TLSClientConfig = cfg
 	}
 	timeoutMS := strconv.FormatInt(f.timeout.Milliseconds(), 10)
 	client := &http.Client{Transport: tr}
@@ -357,16 +371,7 @@ func drive(ctx context.Context, f runFlags, send target) (Summary, error) {
 			codes[c] += n
 		}
 	}
-	slices.Sort(lat)
-	q := func(p float64) float64 {
-		if len(lat) == 0 {
-			return 0
-		}
-		return float64(lat[min(len(lat)-1, int(p*float64(len(lat))))].Nanoseconds()) / 1e3
-	}
-	s := Summary{Mode: f.mode, DBs: f.dbs, Conc: f.conc, WriteFrac: f.write, Duration: f.duration.String(), Requests: len(lat),
-		Codes: codes, OKPerSec: float64(codes["ok"]) / f.duration.Seconds(), P50us: q(0.5), P90us: q(0.9), P99us: q(0.99),
-		P999us: q(0.999), MaxUS: q(1), GoVersion: runtime.Version(), CPUs: runtime.NumCPU(), StartedUTC: start.UTC().Format(time.RFC3339)}
+	s := summarize(f.mode, f.dbs, f.conc, f.write, f.duration, start, lat, codes)
 	if f.mode == "http" {
 		s.Proto = f.proto
 	}

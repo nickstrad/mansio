@@ -282,11 +282,18 @@ type Blob struct {
 // wireValues replaces []byte values with Blob so rows encode losslessly.
 func wireValues(rows [][]any) [][]any {
 	for _, row := range rows {
-		for i, v := range row {
-			if b, ok := v.([]byte); ok {
-				row[i] = Blob{B64: base64.StdEncoding.EncodeToString(b)}
-			}
-		}
+		WireArgs(row)
 	}
 	return rows
+}
+
+// WireArgs replaces every []byte in vs with its wire form (a Blob) in place, and returns vs: how clients send
+// blob arguments and how answers carry blob values.
+func WireArgs(vs []any) []any {
+	for i, v := range vs {
+		if b, ok := v.([]byte); ok {
+			vs[i] = Blob{B64: base64.StdEncoding.EncodeToString(b)}
+		}
+	}
+	return vs
 }

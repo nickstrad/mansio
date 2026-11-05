@@ -360,7 +360,7 @@ where it lands.
   pooled connection after `HalfOpen` heals is recycled without a hang.
 - **Size.** M.
 
-#### RI-10 — Handshaking end to end — **Done** (629193e; queue-drain Retry-After estimate deferred to RI-11 metrics; client wiring — `ServerHint` from the response and an `unavailable` code in `internal/outcome` — lands with control-plane CP-6)
+#### RI-10 — Handshaking end to end — **Done** (629193e; queue-drain Retry-After estimate deferred to RI-11 metrics; client wiring — `ServerHint` from the response and an `unavailable` code in `internal/outcome` — done in CP-6, 95bdc88; retry-storm rerun per 1 s window 0.052–0.093 ≤ 0.1)
 
 - **Change.**
   - `Retry-After` becomes computed: breaker time-to-half-open, queue-drain estimate, or 1 s floor.
