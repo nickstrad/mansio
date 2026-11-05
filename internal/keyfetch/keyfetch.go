@@ -22,12 +22,12 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/fsx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 	"github.com/nickstrad/ts-db-go/internal/tlsx"
@@ -173,25 +173,11 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	return nil
 }
 
-// writeKeyFile writes keys as a ticket.PublicKeyFile atomically (temp file, fsync, rename).
+// writeKeyFile writes keys as a ticket.PublicKeyFile atomically (fsx.WriteAtomic: temp file, fsync, rename,
+// directory fsync).
 func writeKeyFile(path string, keys map[string]ed25519.PublicKey) error {
 	b, _ := json.MarshalIndent(ticket.NewPublicKeyFile(keys), "", "  ")
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".keys-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	_, err = tmp.Write(b)
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), path)
-	}
-	if err != nil {
+	if err := fsx.WriteAtomic(path, b, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
