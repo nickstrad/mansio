@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-func hasID(applied map[string]int64, id string) bool { _, ok := applied[id]; return ok }
-
 // idList returns the request ids in a's _tsdb_requests, sorted and comma-joined.
 func idList(t *testing.T, a *Actor, c context.Context) string {
 	t.Helper()
@@ -91,11 +89,19 @@ func FuzzActorModel(f *testing.F) {
 			}
 			return -1
 		}
+		apply := func(p pending) { // the model applies p's write
+			if p.v == -1 {
+				delete(model, p.key)
+			} else {
+				model[p.key] = p.v
+			}
+		}
 		flush := func(step int) {
 			c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			for _, p := range group {
 				res := p.req.Wait(c)
+				prior, seen := applied[p.id] // ids are never "", so seen ⇒ p carries an applied id
 				switch {
 				case p.read:
 					if res.Err != nil {
@@ -110,7 +116,7 @@ func FuzzActorModel(f *testing.F) {
 					}
 				case errors.Is(res.Err, ErrAborted):
 					// Not committed: a batch-mate ended the transaction. The read-back below checks it.
-				case res.Err != nil && p.id != "" && hasID(applied, p.id):
+				case res.Err != nil && seen:
 					t.Fatalf("step %d: write with applied id %s failed instead of answering duplicate: %v", step, p.id, res.Err)
 				case res.Err != nil:
 					// Its own error: only an insert may fail, and only if its key existed at some point of the
@@ -119,10 +125,10 @@ func FuzzActorModel(f *testing.F) {
 						t.Fatalf("step %d: %s %v failed: %v", step, p.req.SQL, p.req.Args, res.Err)
 					}
 				case res.Duplicate:
-					if rows, ok := applied[p.id]; p.id == "" || !ok || rows != res.Rows {
-						t.Fatalf("step %d: duplicate for id %q (applied: %v, rows %d), model %v", step, p.id, ok, res.Rows, applied)
+					if !seen || prior != res.Rows {
+						t.Fatalf("step %d: duplicate for id %q (applied: %v, rows %d), model %v", step, p.id, seen, res.Rows, applied)
 					}
-				case p.id != "" && hasID(applied, p.id):
+				case seen:
 					t.Fatalf("step %d: id %s applied twice", step, p.id)
 				case p.insert && val(p.key) != -1:
 					t.Fatalf("step %d: insert of existing key %d succeeded", step, p.key)
@@ -135,15 +141,9 @@ func FuzzActorModel(f *testing.F) {
 						t.Fatalf("step %d: %s affected %d rows, want %d", step, p.req.SQL, res.Rows, want)
 					}
 					applied[p.id] = res.Rows
-					if p.v == -1 {
-						delete(model, p.key)
-					} else {
-						model[p.key] = p.v
-					}
-				case p.v == -1:
-					delete(model, p.key)
+					apply(p)
 				default:
-					model[p.key] = p.v
+					apply(p)
 				}
 			}
 			group, held = group[:0], map[int64][]int64{}

@@ -17,8 +17,11 @@ import (
 // never changes its file. Retention is one batched, set-based delete on the actor (SQL G-17), never
 // row-at-a-time.
 
+// ReservedPrefix starts the name of every table the actor keeps in a tenant database. Clients must not touch
+// them: front refuses client SQL that names the prefix.
+const ReservedPrefix = "_tsdb_"
+
 // RequestTableDDL creates the request-id table and the index retention uses. Every statement is idempotent.
-// The _tsdb_ prefix is reserved: front refuses client SQL that names it.
 var RequestTableDDL = []string{
 	`create table if not exists _tsdb_requests (
   request_id text    not null primary key,

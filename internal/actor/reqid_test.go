@@ -324,3 +324,12 @@ func TestRequestIDRetention(t *testing.T) {
 		t.Fatalf("%d id rows, want 5", n)
 	}
 }
+
+// Every agent table carries ReservedPrefix, so front's guard covers it.
+func TestRequestTableUsesTheReservedPrefix(t *testing.T) {
+	for _, q := range append(RequestTableDDL, sqlClaimRequest, sqlRecordResult, sqlPriorResult, sqlSweepRequests) {
+		if !strings.Contains(q, ReservedPrefix+"requests") {
+			t.Fatalf("%q does not name %srequests", q, ReservedPrefix)
+		}
+	}
+}

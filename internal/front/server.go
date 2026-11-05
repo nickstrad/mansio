@@ -213,8 +213,7 @@ func (s *Server) handle(ctx context.Context, in Input) (out Output) {
 	}
 	assert.That(req.Kind == KindWrite || (reply.Count == int64(len(reply.Rows)) && len(reply.Rows) <= s.cfg.Limits.MaxRows),
 		"Executor broke its contract: count %d, %d rows, max %d", reply.Count, len(reply.Rows), s.cfg.Limits.MaxRows)
-	out.Resp.Columns, out.Resp.Rows, out.Resp.Count = reply.Columns, wireValues(reply.Rows), reply.Count
-	out.Resp.Duplicate = reply.Duplicate
+	out.Resp.Columns, out.Resp.Rows, out.Resp.Count, out.Resp.Duplicate = reply.Columns, wireValues(reply.Rows), reply.Count, reply.Duplicate
 	return out
 }
 

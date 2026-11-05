@@ -108,3 +108,13 @@ claim without the result update 3.2 µs (not correct: no answer for a duplicate)
   each flush that the database's id rows equal the model's applied ids. 60 s run, 38k execs, no failures.
 - The end-to-end form (claim → write over HTTP → kill -9 → restart → retry) needs CP-1's wiring; the actor
   tests above cover the database half.
+
+## Follow-ups (not done)
+
+- **Per-batch claims** (review, 2026-11-05): look up all of a batch's ids in one `select … where request_id in
+  (…)` and insert the applied ones in one multi-row statement before COMMIT: 2 statements per batch instead of
+  2 per write. It moves the claim out of each write's savepoint, so PG-01's per-write rollback must then skip
+  failed writes explicitly; worth it only if the +4 µs/write shows up through agentd.
+- **Enforce `_tsdb_` in the actor**, not only in front's lexical guard (a SQLite authorizer, if modernc exposes
+  one), before callers other than front send client SQL (the handler executor).
+- **Payload hash** in the id row, to answer `bad_request` when a client reuses an id for a different write.

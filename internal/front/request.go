@@ -177,10 +177,6 @@ var (
 		"DELETE": true, "REPLACE": true, "CREATE": true, "DROP": true, "ALTER": true}
 )
 
-// ReservedPrefix names the agent's own tables in every database (actor.RequestTableDDL); client SQL may not
-// mention it, so a client cannot read, forge or drop request ids.
-const ReservedPrefix = "_tsdb_"
-
 // checkSQL is the defense-in-depth guard (see the package comment): one statement, an allowed leading keyword,
 // a read must not look like a write, and no reserved name.
 func checkSQL(k Kind, sql string) error {
@@ -210,8 +206,8 @@ func checkSQL(k Kind, sql string) error {
 	if k == KindRead && actor.IsWrite(s) {
 		return bad("read request looks like a write; send kind \"write\"")
 	}
-	if strings.Contains(strings.ToLower(s), ReservedPrefix) {
-		return bad("sql may not name %s tables (reserved for the agent)", ReservedPrefix)
+	if strings.Contains(strings.ToLower(s), actor.ReservedPrefix) { // so a client cannot read, forge or drop request ids
+		return bad("sql may not name %s tables (reserved for the agent)", actor.ReservedPrefix)
 	}
 	return nil
 }

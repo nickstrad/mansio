@@ -34,12 +34,11 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 	if err != nil {
 		return Reply{}, err
 	}
+	// The actor applies a write's RequestID at most once per database (CP-2); reads ignore it.
 	r := &actor.Request{SQL: c.SQL, Args: c.Args, Write: c.Kind == KindWrite, StmtTimeout: c.StmtTimeout,
-		Deadline: c.Deadline}
+		Deadline: c.Deadline, RequestID: c.RequestID}
 	if c.Kind == KindRead {
 		r.MaxRows = c.MaxRows
-	} else {
-		r.RequestID = c.RequestID // the actor applies each id at most once per database (CP-2)
 	}
 	if err := a.Submit(r); err != nil {
 		return Reply{}, actorError(err, false)

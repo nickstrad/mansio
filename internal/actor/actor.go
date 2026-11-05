@@ -348,10 +348,13 @@ func (a *Actor) process(batch []*Request) {
 //	post: every write is either committed and answered without error, or not committed and answered with one
 func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	ctx := context.Background()
-	if err := a.w.run(ctx, "BEGIN IMMEDIATE"); err != nil {
+	failAll := func(err error) {
 		for _, r := range writes {
 			meta.fail(r, err)
 		}
+	}
+	if err := a.w.run(ctx, "BEGIN IMMEDIATE"); err != nil {
+		failAll(err)
 		return
 	}
 	now := a.now()
@@ -359,9 +362,7 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	if creating {
 		if err := a.createRequestTable(ctx); err != nil {
 			_ = a.w.run(ctx, "ROLLBACK")
-			for _, r := range writes {
-				meta.fail(r, err)
-			}
+			failAll(err)
 			return
 		}
 	}
@@ -421,32 +422,34 @@ func (a *Actor) apply(ctx context.Context, r *Request, nowMS int64) Result {
 		return a.run1(a.w, r)
 	}
 	t0 := time.Now()
-	claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}, Write: true})
-	switch {
+	var res Result
+	switch claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}, Write: true}); {
 	case claim.Err != nil:
-		return Result{Err: claim.Err, QueueWait: t0.Sub(r.enqueued), Exec: time.Since(t0)}
+		res.Err = claim.Err
 	case claim.Rows == 0:
-		res := Result{Duplicate: true, QueueWait: t0.Sub(r.enqueued)}
-		prior := a.w.exec(ctx, &Request{SQL: sqlPriorResult, Args: []any{r.RequestID}, MaxRows: 1})
-		res.Err = prior.Err
-		if prior.Err == nil {
-			var b []byte
-			if len(prior.Values) == 1 {
-				b, _ = prior.Values[0][0].([]byte)
-			}
-			res.Rows, res.Err = decodeOutcome(b)
-		}
-		res.Exec = time.Since(t0)
-		return res
-	}
-	res := a.run1(a.w, r)
-	if res.Err == nil {
-		if rec := a.w.exec(ctx, &Request{SQL: sqlRecordResult, Args: []any{encodeOutcome(res), r.RequestID}, Write: true}); rec.Err != nil {
-			res.Err = rec.Err
+		res = a.priorResult(ctx, r.RequestID)
+	default:
+		res = a.run1(a.w, r)
+		if res.Err == nil {
+			res.Err = a.w.exec(ctx, &Request{SQL: sqlRecordResult, Args: []any{encodeOutcome(res), r.RequestID}, Write: true}).Err
 		}
 	}
-	res.QueueWait, res.Exec = t0.Sub(r.enqueued), time.Since(t0)
+	res.QueueWait, res.Exec = t0.Sub(r.enqueued), time.Since(t0) // the claim and record count as execution
 	return res
+}
+
+// priorResult answers a duplicate of id from its stored result.
+func (a *Actor) priorResult(ctx context.Context, id string) Result {
+	prior := a.w.exec(ctx, &Request{SQL: sqlPriorResult, Args: []any{id}, MaxRows: 1})
+	if prior.Err != nil {
+		return Result{Err: prior.Err}
+	}
+	var b []byte
+	if len(prior.Values) == 1 {
+		b, _ = prior.Values[0][0].([]byte)
+	}
+	rows, err := decodeOutcome(b)
+	return Result{Rows: rows, Err: err, Duplicate: true}
 }
 
 // createRequestTable runs RequestTableDDL in the open batch transaction; a.reqReady is set once it commits.
