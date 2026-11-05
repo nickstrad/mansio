@@ -71,7 +71,7 @@ func (w *world) crash(name string) { w.procs[name].tab = nil }
 
 func (w *world) restart(name string) {
 	w.t.Helper()
-	if err := w.start(name).ReconcileAll(context.Background()); err != nil {
+	if _, err := w.start(name).ReconcileAll(context.Background(), owner.ReconcileOptions{}); err != nil {
 		w.t.Fatalf("reconcile %s: %v", name, err)
 	}
 }

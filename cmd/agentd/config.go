@@ -49,6 +49,13 @@ type Config struct {
 	IdleTimeout       load.Duration         `json:"idle_timeout"`
 	Actor             load.ActorConfig      `json:"actor"`
 
+	// Startup and readiness (Release It H1, H2). Databases open in the background, startup_workers at a time,
+	// while the agent already serves. /readyz reflects a probe every ready_interval, each bounded by
+	// ready_timeout (which must be shorter).
+	StartupWorkers int           `json:"startup_workers"` // default 16
+	ReadyInterval  load.Duration `json:"ready_interval"`  // default 1 s
+	ReadyTimeout   load.Duration `json:"ready_timeout"`   // default 500 ms
+
 	LogFile  string `json:"log_file"`  // JSON log; default stderr
 	LogLevel string `json:"log_level"` // debug | info (default) | warn
 }
@@ -62,6 +69,7 @@ func defaults() Config {
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
 		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ShutdownBudget: d(time.Minute), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
 		IdleTimeout: d(2 * time.Minute), LogLevel: "info",
+		StartupWorkers: 16, ReadyInterval: d(time.Second), ReadyTimeout: d(500 * time.Millisecond),
 	}
 }
 
@@ -124,6 +132,12 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.DefaultTimeout.Duration > c.MaxTimeout.Duration {
 		bad("default_timeout %v is over max_timeout %v", c.DefaultTimeout, c.MaxTimeout)
+	}
+	if c.StartupWorkers < 1 {
+		bad("startup_workers must be >= 1")
+	}
+	if c.ReadyTimeout.Duration >= c.ReadyInterval.Duration {
+		bad("ready_timeout %v must be shorter than ready_interval %v", c.ReadyTimeout, c.ReadyInterval)
 	}
 	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
 		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)

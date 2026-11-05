@@ -191,12 +191,12 @@ func TestRestartStaysClosedUntilReconciled(t *testing.T) {
 	_, err := a.Claim(ctx, "k")
 	mustIs(t, err, owner.ErrUnavailable) // reconcile first
 	w.procs["a"].pl.cut = true
-	mustIs(t, a.ReconcileAll(ctx), owner.ErrUnavailable)
+	mustIs(t, second(a.ReconcileAll(ctx, owner.ReconcileOptions{})), owner.ErrUnavailable)
 	if _, err := a.Admit("k", 1); err != owner.ErrUnavailable {
 		t.Fatalf("Admit while partitioned = %v, want ErrUnavailable", err)
 	}
 	w.procs["a"].pl.cut = false
-	must(t, a.ReconcileAll(ctx))
+	must(t, second(a.ReconcileAll(ctx, owner.ReconcileOptions{})))
 	must(t, w.write("a", "k", 1, "w2"))
 	if got := w.procs["a"].disk.Contents("k"); !slices.Equal(got, []string{"w1", "w2"}) {
 		t.Fatalf("local copy = %v", got)

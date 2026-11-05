@@ -157,7 +157,7 @@ func waitAddrProc(t *testing.T, path string, exited chan error) string {
 		default:
 		}
 		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
-			return strings.TrimSpace(string(b))
+			return strings.Fields(string(b))[0]
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

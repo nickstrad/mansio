@@ -129,13 +129,13 @@ func (m *model) step(t *testing.T, opb, arg byte) {
 		pr.tab = nil
 	case opRestart:
 		if pr.tab == nil {
-			_ = w.start(p).ReconcileAll(ctx)
+			_, _ = w.start(p).ReconcileAll(ctx, serial)
 		}
 	case opPartition:
 		pr.pl.cut = !pr.pl.cut
 	case opReconcile:
 		if pr.tab != nil {
-			_ = pr.tab.ReconcileAll(ctx)
+			_, _ = pr.tab.ReconcileAll(ctx, serial)
 		}
 	case opRestore, opRogueRestore:
 		// Operator-attested VM loss: allowed only when the owner is really down. The rogue variant breaks
@@ -232,3 +232,6 @@ func (m *model) trace() string {
 	}
 	return s
 }
+
+// serial reconciles one key at a time, so a fault switch hits the same key on every run of an input.
+var serial = owner.ReconcileOptions{Workers: 1}

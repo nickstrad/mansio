@@ -90,7 +90,8 @@ func (m *MemStore) Get(key string) (owner.Record, bool) {
 // Placement is the fake authority. It enforces the authority's invariants on CAS (epochs never decrease; a
 // new owner only with a higher epoch) and returns an error for a CAS that breaks them.
 //
-// Switches: Down (every call fails with ErrDown), Delay (every call waits, honoring ctx), Stale (Get returns
+// Switches: Down (every call fails with ErrDown), Delay (every call waits, honoring ctx), KeyDelay (calls for
+// one key wait, honoring ctx: one slow row), Stale (Get returns
 // the row as it was when Stale was switched on), LoseReply (the next CAS is applied but reports ErrDown, like
 // a lost response).
 type Placement struct {
@@ -100,6 +101,7 @@ type Placement struct {
 	down      bool
 	stale     bool
 	delay     time.Duration
+	keyDelay  map[string]time.Duration
 	loseReply bool
 	CASes     int
 }
@@ -127,6 +129,17 @@ func (p *Placement) SetDelay(d time.Duration) {
 	p.delay = d
 	p.mu.Unlock()
 }
+
+// SetKeyDelay makes every call for key wait d more (0 removes it).
+func (p *Placement) SetKeyDelay(key string, d time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.keyDelay == nil {
+		p.keyDelay = map[string]time.Duration{}
+	}
+	p.keyDelay[key] = d
+}
+
 func (p *Placement) SetLoseReply(v bool) { p.mu.Lock(); p.loseReply = v; p.mu.Unlock() }
 
 // SetStale freezes (true) or unfreezes (false) what Get returns.
@@ -139,9 +152,9 @@ func (p *Placement) SetStale(v bool) {
 	}
 }
 
-func (p *Placement) wait(ctx context.Context) error {
+func (p *Placement) wait(ctx context.Context, key string) error {
 	p.mu.Lock()
-	d, down := p.delay, p.down
+	d, down := p.delay+p.keyDelay[key], p.down
 	p.mu.Unlock()
 	if d > 0 {
 		select {
@@ -157,7 +170,7 @@ func (p *Placement) wait(ctx context.Context) error {
 }
 
 func (p *Placement) Get(ctx context.Context, key string) (owner.Place, error) {
-	if err := p.wait(ctx); err != nil {
+	if err := p.wait(ctx, key); err != nil {
 		return owner.Place{}, err
 	}
 	p.mu.Lock()
@@ -174,7 +187,7 @@ func (p *Placement) Get(ctx context.Context, key string) (owner.Place, error) {
 }
 
 func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Place) error {
-	if err := p.wait(ctx); err != nil {
+	if err := p.wait(ctx, key); err != nil {
 		return err
 	}
 	p.mu.Lock()

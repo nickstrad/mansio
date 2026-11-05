@@ -71,6 +71,21 @@ The ticket's distinct sentinels are kept for logs (debug level) and tests; the w
 `GET /healthz` → 200 `{"status":"ok","in_flight":N}`, or 503 `{"status":"draining"}` once shutdown started.
 It touches neither admission nor actors; `health_listen` puts it on a second listener as well.
 
+Liveness ≠ readiness (Release It H2, RI-07). Both live on the lifecycle listener (`health_listen`; without
+one they share the query listener):
+
+- `GET /livez` → always 200 `{"status":"live","draining":…}` while the process answers — also while draining,
+  so an orchestrator does not restart an agent mid-drain.
+- `GET /readyz` → 200 `{"status":"ready"}`, or 503 `{"status":"draining"}` / `{"status":"not_ready","failed":{check: why}}`.
+  It answers from the last probe (every `ready_interval`, each bounded by `ready_timeout`; a result older than
+  3 intervals is not trusted). Checks: `startup` (every database tried once), `canary` (a marked read on the
+  `~canary` database through admission → executor → actor; `~` is not a valid client db id, so it never
+  touches tenant data; a shed canary passes — overload is not a reason to leave rotation), and at CP-1 one
+  `<dep>_breaker` per remote dependency. Transitions log `AGENT.READY` / `AGENT.NOT_READY`.
+
+Startup listens first, then opens databases in the background (`startup_workers` at a time, failures retried
+with backoff). A database not open yet answers `unavailable` (503 + Retry-After), not `wrong_owner`.
+
 ## Shutdown (agentd)
 
 SIGINT/SIGTERM starts one `shutdown_budget` (default 60 s; Release It H3, RI-06), spent in phases, in order:

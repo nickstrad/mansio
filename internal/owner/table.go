@@ -581,25 +581,6 @@ func (t *Table) Reconcile(ctx context.Context, key string) error {
 	return nil
 }
 
-// ReconcileAll reconciles every Closed key. It tries them all and returns the first error with the count of
-// keys that stay closed.
-func (t *Table) ReconcileAll(ctx context.Context) error {
-	var first error
-	failed := 0
-	for _, k := range t.Keys() {
-		if err := t.Reconcile(ctx, k); err != nil {
-			failed++
-			if first == nil {
-				first = err
-			}
-		}
-	}
-	if first != nil {
-		return errs.Wrap(module, first, "%d key(s) stay closed after reconcile", failed)
-	}
-	return nil
-}
-
 // Forget drops a fenced key's durable record (after the control plane cleaned the source). Absent keys are
 // fine; any other state is ErrIllegal.
 func (t *Table) Forget(ctx context.Context, key string) error {

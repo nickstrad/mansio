@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
+	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 
 	"modernc.org/sqlite"
@@ -95,8 +96,28 @@ type StaticHost struct {
 	closed bool
 }
 
-// NewStaticHost returns a host serving actors (db id → started actor). It takes ownership of them.
-func NewStaticHost(actors map[string]*actor.Actor) *StaticHost { return &StaticHost{actors: actors} }
+// NewStaticHost returns a host serving actors (db id → started actor; may be nil). It takes ownership of them.
+func NewStaticHost(actors map[string]*actor.Actor) *StaticHost {
+	if actors == nil {
+		actors = map[string]*actor.Actor{}
+	}
+	return &StaticHost{actors: actors}
+}
+
+// Add serves a started actor for db from now on (startup opens databases while the agent already serves). It
+// reports false, taking nothing, once the host is closed: the caller closes a.
+//
+//	pre: db is not served yet
+func (h *StaticHost) Add(db string, a *actor.Actor) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return false
+	}
+	assert.That(h.actors[db] == nil, "StaticHost.Add(%s): already served", db)
+	h.actors[db] = a
+	return true
+}
 
 // Lookup implements Host.
 func (h *StaticHost) Lookup(_ context.Context, db string) (*actor.Actor, error) {
