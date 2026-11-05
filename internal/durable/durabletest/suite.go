@@ -129,6 +129,25 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 		}
 	})
 
+	t.Run("keys whose names nest are independent databases", func(t *testing.T) {
+		s := newStore(t)
+		outer, inner := "suite/n", "suite/n/gen/x" // in layout v1 inner's manifest lay under outer's gen/
+		mo := put(t, s, outer, 1, []byte("outer"))
+		mi := put(t, s, inner, 1, []byte("inner"))
+		publish(t, s, mo, durable.NoVersion)
+		publish(t, s, mi, durable.NoVersion)
+		for _, m := range []durable.Manifest{mo, mi} {
+			got, _, err := s.ReadManifest(ctx, m.Key)
+			path := filepath.Join(t.TempDir(), "db")
+			if err != nil || !got.Same(m) {
+				t.Fatalf("ReadManifest(%s) = %+v, %v", m.Key, got, err)
+			}
+			if _, err := s.FetchGeneration(ctx, got, path); err != nil {
+				t.Fatalf("FetchGeneration(%s): %v", m.Key, err)
+			}
+		}
+	})
+
 	t.Run("fetch of a missing generation is ErrNotFound and leaves no file", func(t *testing.T) {
 		s := newStore(t)
 		m := durable.NextManifest("suite/missing", 7, 1, DigestOf([]byte("x")), now)

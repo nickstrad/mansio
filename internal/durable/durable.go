@@ -1,10 +1,12 @@
 // Package durable is the durable copy of one database in object storage: immutable generations plus a
 // manifest that names the current one (contract 1 in shared_state.md, 2026-11-05).
 //
-// Layout per database key:
+// Layout per database key (v2, object-storage guide K1–K3), under KeyPrefix(key) = dbs/<h2>/<esc>/ where
+// h2 is the first 2 hex digits of sha256(key) and esc is the key path-escaped ("/" becomes "%2F"), so no
+// key's prefix contains another's:
 //
-//	dbs/<key>/gen/<generation, 20 digits>.db   immutable SQLite snapshot, created once, never overwritten
-//	dbs/<key>/manifest.json                     {key, generation, epoch, object, size, sha256, written_at}
+//	dbs/<h2>/<esc>/gen/<generation, 20 digits>.db   immutable SQLite snapshot, created once, never overwritten
+//	dbs/<h2>/<esc>/manifest.json                     {key, generation, epoch, object, size, sha256, written_at}
 //
 // Activation reads the manifest and fetches its generation. Write-back uploads a new generation, then
 // publishes a manifest naming it, conditionally: the publish fails with ErrStale if the stored manifest
@@ -17,10 +19,12 @@ package durable
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -126,11 +130,16 @@ type Store interface {
 	PublishManifest(ctx context.Context, m Manifest, prev Version) (v Version, err error)
 }
 
-// ValidateKey checks a database key at the edge. Keys become object names, so they must be non-empty
-// path segments without "..", empty segments, or a leading or trailing "/".
+// MaxKeyLen is the longest database key in bytes, for every package (internal/owner uses it too). An
+// escaped key is at most 3×120 bytes, so every object name stays far below S3's 1024-byte limit.
+const MaxKeyLen = 120
+
+// ValidateKey checks a database key at the edge: 1 to MaxKeyLen bytes, "/"-separated segments that are
+// not empty, "." or "..", with no leading or trailing "/", backslash or NUL. Keys are escaped in object
+// names (KeyPrefix), so these rules keep keys readable; they are not what keeps prefixes apart.
 func ValidateKey(key string) error {
-	if key == "" || len(key) > 512 {
-		return errs.Wrap(module, nil, "invalid database key %q: must be 1-512 bytes", key)
+	if key == "" || len(key) > MaxKeyLen {
+		return errs.Wrap(module, nil, "invalid database key %q: must be 1-%d bytes", key, MaxKeyLen)
 	}
 	for _, seg := range strings.Split(key, "/") {
 		if seg == "" || seg == "." || seg == ".." {
@@ -143,11 +152,21 @@ func ValidateKey(key string) error {
 	return nil
 }
 
+// KeyPrefix is the one prefix every object of key lives under: "dbs/<h2>/<esc>/" (see the package doc).
+// Escaping makes the key one path segment, so for distinct keys a and b neither KeyPrefix is a prefix of
+// the other (FuzzKeyPrefixDisjoint): GC, drop and inventory by prefix never reach another database.
+func KeyPrefix(key string) string {
+	h := sha256.Sum256([]byte(key))
+	return "dbs/" + hex.EncodeToString(h[:1]) + "/" + url.PathEscape(key) + "/"
+}
+
 // GenObject is the object name of key's generation gen.
-func GenObject(key string, gen uint64) string { return fmt.Sprintf("dbs/%s/gen/%020d.db", key, gen) }
+func GenObject(key string, gen uint64) string {
+	return fmt.Sprintf("%sgen/%020d.db", KeyPrefix(key), gen)
+}
 
 // ManifestObject is the object name of key's manifest.
-func ManifestObject(key string) string { return "dbs/" + key + "/manifest.json" }
+func ManifestObject(key string) string { return KeyPrefix(key) + "manifest.json" }
 
 // Encode is the manifest's JSON.
 func Encode(m Manifest) []byte {

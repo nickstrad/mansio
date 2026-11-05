@@ -23,8 +23,8 @@ func TestValidateKey(t *testing.T) {
 		ok  bool
 	}{
 		{"a", true},                       // shortest (on point)
-		{strings.Repeat("k", 512), true},  // longest (on point)
-		{strings.Repeat("k", 513), false}, // off point
+		{strings.Repeat("k", 120), true},  // longest (on point): durable.MaxKeyLen
+		{strings.Repeat("k", 121), false}, // off point
 		{"", false},                       // off point
 		{"tenant/db-1", true},
 		{"/a", false}, {"a/", false}, {"a//b", false},
@@ -38,15 +38,46 @@ func TestValidateKey(t *testing.T) {
 }
 
 func TestLayout(t *testing.T) {
-	if got := durable.GenObject("t/a", 42); got != "dbs/t/a/gen/00000000000000000042.db" {
-		t.Fatal(got)
+	for _, tc := range []struct{ got, want string }{
+		{durable.KeyPrefix("t1/a"), "dbs/bb/t1%2Fa/"}, // "/" is escaped: one path segment per key
+		{durable.KeyPrefix("t1"), "dbs/62/t1/"},
+		{durable.KeyPrefix("a b%"), "dbs/bc/a%20b%25/"},
+		{durable.GenObject("t/a", 42), "dbs/84/t%2Fa/gen/00000000000000000042.db"},
+		{durable.GenObject("a", 1<<64-1), "dbs/ca/a/gen/18446744073709551615.db"}, // 20 digits fit uint64
+		{durable.ManifestObject("t/a"), "dbs/84/t%2Fa/manifest.json"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("got %q, want %q", tc.got, tc.want)
+		}
 	}
-	if got := durable.GenObject("a", 1<<64-1); got != "dbs/a/gen/18446744073709551615.db" { // 20 digits fit uint64
-		t.Fatal(got)
+	if len(durable.ManifestObject(strings.Repeat("/", durable.MaxKeyLen))) > 1024 {
+		t.Fatal("the longest escaped key's object name is over S3's 1024-byte limit")
 	}
-	if durable.ManifestObject("t/a") != "dbs/t/a/manifest.json" {
-		t.Fatal("manifest/prefix layout")
-	}
+}
+
+// FuzzKeyPrefixDisjoint (OS-04, guide K1): for distinct valid keys a and b, no object of a lies under
+// KeyPrefix(b), so prefix-based GC, drop and inventory never reach another database.
+func FuzzKeyPrefixDisjoint(f *testing.F) {
+	f.Add("t1", "t1/gen/x")
+	f.Add("a", "a/b")
+	f.Add("a%2Fb", "a/b")
+	f.Add("a b", "a%20b")
+	f.Add("x", "x")
+	f.Fuzz(func(t *testing.T, a, b string) {
+		if a == b || durable.ValidateKey(a) != nil || durable.ValidateKey(b) != nil {
+			return
+		}
+		pb := durable.KeyPrefix(b)
+		for _, name := range []string{durable.KeyPrefix(a), durable.ManifestObject(a), durable.GenObject(a, 1)} {
+			if strings.HasPrefix(name, pb) {
+				t.Fatalf("%q (of key %q) is under KeyPrefix(%q) = %q", name, a, b, pb)
+			}
+		}
+		if !strings.HasPrefix(durable.ManifestObject(a), durable.KeyPrefix(a)) ||
+			!strings.HasPrefix(durable.GenObject(a, 1), durable.KeyPrefix(a)) {
+			t.Fatalf("an object of %q is outside its own prefix", a)
+		}
+	})
 }
 
 func TestManifestValidateAndDecode(t *testing.T) {

@@ -136,7 +136,7 @@ func TestMetricsCountAndLogRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rec["msg"] != "S3.REQUEST_RETRIED" || rec["op"] != objstore.OpGetManifest || rec["kind"] != "transient" ||
-		rec["object"] != "dbs/k/manifest.json" || rec["level"] != "WARN" {
+		rec["object"] != durable.ManifestObject("k") || rec["level"] != "WARN" {
 		t.Fatalf("log line %v", rec)
 	}
 }

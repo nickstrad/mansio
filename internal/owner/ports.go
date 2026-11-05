@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/nickstrad/ts-db-go/internal/durable"
 )
 
 const module = "owner"
@@ -44,8 +46,9 @@ var (
 	ErrConflict = errors.New("owner: placement conflict")
 )
 
-// MaxKeyLen bounds a key so that its hex file name (2 bytes per key byte, plus ".rec") fits in 255 bytes.
-const MaxKeyLen = 120
+// MaxKeyLen is durable.MaxKeyLen: one key limit for ownership and storage. It also keeps a record's hex file
+// name (2 bytes per key byte, plus ".rec") within 255 bytes.
+const MaxKeyLen = durable.MaxKeyLen
 
 // ValidKey reports whether key may be used: 1 to MaxKeyLen bytes.
 func ValidKey(key string) bool { return len(key) >= 1 && len(key) <= MaxKeyLen }
