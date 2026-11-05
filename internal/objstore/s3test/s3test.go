@@ -16,6 +16,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -96,8 +97,25 @@ func New() *Server {
 	return s
 }
 
+// NewTLS starts a server that speaks HTTPS with a self-signed certificate; CAPEM is the CA to trust.
+func NewTLS() *Server {
+	s := &Server{objects: map[string]object{}, done: make(chan struct{})}
+	s.srv = httptest.NewTLSServer(s)
+	return s
+}
+
 // Endpoint is the server's host:port, for objstore.Config.Endpoint.
-func (s *Server) Endpoint() string { return strings.TrimPrefix(s.srv.URL, "http://") }
+func (s *Server) Endpoint() string {
+	return strings.TrimPrefix(strings.TrimPrefix(s.srv.URL, "http://"), "https://")
+}
+
+// CAPEM is the PEM certificate a client must trust to reach a NewTLS server (nil for plain HTTP).
+func (s *Server) CAPEM() []byte {
+	if s.srv.Certificate() == nil {
+		return nil
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.srv.Certificate().Raw})
+}
 
 // Close releases stalled handlers, then stops the server.
 func (s *Server) Close() {
