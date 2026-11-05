@@ -26,6 +26,7 @@ type Code string
 const (
 	OK            Code = "ok"
 	Shed          Code = "shed"           // not accepted (caps, full mailbox, draining); nothing ran
+	Unavailable   Code = "unavailable"    // a dependency (storage, placement, fetch bulkhead) is unavailable; nothing ran
 	Expired       Code = "expired"        // the request's deadline passed before an answer
 	StmtTimeout   Code = "stmt_timeout"   // the statement timeout interrupted SQLite; nothing changed
 	Aborted       Code = "aborted"        // rolled back because another write in its batch timed out
@@ -37,7 +38,7 @@ const (
 )
 
 // Codes lists every wire code in spec order.
-var Codes = []Code{OK, Shed, Expired, StmtTimeout, Aborted, WrongOwner, Fenced, TicketInvalid, BadRequest, Internal}
+var Codes = []Code{OK, Shed, Unavailable, Expired, StmtTimeout, Aborted, WrongOwner, Fenced, TicketInvalid, BadRequest, Internal}
 
 // Wire is how a code goes on the wire.
 type Wire struct {
@@ -51,6 +52,7 @@ type Wire struct {
 var Spec = map[Code]Wire{
 	OK:            {200, 0, "done"},
 	Shed:          {503, 1, "nothing ran; retry after Retry-After with backoff and jitter"},
+	Unavailable:   {503, 1, "nothing ran; a dependency is down or recovering: retry after Retry-After with backoff and jitter"},
 	Expired:       {504, 0, "reads and writes without ambiguous=true never ran: retry with a fresh deadline; ambiguous=true: a write may have committed, retry with the same request_id"},
 	StmtTimeout:   {422, 0, "nothing changed; do not retry unchanged (the statement is too slow for the limit)"},
 	Aborted:       {409, 0, "nothing changed; safe to retry at once"},
@@ -63,8 +65,13 @@ var Spec = map[Code]Wire{
 
 // Sentinels for outcomes produced by the ports and the pipeline. Adapters translate their own errors into these
 // (e.g. the owner adapter maps owner.ErrFenced to ErrFenced) so this package imports no other agent's code.
+//
+// ErrUnavailable: a dependency the request needs (S3, the placement authority, the fetch bulkhead) cannot serve
+// it now; nothing ran. It is a system failure, not a bug: 503 + Retry-After, logged at WARN, sampled (Release It
+// F2). Adapters wrap their dependency's sentinel with it (cmd/agentd lists which ones).
 var (
 	ErrShed        = errors.New("front: shed")
+	ErrUnavailable = errors.New("front: dependency unavailable")
 	ErrExpired     = errors.New("front: deadline passed")
 	ErrNoReply     = errors.New("front: no reply before the deadline; a write may have committed")
 	ErrStmtTimeout = errors.New("front: statement timeout")
@@ -97,6 +104,8 @@ func Classify(err error) Code {
 		return TicketInvalid
 	case errors.Is(err, ErrShed), errors.Is(err, ErrDraining):
 		return Shed
+	case errors.Is(err, ErrUnavailable):
+		return Unavailable
 	case errors.Is(err, ErrExpired), errors.Is(err, ErrNoReply):
 		return Expired
 	case errors.Is(err, ErrStmtTimeout):
@@ -114,6 +123,7 @@ func Classify(err error) Code {
 // message is the fixed client-facing text per code; only bad_request adds the validator's own message.
 var message = map[Code]string{
 	Shed:          "not accepted now; nothing ran",
+	Unavailable:   "a dependency is unavailable; nothing ran",
 	Expired:       "deadline passed before an answer",
 	StmtTimeout:   "statement timeout; nothing changed",
 	Aborted:       "batch rolled back by another write's timeout; nothing changed",

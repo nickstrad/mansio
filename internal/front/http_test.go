@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -79,6 +80,8 @@ func TestHTTPStatusesAndHeaders(t *testing.T) {
 		{"timeout header ok", bearer, get(1), map[string]string{front.TimeoutHeader: "500"}, nil, 200, front.OK, nil},
 		{"shed has Retry-After", bearer, get(1), nil, func() { r.ex.Set(func(e *fronttest.Executor) { e.Err = front.ErrShed }) },
 			503, front.Shed, map[string]string{"Retry-After": "1"}},
+		{"unavailable has Retry-After", bearer, get(1), nil, func() { r.ex.Set(func(e *fronttest.Executor) { e.Err = front.ErrUnavailable }) },
+			503, front.Unavailable, map[string]string{"Retry-After": "1"}},
 		{"panic in executor", bearer, get(1), nil, func() { r.ex.Set(func(e *fronttest.Executor) { e.Err, e.Panic = nil, true }) },
 			500, front.Internal, nil},
 	}
@@ -106,6 +109,42 @@ func TestHTTPStatusesAndHeaders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A dependency outage fails every request: the log gets WARN lines at a bounded rate (with a count of the
+// suppressed ones), never one ERROR per request (Release It F2).
+func TestHTTPUnavailableLogsSampledWarn(t *testing.T) {
+	r, srv, log := newHTTP(t, front.Config{})
+	r.ex.Set(func(e *fronttest.Executor) { e.Err = fmt.Errorf("%w: s3 down", front.ErrUnavailable) })
+	bearer := "Bearer " + r.tok(t, "db-1", nil)
+	const n = 20
+	for range n {
+		if res, out := post(t, srv.URL, bearer, get(1), nil); res.StatusCode != 503 || out.Code != front.Unavailable {
+			t.Fatalf("status %d code %s", res.StatusCode, out.Code)
+		}
+	}
+	r.clock.Advance(time.Second) // next window: one more line, carrying the count suppressed in the last one
+	post(t, srv.URL, bearer, get(1), nil)
+	var warns []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(log.String()), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		switch m["level"] {
+		case "ERROR":
+			t.Fatalf("unavailable logged at ERROR: %s", line)
+		case "WARN":
+			warns = append(warns, m)
+		}
+	}
+	if len(warns) != front.UnavailableLogPerSecond+1 {
+		t.Fatalf("%d WARN lines for %d requests over two seconds, want %d:\n%s", len(warns), n+1, front.UnavailableLogPerSecond+1, log.String())
+	}
+	if w := warns[len(warns)-1]; w["event"] != "FRONT.UNAVAILABLE" || w["suppressed"] != float64(n-front.UnavailableLogPerSecond) ||
+		!strings.Contains(w["error"].(string), "s3 down") {
+		t.Fatalf("last WARN line %v", w)
 	}
 }
 

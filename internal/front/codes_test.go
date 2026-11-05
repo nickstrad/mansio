@@ -19,6 +19,8 @@ func TestSpecTable(t *testing.T) {
 	}{
 		{OK, 200, 0, []error{nil}},
 		{Shed, 503, 1, []error{ErrShed, ErrDraining, fmt.Errorf("%w: actor closed", ErrShed)}},
+		{Unavailable, 503, 1, []error{ErrUnavailable, fmt.Errorf("%w: %w", ErrUnavailable, errors.New("owner: unavailable")),
+			errs.Wrap("agentd", fmt.Errorf("%w: s3 breaker open", ErrUnavailable), "x")}},
 		{Expired, 504, 0, []error{ErrExpired, ErrNoReply}},
 		{StmtTimeout, 422, 0, []error{ErrStmtTimeout}},
 		{Aborted, 409, 0, []error{ErrAborted}},

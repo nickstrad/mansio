@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
@@ -23,12 +24,17 @@ const (
 	TimeoutHeader = "X-Timeout-Ms" // the client's deadline, relative, in milliseconds
 )
 
+// UnavailableLogPerSecond bounds the WARN lines for unavailable answers: a dependency outage fails many
+// requests per second, and each line beyond this rate is only counted (in the next line's "suppressed").
+const UnavailableLogPerSecond = 1
+
 // NewHandler is the HTTP adapter: POST /v1/query runs the pipeline, GET /healthz answers without touching
-// admission or actors (so it never queues behind queries). log receives one line per internal error (with a log
-// ID that is also in the response) and debug lines for other failures.
+// admission or actors (so it never queues behind queries). log receives one ERROR line per internal error (with a
+// log ID that is also in the response), sampled WARN lines (event FRONT.UNAVAILABLE) for unavailable answers,
+// and debug lines for other failures.
 func NewHandler(s *Server, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
-	h := &httpHandler{s: s, log: log}
+	h := &httpHandler{s: s, log: log, unavailable: sampler{perSec: UnavailableLogPerSecond}}
 	mux.HandleFunc(QueryPath, h.query)
 	mux.Handle(HealthPath, HealthHandler(s))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +59,37 @@ func HealthHandler(s *Server) http.Handler {
 }
 
 type httpHandler struct {
-	s   *Server
-	log *slog.Logger
+	s           *Server
+	log         *slog.Logger
+	unavailable sampler
+}
+
+// sampler lets at most perSec events through per wall-clock second and counts the rest.
+type sampler struct {
+	perSec int
+
+	mu      sync.Mutex
+	window  int64 // the current second (Unix)
+	n       int   // events let through in window
+	dropped int   // events suppressed since the last one let through
+}
+
+// allow reports whether to log the event at now and, if so, how many were suppressed before it.
+//
+//	post: at most perSec calls per Unix second return true
+func (s *sampler) allow(now time.Time) (ok bool, suppressed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sec := now.Unix(); sec != s.window {
+		s.window, s.n = sec, 0
+	}
+	if s.n >= s.perSec {
+		s.dropped++
+		return false, 0
+	}
+	s.n++
+	suppressed, s.dropped = s.dropped, 0
+	return true, suppressed
 }
 
 func (h *httpHandler) query(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +164,18 @@ func (h *httpHandler) write(w http.ResponseWriter, r *http.Request, out Output) 
 			attrs = append(attrs, slog.String("tenant", out.Tenant), slog.String("sub", out.Sub))
 		}
 		h.log.LogAttrs(context.Background(), slog.LevelError, "request failed (internal)", attrs...)
+	} else if out.Resp.Code == Unavailable {
+		if ok, suppressed := h.unavailable.allow(h.s.clock()); ok {
+			attrs := []slog.Attr{slog.String("event", "FRONT.UNAVAILABLE"), slog.String("request_id", out.Resp.RequestID),
+				slog.Int("suppressed", suppressed)}
+			if out.Err != nil {
+				attrs = append(attrs, slog.String("error", out.Err.Error()))
+			}
+			if out.Tenant != "" {
+				attrs = append(attrs, slog.String("tenant", out.Tenant))
+			}
+			h.log.LogAttrs(context.Background(), slog.LevelWarn, "request refused (dependency unavailable)", attrs...)
+		}
 	} else if out.Err != nil && h.log.Enabled(context.Background(), slog.LevelDebug) {
 		h.log.LogAttrs(context.Background(), slog.LevelDebug, "request refused", slog.String("code", string(out.Resp.Code)),
 			slog.String("error", out.Err.Error()), slog.String("request_id", out.Resp.RequestID))

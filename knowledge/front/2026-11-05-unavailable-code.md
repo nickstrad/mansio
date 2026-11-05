@@ -1,0 +1,54 @@
+# 2026-11-05 — wire code `unavailable` (amends contract 3)
+
+Author: books/p2-front agent (Release It plan item RI-04). Amends
+[the wire contract](2026-11-05-wire-contract.md) (owned by the front agent; not edited) and contract 3 in
+`shared_state.md` (not edited). Code: `internal/front/codes.go` (`Unavailable`, `ErrUnavailable`, `Spec`,
+`Classify`), `internal/front/http.go` (sampled WARN), `cmd/agentd/unavailable.go` (the mapping list). Tests:
+`TestSpecTable`, `TestPipelineWireCodes`, `TestHTTPStatusesAndHeaders`, `TestHTTPUnavailableLogsSampledWarn`,
+`cmd/agentd` `TestDependencyErrorsMapToUnavailable`.
+
+## Why a new code
+
+Before this, any error the front did not recognize was `internal` (500, "a write may or may not have
+committed", one ERROR line with a log ID per request). Once CP step 1 wires vactor, durable and owner behind
+the front, an S3 or Postgres outage would page on-call with thousands of "bugs", and clients would not back
+off (500 has no `Retry-After`). Release It F2: dependency unavailable ≠ bug ≠ bad request.
+
+We chose a new code over reusing `shed`: `shed` means "this agent is at its caps" (admission, mailbox, busy),
+`unavailable` means "a dependency is down or recovering". Clients retry both the same way, but operators and
+dashboards must tell overload from outage, and the retry hint differs (queue drain vs breaker cool-down).
+
+## The row
+
+| code | HTTP | Retry-After | from | client should |
+|---|---|---|---|---|
+| `unavailable` | 503 | ≥ 1 (computed, RI-10) | anything wrapping `front.ErrUnavailable`: Admitter or Executor dependency failure (owner not reconciled, authority or manifest unreadable; later S3 breaker open, fetch bulkhead full) | nothing ran; retry after `Retry-After` with backoff and jitter |
+
+The set is now eleven codes, in this order: `ok, shed, unavailable, expired, stmt_timeout, aborted,
+wrong_owner, fenced, ticket_invalid, bad_request, internal`. Clients that switch on the code must add it;
+`cmd/frontbench` counts codes by name and needs no change.
+
+Body: same as every other code — `code`, `request_id`, `message` ("a dependency is unavailable; nothing ran"),
+`retry_after_ms`. No `log_id` (it is not a bug).
+
+## Logging
+
+`unavailable` answers log at WARN, at most `front.UnavailableLogPerSecond` (1) line per second per handler,
+with `event: FRONT.UNAVAILABLE`, the error chain text, `request_id`, `tenant`, and `suppressed` = the number of
+unavailable answers not logged since the previous line. Never ERROR.
+
+## Which errors map to it (cmd/agentd)
+
+The front only knows `front.ErrUnavailable`; it imports no other agent's package. `cmd/agentd` wraps the
+Admitter and the Executor (`depAdmitter`, `depExecutor`) and maps every error that `errors.Is` one of
+`unavailableCauses`:
+
+- today: `owner.ErrUnavailable` (not reconciled since restart; authority or manifest unreadable).
+- RI-02 adds `vactor.ErrBusy` (fetch queue full): one line in `unavailableCauses`.
+- RI-03 adds `durable.ErrUnavailable` (S3 breaker open): one line. Its time-to-half-open should travel as a
+  retry hint (`front.RetryHint`, RI-10) so `Retry-After` says when to come back.
+- Activation timeouts: vactor should wrap them in one of the above. A bare `context.DeadlineExceeded` is
+  deliberately not mapped, because it also means the caller's own deadline passed (`expired`).
+
+Note: knowledge/front/README.md "How the other agents plug in" says the owner adapter maps
+`ErrUnavailable → front.ErrShed`. Use `front.ErrUnavailable` instead (or wrap the Admitter in `depAdmitter`).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -106,6 +107,22 @@ func TestPipelineWireCodes(t *testing.T) {
 		}, front.Shed, 503, func(t *testing.T, o front.Output) {
 			if o.RetryAfter != 1 || o.Resp.RetryAfterMS != 1000 {
 				t.Errorf("retry after %d / %d", o.RetryAfter, o.Resp.RetryAfterMS)
+			}
+		}},
+		{"unavailable from the admitter (owner not reconciled)", func(t *testing.T, r *rig) front.Input {
+			r.adm.SetErr(fmt.Errorf("%w: %w", front.ErrUnavailable, errors.New("owner: unavailable")))
+			return front.Input{Ticket: r.tok(t, "db-1", nil), Body: get(1)}
+		}, front.Unavailable, 503, func(t *testing.T, o front.Output) {
+			if o.RetryAfter != 1 || o.Resp.RetryAfterMS != 1000 || o.Resp.LogID != "" {
+				t.Errorf("retry after %d / %d, log id %q", o.RetryAfter, o.Resp.RetryAfterMS, o.Resp.LogID)
+			}
+		}},
+		{"unavailable from the executor (storage down)", func(t *testing.T, r *rig) front.Input {
+			r.ex.Set(func(e *fronttest.Executor) { e.Err = fmt.Errorf("%w: s3 breaker open", front.ErrUnavailable) })
+			return front.Input{Ticket: r.tok(t, "db-1", nil), Body: put(9)}
+		}, front.Unavailable, 503, func(t *testing.T, o front.Output) {
+			if o.Resp.Ambiguous {
+				t.Error("unavailable means nothing ran; not ambiguous")
 			}
 		}},
 		{"expired in executor", func(t *testing.T, r *rig) front.Input {

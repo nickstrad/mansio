@@ -103,7 +103,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		epochs(dbs, cfg), front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}, nil)
+		depAdmitter{epochs(dbs, cfg)}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
 	return serve(ctx, cfg, srv, log, *addrFile, rep, stderr)
 }
 
