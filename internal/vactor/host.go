@@ -137,7 +137,8 @@ type Options struct {
 	CreateMissing bool
 	// Policy drives Tick / RunMaintenance: periodic write-back and eviction.
 	Policy Policy
-	// WriteBackTimeout bounds each write-back that has no caller context: PassivateAll, Close. Default 5 min.
+	// WriteBackTimeout bounds each write-back that has no caller context (PassivateAll, Close) and each job of
+	// a maintenance tick. Default 5 min.
 	WriteBackTimeout time.Duration
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
@@ -184,6 +185,8 @@ type Stats struct {
 	WriteBacks        int64 // generations published
 	WriteBackFailures int64
 	BytesUploaded     int64
+	// LastWriteBackOK is when a write-back last published (the gauge last_writeback_ok); zero if none yet.
+	LastWriteBackOK time.Time
 }
 
 type entry struct {
@@ -215,6 +218,7 @@ type Host struct {
 
 	activations, failures, fetches, localHits    atomic.Int64
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
+	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
 }
 
 // NewHost creates a host with an empty cache directory.
@@ -618,7 +622,16 @@ func (h *Host) Stats() Stats {
 		WriteBacks:        h.writeBacks.Load(),
 		WriteBackFailures: h.writeBackFailures.Load(),
 		BytesUploaded:     h.bytesUploaded.Load(),
+		LastWriteBackOK:   unixNano(h.lastWriteBackOK.Load()),
 	}
+}
+
+// unixNano is the time n UnixNano stands for; 0 is the zero time.
+func unixNano(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n)
 }
 
 // RemoveDB deletes a SQLite database file and its side files (-wal, -shm, -journal). Missing files are fine.

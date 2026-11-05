@@ -254,7 +254,9 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	}
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
-	e.lastWB.Store(h.opts.Now().UnixNano())
+	now := h.opts.Now().UnixNano()
+	e.lastWB.Store(now)
+	h.lastWriteBackOK.Store(now)
 	h.writeBacks.Add(1)
 	h.bytesUploaded.Add(d.Size)
 	res.Wrote, res.Generation = true, gen
