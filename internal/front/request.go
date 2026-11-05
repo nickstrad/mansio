@@ -45,10 +45,10 @@ type Request struct {
 
 // Limits bound what one request may carry. The zero value is not usable: WithDefaults fills it.
 type Limits struct {
-	MaxBody int // bytes of request body; default 1 MiB
-	MaxSQL  int // bytes of SQL; default 64 KiB
-	MaxArgs int // default 999 (SQLite's historical bind limit)
-	MaxRows int // rows a read may return; more is bad_request (add LIMIT); default 10,000
+	MaxBody int `json:"max_body"` // bytes of request body; default 1 MiB
+	MaxSQL  int `json:"max_sql"`  // bytes of SQL; default 64 KiB
+	MaxArgs int `json:"max_args"` // default 999 (SQLite's historical bind limit)
+	MaxRows int `json:"max_rows"` // rows a read may return; more is bad_request (add LIMIT); default 10,000
 }
 
 // WithDefaults fills zero fields.
@@ -148,6 +148,9 @@ func jsonProblem(err error) string {
 	}
 	return strings.TrimPrefix(s, "json: ")
 }
+
+// CheckDBID reports whether s is a valid database id (the rule requests are held to).
+func CheckDBID(s string) error { return checkID("db", s, ticket.MaxDBID) }
 
 // checkID allows 1..max bytes of [A-Za-z0-9._:-], not starting with '.' (ids become file names in some hosts).
 func checkID(field, s string, max int) error {
