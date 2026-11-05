@@ -23,6 +23,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/retry"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // frontbench locator (control-plane plan CP-6 gate): closed-loop clients that know only controld. Every
@@ -44,6 +45,10 @@ type locatorFlags struct {
 	write                            float64
 	duration, warmup, timeout, move  time.Duration
 	setup                            bool
+
+	// Soak (soak.go): queries through an edge, an arrival rate, a skewed mix, and the two logs.
+	edge, ackLog, events, runID string
+	rate, zipf                  float64
 }
 
 // moveWindow is how long after a move returns its requests still count as "during the move": routes cached
@@ -100,14 +105,25 @@ func locatorCmd(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs.DurationVar(&f.timeout, "timeout", 5*time.Second, "per-call deadline (covers resolves, retries and waits)")
 	fs.DurationVar(&f.move, "move-every", 0, "move a random database to another VM this often (0 = never; needs TSDB_ADMIN_TOKEN)")
 	fs.BoolVar(&f.setup, "setup", false, "create the databases and their table first (needs TSDB_ADMIN_TOKEN)")
+	fs.StringVar(&f.edge, "edge", "", "send queries to this edge base URL (resolves still go to -locator)")
+	fs.Float64Var(&f.rate, "rate", 0, "requests per second across all clients (0 = closed loop)")
+	fs.Float64Var(&f.zipf, "zipf", 0, "database popularity: Zipf exponent > 1 (fb-0 hottest); 0 = uniform")
+	fs.StringVar(&f.ackLog, "ack-log", "", "append each write's request id and outcome here; inserts store the id (frontbench verify)")
+	fs.StringVar(&f.events, "events", "", "append errors, retries and moves here as JSON lines")
+	fs.StringVar(&f.runID, "run-id", "", "request id prefix (unique per run when logging acks; default random)")
 	if err := parse(fs, args, stderr); err != nil {
 		return err
 	}
-	if f.dbs < 1 || f.conc < 1 || f.write < 0 || f.write > 1 || f.duration <= 0 || f.warmup < 0 || f.move < 0 {
+	if f.dbs < 1 || f.conc < 1 || f.write < 0 || f.write > 1 || f.duration <= 0 || f.warmup < 0 || f.move < 0 || f.rate < 0 {
 		fmt.Fprintln(stderr, "frontbench locator: need dbs, conc >= 1, 0 <= write <= 1, duration > 0")
 		return usageError{errors.New("bad flags")}
 	}
-	ad := &adminAPI{base: strings.TrimSuffix(f.locator, "/"), token: os.Getenv("TSDB_ADMIN_TOKEN"), http: &http.Client{Timeout: time.Minute}}
+	hc, err := tlsx.HTTPClient(f.ca) // controld's admin API, over TLS from the same private CA
+	if err != nil {
+		return errs.Wrap(module, err, "cannot load the CA file %s", f.ca)
+	}
+	hc.Timeout = time.Minute
+	ad := &adminAPI{base: strings.TrimSuffix(f.locator, "/"), token: os.Getenv("TSDB_ADMIN_TOKEN"), http: hc}
 	if (f.setup || f.move > 0) && ad.token == "" {
 		fmt.Fprintln(stderr, "frontbench locator: -setup and -move-every need TSDB_ADMIN_TOKEN")
 		return usageError{errors.New("missing TSDB_ADMIN_TOKEN")}
@@ -146,7 +162,7 @@ func fbName(i int) string { return fmt.Sprintf("fb-%d", i) }
 
 // clientConfig is the client every locator call uses; callers add their own fields.
 func (f locatorFlags) clientConfig(apiKey string) client.Config {
-	return client.Config{Locator: f.locator, APIKey: apiKey, Tenant: f.tenant, Scheme: f.scheme, CAFile: f.ca}
+	return client.Config{Locator: f.locator, APIKey: apiKey, Tenant: f.tenant, Scheme: f.scheme, CAFile: f.ca, Edge: f.edge}
 }
 
 // adminAPI is the slice of controld's admin API the bench uses.
@@ -245,11 +261,25 @@ func (l *latencies) retry(e client.RetryEvent) {
 }
 
 // driveLocator runs conc closed-loop workers on one client, plus the mover, for warmup + duration.
-func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey string) (LocatorSummary, error) {
+func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey string) (sum LocatorSummary, err error) {
 	lat := &latencies{hit: make([]time.Duration, 0, min(maxSamples, f.conc*int(f.duration/time.Millisecond)))}
 	budget := &retry.Budget{Ratio: client.DefaultBudgetRatio}
+	slog, err := openSoakLog(f.ackLog, f.events)
+	if err != nil {
+		return LocatorSummary{}, err
+	}
+	defer func() {
+		if cerr := slog.Close(); cerr != nil && err == nil {
+			err = errs.Wrap(module, cerr, "cannot write the soak logs")
+		}
+	}()
+	if f.runID == "" {
+		f.runID = fmt.Sprintf("r%x", rand.Uint64())
+	}
+	pace := newPacer(f.rate)
 	cfg := f.clientConfig(apiKey)
-	cfg.Timeout, cfg.Budget, cfg.Hooks = f.timeout, budget, client.Hooks{Resolve: lat.resolve, Retry: lat.retry}
+	cfg.Timeout, cfg.Budget = f.timeout, budget
+	cfg.Hooks = client.Hooks{Resolve: lat.resolve, Retry: func(e client.RetryEvent) { lat.retry(e); slog.retry(e) }}
 	c, err := client.New(cfg)
 	if err != nil {
 		return LocatorSummary{}, err
@@ -301,6 +331,7 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 				mctx, cancel := context.WithTimeout(ctx, time.Minute)
 				code, err := ad.call(mctx, "/v1/databases/"+url.PathEscape(key)+"/move", map[string]string{}, nil)
 				cancel()
+				slog.event("move", map[string]any{"db": key, "status": code, "ok": err == nil && code == http.StatusOK, "took_ms": time.Since(t0).Milliseconds()})
 				movingUntil.Store(time.Now().Add(moveWindow).UnixNano())
 				switch {
 				case t0.Before(measureFrom):
@@ -316,17 +347,25 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 	for w := range f.conc {
 		wg.Go(func() {
 			r := rand.New(rand.NewPCG(f.seed, uint64(w)+1))
+			pick := picker(r, f.dbs, f.zipf)
 			res := result{codes: map[string]int{}}
 			blob := make([]byte, 64)
-			for ctx.Err() == nil {
-				db := names[r.IntN(f.dbs)]
+			for seq := 0; ctx.Err() == nil; seq++ {
+				pace.wait(ctx)
+				db := names[pick()]
 				var req client.Request
-				if r.Float64() < f.write {
+				switch {
+				case r.Float64() >= f.write:
+				case slog.ackOn: // the row's v is the request id, so verify can find it
+					rid := fmt.Sprintf("%s-%d-%d", f.runID, w, seq)
+					req = client.Request{DB: db, Kind: front.KindWrite, SQL: "insert into fb (v) values (?)", Args: []any{rid}, RequestID: rid}
+				default:
 					for i := 0; i < len(blob); i += 8 {
 						binary.LittleEndian.PutUint64(blob[i:], r.Uint64())
 					}
 					req = client.Request{DB: db, Kind: front.KindWrite, SQL: "insert into fb (v) values (?)", Args: []any{blob}}
-				} else {
+				}
+				if req.Kind == "" {
 					req = client.Request{DB: db, Kind: front.KindRead, SQL: "select id, v from fb where id = ?", Args: []any{r.Int64N(1000) + 1}}
 				}
 				t0 := time.Now()
@@ -334,6 +373,13 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 					break
 				}
 				_, err := c.Do(ctx, req)
+				if ctx.Err() != nil {
+					break // interrupted: the outcome is the run's, not the system's
+				}
+				if req.RequestID != "" {
+					slog.write(db, req.RequestID, err)
+				}
+				slog.callError(db, req.Kind, time.Since(t0), err)
 				if !t0.After(measureFrom) {
 					continue
 				}
