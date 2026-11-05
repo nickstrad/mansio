@@ -108,3 +108,4 @@ go test -run='^$' -fuzz=FuzzHostModel -fuzztime=30s ./internal/vactor
 ## Notes by others
 
 (add `YYYY-MM-DD-<topic>.md` here and a line below)
+- 2026-11-04 sqlbench: [what the approach found](2026-11-04-sqlbench-lessons.md) — DSN `#` bug via model fuzz, boundary found by property test, whole-run invariant, pure pacer.

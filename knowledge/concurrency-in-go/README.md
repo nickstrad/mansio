@@ -78,3 +78,4 @@ integration code (cmd, adapters) logs; domain code returns errors and values des
 ## Notes by others
 
 (add `YYYY-MM-DD-<topic>.md` here and a line below)
+- 2026-11-04 sqlbench: [run loop](2026-11-04-sqlbench-run-loop.md) — one outstanding counter for the drain, panic forwarding from timers, cancel finishes files, no stacks on stderr.
