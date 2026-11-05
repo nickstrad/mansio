@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,11 +32,11 @@ import (
 )
 
 type runFlags struct {
-	mode, dir, url, proto, key, vm, out string
-	dbs, tenants, conc                  int
-	seed                                uint64
-	write                               float64
-	duration, warmup, timeout           time.Duration
+	mode, dir, url, proto, key, vm, out, ca string
+	dbs, tenants, conc                      int
+	seed                                    uint64
+	write                                   float64
+	duration, warmup, timeout               time.Duration
 }
 
 // Summary is one run's result (also written as JSON with -out).
@@ -63,7 +66,8 @@ func runCmd(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 	fs.StringVar(&f.mode, "mode", "http", "inproc | pipeline | http")
 	fs.StringVar(&f.dir, "dir", "", "database directory (inproc, pipeline)")
 	fs.StringVar(&f.url, "url", "http://127.0.0.1:7070", "agentd base URL (http)")
-	fs.StringVar(&f.proto, "proto", "h1", "h1 | h2c (http)")
+	fs.StringVar(&f.proto, "proto", "h1", "h1 | h2c (plain http) | h2 (https)")
+	fs.StringVar(&f.ca, "ca", "", "PEM CA to trust for an https -url (a private CA, e.g. the edge's)")
 	fs.StringVar(&f.key, "key", "", "issuer key from keygen (http; pipeline makes its own if empty)")
 	fs.StringVar(&f.vm, "vm", "vm-local", "ticket audience")
 	fs.StringVar(&f.out, "out", "", "write the summary JSON here")
@@ -160,7 +164,7 @@ func newTarget(f runFlags) (target, func(), error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return httpTarget(f, toks), func() {}, nil
+		return httpTarget(f, toks)
 	}
 	return nil, nil, usageError{fmt.Errorf("unknown mode %q", f.mode)}
 }
@@ -255,12 +259,27 @@ func requestBody(db int, st workload.Statement) []byte {
 	return b
 }
 
-func httpTarget(f runFlags, toks []string) target {
+func httpTarget(f runFlags, toks []string) (target, func(), error) {
 	tr := &http.Transport{MaxIdleConns: f.conc * 2, MaxIdleConnsPerHost: f.conc * 2, IdleConnTimeout: time.Minute}
-	if f.proto == "h2c" {
+	switch f.proto {
+	case "h2c":
 		tr.Protocols = new(http.Protocols)
 		tr.Protocols.SetUnencryptedHTTP2(true)
+	case "h2":
+		tr.ForceAttemptHTTP2 = true
 	}
+	if f.ca != "" {
+		pem, err := os.ReadFile(f.ca)
+		if err != nil {
+			return nil, nil, errs.Wrap(module, err, "cannot read -ca").With("path", f.ca)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, nil, errs.Wrap(module, nil, "-ca %s holds no PEM certificate", f.ca)
+		}
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	timeoutMS := strconv.FormatInt(f.timeout.Milliseconds(), 10)
 	client := &http.Client{Transport: tr}
 	url := f.url + front.QueryPath
 	auth := make([]string, len(toks))
@@ -271,6 +290,7 @@ func httpTarget(f runFlags, toks []string) target {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestBody(db, st)))
 		req.Header.Set("Authorization", auth[db])
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(front.TimeoutHeader, timeoutMS)
 		res, err := client.Do(req)
 		if err != nil {
 			return "transport_error"
@@ -284,7 +304,7 @@ func httpTarget(f runFlags, toks []string) target {
 		}
 		io.Copy(io.Discard, res.Body)
 		return out.Code
-	}
+	}, tr.CloseIdleConnections, nil
 }
 
 // drive runs conc closed-loop clients for warmup + duration and summarizes the measured part.
