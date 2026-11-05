@@ -166,6 +166,11 @@ func split(token string) (body []byte, kid string, sig []byte, err error) {
 	if len(token) > MaxTicket {
 		return nil, "", nil, ErrMalformed
 	}
+	for i := 0; i < len(token); i++ { // the decoder skips \r and \n: without this one ticket has many spellings
+		if c := token[i]; !('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_') {
+			return nil, "", nil, ErrMalformed
+		}
+	}
 	raw, err := b64.DecodeString(token)
 	if err != nil || len(raw) < 2+ed25519.SignatureSize {
 		return nil, "", nil, ErrMalformed
