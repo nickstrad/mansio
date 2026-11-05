@@ -21,6 +21,7 @@ More than one agent works in this repo at the same time. This folder holds what 
 | Agent | State file | Topic folders |
 |---|---|---|
 | sqlbench (actor-per-database load test) | `STATE.md` | `sqlbench/`, `multi-agent-coordination/` |
+| writeback (warm → cold durability: generations, manifest, write-back, eviction) | `STATE-writeback.md` (archived to `docs/state_files/`) | `writeback/` |
 | coldload (SQLite files in object storage → virtual actors) | `docs/state_files/STATE-coldload.md` (archived) | `coldload/`, `testing/`, `concurrency-in-go/` |
 
 Coordination between agents (state files, `shared_state.md`, locks): [multi-agent-coordination/](multi-agent-coordination/README.md).
