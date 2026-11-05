@@ -84,7 +84,7 @@ func TestResolveAndDBPath(t *testing.T) {
 	if c.OutDir != filepath.Join("results", "tiny-20261104-200102") {
 		t.Fatalf("OutDir = %s", c.OutDir)
 	}
-	if !strings.HasPrefix(c.DBDir, "/tmp/ts-db-go/v2-") {
+	if !strings.HasPrefix(c.DBDir, "/tmp/ts-db-go/v3-") {
 		t.Fatalf("DBDir = %s", c.DBDir)
 	}
 	keep := tinyConfig(t, "")
@@ -346,5 +346,55 @@ func TestCancelDoesNotWaitOutBackoffs(t *testing.T) {
 	}
 	if sum.RetriesScheduled == 0 || sum.RetriesLost != sum.RetriesScheduled {
 		t.Fatalf("scheduled %d, lost %d: every pending retry should be recorded as never sent", sum.RetriesScheduled, sum.RetriesLost)
+	}
+}
+
+// PG-05: a generated database enforces its foreign key and its column types. A violation is the statement's own
+// error (outcome "error", not "aborted"), and its batch-mates still commit (relies on PG-01's savepoints).
+func TestGeneratedDatabaseEnforcesForeignKeysAndTypes(t *testing.T) {
+	s := &schema.Schema{Tables: []schema.Table{
+		{Name: "a", Parent: -1, SeedRows: 2, Columns: []schema.Column{{Name: "x", Type: schema.Integer, Cardinality: 5}}},
+		{Name: "b", Parent: 0, SeedRows: 2, Columns: []schema.Column{{Name: "y", Type: schema.Text, Cardinality: 5}}},
+	}}
+	path := filepath.Join(t.TempDir(), "db.sqlite")
+	if err := actor.Seed(path, actor.Config{}, s.DDL(), func(exec func(string, ...any) error) error {
+		return s.Fill(1, exec)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a := actor.New(0, path, actor.Config{})
+	t.Cleanup(a.Close)
+	tests := []struct {
+		name string
+		sql  string
+		args []any
+		want outcome.Code
+	}{
+		{"child of an existing parent (on point)", `INSERT INTO b (parent_id, y) VALUES (?, ?)`, []any{int64(2), "ok"}, outcome.OK},
+		{"child of a missing parent", `INSERT INTO b (parent_id, y) VALUES (?, ?)`, []any{int64(3), "orphan"}, outcome.Error},
+		{"child with no parent (NULL)", `INSERT INTO b (parent_id, y) VALUES (?, ?)`, []any{nil, "root"}, outcome.OK},
+		{"text into an INTEGER column", `INSERT INTO a (x) VALUES (?)`, []any{"abc"}, outcome.Error},
+		{"integer text into an INTEGER column (lossless, accepted)", `INSERT INTO a (x) VALUES (?)`, []any{"7"}, outcome.OK},
+		{"delete a referenced parent", `DELETE FROM a WHERE id = ?`, []any{int64(1)}, outcome.Error},
+	}
+	reqs := make([]*actor.Request, len(tests))
+	for i, tc := range tests { // one batch: queued before the actor starts
+		reqs[i] = &actor.Request{SQL: tc.sql, Args: tc.args, Write: true}
+		if err := a.Submit(reqs[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.Start(false); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for i, tc := range tests {
+		if got := Classify(reqs[i].Wait(ctx)); got != tc.want {
+			t.Errorf("%s: outcome %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if r := a.Do(ctx, `SELECT COUNT(*) FROM b`, false); r.First != 4 {
+		t.Fatalf("b has %d rows, want 2 seeded + 2 committed batch-mates", r.First)
 	}
 }

@@ -15,8 +15,8 @@ import (
 // Template schema: a small meta table plus items with a 1000-byte random payload (incompressible) and one
 // secondary index. The size target is reached by adding rows.
 const templateDDL = `
-CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
-CREATE TABLE items(id INTEGER PRIMARY KEY, k INTEGER NOT NULL, name TEXT NOT NULL, payload BLOB NOT NULL);
+CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT NOT NULL) STRICT;
+CREATE TABLE items(id INTEGER PRIMARY KEY, k INTEGER NOT NULL, name TEXT NOT NULL, payload BLOB NOT NULL) STRICT;
 CREATE INDEX items_k ON items(k);
 `
 

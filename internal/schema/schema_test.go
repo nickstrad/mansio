@@ -15,10 +15,11 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/schema"
 )
 
-// memDB is a private in-memory database (one connection, so every statement sees the same database).
+// memDB is a private in-memory database (one connection, so every statement sees the same database) with
+// foreign keys enforced, as the actor opens every database.
 func memDB(t testing.TB) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,14 +120,20 @@ func TestInsertSQLAndColumnNames(t *testing.T) {
 func TestAppendRowBoundsParentID(t *testing.T) {
 	child := schema.Table{Name: "c", Parent: 0, Columns: []schema.Column{{Name: "x", Type: schema.Integer, Cardinality: 3}}}
 	r := rand.New(rand.NewPCG(1, 1))
-	for _, parents := range []int64{0, 1, 7} {
+	for _, parents := range []int64{-1, 0, 1, 7} {
 		for range 200 {
 			args := child.AppendRow(nil, r, parents)
 			if len(args) != 2 {
 				t.Fatalf("%d args, want 2", len(args))
 			}
-			if p := args[0].(int64); p < 1 || p > max(parents, 1) {
-				t.Fatalf("parent_id %d outside [1, %d]", p, max(parents, 1))
+			if parents < 1 { // no parent row exists: NULL, which a foreign key accepts
+				if args[0] != nil {
+					t.Fatalf("parents %d: parent_id %v, want NULL", parents, args[0])
+				}
+				continue
+			}
+			if p := args[0].(int64); p < 1 || p > parents {
+				t.Fatalf("parent_id %d outside [1, %d]", p, parents)
 			}
 		}
 	}

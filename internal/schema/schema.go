@@ -36,7 +36,8 @@ type Column struct {
 // Numeric reports whether comparisons and AVG make sense.
 func (c Column) Numeric() bool { return c.Type == Integer || c.Type == Real }
 
-// Table has an INTEGER PRIMARY KEY id, columns, and optionally a parent_id pointing at another table's id.
+// Table has an INTEGER PRIMARY KEY id, columns, and optionally a parent_id pointing at another table's id. Tables
+// are STRICT and parent_id is a real foreign key: the actor opens databases with foreign_keys on (SQL G-13).
 type Table struct {
 	Name     string
 	Columns  []Column
@@ -163,7 +164,7 @@ func (s *Schema) DDL() string {
 				b.WriteString(" NOT NULL")
 			}
 		}
-		b.WriteString("\n);\n")
+		b.WriteString("\n) STRICT;\n")
 		if t.HasParent() {
 			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %s_parent_id ON %s(parent_id);\n", t.Name, t.Name)
 		}
@@ -228,10 +229,15 @@ func (t *Table) InsertSQL(rows int) string {
 		strings.TrimSuffix(strings.Repeat(row+", ", rows), ", "))
 }
 
-// AppendRow appends one row's insert arguments to args; parentRows bounds parent_id.
+// AppendRow appends one row's insert arguments to args. parent_id is drawn from 1..parentRows, ids the caller
+// knows exist in the parent table; with parentRows < 1 it is NULL (a foreign key accepts NULL).
 func (t *Table) AppendRow(args []any, r *rand.Rand, parentRows int64) []any {
 	if t.HasParent() {
-		args = append(args, 1+r.Int64N(max(parentRows, 1)))
+		if parentRows < 1 {
+			args = append(args, nil)
+		} else {
+			args = append(args, 1+r.Int64N(parentRows))
+		}
 	}
 	for _, c := range t.Columns {
 		args = append(args, Value(r, c))
@@ -288,6 +294,6 @@ func (c *Catalog) Get(db int) *Schema { return c.schemas[db] }
 // was built the same way.
 func (c *Catalog) Fingerprint() string {
 	o := c.Options
-	return fmt.Sprintf("v2-s%d-t%d_%d-c%d_%d-r%d_%d-i%g-p%g",
+	return fmt.Sprintf("v3-s%d-t%d_%d-c%d_%d-r%d_%d-i%g-p%g",
 		c.Seed, o.MinTables, o.MaxTables, o.MinColumns, o.MaxColumns, o.MinRows, o.MaxRows, o.IndexProb, o.ParentProb)
 }

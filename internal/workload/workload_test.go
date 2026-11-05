@@ -17,10 +17,10 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/workload"
 )
 
-// seeded builds s in a private in-memory database.
+// seeded builds s in a private in-memory database with foreign keys enforced, as the actor opens every database.
 func seeded(t testing.TB, s *schema.Schema, seed uint64) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +189,9 @@ func TestAssertionsCanFire(t *testing.T) {
 	mustPanic(t, "NewGenerator with invalid options", func() { workload.NewGenerator(s, workload.Options{}) })
 	g := workload.NewGenerator(s, workload.DefaultOptions())
 	mustPanic(t, "Next with an unknown class", func() { g.Next(rand.New(rand.NewPCG(1, 1)), "nope") })
+	col := []schema.Column{{Name: "x", Type: schema.Integer, Cardinality: 2}}
+	cycle := &schema.Schema{Tables: []schema.Table{{Name: "a", Parent: 1, Columns: col}, {Name: "b", Parent: 0, Columns: col}}}
+	mustPanic(t, "NewGenerator on a schema with no leaf table", func() { workload.NewGenerator(cycle, workload.DefaultOptions()) })
 }
 
 // --- integration and properties ------------------------------------------------------------------------------------
@@ -293,4 +296,37 @@ func FuzzStatementsRun(f *testing.F) {
 			checkRuns(t, conn, s, g.Next(r, c))
 		}
 	})
+}
+
+// PG-05: with foreign keys enforced, a long random mix of every write class never violates one: deletes go only
+// to leaf tables, and parent_id values always name an existing parent row. ParentProb 1 makes every table after
+// the first a child, so the chain of parents is as deep as it gets.
+func TestWritesNeverViolateForeignKeys(t *testing.T) {
+	opts := schema.Options{MinTables: 2, MaxTables: 5, MinColumns: 1, MaxColumns: 4, MinRows: 0, MaxRows: 20, IndexProb: 0.3, ParentProb: 1}
+	writes := []workload.Class{workload.Insert, workload.BulkInsert, workload.Update, workload.Delete, workload.Upsert}
+	for db := range 20 {
+		s := schema.Generate(9, db, opts)
+		conn := seeded(t, s, 9)
+		g := workload.NewGenerator(s, workload.DefaultOptions())
+		referenced := map[string]bool{}
+		for _, tb := range s.Tables {
+			if tb.HasParent() {
+				referenced[s.Tables[tb.Parent].Name] = true
+			}
+		}
+		r := rand.New(rand.NewPCG(9, uint64(db)))
+		for range 300 {
+			st := g.Next(r, writes[r.IntN(len(writes))])
+			if st.Class == workload.Delete && referenced[st.Table] {
+				t.Fatalf("db %d: delete targets %s, which other tables reference", db, st.Table)
+			}
+			if _, err := conn.Exec(st.SQL, st.Args...); err != nil {
+				t.Fatalf("db %d: %s: %v\nSQL: %s\nargs: %v\nDDL:\n%s", db, st.Class, err, st.SQL, st.Args, s.DDL())
+			}
+		}
+		var violations int
+		if err := conn.QueryRow(`SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil || violations != 0 {
+			t.Fatalf("db %d: %d foreign key violations (%v)", db, violations, err)
+		}
+	}
 }

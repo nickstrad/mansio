@@ -79,10 +79,11 @@ func openSQLite(path string, cfg Config, readOnly bool) (executor, error) {
 }
 
 // dsn is the driver's URI for path. The path is percent-escaped: in a file: URI a raw '#' starts a fragment
-// and a raw '?' starts the query, so an unescaped path containing either opens a different file.
+// and a raw '?' starts the query, so an unescaped path containing either opens a different file. Foreign keys
+// are always enforced (SQL G-13): a declared REFERENCES that SQLite ignores is a lie the application trusts.
 func dsn(path string, cfg Config, readOnly bool) string {
 	u := url.URL{Scheme: "file", Opaque: (&url.URL{Path: path}).EscapedPath()}
-	q := fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(%s)&_pragma=synchronous(%s)&_pragma=cache_size(-%d)",
+	q := fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(%s)&_pragma=synchronous(%s)&_pragma=cache_size(-%d)&_pragma=foreign_keys(1)",
 		cfg.BusyTimeout.Milliseconds(), cfg.JournalMode, cfg.Synchronous, cfg.CacheKiB)
 	if readOnly {
 		q += "&_pragma=query_only(1)"
