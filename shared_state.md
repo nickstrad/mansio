@@ -586,3 +586,21 @@ Branch `cp/cp6`. Details: `knowledge/front/2026-11-05-client.md`.
 - **frontbench:** new subcommand `frontbench locator` (env `TSDB_API_KEY`, `TSDB_ADMIN_TOKEN`; `-setup`, `-move-every`); `run` shares `summarize`/`finish`.
 - **controld gate harness:** agents get `admin_listen`; `agentProc.admin` holds its address.
 - **Known locator gap (follow-up):** the locator routes to a new owner before its claim lands; that owner answers `wrong_owner` at the current epoch for a few ms. The client tolerates it (a primary answer ends min_epoch; ≤ 5 re-resolves). Better: locator answers `moving` until the registry says active (needs a NOTIFY on the registry flip).
+
+## 2026-11-05 16:04 — fin-loc: locator/controld/edge follow-ups: contract changes
+
+Branch `cp/fin-loc`. Details: `knowledge/front/2026-11-05-locator-followups.md`.
+
+- **Resolve API:** `moving` (503) now also while a new owner's claim is pending (placement ACTIVE, registry still
+  creating/moving to that owner), with a short hint. Every controld 503 body carries `retry_after_ms` (precise;
+  header stays whole seconds). New answer `shed` (503 + Retry-After): too many unknown API key ids from the source
+  (`locator.rate_limit`). `internal/client` handles both.
+- **placement/pg:** migration `0005_state_notify.sql` (`pg_notify('database_state', database_id)` on state/target
+  change); `pg.StateChannel`, `ListenHooks.State`; `Location.Target`. Locator: `InvalidateState`, `Config.ClaimRetry`,
+  `Config.Limiter`, `Request.Source`, `ErrRateLimited`.
+- **controld:** `tls` section (refused without it unless `-dev`); CLI `-ca`; secret `edge_token` enables
+  `GET /v1/agents` → `{"code":"ok","agents":{vm: endpoint}}` (non-dead VMs).
+- **agentd / edge:** `control_ca_file` for an https `keys_url`. Edge: `registry` section (controld's VM registry,
+  `edge.RegistryRoutes`), exclusive with `agents`.
+- **Moved / new shared packages:** `edge.SourceLimiter` → `internal/ratelimit`; `internal/fsx` (`WriteAtomic`,
+  `SyncDir`); `logx.Reporter`, `logx.Open`, `logx.Levels`; `tlsx.Files`, `tlsx.HTTPClient`; `keyfetch.Config.CAFile`.
