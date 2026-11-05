@@ -20,6 +20,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/faultnet"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/placement/file"
@@ -36,6 +37,8 @@ type durableRig struct {
 	fake             *s3test.Server // nil against a real S3
 	proxy            *faultnet.Proxy
 	bucket           string
+	endpoint         string // the S3 behind the proxy
+	access, secret   string
 }
 
 // newDurableRig writes keys, secrets and a config. extra is appended to the config object's fields.
@@ -45,11 +48,17 @@ func newDurableRig(t *testing.T, extra string) *durableRig {
 	endpoint, access, secret := "", "a", "b"
 	if ep := os.Getenv("AGENTD_REAL_S3"); ep != "" { // set by s3Rig for the gated runs
 		endpoint, access, secret, r.bucket = ep, "coldload", "coldload-secret", "coldload"
+		t.Cleanup(func() {
+			if st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: access, SecretKey: secret, Bucket: r.bucket}); err == nil {
+				st.DeletePrefix(context.Background(), r.prefix)
+			}
+		})
 	} else {
 		r.fake = s3test.New()
 		t.Cleanup(r.fake.Close)
 		endpoint = r.fake.Endpoint()
 	}
+	r.endpoint, r.access, r.secret = endpoint, access, secret
 	var err error
 	if r.proxy, err = faultnet.New(endpoint); err != nil {
 		t.Fatal(err)
@@ -174,15 +183,25 @@ type answer struct {
 	front.Response
 }
 
-// query sends one statement for db at epoch.
+// query sends one statement for db at epoch (writes get a fresh request id).
 func (a *running) query(t *testing.T, db string, epoch uint64, kind front.Kind, sql string, args ...any) answer {
+	t.Helper()
+	id := ""
+	if kind == front.KindWrite {
+		id = "r-" + strconv.FormatInt(reqSeq.Add(1), 10)
+	}
+	return a.queryID(t, db, epoch, id, kind, sql, args...)
+}
+
+// queryID sends one statement with the given request id ("" = none).
+func (a *running) queryID(t *testing.T, db string, epoch uint64, id string, kind front.Kind, sql string, args ...any) answer {
 	t.Helper()
 	if args == nil {
 		args = []any{}
 	}
 	body := map[string]any{"db": db, "kind": kind, "sql": sql, "args": args}
-	if kind == front.KindWrite {
-		body["request_id"] = "r-" + strconv.FormatInt(reqSeq.Add(1), 10)
+	if id != "" {
+		body["request_id"] = id
 	}
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, "http://"+a.addr+front.QueryPath, bytes.NewReader(b))
@@ -232,18 +251,31 @@ func (r *durableRig) log() string {
 	return string(b)
 }
 
-// manifest reads db's stored manifest (s3test only).
+// manifest reads db's stored manifest straight from S3 (past the proxy).
 func (r *durableRig) manifest(t *testing.T, db string) durable.Manifest {
 	t.Helper()
-	b, ok := r.fake.Object(r.bucket, r.prefix+durable.ManifestObject(db))
-	if !ok {
-		t.Fatalf("no manifest for %s", db)
-	}
-	m, err := durable.Decode(db, b)
+	st, err := objstore.New(objstore.Config{Endpoint: r.endpoint, AccessKey: r.access, SecretKey: r.secret, Bucket: r.bucket})
 	if err != nil {
 		t.Fatal(err)
 	}
+	m, _, err := objstore.NewDurable(st, r.prefix).ReadManifest(context.Background(), db)
+	if err != nil {
+		t.Fatalf("manifest of %s: %v", db, err)
+	}
 	return m
+}
+
+// The kill -9 e2e and the lifecycle endpoints against a real S3 (SeaweedFS), when COLDLOAD_S3 is set.
+func TestDurableAgainstRealS3(t *testing.T) {
+	ep := os.Getenv("COLDLOAD_S3")
+	if ep == "" {
+		t.Skip("set COLDLOAD_S3=host:port to run agentd against a real S3")
+	}
+	t.Setenv("AGENTD_REAL_S3", ep)
+	t.Run("kill -9", TestKill9RestartReconcile)
+	t.Run("lifecycle", TestDurableLifecycleEndpoints)
+	t.Run("restart", TestRestartServesKeysAsTheyReconcile)
+	t.Run("sigterm", TestSIGTERMWithDirtyKeys)
 }
 
 // writeRows creates the kv table (if needed) and inserts rows from..to-1 at epoch.
@@ -565,6 +597,10 @@ func TestKill9RestartReconcile(t *testing.T) {
 	a := r.startProcess(t)
 	a.claim(t, "db-1")
 	writeRows(t, a, "db-1", 1, 0, 10)
+	const retried = "retried-after-restart" // CP-2's HTTP gate: the same id after a restart applies once
+	if ans := a.queryID(t, "db-1", 1, retried, front.KindWrite, fronttest.PutSQL, 100, "once").must(t); ans.Duplicate {
+		t.Fatal("first attempt answered duplicate")
+	}
 	waitFor(t, 10*time.Second, "passivation", func() bool {
 		_, h := a.control(t, healthPath, nil)
 		return h["active"].(float64) == 0
@@ -577,8 +613,11 @@ func TestKill9RestartReconcile(t *testing.T) {
 
 	b := r.startProcess(t)
 	waitReady(t, b.life)
-	if n := count(t, b, "db-1", 1); n != 10 {
-		t.Fatalf("after kill -9 and reconcile: %d rows, want 10", n)
+	if n := count(t, b, "db-1", 1); n != 11 {
+		t.Fatalf("after kill -9 and reconcile: %d rows, want 11", n)
+	}
+	if ans := b.queryID(t, "db-1", 1, retried, front.KindWrite, fronttest.PutSQL, 100, "once").must(t); !ans.Duplicate || ans.Count != 1 {
+		t.Fatalf("retry after the restart: %+v, want ok + duplicate", ans.Response)
 	}
 	writeRows(t, b, "db-1", 1, 10, 15) // acknowledged but never written back (idle_after has not passed)
 	b.kill()
@@ -606,10 +645,13 @@ func TestKill9RestartReconcile(t *testing.T) {
 		t.Fatalf("claim at epoch %d, want 2", e)
 	}
 	n := count(t, c, "db-1", 2)
-	if n < 10 {
+	if n < 11 {
 		t.Fatalf("epoch 2 reads %d rows: written-back writes lost", n)
 	}
-	t.Logf("after the kill -9: %d rows (10 written back, 5 acknowledged within the RPO window)", n)
+	if ans := c.queryID(t, "db-1", 2, retried, front.KindWrite, fronttest.PutSQL, 100, "once").must(t); !ans.Duplicate {
+		t.Fatalf("retry at the new epoch: %+v, want ok + duplicate", ans.Response)
+	}
+	t.Logf("after the kill -9: %d rows (11 written back, 5 acknowledged within the RPO window)", n)
 	if ans := c.query(t, "db-1", 1, front.KindRead, `SELECT 1`); ans.Code != front.WrongOwner {
 		t.Fatalf("old epoch: %+v, want wrong_owner", ans.Response)
 	}

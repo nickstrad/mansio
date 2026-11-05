@@ -55,8 +55,7 @@ type Config struct {
 	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
 	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 
-	// Until fencing's owner store lands, the admitter is this static table: every served database is owned at
-	// default_epoch unless epochs overrides it.
+	// Static mode's admitter: every served database is owned at default_epoch unless epochs overrides it.
 	DefaultEpoch uint64            `json:"default_epoch"`
 	Epochs       map[string]uint64 `json:"epochs"`
 

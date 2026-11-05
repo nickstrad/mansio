@@ -1,6 +1,11 @@
-// Command agentd is the VM agent's client-facing front (scale-out option 4 §2): it serves the SQLite databases
-// in one directory, one actor per database, behind ticket verification, admission and the wire codes of
-// internal/front. Requests use the INTERNAL, TRUSTED-CALLER protocol (parameterized SQL); see package front.
+// Command agentd is the VM agent (scale-out option 4 §2): one actor per SQLite database behind ticket
+// verification, admission and the wire codes of internal/front. Requests use the INTERNAL, TRUSTED-CALLER
+// protocol (parameterized SQL); see package front.
+//
+// Two modes. Durable (an "s3" section; control-plane plan CP-1): databases live in S3 behind a virtual-actor
+// host (internal/vactor), ownership is the owner table (internal/owner) over a single-node placement authority
+// (internal/placement/file), and the control plane calls Claim, Fence, Forget and Health on the lifecycle
+// listener (control.go). Static (db_dir; benchmarks): the *.db files in one directory at fixed epochs.
 //
 //	agentd -config configs/agentd/local.json [-addr-file path] [-check]
 //
@@ -406,7 +411,7 @@ func openLog(cfg *Config, stderr io.Writer) (*slog.Logger, func(), error) {
 	return logx.New(f, level), func() { f.Close() }, nil
 }
 
-// epochs is the stand-in ownership table until fencing's owner store is wired in: every served database at
+// epochs is static mode's ownership table: every served database at
 // default_epoch unless epochs overrides it.
 func epochs(dbs []string, cfg *Config) front.StaticAdmitter {
 	t := front.StaticAdmitter{}
