@@ -106,7 +106,7 @@ func TestAgentTransportCA(t *testing.T) {
 	}
 }
 
-// The shipped configs parse, and local.json is the -dev one: tls.json passes checkDev without it.
+// The shipped configs parse, and the local*.json ones are the -dev ones: tls.json passes checkDev without it.
 func TestShippedConfigsParse(t *testing.T) {
 	paths, _ := filepath.Glob("../../configs/edge/*.json")
 	if len(paths) < 2 {
@@ -118,7 +118,7 @@ func TestShippedConfigsParse(t *testing.T) {
 			t.Errorf("%s: %v", p, err)
 			continue
 		}
-		if dev := c.checkDev() != nil; dev != (filepath.Base(p) == "local.json") {
+		if dev := c.checkDev() != nil; dev != strings.HasPrefix(filepath.Base(p), "local") {
 			t.Errorf("%s: needs -dev = %v", p, dev)
 		}
 	}
