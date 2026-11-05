@@ -24,8 +24,10 @@ import (
 type Config struct {
 	Listen       string   `json:"listen"`        // query listener; default 127.0.0.1:7070 (":0" picks a port)
 	HealthListen string   `json:"health_listen"` // optional lifecycle listener: /healthz, /livez, /readyz, /metrics
-	Protocols    []string `json:"protocols"`     // "h1", "h2c"; default both
-	VM           string   `json:"vm"`            // this VM's id: the ticket audience (required)
+	Protocols    []string `json:"protocols"`     // "h1", "h2c"; default both (plain HTTP only)
+	// TLS makes the query listener speak HTTPS (tls.go); required for a non-loopback listen without -dev.
+	TLS *TLSFiles `json:"tls"`
+	VM  string    `json:"vm"` // this VM's id: the ticket audience (required)
 
 	// AdminListen is the optional admin listener (runtime controls, admin.go): a loopback address only, since
 	// binding is its only access control.
@@ -208,6 +210,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.Listen == "" {
 		bad("listen is required")
 	}
+	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
+		bad("tls: cert_file and key_file are both required")
+	}
 	if c.AdminListen != "" && !loopback(c.AdminListen) {
 		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7072 (binding is the admin endpoints' only access control)", c.AdminListen)
 	}
@@ -278,6 +283,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	paths := []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir}
 	if c.S3 != nil {
 		paths = append(paths, &c.S3.CAFile)
+	}
+	if c.TLS != nil {
+		paths = append(paths, &c.TLS.CertFile, &c.TLS.KeyFile)
 	}
 	for _, p := range paths {
 		if *p != "" && !filepath.IsAbs(*p) {
@@ -368,8 +376,11 @@ func loopback(addr string) bool {
 }
 
 // checkDev refuses what only local development may do unless -dev is given: durable mode over plain-HTTP S3
-// (object-storage guide S1, S2; plan OS-11).
+// (object-storage guide S1, S2; plan OS-11) and a plain-HTTP query listener off loopback (CP-7, tls.go).
 func (c *Config) checkDev() error {
+	if err := c.checkTLS(); err != nil {
+		return err
+	}
 	if strings.HasPrefix(c.KeysURL, "http:") && !c.Dev {
 		return errs.Wrap(module, nil, "keys_url is plain HTTP: whoever can change the answer can mint tickets; use https, or pass -dev "+
 			"for a local run").With("keys_url", c.KeysURL)
