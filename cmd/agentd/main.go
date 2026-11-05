@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/actor"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
@@ -83,12 +84,22 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	if err != nil {
 		return rep.report(err)
 	}
-	dbs, err := listDBs(cfg)
+	var dbs []string
+	var sec *Secrets
+	if cfg.Durable() {
+		sec, err = loadSecrets(cfg.SecretsFile)
+	} else {
+		dbs, err = listDBs(cfg)
+	}
 	if err != nil {
 		return rep.report(err)
 	}
 	if *check {
-		fmt.Fprintf(stderr, "config ok: vm %s, %d databases, %d keys (%s)\n", cfg.VM, len(dbs), len(keys.KIDs()),
+		what := fmt.Sprintf("%d databases", len(dbs))
+		if cfg.Durable() {
+			what = fmt.Sprintf("durable mode, s3 %s bucket %s", cfg.S3.Endpoint, cfg.S3.Bucket)
+		}
+		fmt.Fprintf(stderr, "config ok: vm %s, %s, %d keys (%s)\n", cfg.VM, what, len(keys.KIDs()),
 			strings.Join(slices.Sorted(slices.Values(keys.KIDs())), ", "))
 		return exitOK
 	}
@@ -96,7 +107,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		fmt.Fprintln(stderr, "interrupted before serving")
 		return exitInterrupted
 	}
-	a, err := newAgent(cfg, log, keys, dbs)
+	a, err := newAgent(cfg, log, keys, dbs, sec)
 	if err != nil {
 		return rep.report(err)
 	}
@@ -104,58 +115,95 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	return a.serve(ctx, *addrFile, rep, stderr)
 }
 
-// agent is what serve runs: the pipeline, its host, the lifecycle endpoints and the background jobs.
+// agent is what serve runs: the pipeline, its backend (static or durable mode), the lifecycle endpoints and
+// the background jobs.
 type agent struct {
 	cfg        *Config
 	log        *slog.Logger
 	srv        *front.Server
-	host       *front.StaticHost
-	lifecycle  *http.ServeMux              // /livez, /readyz, /healthz; on the lifecycle listener
+	be         *backend
+	lifecycle  *http.ServeMux              // /livez, /readyz, /healthz, /metrics, control endpoints; on the lifecycle listener
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
 }
 
-// newAgent wires the pipeline. Databases open in the background once serve listens (startup); the canary
-// database opens here, so readiness can run from the start.
-func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string) (*agent, error) {
-	host := front.NewStaticHost(nil)
+// backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
+type backend struct {
+	admitter   front.Admitter
+	executor   front.Executor
+	ready      func(ctx context.Context) error // the "startup" readiness check
+	pending    func() int                      // databases not served yet since start (metrics)
+	metrics    func(reg *metrics.Registry)
+	routes     func(mux *http.ServeMux, srv *front.Server) // extra lifecycle-listener endpoints; may be nil
+	background []func(ctx context.Context)
+	close      func(ctx context.Context) error // the host.close shutdown phase
+	abort      func()                          // closes everything if serving never started
+}
+
+// newAgent wires the pipeline. Databases open (static) or reconcile (durable) in the background once serve
+// listens; the canary database opens here, so readiness can run from the start.
+func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string, sec *Secrets) (*agent, error) {
 	canary, cleanCanary, err := openCanary(cfg)
 	if err != nil {
 		return nil, err
 	}
-	host.Add(front.CanaryDB, canary)
-	host.Expect(dbs...)
-	st := &startup{host: host}
+	canaryHost := front.NewStaticHost(map[string]*actor.Actor{front.CanaryDB: canary})
+	var be *backend
+	if cfg.Durable() {
+		be, err = newDurable(cfg, log, sec, canaryHost)
+	} else {
+		be = newStatic(cfg, log, dbs, canaryHost)
+	}
+	if err != nil {
+		canaryHost.Close()
+		cleanCanary()
+		return nil, err
+	}
 	srv := front.NewServer(front.Config{
 		Limits: cfg.Limits, Admission: cfg.Admission, DefaultTimeout: cfg.DefaultTimeout.Duration,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		depAdmitter{startupAdmitter{epochs(dbs, cfg), host}}, depExecutor{front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration}}, nil)
+		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
 	probe := cfg.ReadyTimeout.Duration
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
-		front.Check{Name: "startup", Run: st.readyCheck},
+		front.Check{Name: "startup", Run: be.ready},
 		front.Check{Name: "canary", Run: func(ctx context.Context) error { return srv.Canary(ctx, front.CanaryDB, probe*2/3) }},
 		// Remote dependency breakers (S3, placement) never fail readiness: warm traffic still works while they are
-		// open (Release It C5, H2). They are exposed on /metrics instead (CP-1 wiring point below).
+		// open (Release It C5, H2). They are exposed on /metrics instead.
 	)
 	reg := metrics.NewRegistry()
 	frontMetrics(reg, srv)
-	actorMetrics(reg, host)
-	lifecycleMetrics(reg, st, ready, time.Now())
-	// CP-1 wiring point: s3Metrics(reg, store.Metrics), breakerMetrics(reg, {"s3": …, "placement": …}) with
-	// breakerLog as each breaker's OnChange, vactorMetrics(reg, vhost, ticks.lastTick) with ticks.report as the
-	// RunMaintenance reporter, ownerEvents as owner.Config.OnChange, reconcileLog for ReconcileUntilDone.
+	lifecycleMetrics(reg, be.pending, ready, time.Now())
+	be.metrics(reg)
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, reg.Handler())
 	mux.Handle(front.HealthPath, front.HealthHandler(srv))
 	mux.Handle(front.LivePath, front.LiveHandler(srv))
 	mux.Handle(front.ReadyPath, front.ReadyHandler(srv, ready))
-	return &agent{cfg: cfg, log: log, srv: srv, host: host, lifecycle: mux, cleanup: cleanCanary,
+	if be.routes != nil {
+		be.routes(mux, srv)
+	}
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, cleanup: cleanCanary,
+		background: append(be.background, func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
+}
+
+// newStatic is static mode: the databases in db_dir, opened in the background (startup), owned at fixed epochs.
+func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHost) *backend {
+	host.Expect(dbs...)
+	st := &startup{host: host}
+	return &backend{
+		admitter: startupAdmitter{epochs(dbs, cfg), host},
+		executor: front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration},
+		ready:    st.readyCheck,
+		pending:  host.PendingCount,
+		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host) },
 		background: []func(context.Context){
 			func(ctx context.Context) { st.openAll(ctx, cfg, dbs, log) },
-			func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) },
-		}}, nil
+		},
+		close: host.Shutdown, // queued work is answered (shed), then every database is closed
+		abort: host.Close,
+	}
 }
 
 // logReadiness logs readiness transitions only (Release It O3: transitions, not every probe).
@@ -178,7 +226,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	served := false
 	defer func() {
 		if !served { // failed before serving: the shutdown phases never ran
-			a.host.Close()
+			a.be.abort()
 		}
 	}()
 	ln, err := net.Listen("tcp", cfg.Listen)
@@ -249,9 +297,10 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 			return waitCtx(ctx, &bg, "background jobs (startup, readiness) did not stop in time")
 		}},
 		{"front.drain", cfg.DrainTimeout.Duration, func(ctx context.Context) error { return drain(ctx, srv, hs, log) }},
-		{"host.close", 0, a.host.Shutdown}, // queued work is answered (shed), then every database is closed
-		// CP-1 wiring point: the owner table needs no phase of its own (each of its transitions is durable when
-		// made), but a vactor host's Shutdown goes here: write back oldest-dirty first, keep the rest locally.
+		// Static: queued work is answered (shed), then every database is closed. Durable: the vactor host writes
+		// back oldest-dirty first and keeps the rest locally (RI H3); the owner table needs no phase (each of its
+		// transitions is durable when made).
+		{"host.close", 0, a.be.close},
 		{"lifecycle.close", 0, func(context.Context) error {
 			for _, s := range servers[1:] {
 				s.Close()
@@ -378,7 +427,8 @@ type reporter struct {
 	stderr io.Writer
 }
 
-var wellFormed = map[string]bool{module: true, "actor": true, "front": true}
+var wellFormed = map[string]bool{module: true, "actor": true, "front": true, "vactor": true, "owner": true, "objstore": true,
+	"placement": true, "durable": true}
 
 func (r reporter) report(err error) int {
 	if e, ok := errs.Outermost(err); ok && wellFormed[e.Module] {

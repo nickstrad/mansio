@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/load"
@@ -23,8 +25,30 @@ type Config struct {
 	Protocols    []string `json:"protocols"`     // "h1", "h2c"; default both
 	VM           string   `json:"vm"`            // this VM's id: the ticket audience (required)
 
-	DBDir string   `json:"db_dir"` // directory of <db>.db files (required)
+	// Static mode (no s3 section; benchmarks and local runs): serve the <db>.db files in db_dir, owned at
+	// default_epoch (or epochs[db]). No ownership table, no write-back.
+	DBDir string   `json:"db_dir"` // directory of <db>.db files (required in static mode)
 	DBs   []string `json:"dbs"`    // serve only these; default every *.db in db_dir
+
+	// Durable mode (an s3 section): databases live in S3 (internal/durable layout v2) behind a virtual-actor
+	// host, ownership is the owner table, and the control plane calls the lifecycle endpoints (lifecycle.go).
+	S3 *S3Config `json:"s3"`
+	// SecretsFile holds the S3 keys and the control-plane token: a JSON file outside the config, mode 0600 or
+	// stricter (object-storage guide S2). Required in durable mode.
+	SecretsFile  string `json:"secrets_file"`
+	CacheDir     string `json:"cache_dir"`     // local database copies; emptied at start (required)
+	OwnerDir     string `json:"owner_dir"`     // the owner table's durable records (required)
+	PlacementDir string `json:"placement_dir"` // the single-node placement authority (CP-1 stand-in for Postgres; required)
+	// CacheBytes is the cache directory's budget (0: none). It splits into the generation cache
+	// (gen_cache_bytes, default a quarter of it) and the warm databases (maintenance.max_bytes: the rest).
+	CacheBytes    int64       `json:"cache_bytes"`
+	GenCacheBytes int64       `json:"gen_cache_bytes"`
+	Maintenance   Maintenance `json:"maintenance"`
+	// Lifecycle endpoints (Claim, Fence, Forget, Health): each bounded by lifecycle_timeout (a caller's
+	// X-Timeout-Ms may shorten it), at most lifecycle_concurrency at once; more are refused, never queued.
+	LifecycleTimeout     load.Duration `json:"lifecycle_timeout"`
+	LifecycleConcurrency int           `json:"lifecycle_concurrency"`
+	ReconcilePerKey      load.Duration `json:"reconcile_per_key"` // one key's reconcile deadline; workers = startup_workers
 
 	KeysFile     string        `json:"keys_file"` // ticket.PublicKeyFile JSON (required)
 	ClockSkew    load.Duration `json:"clock_skew"`
@@ -60,6 +84,44 @@ type Config struct {
 	LogLevel string `json:"log_level"` // debug | info (default) | warn
 }
 
+// S3Config is where durable mode keeps databases. The keys come from the secrets file.
+type S3Config struct {
+	Endpoint     string        `json:"endpoint"` // host:port (required)
+	Bucket       string        `json:"bucket"`   // required; created if missing
+	Prefix       string        `json:"prefix"`   // root prefix inside the bucket ("" = none; must end in "/")
+	OpTimeout    load.Duration `json:"op_timeout"`
+	StallTimeout load.Duration `json:"stall_timeout"`
+	MaxConns     int           `json:"max_conns"`
+	// Breaker overrides the S3 breaker's thresholds; zero fields take Release It §P (50 % of >= 20 calls in
+	// 10 s, cool-down 5 s).
+	Breaker struct {
+		Window      load.Duration `json:"window"`
+		MinCalls    int           `json:"min_calls"`
+		FailureRate float64       `json:"failure_rate"`
+		CoolDown    load.Duration `json:"cool_down"`
+	} `json:"breaker"`
+}
+
+// breakerConfig is the S3 breaker's config (Normalize fills the defaults and checks it).
+func (s *S3Config) breakerConfig() breaker.Config {
+	b := s.Breaker
+	return breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration}
+}
+
+// Maintenance drives the host's periodic write-back and eviction (vactor.Policy, Release It S2).
+type Maintenance struct {
+	Interval         load.Duration `json:"interval"`           // tick period; default 1 s
+	WriteBackEvery   load.Duration `json:"write_back_every"`   // RPO in time; default 10 s
+	WriteBackCommits uint64        `json:"write_back_commits"` // RPO in commits; 0 = off
+	IdleAfter        load.Duration `json:"idle_after"`         // passivate after this long unused; default 5 min
+	MaxActive        int           `json:"max_active"`         // warm budget by count; 0 = none
+	MaxBytes         int64         `json:"max_bytes"`          // warm budget by bytes; default from cache_bytes
+	WriteBackTimeout load.Duration `json:"write_back_timeout"` // one write-back or passivation; default 60 s
+}
+
+// Durable reports whether the config runs durable mode.
+func (c *Config) Durable() bool { return c.S3 != nil }
+
 func defaults() Config {
 	d := func(v time.Duration) load.Duration { return load.Duration{Duration: v} }
 	return Config{
@@ -70,6 +132,9 @@ func defaults() Config {
 		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ShutdownBudget: d(time.Minute), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
 		IdleTimeout: d(2 * time.Minute), LogLevel: "info",
 		StartupWorkers: 16, ReadyInterval: d(time.Second), ReadyTimeout: d(500 * time.Millisecond),
+		Maintenance: Maintenance{Interval: d(time.Second), WriteBackEvery: d(10 * time.Second), IdleAfter: d(5 * time.Minute),
+			WriteBackTimeout: d(time.Minute)},
+		LifecycleTimeout: d(30 * time.Second), LifecycleConcurrency: 16, ReconcilePerKey: d(5 * time.Second),
 	}
 }
 
@@ -87,8 +152,10 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.VM == "" {
 		bad("vm is required")
 	}
-	if c.DBDir == "" {
-		bad("db_dir is required")
+	if c.Durable() {
+		checkDurable(&c, bad)
+	} else if c.DBDir == "" {
+		bad("db_dir is required (or an s3 section for durable mode)")
 	}
 	if c.KeysFile == "" {
 		bad("keys_file is required")
@@ -160,12 +227,102 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.DBDir, &c.KeysFile, &c.LogFile} {
+	for _, p := range []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir} {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
 	}
 	return &c, errors.Join(problems...)
+}
+
+// checkDurable validates the durable-mode fields and derives the cache split.
+func checkDurable(c *Config, bad func(string, ...any)) {
+	s := c.S3
+	if s.Endpoint == "" || s.Bucket == "" {
+		bad("s3: endpoint and bucket are required")
+	}
+	if bc := s.breakerConfig(); bc.Normalize() != nil {
+		bad("s3.breaker: %v", bc.Normalize())
+	}
+	if s.Prefix != "" && !strings.HasSuffix(s.Prefix, "/") {
+		bad("s3: prefix %q must end in /", s.Prefix)
+	}
+	if s.OpTimeout.Duration < 0 || s.StallTimeout.Duration < 0 || s.MaxConns < 0 {
+		bad("s3: op_timeout, stall_timeout and max_conns must be >= 0 (0 = default)")
+	}
+	for name, v := range map[string]string{"secrets_file": c.SecretsFile, "cache_dir": c.CacheDir, "owner_dir": c.OwnerDir,
+		"placement_dir": c.PlacementDir} {
+		if v == "" {
+			bad("%s is required in durable mode", name)
+		}
+	}
+	if c.DBDir != "" || len(c.DBs) > 0 || len(c.Epochs) > 0 {
+		bad("db_dir, dbs and epochs are static mode only; durable mode serves what the control plane claims")
+	}
+	if c.CacheBytes < 0 || c.GenCacheBytes < 0 {
+		bad("cache_bytes and gen_cache_bytes must be >= 0")
+	}
+	if c.CacheBytes > 0 {
+		if c.GenCacheBytes == 0 {
+			c.GenCacheBytes = c.CacheBytes / 4
+		}
+		if c.GenCacheBytes >= c.CacheBytes {
+			bad("gen_cache_bytes %d must be below cache_bytes %d (the rest holds the warm databases)", c.GenCacheBytes, c.CacheBytes)
+		}
+		if c.Maintenance.MaxBytes == 0 {
+			c.Maintenance.MaxBytes = c.CacheBytes - c.GenCacheBytes
+		}
+	}
+	m := c.Maintenance
+	if m.Interval.Duration <= 0 || m.WriteBackTimeout.Duration <= 0 {
+		bad("maintenance: interval and write_back_timeout must be > 0")
+	}
+	if m.WriteBackEvery.Duration < 0 || m.IdleAfter.Duration < 0 || m.MaxActive < 0 || m.MaxBytes < 0 {
+		bad("maintenance: write_back_every, idle_after, max_active and max_bytes must be >= 0")
+	}
+	if c.LifecycleTimeout.Duration <= 0 || c.LifecycleConcurrency < 1 || c.ReconcilePerKey.Duration <= 0 {
+		bad("lifecycle_timeout and reconcile_per_key must be > 0, lifecycle_concurrency >= 1")
+	}
+}
+
+// Secrets is the secrets file (0600, outside the config; object-storage guide S2, Release It RI-16).
+type Secrets struct {
+	S3AccessKey  string `json:"s3_access_key"`
+	S3SecretKey  string `json:"s3_secret_key"`
+	ControlToken string `json:"control_token"` // the control plane's bearer token for the lifecycle endpoints
+}
+
+// minControlToken is the shortest control token accepted (a guessable token would open Fence to anyone).
+const minControlToken = 16
+
+// loadSecrets reads the secrets file. It refuses a file that group or others can read or write, unknown
+// fields, and missing values. Error messages never include a secret.
+func loadSecrets(path string) (*Secrets, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot open secrets_file").With("path", path)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot stat secrets_file").With("path", path)
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return nil, errs.Wrap(module, nil, "secrets_file %s has mode %#o; make it 0600 (chmod 600)", path, perm).With("path", path)
+	}
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+	var s Secrets
+	if err := dec.Decode(&s); err != nil {
+		return nil, errs.Wrap(module, nil, "secrets_file %s is not valid: want a JSON object with s3_access_key, s3_secret_key and control_token", path).With("path", path)
+	}
+	switch {
+	case s.S3AccessKey == "" || s.S3SecretKey == "":
+		return nil, errs.Wrap(module, nil, "secrets_file %s: s3_access_key and s3_secret_key are required", path).With("path", path)
+	case len(s.ControlToken) < minControlToken:
+		return nil, errs.Wrap(module, nil, "secrets_file %s: control_token must be at least %d characters", path, minControlToken).With("path", path)
+	}
+	return &s, nil
 }
 
 // loadConfig reads and validates the config file.
