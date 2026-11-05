@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -56,6 +57,7 @@ type Store struct {
 	clock     func() time.Time
 
 	puts, publishes, fetches int
+	requests                 map[string]int64 // calls by durable.Op* name, failed ones included (RequestCounts)
 }
 
 type stored struct {
@@ -67,7 +69,7 @@ type stored struct {
 
 func NewStore() *Store {
 	return &Store{objects: map[string][]byte{}, meta: map[string]durable.GenInfo{}, manifests: map[string]stored{},
-		mod: map[string]time.Time{}, clock: time.Now}
+		mod: map[string]time.Time{}, clock: time.Now, requests: map[string]int64{}}
 }
 
 // SetClock sets the store's own clock, which stamps LastModified on every write (the server's clock in S3).
@@ -209,9 +211,21 @@ func DigestOf(data []byte) durable.Digest {
 	return durable.Digest{Size: int64(len(data)), SHA256: hex.EncodeToString(h[:]), MD5: hex.EncodeToString(m[:])}
 }
 
-// begin applies Delay and Down; it returns a snapshot of the switches.
-func (s *Store) begin(ctx context.Context) (Faults, error) {
+// RequestCounts is requests by operation (durable.RequestCounter), shaped like objstore.Durable's with no
+// retries: one per call, except that PutGeneration also verifies by HEAD and PublishManifest first re-reads
+// the manifest, so a write-back is four requests here as on S3.
+func (s *Store) RequestCounts() map[string]int64 {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	return maps.Clone(s.requests)
+}
+
+// begin counts one request of each op, applies Delay and Down, and returns a snapshot of the switches.
+func (s *Store) begin(ctx context.Context, ops ...string) (Faults, error) {
+	s.mu.Lock()
+	for _, op := range ops {
+		s.requests[op]++
+	}
 	f := s.f
 	s.mu.Unlock()
 	if f.Delay > 0 {
@@ -231,7 +245,7 @@ func (s *Store) begin(ctx context.Context) (Faults, error) {
 }
 
 func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpGetManifest)
 	if err != nil {
 		return durable.Manifest{}, durable.NoVersion, err
 	}
@@ -251,7 +265,7 @@ func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest,
 }
 
 func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpPutGen)
 	if err != nil {
 		return err
 	}
@@ -274,6 +288,7 @@ func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path stri
 	s.meta[m.Object] = m.ObjectInfo()
 	s.mod[m.Object] = s.clock()
 	s.puts++
+	s.requests[durable.OpHead]++ // the adapter's verifying HEAD
 	if f.LoseUploadReply {
 		return fmt.Errorf("upload %s: reply lost: %w", m.Object, ErrInjected)
 	}
@@ -281,7 +296,7 @@ func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path stri
 }
 
 func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenInfo, error) {
-	if _, err := s.begin(ctx); err != nil {
+	if _, err := s.begin(ctx, durable.OpHead); err != nil {
 		return durable.GenInfo{}, err
 	}
 	s.mu.Lock()
@@ -297,7 +312,7 @@ func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenI
 
 func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {
 	t0 := time.Now()
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpFetch)
 	if err != nil {
 		return durable.Fetched{}, err
 	}
@@ -333,7 +348,7 @@ func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path st
 }
 
 func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpGetManifest, durable.OpPublish)
 	if err != nil {
 		return durable.NoVersion, err
 	}
@@ -363,7 +378,7 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 }
 
 func (s *Store) DeleteGenerations(ctx context.Context, key string, names []string) error {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpDelete)
 	if err != nil {
 		return err
 	}
@@ -384,7 +399,7 @@ func (s *Store) DeleteGenerations(ctx context.Context, key string, names []strin
 }
 
 func (s *Store) ListKey(ctx context.Context, key string) (durable.Listing, error) {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpList)
 	if err != nil {
 		return durable.Listing{}, err
 	}
@@ -407,7 +422,7 @@ func (s *Store) ListKey(ctx context.Context, key string) (durable.Listing, error
 }
 
 func (s *Store) ListKeys(ctx context.Context, shard string, fn func(key string) error) error {
-	f, err := s.begin(ctx)
+	f, err := s.begin(ctx, durable.OpList)
 	if err != nil {
 		return err
 	}

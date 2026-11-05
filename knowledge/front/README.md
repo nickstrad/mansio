@@ -24,6 +24,12 @@ Notes:
 
 ## Findings (newest first)
 
+### 2026-11-05 (CP-8): admission does not need sharding by tenant
+
+[Profile](2026-11-05-admission-profile.md): in `frontbench -mode pipeline` (194k req/s, conc 512) `Admission` is
+~1–2 % of mutex delay and absent from the CPU profile; ~51 % of mutex delay is SQLite's shared page-cache mutex
+(follow-up). Revisit above ~10 %.
+
 ### 2026-11-05: the front costs ~7% in process; HTTP costs ~7× on one machine
 
 Machine: Apple M5 Max, 18 cores, 128 GB, macOS, Go 1.26.4, `modernc.org/sqlite` v1.61.1. Date 2026-11-05.

@@ -253,7 +253,10 @@ Run `TestS3Compat` (OS-03) for every backend and version before using it. Record
 Known results: single-node SeaweedFS 4.47 passes X1–X12
 ([compat note](../../../knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md); X12 with the `agent` identity:
 [scoped identities note](../../../knowledge/writeback/2026-11-05-s3-scoped-identities.md)). Identical bytes repeat the
-ETag there (X5). Multi-node SeaweedFS, MinIO and AWS are unverified.
+ETag there (X5). 2026-11-05 (CP-8): MinIO (2025-05-24 build) passes X1–X12; a SeaweedFS 4.47 cluster with two
+filers on a shared Postgres store passes X1–X11 with X3 raced across both gateways (`S3_COMPAT_PEER`,
+`deploy/seaweedfs-cluster/`) ([note](../../../knowledge/writeback/2026-11-05-s3-compat-minio-and-cluster.md)).
+Filers with separate stores, failover during a publish, and AWS are unverified.
 
 ## 8. Caching
 

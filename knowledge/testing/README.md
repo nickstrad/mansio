@@ -109,4 +109,6 @@ go test -run='^$' -fuzz=FuzzHostModel -fuzztime=30s ./internal/vactor
 
 (add `YYYY-MM-DD-<topic>.md` here and a line below)
 - 2026-11-04 sqlbench: [what the approach found](2026-11-04-sqlbench-lessons.md) — DSN `#` bug via model fuzz, boundary found by property test, whole-run invariant, pure pacer.
+- 2026-11-05 CP-8: [load-tolerant timing tests](2026-11-05-load-tolerant-timing.md) — assert attempt counts, not
+  elapsed time; a "flaky" objstore test was a real retry bug (transport timeout classified as the caller's).
 - 2026-11-05 coordinator: [testing additions from the book guides](2026-11-05-book-guides-testing.md) — fault harness three ways, S3 compat suite, SQL golden + constraint off-points, soak.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,7 +97,7 @@ func TestFirstGetActivatesLaterGetsShare(t *testing.T) {
 	if got := r.f.Calls("a"); got != 1 {
 		t.Fatalf("fetches = %d, want 1", got)
 	}
-	if s := r.h.Stats(); s != (vactor.Stats{Activations: 1, Fetches: 1}) {
+	if s := r.h.Stats(); !reflect.DeepEqual(s, vactor.Stats{Activations: 1, Fetches: 1}) {
 		t.Fatalf("Stats = %+v", s)
 	}
 }

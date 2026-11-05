@@ -131,8 +131,11 @@ func (a *attempt) watch(r io.Reader, size int64, d time.Duration) io.Reader {
 	return sr
 }
 
-// end releases the attempt and returns err, joined with the timeout cause if this attempt's own deadline
-// or a stall (not the caller) ended it.
+// end releases the attempt and returns err, marked ErrTimeout (Transient) if a timeout of ours ended it while
+// the caller still waits: this attempt's own deadline, a stall, or a transport timeout. net/http's
+// ResponseHeaderTimeout and dial timeout match context.DeadlineExceeded, which Classify would otherwise read
+// as the caller's deadline (Canceled, never retried); it fires at OpTimeout too, so it raced the attempt's
+// deadline and a dead connection was retried only when the deadline won (CP-8).
 func (a *attempt) end(err error) error {
 	a.deadline.Stop()
 	for _, sr := range a.stalls {
@@ -140,8 +143,14 @@ func (a *attempt) end(err error) error {
 	}
 	cause := context.Cause(a.ctx)
 	a.cancel(nil)
-	if err != nil && a.parent.Err() == nil && errors.Is(cause, ErrTimeout) && !errors.Is(err, ErrTimeout) {
+	if err == nil || a.parent.Err() != nil || errors.Is(err, ErrTimeout) {
+		return err
+	}
+	switch {
+	case errors.Is(cause, ErrTimeout):
 		return errors.Join(cause, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return errors.Join(fmt.Errorf("%w: transport timeout", ErrTimeout), err)
 	}
 	return err
 }

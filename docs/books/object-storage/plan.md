@@ -356,7 +356,7 @@ means after step 1, and before the step-4 gate where a VM is killed and its data
 - **Acceptance:** an `httptest` proxy that flips one body byte makes `PutGeneration` fail with
   `Permanent` (BadDigest), and no object exists afterwards.
 
-### OS-08: Per-operation metrics (fixes G7) — **Done** (873461f; in `objstore.Store.Metrics`, not a `durable.Metered` decorator; Host.Stats/wbbench columns not done)
+### OS-08: Per-operation metrics (fixes G7) — **Done** (873461f; in `objstore.Store.Metrics`, not a `durable.Metered` decorator; Host.Stats `Requests`/`RequestCostUSD` and wbbench `reqs`/`$/M` columns done in CP-8 via `durable.RequestCounter`: 4 requests, $10.80 per million write-backs)
 
 - **Goal:** for each S3 operation kind (GET manifest, GET generation, PUT generation, PUT manifest, HEAD,
   LIST, DELETE), count requests by `Kind`, plus bytes and a latency histogram.

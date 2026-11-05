@@ -1,6 +1,7 @@
 // Command wbbench measures write-back: how long a warm write-back (snapshot, hash, upload, publish) and a
-// write-back on passivation take by database size, how long writes stall meanwhile, and what the dirty
-// check and a maintenance tick cost per database.
+// write-back on passivation take by database size, how long writes stall meanwhile, how many store requests a
+// write-back sends and what they cost at S3 list prices, and what the dirty check and a maintenance tick cost
+// per database.
 //
 // The store is the in-memory fake (durabletest.Store), so "upload" is a memory copy: it shows the host's
 // own cost, not S3's. For S3 transfer rates see knowledge/coldload (~250 MB/s against local SeaweedFS).
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
+	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/logx"
@@ -137,6 +139,8 @@ type row struct {
 	snapshot, hash, upload, publish, total time.Duration
 	maxWriteStall                          time.Duration
 	passivate                              time.Duration
+	requests                               int64   // store requests of the warm write-back (OS-08)
+	usdPerMillion                          float64 // their cost at S3 list prices, per million write-backs
 }
 
 func ms(d time.Duration) string { return strconv.FormatFloat(float64(d)/1e6, 'f', 3, 64) }
@@ -161,12 +165,12 @@ func run(ctx context.Context, cfg config, stdout io.Writer, log *slog.Logger) er
 		w = csv.NewWriter(f)
 		defer w.Flush()
 		w.Write([]string{"size", "bytes", "rep", "snapshot_ms", "hash_ms", "upload_ms", "publish_ms", "writeback_ms",
-			"max_write_stall_ms", "passivate_ms"})
+			"max_write_stall_ms", "passivate_ms", "requests", "usd_per_million"})
 	}
 	fmt.Fprintf(stdout, "# wbbench %s, %s/%s, GOMAXPROCS=%d, fake in-memory store\n", time.Now().UTC().Format(time.RFC3339),
 		runtime.GOOS, runtime.GOARCH, runtime.GOMAXPROCS(0))
-	fmt.Fprintf(stdout, "%10s %10s %4s %10s %8s %8s %8s %10s %10s %10s\n", "size", "bytes", "rep", "snapshot", "hash", "upload",
-		"publish", "writeback", "maxstall", "passivate")
+	fmt.Fprintf(stdout, "%10s %10s %4s %10s %8s %8s %8s %10s %10s %10s %4s %8s\n", "size", "bytes", "rep", "snapshot", "hash", "upload",
+		"publish", "writeback", "maxstall", "passivate", "reqs", "$/M")
 	for _, size := range cfg.sizes {
 		for rep := range cfg.reps {
 			if ctx.Err() != nil {
@@ -176,11 +180,13 @@ func run(ctx context.Context, cfg config, stdout io.Writer, log *slog.Logger) er
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(stdout, "%10d %10d %4d %10s %8s %8s %8s %10s %10s %10s\n", r.size, r.bytes, r.rep, ms(r.snapshot), ms(r.hash),
-				ms(r.upload), ms(r.publish), ms(r.total), ms(r.maxWriteStall), ms(r.passivate))
+			usd := strconv.FormatFloat(r.usdPerMillion, 'f', 2, 64)
+			fmt.Fprintf(stdout, "%10d %10d %4d %10s %8s %8s %8s %10s %10s %10s %4d %8s\n", r.size, r.bytes, r.rep, ms(r.snapshot), ms(r.hash),
+				ms(r.upload), ms(r.publish), ms(r.total), ms(r.maxWriteStall), ms(r.passivate), r.requests, usd)
 			if w != nil {
 				w.Write([]string{strconv.FormatInt(r.size, 10), strconv.FormatInt(r.bytes, 10), strconv.Itoa(r.rep), ms(r.snapshot),
-					ms(r.hash), ms(r.upload), ms(r.publish), ms(r.total), ms(r.maxWriteStall), ms(r.passivate)})
+					ms(r.hash), ms(r.upload), ms(r.publish), ms(r.total), ms(r.maxWriteStall), ms(r.passivate),
+					strconv.FormatInt(r.requests, 10), usd})
 			}
 		}
 	}
@@ -255,9 +261,12 @@ func measure(ctx context.Context, dir string, size int64, rep int) (row, error) 
 		}
 	})
 	time.Sleep(5 * time.Millisecond)
+	before := s.RequestCounts()
 	t := time.Now()
 	wb, err := h.WriteBack(ctx, "bench/db")
 	r.total = time.Since(t)
+	sent := durable.SubCounts(s.RequestCounts(), before)
+	r.requests, r.usdPerMillion = durable.Requests(sent), durable.RequestCost(sent, durable.S3Standard)*1e6
 	time.Sleep(5 * time.Millisecond)
 	close(stop)
 	wg.Wait()

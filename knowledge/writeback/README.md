@@ -8,6 +8,12 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 ## Findings (newest first)
 
 - 2026-11-05 (CP-4 agent side): [scoped S3 identities, TLS, -dev](2026-11-05-s3-scoped-identities.md): `agent` (Read+Write, no LIST, no bucket creation), `gc`, `bench` in `s3.json`; X12 passes on SeaweedFS 4.47; agentd needs nothing more than `agent`; plain-HTTP S3 needs `-dev` (OS-11).
+- 2026-11-05 (CP-8): [snapshot with the backup API](2026-11-05-backup-api-snapshot.md): on a reader in WAL
+  mode, the write stall during a write-back drops from the snapshot time (149 ms at 128 MiB, 589 ms at 512 MiB)
+  to ~1 ms; wbbench prints requests (4) and $10.80 per million write-backs (OS-08 leftovers).
+- 2026-11-05 (CP-8): [TestS3Compat on MinIO and multi-node SeaweedFS](2026-11-05-s3-compat-minio-and-cluster.md):
+  MinIO passes X1–X12; a 2-filer SeaweedFS cluster on a shared Postgres store passes, conditional PUT atomic
+  across gateways (1200+ contended rounds, the peer gateway won about half).
 - 2026-11-05 (books p4-gc): [storage runbook](2026-11-05-storage-runbook.md) with `cmd/dbtool` (inspect, verify, orphans, gc, rebuild-manifest) for corrupt generation, lost/unreadable manifest, orphan growth, cost spike, SlowDown storm (OS-12).
 - 2026-11-05 (books p4-gc): [generation GC and the generation cache](2026-11-05-gc-and-gen-cache.md): owner-side retention (K = 2) + orphan sweeper keep the bucket flat on SeaweedFS; a cached re-warm of 256 MiB takes ~2 ms instead of ~1 s; md5 is ~3/4 of upload hashing (OS-06, OS-10).
 - 2026-11-05 (books p2-storage): [layout v2 + ambiguity resolution](2026-11-05-layout-v2.md): `dbs/<h2>/<escaped key>/`, `gen/<G>-e<E>.db`, self-describing metadata; stamps and uploads re-read after ambiguous errors (OS-02, OS-04, OS-05).
@@ -30,6 +36,7 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Design in one screen
 
+- **Superseded 2026-11-05 (CP-8):** the snapshot now uses the backup API on a reader ([note](2026-11-05-backup-api-snapshot.md)).
 - **Snapshot choice: `VACUUM INTO` on the actor goroutine** (`actor.Snapshot`). Plain SQL, no driver
   internals; it is a consistent read transaction by construction, and because the actor serializes writes
   it sits between two batches: no write is lost, queued writes just wait. Rejected for now:

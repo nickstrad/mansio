@@ -1,0 +1,61 @@
+# Multi-node SeaweedFS for TestS3Compat (CP-8, OS X): 1 master, 3 volume servers, 2 filers sharing one
+# Postgres filer store, and one S3 gateway per filer. Conditional PUTs through the two gateways race on the
+# shared store, which is the multi-node case the single container cannot show.
+#   docker compose -f deploy/seaweedfs-cluster/docker-compose.yml up -d
+# S3 endpoints: localhost:8343 (filer 1) and localhost:8344 (filer 2); access key coldload / coldload-secret.
+# Throwaway: no volumes are kept (docker compose down discards everything).
+services:
+  meta:
+    image: postgres:17
+    container_name: swc-meta
+    environment:
+      POSTGRES_USER: seaweed
+      POSTGRES_PASSWORD: seaweed-dev
+      POSTGRES_DB: seaweed
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8" # byte-ordered names: S3 LIST order (X9)
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "seaweed"]
+      interval: 1s
+      retries: 30
+  master:
+    image: chrislusf/seaweedfs:latest
+    container_name: swc-master
+    command: master -ip=master -ip.bind=0.0.0.0 -volumeSizeLimitMB=256 -defaultReplication=001
+  volume1: &volume
+    image: chrislusf/seaweedfs:latest
+    container_name: swc-volume1
+    command: volume -ip=volume1 -ip.bind=0.0.0.0 -master=master:9333 -max=20 -dir=/data
+    depends_on: [master]
+  volume2:
+    <<: *volume
+    container_name: swc-volume2
+    command: volume -ip=volume2 -ip.bind=0.0.0.0 -master=master:9333 -max=20 -dir=/data
+  volume3:
+    <<: *volume
+    container_name: swc-volume3
+    command: volume -ip=volume3 -ip.bind=0.0.0.0 -master=master:9333 -max=20 -dir=/data
+  filer1: &filer
+    image: chrislusf/seaweedfs:latest
+    container_name: swc-filer1
+    restart: on-failure # both filers create the filemeta table at start; the loser of that race exits once
+    command: filer -ip=filer1 -ip.bind=0.0.0.0 -master=master:9333 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    environment: &filerenv
+      WEED_LEVELDB2_ENABLED: "false"
+      WEED_POSTGRES2_ENABLED: "true"
+      WEED_POSTGRES2_HOSTNAME: meta
+      WEED_POSTGRES2_PORT: "5432"
+      WEED_POSTGRES2_USERNAME: seaweed
+      WEED_POSTGRES2_PASSWORD: seaweed-dev
+      WEED_POSTGRES2_DATABASE: seaweed
+      WEED_POSTGRES2_SSLMODE: disable
+    volumes:
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+    ports: ["8343:8333"]
+    depends_on:
+      meta: {condition: service_healthy}
+      master: {condition: service_started}
+  filer2:
+    <<: *filer
+    container_name: swc-filer2
+    command: filer -ip=filer2 -ip.bind=0.0.0.0 -master=master:9333 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+    ports: ["8344:8333"]
