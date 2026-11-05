@@ -65,6 +65,7 @@ type cluster struct {
 
 type agentProc struct {
 	vm, query, life string
+	admin           string // admin_listen (runtime controls: breaker trip, passivate)
 	cmd             *exec.Cmd
 	exited          chan error
 }
@@ -118,7 +119,7 @@ func (c *cluster) startAgent(vm string) *agentProc {
 	if c.locator {
 		keys = fmt.Sprintf(`"keys_url":"http://%s/v1/keys","keys_file":"ticket-keys.json","keys_refresh":"200ms","keys_timeout":"150ms","clock_skew":"1s"`, c.controldAddr)
 	}
-	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","vm":%q,%s,"log_file":"agentd.log",
+	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","admin_listen":"127.0.0.1:0","vm":%q,%s,"log_file":"agentd.log",
 		"s3":{"endpoint":%q,"bucket":"coldload","prefix":%q},
 		"secrets_file":"secrets.json","cache_dir":"cache","owner_dir":"owner","placement_pg":{"schema":%q},
 		"default_timeout":"5s","max_timeout":"10s","lifecycle_timeout":"20s",
@@ -138,8 +139,8 @@ func (c *cluster) startAgent(vm string) *agentProc {
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		if b, err := os.ReadFile(addrFile); err == nil {
-			if lines := strings.Fields(string(b)); len(lines) == 2 {
-				a.query, a.life = lines[0], lines[1]
+			if lines := strings.Fields(string(b)); len(lines) == 3 {
+				a.query, a.life, a.admin = lines[0], lines[1], lines[2]
 				break
 			}
 		}
