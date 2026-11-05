@@ -60,6 +60,16 @@ const (
 // Has reports whether p includes every permission in need.
 func (p Perm) Has(need Perm) bool { return p&need == need }
 
+// ParsePerm is the inverse of String: "read", "write" or "read|write".
+func ParsePerm(s string) (Perm, bool) {
+	for _, p := range []Perm{Read, Write, Read | Write} {
+		if p.String() == s {
+			return p, true
+		}
+	}
+	return 0, false
+}
+
 func (p Perm) String() string {
 	switch p {
 	case Read:

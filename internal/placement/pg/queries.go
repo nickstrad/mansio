@@ -15,6 +15,8 @@ type queries struct {
 	get, create, cas, moving, vmLoad, registerVM, invariants string
 	// Registries (0002, CP-4).
 	heartbeat, attestDead, vm, ownedBy, createDatabase, getDatabase, setDatabaseState, pending, dropPlacement string
+	// Locator and API keys (0003, 0004, CP-5).
+	locate, apiKey, createAPIKey, revokeAPIKey string
 }
 
 // q is read-only after init.
@@ -36,6 +38,11 @@ var q = queries{
 	setDatabaseState: mustQuery("set_database_state"),
 	pending:          mustQuery("pending"),
 	dropPlacement:    mustQuery("drop_placement"),
+
+	locate:       mustQuery("locate"),
+	apiKey:       mustQuery("api_key"),
+	createAPIKey: mustQuery("create_api_key"),
+	revokeAPIKey: mustQuery("revoke_api_key"),
 }
 
 func mustQuery(name string) string {

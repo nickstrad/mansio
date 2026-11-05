@@ -18,7 +18,7 @@ import (
 
 func TestConfig(t *testing.T) {
 	agent := `{"vm":"vm-a","endpoint":"127.0.0.1:7070","lifecycle":"http://127.0.0.1:7071"}`
-	base := `"secrets_file":"s.json","s3":{"endpoint":"e:1","bucket":"b"}`
+	base := `"secrets_file":"s.json","ticket_keys":{"dir":"keys"},"s3":{"endpoint":"e:1","bucket":"b"}`
 	for _, tc := range []struct{ name, body, problem string }{
 		{"minimal", `{` + base + `,"agents":[` + agent + `]}`, ""},
 		{"no agents", `{` + base + `}`, "at least one"},
@@ -26,6 +26,10 @@ func TestConfig(t *testing.T) {
 		{"bad vm", `{` + base + `,"agents":[{"vm":"VM","endpoint":"x","lifecycle":"http://x"}]}`, "not a valid vm id"},
 		{"lifecycle not a URL", `{` + base + `,"agents":[{"vm":"a","endpoint":"x","lifecycle":"x:1"}]}`, "http(s) URL"},
 		{"no bucket", `{"secrets_file":"s","s3":{"endpoint":"e"},"agents":[` + agent + `]}`, "endpoint and bucket"},
+		{"no ticket keys dir", `{"secrets_file":"s","s3":{"endpoint":"e:1","bucket":"b"},"agents":[` + agent + `]}`, "ticket_keys.dir is required"},
+		{"rotate = activate (off point)", `{` + base + `,"agents":[` + agent + `],"ticket_keys":{"dir":"k","rotate":"5m","activate":"5m"}}`, "must exceed"},
+		{"zero ticket ttl", `{` + base + `,"agents":[` + agent + `],"locator":{"ticket_ttl":"0s"}}`, "locator.ticket_ttl must be > 0"},
+		{"no resolve slots", `{` + base + `,"agents":[` + agent + `],"locator":{"concurrency":0}}`, "locator.concurrency"},
 		{"heartbeat timeout = interval (off point)", `{` + base + `,"agents":[` + agent + `],"heartbeat_interval":"1s","heartbeat_timeout":"1s"}`, "shorter than heartbeat_interval"},
 		{"per key below agent timeout", `{` + base + `,"agents":[` + agent + `],"per_key_timeout":"1s","agent_timeout":"2s"}`, "at least agent_timeout"},
 		{"CA file without secure", `{` + base + `,"agents":[` + agent + `],"s3":{"endpoint":"e:1","bucket":"b","ca_file":"ca.pem"}}`, "ca_file needs secure"},
@@ -34,7 +38,7 @@ func TestConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := parseConfig(strings.NewReader(tc.body), "/etc")
 			if tc.problem == "" {
-				if err != nil || c.SecretsFile != "/etc/s.json" || c.Policy.MaxHeartbeatAge.Duration != 6*time.Second {
+				if err != nil || c.SecretsFile != "/etc/s.json" || c.TicketKeys.Dir != "/etc/keys" || c.Policy.MaxHeartbeatAge.Duration != 6*time.Second {
 					t.Fatalf("%+v %v", c, err)
 				}
 				return
@@ -59,7 +63,7 @@ func TestTLSRefusal(t *testing.T) {
 	}
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "c.json")
-	os.WriteFile(cfg, []byte(`{"secrets_file":"s","s3":{"endpoint":"e:1","bucket":"b"},"agents":[{"vm":"a","endpoint":"x","lifecycle":"http://x"}]}`), 0o644)
+	os.WriteFile(cfg, []byte(`{"secrets_file":"s","ticket_keys":{"dir":"k"},"s3":{"endpoint":"e:1","bucket":"b"},"agents":[{"vm":"a","endpoint":"x","lifecycle":"http://x"}]}`), 0o644)
 	var errw strings.Builder
 	if code := realMain(t.Context(), []string{"-config", cfg}, &strings.Builder{}, &errw); code != exitError || !strings.Contains(errw.String(), "pass -dev") {
 		t.Fatalf("plain-HTTP S3 without -dev: exit %d %q", code, errw.String())

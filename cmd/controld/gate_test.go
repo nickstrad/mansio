@@ -54,6 +54,13 @@ type cluster struct {
 	api      string // controld's base URL
 	pl       *pg.Placement
 	secrets  string // controld's secrets file
+
+	// The CP-5 gate: agents fetch ticket keys from controld (keys_url) at a fixed address, chosen before the
+	// agents start; extra is added to controld's config.
+	locator      bool
+	controldAddr string
+	extra        string
+	stopCtl      func() // stops controld and waits for it (once)
 }
 
 type agentProc struct {
@@ -107,11 +114,15 @@ func (c *cluster) startAgent(vm string) *agentProc {
 	sec, _ := json.Marshal(map[string]string{"s3_access_key": "agent", "s3_secret_key": "agent-secret-dev",
 		"control_token": controlToken, "pg_dsn": c.dsn})
 	os.WriteFile(filepath.Join(dir, "secrets.json"), sec, 0o600)
-	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","vm":%q,"keys_file":"../keys.json","log_file":"agentd.log",
+	keys := `"keys_file":"../keys.json"`
+	if c.locator {
+		keys = fmt.Sprintf(`"keys_url":"http://%s/v1/keys","keys_file":"ticket-keys.json","keys_refresh":"200ms","keys_timeout":"150ms","clock_skew":"1s"`, c.controldAddr)
+	}
+	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","vm":%q,%s,"log_file":"agentd.log",
 		"s3":{"endpoint":%q,"bucket":"coldload","prefix":%q},
 		"secrets_file":"secrets.json","cache_dir":"cache","owner_dir":"owner","placement_pg":{"schema":%q},
 		"default_timeout":"5s","max_timeout":"10s","lifecycle_timeout":"20s",
-		"maintenance":{"interval":"50ms","write_back_every":"200ms"}}`, vm, c.s3, c.prefix, c.schema)
+		"maintenance":{"interval":"50ms","write_back_every":"200ms"}}`, vm, keys, c.s3, c.prefix, c.schema)
 	os.WriteFile(filepath.Join(dir, "agentd.json"), []byte(cfg), 0o644)
 	addrFile := filepath.Join(dir, "addr")
 	os.Remove(addrFile)
@@ -163,10 +174,14 @@ func (c *cluster) startControld() {
 	sec, _ := json.Marshal(Secrets{PGDSN: c.dsn, ControlToken: controlToken, AdminToken: adminToken, S3AccessKey: "gc", S3SecretKey: "gc-secret-dev"})
 	c.secrets = filepath.Join(c.dir, "controld-secrets.json")
 	os.WriteFile(c.secrets, sec, 0o600)
-	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","secrets_file":"controld-secrets.json","log_file":"controld.log","pg":{"schema":%q},
-		"s3":{"endpoint":%q,"bucket":"coldload","prefix":%q},"agents":[%s],
+	listen := c.controldAddr
+	if listen == "" {
+		listen = "127.0.0.1:0"
+	}
+	cfg := fmt.Sprintf(`{"listen":%q,"secrets_file":"controld-secrets.json","log_file":"controld.log","pg":{"schema":%q},
+		"s3":{"endpoint":%q,"bucket":"coldload","prefix":%q},"agents":[%s],"ticket_keys":{"dir":"ticket-keys"},
 		"heartbeat_interval":"200ms","heartbeat_timeout":"150ms","resume_interval":"500ms","resume_after":"2s",
-		"agent_timeout":"20s","per_key_timeout":"30s"}`, c.schema, c.s3, c.prefix, strings.Join(agents, ","))
+		"agent_timeout":"20s","per_key_timeout":"30s"%s}`, listen, c.schema, c.s3, c.prefix, strings.Join(agents, ","), c.extra)
 	path := filepath.Join(c.dir, "controld.json")
 	os.WriteFile(path, []byte(cfg), 0o644)
 	addrFile := filepath.Join(c.dir, "controld.addr")
@@ -176,12 +191,16 @@ func (c *cluster) startControld() {
 	go func() {
 		done <- realMain(ctx, []string{"-dev", "-config", path, "-addr-file", addrFile}, os.Stdout, &stderr)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		if code := <-done; code != exitOK {
-			t.Errorf("controld exited %d: %s", code, stderr.String())
-		}
-	})
+	var once sync.Once
+	c.stopCtl = func() {
+		once.Do(func() {
+			cancel()
+			if code := <-done; code != exitOK {
+				t.Errorf("controld exited %d: %s", code, stderr.String())
+			}
+		})
+	}
+	t.Cleanup(c.stopCtl)
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		if b, err := os.ReadFile(addrFile); err == nil && len(b) > 0 {

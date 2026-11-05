@@ -10,7 +10,10 @@
 //	agentd -config configs/agentd/local.json [-addr-file path] [-check] [-dev]
 //
 // -dev allows what only a developer laptop may do: durable mode over plain-HTTP S3 (s3.secure false; refused
-// otherwise, object-storage guide S2) and the claim's "create" stand-in (control.go). An optional admin
+// otherwise, object-storage guide S2), a plain-HTTP keys_url, and the claim's "create" stand-in (control.go).
+//
+// Ticket keys come from keys_file (static; dev and benches) or keys_url (controld's GET /v1/keys, refetched
+// every keys_refresh and cached in keys_file; keys.go, CP-5). An optional admin
 // listener (admin_listen, loopback only) serves the runtime controls of admin.go; cmd/agentctl is its client.
 //
 // Exit codes: 0 stopped cleanly after SIGINT/SIGTERM (drained), 1 failed (message and log ID on stderr; this
@@ -98,7 +101,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	}
 	defer closeLog()
 	rep.log = log
-	keys, err := loadKeys(cfg.KeysFile)
+	keys, fetcher, err := openKeys(ctx, cfg, log)
 	if err != nil {
 		return rep.report(err)
 	}
@@ -129,6 +132,10 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	if err != nil {
 		return rep.report(err)
 	}
+	if fetcher != nil {
+		fetcher.register(a.reg)
+		a.background = append(a.background, fetcher.run)
+	}
 	a.level = level
 	defer a.cleanup()
 	return a.serve(ctx, *addrFile, rep, stderr)
@@ -142,6 +149,7 @@ type agent struct {
 	srv        *front.Server
 	be         *backend
 	lifecycle  *http.ServeMux              // /livez, /readyz, /healthz, /metrics, control endpoints; on the lifecycle listener
+	reg        *metrics.Registry           // served on /metrics
 	level      *slog.LevelVar              // the log level; POST /admin/loglevel sets it
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
@@ -208,7 +216,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if be.routes != nil {
 		be.routes(mux, srv)
 	}
-	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, cleanup: cleanCanary,
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanCanary,
 		background: append(be.background, func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"sync/atomic"
 )
 
@@ -38,6 +39,14 @@ func (r *KeyRing) Replace(keys map[string]ed25519.PublicKey) {
 	r.keys.Store(&m)
 }
 
+// Len is the number of keys held now.
+func (r *KeyRing) Len() int { return len(*r.keys.Load()) }
+
+// Equal reports whether the ring holds exactly keys.
+func (r *KeyRing) Equal(keys map[string]ed25519.PublicKey) bool {
+	return maps.EqualFunc(*r.keys.Load(), keys, func(a, b ed25519.PublicKey) bool { return a.Equal(b) })
+}
+
 // KIDs lists the key ids held now (unordered).
 func (r *KeyRing) KIDs() []string {
 	m := *r.keys.Load()
@@ -57,6 +66,15 @@ type PublicKeyFile struct {
 type PublicKeyEntry struct {
 	KID       string `json:"kid"`
 	PublicKey string `json:"public_key"`
+}
+
+// NewPublicKeyFile is keys in the key file format, sorted by kid.
+func NewPublicKeyFile(keys map[string]ed25519.PublicKey) PublicKeyFile {
+	f := PublicKeyFile{Keys: []PublicKeyEntry{}}
+	for _, kid := range slices.Sorted(maps.Keys(keys)) {
+		f.Keys = append(f.Keys, PublicKeyEntry{KID: kid, PublicKey: EncodeKey(keys[kid])})
+	}
+	return f
 }
 
 // ParsePublicKeys reads a PublicKeyFile. Unknown fields, duplicate or bad key ids and keys of the wrong size are
