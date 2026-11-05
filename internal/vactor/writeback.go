@@ -98,14 +98,10 @@ func (h *Host) fetchGeneration(ctx context.Context, key string, e *entry, m dura
 		}
 		return nil
 	}
-	release, err := h.gate.acquire(ctx, m.Size)
-	if err != nil {
-		return errs.Wrap(module, err, "cannot activate %s: no fetch slot for generation %d (%d bytes); nothing cached, retry later", key, m.Generation, m.Size)
-	}
-	defer release()
-	h.fetches.Add(1)
-	f, err := h.opts.Store.FetchGeneration(ctx, m, path)
-	e.act.Bytes, e.act.TTFB, e.act.Fetch = f.Bytes, f.TTFB, f.Total
+	err := h.gatedFetch(ctx, key, m.Size, e, func(ctx context.Context) (Fetched, error) {
+		f, err := h.opts.Store.FetchGeneration(ctx, m, path)
+		return Fetched(f), err
+	})
 	if err != nil {
 		if errors.Is(err, durable.ErrNotFound) {
 			err = errors.Join(ErrNotFound, err)

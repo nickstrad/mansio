@@ -84,7 +84,7 @@ func TestFetchBulkheadShedsBeyondQueue(t *testing.T) {
 	for _, k := range []string{"a", "b"} {
 		go func() { _, err := h.Get(ctx, k); done <- err }()
 	}
-	waitUntil(t, func() bool { n, _, q := vactor.FetchGate(h); return n == 1 && q == 1 })
+	vactor.WaitFor(t, func() bool { n, _, q := vactor.FetchGate(h); return n == 1 && q == 1 })
 
 	t0 := time.Now()
 	_, err = h.Get(ctx, "c")
@@ -155,12 +155,18 @@ func TestFetchBulkheadBoundsConcurrency(t *testing.T) {
 	}
 }
 
-func waitUntil(t *testing.T, cond func() bool) {
-	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); !cond(); {
-		if time.Now().After(deadline) {
-			t.Fatal("condition not reached within 5 s")
-		}
-		time.Sleep(time.Millisecond)
+// A first query that hits its own QueryTimeout is not the activation deadline: not ErrBusy (the
+// activation ctx's cause tells the two apart, not the error chain).
+func TestQueryTimeoutIsNotActivationTimeout(t *testing.T) {
+	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
+	f.Put("a", []byte("x"))
+	h, err := vactor.NewHost(f, o, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), QueryTimeout: time.Nanosecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { h.Close() })
+	_, err = h.Get(ctx, "a")
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, vactor.ErrBusy) {
+		t.Fatalf("Get = %v, want the query's DeadlineExceeded and not ErrBusy", err)
 	}
 }

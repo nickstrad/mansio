@@ -16,14 +16,15 @@ import (
 var ErrUnavailable = errors.New("durable: storage unavailable")
 
 // IsSystemFailure is the default breaker classifier for WithBreaker: an error that says the store is failing,
-// not an answer about the data (Release It C2). The store's answers (ErrStale, ErrExists, ErrNoManifest,
-// ErrNotFound, ErrCorrupt) and the caller's own ctx ending are not failures. Adapters with a finer
-// classification pass their own; the S3 one is objstore.Classify(err) == objstore.Transient.
+// not an answer about the data (Release It C2): anything but the store's answers (ErrStale, ErrExists,
+// ErrNoManifest, ErrNotFound, ErrCorrupt). A timeout counts; a call whose caller's ctx ended is ignored by
+// WithBreaker before any classifier runs. Adapters with a finer classification pass their own; the S3 one
+// is objstore.Classify(err) == objstore.Transient.
 func IsSystemFailure(err error) bool {
 	if err == nil {
 		return false
 	}
-	for _, answer := range []error{ErrStale, ErrExists, ErrNoManifest, ErrNotFound, ErrCorrupt, context.Canceled, context.DeadlineExceeded} {
+	for _, answer := range []error{ErrStale, ErrExists, ErrNoManifest, ErrNotFound, ErrCorrupt} {
 		if errors.Is(err, answer) {
 			return false
 		}
@@ -34,7 +35,7 @@ func IsSystemFailure(err error) bool {
 // WithBreaker returns s guarded by b: a call b refuses fails at once with ErrUnavailable (wrapping
 // breaker.ErrOpen) and a RetryAfter hint, and a call that fails with a system failure (isFailure; nil means
 // IsSystemFailure) counts against b and is marked ErrUnavailable, its chain kept. Answers count as successes;
-// a call whose ctx ended first is ignored. now is the breaker's clock (nil: time.Now).
+// a call whose ctx ended (the caller gave up or its deadline passed) is ignored. now is the breaker's clock (nil: time.Now).
 func WithBreaker(s Store, b *breaker.Breaker, isFailure func(error) bool, now func() time.Time) Store {
 	if isFailure == nil {
 		isFailure = IsSystemFailure
@@ -52,20 +53,20 @@ type guarded struct {
 	now       func() time.Time
 }
 
-// call runs one store call through the breaker.
-func (g *guarded) call(ctx context.Context, op string, fn func() error) error {
+// call runs one store call (op on name) through the breaker.
+func (g *guarded) call(ctx context.Context, op, name string, fn func() error) error {
 	p, wait, ok := g.b.Allow(g.now())
 	if !ok {
-		return errs.Wrap(module, &openError{wait: wait}, "cannot %s: the storage circuit breaker is open; nothing sent, retry after %v", op, wait)
+		return errs.Wrap(module, &openError{wait: wait}, "cannot %s %s: the storage circuit breaker is open; nothing sent, retry after %v", op, name, wait)
 	}
 	err := fn()
 	o := breaker.Success
 	switch {
 	case err == nil:
+	case ctx.Err() != nil:
+		o = breaker.Ignore // the caller gave up: says nothing about the store
 	case g.isFailure(err):
 		o = breaker.Failure
-	case ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-		o = breaker.Ignore
 	}
 	g.b.Done(p, g.now(), o)
 	if o == breaker.Failure {
@@ -75,26 +76,26 @@ func (g *guarded) call(ctx context.Context, op string, fn func() error) error {
 }
 
 func (g *guarded) ReadManifest(ctx context.Context, key string) (m Manifest, v Version, err error) {
-	err = g.call(ctx, "read the manifest of "+key, func() error { m, v, err = g.s.ReadManifest(ctx, key); return err })
+	err = g.call(ctx, "read the manifest of", key, func() error { m, v, err = g.s.ReadManifest(ctx, key); return err })
 	return m, v, err
 }
 
 func (g *guarded) PutGeneration(ctx context.Context, m Manifest, path string) error {
-	return g.call(ctx, "upload "+m.Object, func() error { return g.s.PutGeneration(ctx, m, path) })
+	return g.call(ctx, "upload", m.Object, func() error { return g.s.PutGeneration(ctx, m, path) })
 }
 
 func (g *guarded) StatGeneration(ctx context.Context, object string) (info GenInfo, err error) {
-	err = g.call(ctx, "stat "+object, func() error { info, err = g.s.StatGeneration(ctx, object); return err })
+	err = g.call(ctx, "stat", object, func() error { info, err = g.s.StatGeneration(ctx, object); return err })
 	return info, err
 }
 
 func (g *guarded) FetchGeneration(ctx context.Context, m Manifest, path string) (f Fetched, err error) {
-	err = g.call(ctx, "fetch "+m.Object, func() error { f, err = g.s.FetchGeneration(ctx, m, path); return err })
+	err = g.call(ctx, "fetch", m.Object, func() error { f, err = g.s.FetchGeneration(ctx, m, path); return err })
 	return f, err
 }
 
 func (g *guarded) PublishManifest(ctx context.Context, m Manifest, prev Version) (v Version, err error) {
-	err = g.call(ctx, "publish the manifest of "+m.Key, func() error { v, err = g.s.PublishManifest(ctx, m, prev); return err })
+	err = g.call(ctx, "publish the manifest of", m.Key, func() error { v, err = g.s.PublishManifest(ctx, m, prev); return err })
 	return v, err
 }
 

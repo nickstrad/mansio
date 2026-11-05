@@ -22,3 +22,6 @@ func Crash(h *Host) {
 
 // FetchGate reports the fetch bulkhead's fetches and bytes in flight and its queue length. Test-only.
 func FetchGate(h *Host) (n int, bytes int64, queued int) { return h.gate.inFlight() }
+
+// WaitFor polls cond until it holds (5 s at most). Test-only.
+var WaitFor = waitFor

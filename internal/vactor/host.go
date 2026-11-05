@@ -40,6 +40,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/retry"
 )
 
 const module = "vactor"
@@ -53,6 +54,9 @@ var (
 	// Get fails at once), or the activation did not finish within its deadline (Options.ActivationTimeout).
 	// Nothing was cached; retry later. agentd answers it 503 unavailable (Release It B1, F2).
 	ErrBusy = errors.New("vactor: busy")
+
+	errShed              = fmt.Errorf("%w: the fetch queue is full", ErrBusy)    // shed: nothing attempted, no tombstone
+	errActivationTimeout = fmt.Errorf("%w: activation deadline passed", ErrBusy) // the activation ctx's own cause
 )
 
 // Fetcher downloads the object key to the local file path.
@@ -214,6 +218,8 @@ type Host struct {
 	mu      sync.Mutex
 	entries map[string]*entry
 	tombs   map[string]tomb // keys whose last activation failed: fail fast until tomb.until
+	backoff retry.Policy    // the tombstones' backoff: FailBackoff doubling to MaxFailBackoff, equal jitter
+	rng     *rand.Rand      // jitter for backoff; guarded by mu
 	closed  bool
 
 	activations, failures, fetches, localHits    atomic.Int64
@@ -288,9 +294,14 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 			opts.Store = checkedStore{opts.Store}
 		}
 	}
+	backoff := retry.Policy{Backoff: retry.Exponential, Base: max(opts.FailBackoff, 1), Max: opts.MaxFailBackoff, Jitter: retry.Equal}
+	if err := backoff.Normalize(); err != nil {
+		return nil, errs.Wrap(module, err, "cannot create host: invalid failure backoff")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{fetch: f, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
-		tombs: make(map[string]tomb), gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
+		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
 var keyToFile = strings.NewReplacer("/", "__", "\\", "__")
@@ -333,13 +344,14 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			}
 		}
 		if !ok {
-			if err := h.tombstoned(key); err != nil {
+			if t, wait, ok := h.tombstoned(key); ok {
 				h.mu.Unlock()
-				return Result{}, err
+				return Result{}, errs.Wrap(module, &hinted{t.err, wait},
+					"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
 			}
 			if h.gate.shedding() { // fail fast before any storage call (guide F1)
 				h.mu.Unlock()
-				return Result{}, errs.Wrap(module, ErrBusy, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
+				return Result{}, errs.Wrap(module, errShed, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
 					key, h.opts.MaxFetchQueue)
 			}
 			e = &entry{done: make(chan struct{})}
@@ -394,15 +406,8 @@ func (h *Host) activate(key string, e *entry) {
 		}
 	}()
 	t0 := time.Now()
-	ctx, cancel := context.WithDeadline(h.ctx, t0.Add(h.opts.ActivationTimeout))
-	defer cancel()
-	e.db, e.err = h.load(ctx, t0, key, e)
+	e.db, e.err = h.load(t0, key, e)
 	e.act.Total = time.Since(t0)
-	if e.err != nil && errors.Is(e.err, context.DeadlineExceeded) && h.ctx.Err() == nil {
-		e.err = errs.Wrap(module, fmt.Errorf("%w: %w", ErrBusy, e.err),
-			"cannot activate %s: no answer within its deadline (ActivationTimeout %v + size/MinThroughput); nothing cached, retry later",
-			key, h.opts.ActivationTimeout)
-	}
 	h.activations.Add(1)
 	// Invariant: an activation either fully succeeded (db open) or left nothing behind.
 	assert.That((e.err == nil) == (e.db != nil), "activate(%s): err=%v but db=%v", key, e.err, e.db)
@@ -429,18 +434,29 @@ func (h *Host) forget(key string, e *entry) {
 	if e.err != nil && h.backsOff(e.err) {
 		now := h.opts.Now()
 		t := h.tombs[key]
-		if now.After(t.until.Add(h.opts.MaxFailBackoff)) {
+		if t.stale(now, h.opts.MaxFailBackoff) {
 			t.n = 0 // the last failure is long past: start the backoff over
 		}
 		t.n++
-		t.until, t.err = now.Add(jitter(backoff(h.opts.FailBackoff, h.opts.MaxFailBackoff, t.n))), e.err
+		t.until, t.err = now.Add(h.backoff.Delay(h.rng, t.n+1, 0)), e.err
 		h.tombs[key] = t
 	}
 }
 
-// load runs one activation under ctx, whose deadline is start + ActivationTimeout. No step uses h.ctx alone
-// (Release It T2): Close cancels them all through ctx.
-func (h *Host) load(ctx context.Context, start time.Time, key string, e *entry) (DB, error) {
+// load runs one activation from start under a ctx whose deadline is start + ActivationTimeout, grown by
+// size/MinThroughput once the size is known (guide T3). No step uses h.ctx alone (Release It T2): Close
+// cancels them all through ctx. Hitting that deadline fails with ErrBusy; the context's cause, not the
+// error chain, tells it apart from a query's own QueryTimeout.
+func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
+	ctx, cancel := h.activationCtx(start, 0)
+	defer func() {
+		if err != nil && errors.Is(context.Cause(ctx), errActivationTimeout) {
+			err = errs.Wrap(module, fmt.Errorf("%w: %w", errActivationTimeout, err),
+				"cannot activate %s: no answer within its deadline (ActivationTimeout %v + size/MinThroughput); nothing cached, retry later",
+				key, h.opts.ActivationTimeout)
+		}
+		cancel()
+	}()
 	act := &e.act
 	path := h.LocalPath(key)
 	if h.opts.Store != nil {
@@ -448,10 +464,9 @@ func (h *Host) load(ctx context.Context, start time.Time, key string, e *entry) 
 		if err != nil {
 			return nil, err
 		}
-		if m.Size > 0 { // the size is known now: allow for the transfer (guide T3)
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithDeadline(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(m.Size, h.opts.MinThroughput)))
-			defer cancel()
+		if m.Size > 0 {
+			cancel()
+			ctx, cancel = h.activationCtx(start, m.Size)
 		}
 		if err := h.fetchGeneration(ctx, key, e, m, path); err != nil {
 			return nil, err
@@ -459,18 +474,10 @@ func (h *Host) load(ctx context.Context, start time.Time, key string, e *entry) 
 	} else if size, ok := h.localCopy(path); ok {
 		act.LocalHit, act.Bytes = true, size
 		h.localHits.Add(1)
-	} else {
-		release, err := h.gate.acquire(ctx, 0)
-		if err != nil {
-			return nil, errs.Wrap(module, err, "cannot activate %s: no fetch slot; nothing cached, retry later", key)
-		}
-		h.fetches.Add(1)
-		f, err := h.fetch.Fetch(ctx, key, path)
-		release()
-		act.Bytes, act.TTFB, act.Fetch = f.Bytes, f.TTFB, f.Total
-		if err != nil {
-			return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
-		}
+	} else if err := h.gatedFetch(ctx, key, 0, e, func(ctx context.Context) (Fetched, error) {
+		return h.fetch.Fetch(ctx, key, path)
+	}); err != nil {
+		return nil, errs.Wrap(module, err, "cannot activate %s: download failed; nothing cached, safe to retry", key)
 	}
 
 	t := time.Now()
@@ -527,33 +534,32 @@ type tomb struct {
 	err   error
 }
 
+// stale reports whether t's backoff ended so long ago (more than the longest backoff) that a new failure
+// starts over, and the reaper may drop it.
+func (t tomb) stale(now time.Time, longest time.Duration) bool {
+	return now.After(t.until.Add(longest))
+}
+
 // backsOff reports whether a failed activation's error is the key's own failure, which earns a tombstone.
 // pre: h.mu held.
 func (h *Host) backsOff(err error) bool {
 	switch {
-	case h.opts.FailBackoff < 0, h.closed, h.ctx.Err() != nil:
+	case h.opts.FailBackoff < 0, h.closed:
 		return false
-	case errors.Is(err, ErrBusy) && !errors.Is(err, context.DeadlineExceeded): // shed, not failed
-		return false
-	case errors.Is(err, breaker.ErrOpen), errors.Is(err, durable.ErrStale):
-		return false
+	case errors.Is(err, errShed), errors.Is(err, breaker.ErrOpen), errors.Is(err, durable.ErrStale):
+		return false // not attempted, or not this key's failure
 	}
 	return true
 }
 
-// tombstoned returns the fail-fast error if key is in its backoff. pre: h.mu held.
-func (h *Host) tombstoned(key string) error {
+// tombstoned returns key's tombstone and the wait left if key is in its backoff. pre: h.mu held.
+func (h *Host) tombstoned(key string) (tomb, time.Duration, bool) {
 	t, ok := h.tombs[key]
 	if !ok {
-		return nil
+		return t, 0, false
 	}
-	now := h.opts.Now()
-	if !now.Before(t.until) {
-		return nil
-	}
-	wait := t.until.Sub(now)
-	return errs.Wrap(module, &hinted{t.err, wait},
-		"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
+	wait := t.until.Sub(h.opts.Now())
+	return t, wait, wait > 0
 }
 
 // pruneTombs drops tombstones whose backoff ended long enough ago that a new failure starts over (S1: every
@@ -562,27 +568,10 @@ func (h *Host) pruneTombs(now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for k, t := range h.tombs {
-		if now.After(t.until.Add(h.opts.MaxFailBackoff)) {
+		if t.stale(now, h.opts.MaxFailBackoff) {
 			delete(h.tombs, k)
 		}
 	}
-}
-
-// backoff is the n-th (n >= 1) delay: first, doubling, capped at most.
-func backoff(first, most time.Duration, n int) time.Duration {
-	d := first
-	for i := 1; i < n && d < most; i++ {
-		d *= 2
-	}
-	return min(d, most)
-}
-
-// jitter spreads d over [d/2, d], so keys that failed together do not retry together.
-func jitter(d time.Duration) time.Duration {
-	if d < 2 {
-		return d
-	}
-	return d/2 + rand.N(d/2+1)
 }
 
 // hinted carries a retry hint (front.RetryHint) on err without changing its message or chain.
@@ -594,6 +583,24 @@ type hinted struct {
 func (e *hinted) Error() string             { return e.err.Error() }
 func (e *hinted) Unwrap() error             { return e.err }
 func (e *hinted) RetryAfter() time.Duration { return e.after }
+
+// activationCtx is the activation's ctx for a generation of size bytes (0: unknown), from h.ctx.
+func (h *Host) activationCtx(start time.Time, size int64) (context.Context, context.CancelFunc) {
+	return context.WithDeadlineCause(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(size, h.opts.MinThroughput)), errActivationTimeout)
+}
+
+// gatedFetch runs fetch through the fetch bulkhead and records it in e.act.
+func (h *Host) gatedFetch(ctx context.Context, key string, size int64, e *entry, fetch func(context.Context) (Fetched, error)) error {
+	release, err := h.gate.acquire(ctx, size)
+	if err != nil {
+		return errs.Wrap(module, err, "no fetch slot for %s (%d bytes); retry later", key, size)
+	}
+	defer release()
+	h.fetches.Add(1)
+	f, err := fetch(ctx)
+	e.act.Bytes, e.act.TTFB, e.act.Fetch = f.Bytes, f.TTFB, f.Total
+	return err
+}
 
 // transferTime is how long size bytes take at the minimum throughput.
 func transferTime(size, bytesPerSec int64) time.Duration {

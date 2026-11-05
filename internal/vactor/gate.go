@@ -51,7 +51,7 @@ func (g *fetchGate) acquire(ctx context.Context, bytes int64) (release func(), e
 	}
 	if len(g.queue) >= g.maxQueue {
 		g.mu.Unlock()
-		return nil, ErrBusy
+		return nil, errShed
 	}
 	w := &waiter{bytes: bytes, ready: make(chan struct{})}
 	g.queue = append(g.queue, w)
@@ -110,6 +110,10 @@ func (g *fetchGate) wake() {
 }
 
 func (g *fetchGate) invariant() {
+	if !assert.Enabled || g.n >= 0 && g.n <= g.maxN && g.bytes >= 0 && (g.bytes <= g.maxBytes || g.n == 1) &&
+		len(g.queue) <= g.maxQueue && (len(g.queue) == 0 || !g.fits(g.queue[0].bytes)) {
+		return // checked without boxing the arguments below (this runs on every acquire and release)
+	}
 	assert.That(g.n >= 0 && g.n <= g.maxN && g.bytes >= 0, "fetchGate: n=%d bytes=%d (max %d)", g.n, g.bytes, g.maxN)
 	assert.That(g.bytes <= g.maxBytes || g.n == 1, "fetchGate: %d bytes in flight over %d with %d fetches", g.bytes, g.maxBytes, g.n)
 	assert.That(len(g.queue) <= g.maxQueue, "fetchGate: queue %d over %d", len(g.queue), g.maxQueue)

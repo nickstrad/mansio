@@ -47,20 +47,19 @@ func TestS3OutageCallsBounded(t *testing.T) {
 		{"tombstones only", false, keys * 11, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fake := durabletest.NewStore()
-			count := &countingStore{Store: fake}
-			clk := &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+			var count *countingStore
 			r := newDurable(t, func(o *vactor.Options) {
-				o.Store, o.Now = count, clk.Now
+				count = &countingStore{Store: o.Store}
+				o.Store = count
 				if tc.breaker {
 					b, err := breaker.New(breaker.Config{}) // the S3 defaults: 50% of ≥ 20 calls in 10 s, cool-down 5 s
 					if err != nil {
 						t.Fatal(err)
 					}
-					o.Store = durable.WithBreaker(count, b, nil, clk.Now)
+					o.Store = durable.WithBreaker(count, b, nil, o.Now)
 				}
 			})
-			r.clk = clk
+			fake := r.s
 			fake.SetFaults(durabletest.Faults{Down: true})
 
 			sawOpen := false
@@ -100,14 +99,11 @@ func TestS3OutageCallsBounded(t *testing.T) {
 
 // Shedding and an open breaker are not the key's failures: no tombstone, the next Get tries at once.
 func TestNoTombstoneForShedOrOpenBreaker(t *testing.T) {
-	fake := durabletest.NewStore()
-	clk := &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
 	r := newDurable(t, func(o *vactor.Options) {
 		b, _ := breaker.New(breaker.Config{MinCalls: 1, FailureRate: 1})
-		o.Store, o.Now = durable.WithBreaker(fake, b, nil, clk.Now), clk.Now
+		o.Store = durable.WithBreaker(o.Store, b, nil, o.Now)
 	})
-	r.clk = clk
-
+	fake := r.s
 	fake.SetFaults(durabletest.Faults{Down: true})
 	if _, err := r.h.Get(ctx, "a"); !errors.Is(err, durable.ErrUnavailable) { // opens the breaker; "a" is tombstoned
 		t.Fatal(err)

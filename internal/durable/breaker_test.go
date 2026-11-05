@@ -31,7 +31,7 @@ func TestBreakerStoreContract(t *testing.T) {
 	})
 }
 
-// Spec table for the default classifier: answers and the caller's ctx are not failures.
+// Spec table for the default classifier: answers are not failures; timeouts are.
 func TestIsSystemFailure(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -43,8 +43,8 @@ func TestIsSystemFailure(t *testing.T) {
 		{durable.ErrNoManifest, false},
 		{durable.ErrNotFound, false},
 		{durable.ErrCorrupt, false},
-		{context.Canceled, false},
-		{fmt.Errorf("get: %w", context.DeadlineExceeded), false},
+		{context.Canceled, true},                                // WithBreaker ignores it only when the caller's ctx ended
+		{fmt.Errorf("get: %w", context.DeadlineExceeded), true}, // a store timeout
 		{durabletest.ErrInjected, true},
 		{errors.New("connection refused"), true},
 	} {

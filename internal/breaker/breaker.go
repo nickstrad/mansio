@@ -93,7 +93,7 @@ type Permit struct {
 // Breaker is safe for concurrent use.
 //
 // Invariant: Closed ⇒ 0 <= fails <= calls and not probing; Open ⇒ not probing; HalfOpen ⇒ calls == fails == 0.
-// gen changes on every transition, so permits from before it are recognized and ignored.
+// gen counts transitions, so permits from before the last one are recognized and ignored.
 type Breaker struct {
 	cfg Config
 
@@ -105,7 +105,6 @@ type Breaker struct {
 	fails       int
 	until       time.Time // Open: when the cool-down ends
 	probing     bool      // HalfOpen: the probe is in flight
-	transitions uint64
 }
 
 // New returns a closed breaker. It fails only on an invalid config.
@@ -196,7 +195,6 @@ func (b *Breaker) move(to State, now time.Time) *Transition {
 	}
 	b.state, b.probing, b.calls, b.fails = to, false, 0, 0
 	b.gen++
-	b.transitions++
 	switch to {
 	case Open:
 		b.until = now.Add(b.cfg.CoolDown)
@@ -213,6 +211,9 @@ func (b *Breaker) notify(t *Transition) {
 }
 
 func (b *Breaker) invariant() {
+	if !assert.Enabled || b.fails >= 0 && b.fails <= b.calls && (b.state == HalfOpen || !b.probing) && (b.state == Closed || b.calls == 0) {
+		return // checked without boxing the arguments below (this runs on every Done)
+	}
 	assert.That(b.fails >= 0 && b.fails <= b.calls, "breaker: %d failures of %d calls", b.fails, b.calls)
 	assert.That(b.state == HalfOpen || !b.probing, "breaker: probing in state %s", b.state)
 	assert.That(b.state == Closed || b.calls == 0, "breaker: %d calls counted in state %s", b.calls, b.state)
@@ -233,5 +234,5 @@ func (b *Breaker) State(now time.Time) State {
 func (b *Breaker) Transitions() uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.transitions
+	return b.gen
 }
