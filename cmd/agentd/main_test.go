@@ -117,6 +117,7 @@ func TestServesAndStopsCleanly(t *testing.T) {
 	done := make(chan int)
 	go func() { done <- realMain(ctx, []string{"-config", cfg, "-addr-file", addrFile}, &stderr) }()
 	addr := waitAddr(t, addrFile, done)
+	waitReady(t, lifecycleAddr(t, addrFile))
 
 	tok := func(db string, epoch uint64) string {
 		c := iss.Claims(db, "vm-1", time.Now(), time.Minute)
@@ -184,16 +185,17 @@ func TestDrainTimeoutIsReported(t *testing.T) {
 	}
 }
 
-func waitAddr(t *testing.T, path string, done chan int) string {
+// waitAddr returns the addr-file's first line once agentd wrote it; done reports agentd's exit (code or error).
+func waitAddr[T any](t *testing.T, path string, done <-chan T) string {
 	t.Helper()
-	for range 500 {
+	for range 1000 {
 		select {
 		case code := <-done:
-			t.Fatalf("agentd exited %d before serving", code)
+			t.Fatalf("agentd exited (%v) before serving", code)
 		default:
 		}
 		if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
-			return strings.TrimSpace(string(b))
+			return strings.Fields(string(b))[0]
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -267,7 +269,7 @@ func TestHealthServerHasTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hs := healthServer(c, front.NewServer(front.Config{}, nil, nil, nil, nil))
+	hs := healthServer(c, http.NewServeMux())
 	if hs.ReadHeaderTimeout <= 0 || hs.ReadTimeout <= 0 || hs.WriteTimeout <= 0 || hs.IdleTimeout <= 0 || hs.MaxHeaderBytes <= 0 {
 		t.Fatalf("health server without a timeout: %+v", hs)
 	}

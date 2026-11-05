@@ -133,8 +133,9 @@ if !b.Allow(now) {
 **C4. Breakers are visible and operable.** Log every transition with a message code. Expose state and the
 transition count. Ops can trip and reset them (RI-11, RI-16).
 
-**C5. Open-circuit behavior is a product decision, written down.** For example: S3 open → cold activations
-`503`, warm traffic unaffected, write-backs deferred (RPO grows, alert on `oldest_dirty_age`).
+**C5. Open-circuit behavior is a product decision, written down.** Decided (2026-11-05): S3 open → cold
+activations `503`, warm traffic unaffected, write-backs deferred (RPO grows, alert on `oldest_dirty_age`), and
+**readiness stays up** — an agent is not pulled from the load balancer for a remote dependency's outage.
 
 ## F — Fail fast and error classes
 
@@ -166,7 +167,8 @@ concurrency and a per-key timeout. Serve reconciled keys while the rest are refu
 (RI-07).
 
 **H2. Liveness ≠ readiness, and readiness exercises the real path.** `/readyz` runs a marked canary through
-admission → actor and checks breaker state (ch2, ch13 synthetic transactions).
+admission → actor (ch2, ch13 synthetic transactions). Remote dependency breakers (S3, placement) and the S3
+canary HEAD do **not** fail readiness (C5); they are reported on `/metrics` and alerted on there.
 
 **H3. Shutdown has one budget.** Drain front, then write back oldest-dirty first until the budget ends, then
 close with local copies kept and the count logged (RI-06).

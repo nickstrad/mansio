@@ -60,7 +60,7 @@ func (r *rig) balanced(t *testing.T) {
 	if _, open, doubles := r.adm.Counts(); open != 0 || doubles != 0 {
 		t.Errorf("admitter: %d unreleased, %d double releases", open, doubles)
 	}
-	if s := r.s.Admission().Stats(); s != (front.AdmissionStats{}) {
+	if s := r.s.Admission().Stats(); !s.Idle() {
 		t.Errorf("admission state left: %+v", s)
 	}
 	if n := r.s.InFlight(); n != 0 {

@@ -89,7 +89,7 @@ Every call that leaves the process (S3, Postgres, HTTP, local fsync) and every q
 - **S: everything that accumulates has a reaper** (generations → GC, cache → eviction, fenced records →
   `Forget`). Background jobs each have a deadline; a tick never overlaps the next; track oldest-unfinished age.
 - **H: startup validates, opens, then serves each key as soon as it is reconciled.** Liveness ≠ readiness;
-  readiness runs a real canary. Shutdown has one total budget.
+  readiness runs a real canary. Remote breakers (S3, placement) never fail readiness; they are metrics/alerts. Shutdown has one total budget.
 - **Per-dependency defaults** (S3, Postgres, inbound HTTP, client, actor) are in Release It §P. A new
   integration point adds a row to its table and a sheet in §P.
 

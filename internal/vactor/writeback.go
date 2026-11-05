@@ -279,8 +279,8 @@ func (h *Host) retain(ctx context.Context, key string, e *entry, obj string) {
 		e.published = append(e.published, obj)
 	}
 	keep, drop := durable.PlanRetention(e.published, h.opts.GC)
-	if len(drop) == 0 {
-		return
+	if len(drop) == 0 || h.closing() {
+		return // while shutting down, the budget is for write-backs: the sweeper deletes these later
 	}
 	e.published = slices.Clone(keep)
 	if err := h.opts.Store.DeleteGenerations(ctx, key, drop); err != nil {
@@ -411,11 +411,8 @@ func (h *Host) release(ctx context.Context, key string, e *entry) error {
 //
 //	pre: the key's write-back on passivation succeeded, so e.man is the published manifest and e is clean
 func (h *Host) keepGeneration(key string, e *entry, uploaded bool) {
-	h.mu.Lock()
-	closing := h.closed
-	h.mu.Unlock()
 	m := e.man
-	if h.gens == nil || closing || m.Generation == 0 {
+	if h.gens == nil || h.closing() || m.Generation == 0 {
 		return
 	}
 	path := h.LocalPath(key)
@@ -430,6 +427,13 @@ func (h *Host) keepGeneration(key string, e *entry, uploaded bool) {
 		}
 	}
 	h.gens.put(path, d)
+}
+
+// closing reports whether Shutdown (or Close) has begun.
+func (h *Host) closing() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.closed
 }
 
 // drop removes e from the map and wakes Gets waiting on its passivation.
@@ -656,55 +660,6 @@ func (h *Host) parallel(keys []string, workers int, fn func(string) error) []err
 		panic(first)
 	}
 	return out
-}
-
-// Close cancels activations in flight, passivates everything (writing back first, in durable mode),
-// removes the cache directory, and makes later Gets return ErrClosed. If some write-backs fail, Close closes
-// those databases but keeps their local files and the cache directory (the only up-to-date copies) and
-// returns the failures.
-func (h *Host) Close() error {
-	h.mu.Lock()
-	h.closed = true
-	h.mu.Unlock()
-	h.cancel()
-	err := h.PassivateAll(h.opts.Workers)
-	kept := h.closeRemaining()
-	if err != nil {
-		return errs.Wrap(module, err, "host closed, but %d databases were not written back; their local copies are kept in %s (the only up-to-date copies)",
-			kept, h.opts.CacheDir)
-	}
-	return os.RemoveAll(h.opts.CacheDir)
-}
-
-// closeRemaining waits out passivations still running (e.g. a Tick's) and closes databases left warm by a
-// failed write-back, keeping their files. Returns how many it kept.
-func (h *Host) closeRemaining() int {
-	kept := 0
-	for {
-		h.mu.Lock()
-		var e *entry
-		var key string
-		for k, x := range h.entries {
-			key, e = k, x
-			break
-		}
-		if e == nil {
-			h.mu.Unlock()
-			return kept
-		}
-		if g := e.gone; g != nil {
-			h.mu.Unlock()
-			<-g
-			continue
-		}
-		delete(h.entries, key) // closed: no Get can find it again
-		h.mu.Unlock()
-		<-e.done
-		if e.db != nil {
-			e.db.Close()
-		}
-		kept++
-	}
 }
 
 // hashFile returns a file's size, sha256 and md5 (an upload's Content-MD5), in one read of the file.
