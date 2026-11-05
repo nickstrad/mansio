@@ -1,7 +1,6 @@
 package objstore
 
 import (
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -101,12 +100,10 @@ func (s *Store) observe(op, name string, kind Kind, d time.Duration, retried boo
 	c.latency[i].Add(1)
 	if retried {
 		c.retried.Add(1)
-		s.log.Warn("S3.REQUEST_RETRIED", "op", op, "object", name, "kind", kind.String(),
+		s.cfg.Logger.Warn("S3.REQUEST_RETRIED", "op", op, "object", name, "kind", kind.String(),
 			"duration_ms", d.Milliseconds(), "error", err.Error(), "chain", errs.Chain(err))
 	}
 }
 
 // moved counts n body bytes of a successful op.
 func (s *Store) moved(op string, n int64) { s.metrics[op].bytes.Add(n) }
-
-func discardLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }

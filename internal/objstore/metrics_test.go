@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/objstore"
 	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
@@ -41,13 +40,8 @@ func diff(after, before map[string]int64) map[string]int64 {
 
 func sameCounts(t *testing.T, what string, got, want map[string]int64) {
 	t.Helper()
-	if len(got) != len(want) {
+	if !maps.Equal(got, want) {
 		t.Fatalf("%s: requests %v, want %v", what, got, want)
-	}
-	for op, n := range want {
-		if got[op] != n {
-			t.Fatalf("%s: requests %v, want %v", what, got, want)
-		}
 	}
 }
 
@@ -56,16 +50,11 @@ func sameCounts(t *testing.T, what string, got, want map[string]int64) {
 func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 	fake := s3test.New()
 	t.Cleanup(fake.Close)
-	st, err := objstore.New(objstore.Config{Endpoint: fake.Endpoint(), AccessKey: "a", SecretKey: "b", Bucket: "bkt"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := mustStore(t, fakeConfig(fake.Endpoint()))
 	d := objstore.NewDurable(st, "")
 	ctx := context.Background()
 	data := []byte("generation one")
-	path := filepath.Join(t.TempDir(), "g1")
-	os.WriteFile(path, data, 0o644)
-	dg := durabletest.DigestOf(data)
+	path, dg := srcFile(t, data)
 
 	// Write-back: PUT generation, HEAD, GET manifest (pre-read), PUT manifest = 4.
 	before := requests(st)

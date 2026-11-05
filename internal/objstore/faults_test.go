@@ -43,17 +43,15 @@ func newRig(t *testing.T, cfg objstore.Config) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { p.Close() })
-	cfg.Endpoint, cfg.AccessKey, cfg.SecretKey, cfg.Bucket = p.Addr(), "a", "b", "bkt"
+	base := fakeConfig(p.Addr())
+	cfg.Endpoint, cfg.AccessKey, cfg.SecretKey, cfg.Bucket = base.Endpoint, base.AccessKey, base.SecretKey, base.Bucket
 	if cfg.OpTimeout == 0 {
 		cfg.OpTimeout = opTimeout
 	}
 	if cfg.StallTimeout == 0 {
 		cfg.StallTimeout = stallTimeout
 	}
-	st, err := objstore.New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := mustStore(t, cfg)
 	return &rig{fake: fake, proxy: p, st: st, d: objstore.NewDurable(st, ""), cfg: cfg}
 }
 
@@ -61,19 +59,13 @@ func newRig(t *testing.T, cfg objstore.Config) *rig {
 // fault was set (faultnet faults apply to new connections).
 func (r *rig) fresh(t *testing.T) *objstore.Durable {
 	t.Helper()
-	st, err := objstore.New(r.cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return objstore.NewDurable(st, "")
+	return objstore.NewDurable(mustStore(t, r.cfg), "")
 }
 
 // seed stores generation 1 of key with data and publishes it; returns the manifest.
 func (r *rig) seed(t *testing.T, key string, data []byte) durable.Manifest {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "src")
-	os.WriteFile(path, data, 0o644)
-	dg := durabletest.DigestOf(data)
+	path, dg := srcFile(t, data)
 	ctx := context.Background()
 	if err := r.d.PutGeneration(ctx, key, 1, path, dg); err != nil {
 		t.Fatal(err)
@@ -161,8 +153,7 @@ func TestStatusStormRequestCounts(t *testing.T) {
 		}
 		r.fake.Inject(s3test.Fault{Mode: s3test.Status, Status: tc.status})
 		r.fake.ResetRequests()
-		path := filepath.Join(t.TempDir(), "f")
-		os.WriteFile(path, []byte("x"), 0o644)
+		path, _ := srcFile(t, []byte("x"))
 		err = r.d.PutGeneration(context.Background(), "k", 2, path, durabletest.DigestOf([]byte("x")))
 		wantKind(t, err, objstore.Transient)
 		if n := r.fake.Count("PUT"); n != 1 {
@@ -379,8 +370,7 @@ func TestSilentPutIsSentOnceAndFailsAtTheDeadline(t *testing.T) {
 	r := newRig(t, objstore.Config{})
 	r.proxy.Set(faultnet.Silence(), 0)
 	d := r.fresh(t)
-	path := filepath.Join(t.TempDir(), "f")
-	os.WriteFile(path, []byte("x"), 0o644)
+	path, _ := srcFile(t, []byte("x"))
 	before := r.proxy.Accepted()
 	t0 := time.Now()
 	err := d.PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf([]byte("x")))
@@ -407,15 +397,13 @@ func TestS3TransportFaults(t *testing.T) {
 	t.Cleanup(func() { s3Store(t, ep).DeletePrefix(context.Background(), root) })
 	d := objstore.NewDurable(st, root)
 	data := body(1 << 20)
-	path := filepath.Join(t.TempDir(), "src")
-	os.WriteFile(path, data, 0o644)
-	dg := durabletest.DigestOf(data)
+	path, dg := srcFile(t, data)
 	if err := d.PutGeneration(context.Background(), "k", 1, path, dg); err != nil {
 		t.Fatal(err)
 	}
 	m := durable.NextManifest("k", 1, 1, dg, time.Now())
 
-	fresh := objstore.NewDurable(s3Store2(t, p.Addr()), root)
+	fresh := objstore.NewDurable(mustStore(t, s3Config(p.Addr())), root)
 	p.Set(faultnet.ResetAfterBytes(64<<10), 1)
 	before := p.Accepted()
 	out := filepath.Join(t.TempDir(), "db")
@@ -427,19 +415,9 @@ func TestS3TransportFaults(t *testing.T) {
 	}
 
 	p.Set(faultnet.RefuseConn(), 0)
-	_, err = objstore.NewDurable(s3Store2(t, p.Addr()), root).FetchGeneration(context.Background(), m, out+"2")
+	_, err = objstore.NewDurable(mustStore(t, s3Config(p.Addr())), root).FetchGeneration(context.Background(), m, out+"2")
 	wantKind(t, err, objstore.Transient)
 	noPart(t, out+"2")
-}
-
-// s3Store2 is s3Store without EnsureBucket (the store may be refusing connections).
-func s3Store2(t *testing.T, ep string) *objstore.Store {
-	t.Helper()
-	st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return st
 }
 
 // OS-07: a byte flipped in flight makes the server reject the PUT (Content-MD5 → BadDigest, Permanent), and
@@ -447,8 +425,7 @@ func s3Store2(t *testing.T, ep string) *objstore.Store {
 func TestFlippedUploadByteIsRejectedByTheServer(t *testing.T) {
 	r := newRig(t, objstore.Config{})
 	data := bytes.Repeat([]byte("a"), 64<<10)
-	path := filepath.Join(t.TempDir(), "src")
-	os.WriteFile(path, data, 0o644)
+	path, _ := srcFile(t, data)
 	r.proxy.Set(faultnet.FlipByteAt(32<<10), 0)
 	d := r.fresh(t)
 	err := d.PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
@@ -474,10 +451,9 @@ func TestS3FlippedUploadByteIsRejected(t *testing.T) {
 	direct := objstore.NewDurable(s3Store(t, ep), root)
 	t.Cleanup(func() { s3Store(t, ep).DeletePrefix(context.Background(), root) })
 	data := bytes.Repeat([]byte("a"), 64<<10)
-	path := filepath.Join(t.TempDir(), "src")
-	os.WriteFile(path, data, 0o644)
+	path, _ := srcFile(t, data)
 	p.Set(faultnet.FlipByteAt(32<<10), 0)
-	err = objstore.NewDurable(s3Store2(t, p.Addr()), root).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
+	err = objstore.NewDurable(mustStore(t, s3Config(p.Addr())), root).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
 	// SeaweedFS 4.47 answers 500 InternalError here (Transient), not BadDigest: the flipped byte also breaks
 	// the chunk signature of the streaming-signed body. Either way it is rejected and the PUT is not re-sent.
 	if err == nil {

@@ -28,13 +28,13 @@ func TestTransferTime(t *testing.T) {
 func TestConfigDefaults(t *testing.T) {
 	c := Config{}
 	c.normalize()
-	if c.MaxRetries != 1 || c.OpTimeout != 5*time.Second || c.StallTimeout != 10*time.Second ||
+	if c.Logger == nil || c.OpTimeout != 5*time.Second || c.StallTimeout != 10*time.Second ||
 		c.MinThroughput != 32<<20 || c.MaxConns != 1024 {
 		t.Fatalf("defaults: %+v", c)
 	}
-	c = Config{MaxRetries: 3, OpTimeout: time.Second}
+	c = Config{OpTimeout: time.Second}
 	c.normalize()
-	if c.MaxRetries != 3 || c.OpTimeout != time.Second {
+	if c.OpTimeout != time.Second {
 		t.Fatalf("explicit values overwritten: %+v", c)
 	}
 }

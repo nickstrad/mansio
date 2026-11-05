@@ -68,6 +68,12 @@ func Classify(err error) Kind {
 	return Permanent
 }
 
+// noSuchKey reports whether err is S3's answer for a missing object (not a missing bucket).
+func noSuchKey(err error) bool {
+	var r minio.ErrorResponse
+	return errors.As(err, &r) && (r.Code == minio.NoSuchKey || r.Code == "" && r.StatusCode == http.StatusNotFound)
+}
+
 func classifyResponse(r minio.ErrorResponse) Kind {
 	switch r.Code {
 	case "SlowDown", "RequestTimeout", "InternalError", "ServiceUnavailable":

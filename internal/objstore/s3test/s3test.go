@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -410,13 +411,8 @@ type listResult struct {
 }
 
 // listLocked is one ListObjectsV2 page, in key order. Called with s.mu held.
-func (s *Server) listLocked(bucket string, q map[string][]string) listResult {
-	get := func(k string) string {
-		if v := q[k]; len(v) > 0 {
-			return v[0]
-		}
-		return ""
-	}
+func (s *Server) listLocked(bucket string, q url.Values) listResult {
+	get := q.Get
 	prefix, after := get("prefix"), max(get("start-after"), get("continuation-token"))
 	maxKeys := 1000
 	if n, err := strconv.Atoi(get("max-keys")); err == nil && n > 0 && n < maxKeys {

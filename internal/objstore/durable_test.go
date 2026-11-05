@@ -45,13 +45,15 @@ func s3Endpoint(t *testing.T) string {
 	return ep
 }
 
-// s3Store connects to the real S3 at ep with the coldload credentials (deploy/seaweedfs/s3.json).
+// s3Config is the real S3 at ep with the coldload credentials (deploy/seaweedfs/s3.json).
+func s3Config(ep string) objstore.Config {
+	return objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"}
+}
+
+// s3Store connects to the real S3 at ep and makes sure the bucket exists.
 func s3Store(t *testing.T, ep string) *objstore.Store {
 	t.Helper()
-	st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: "coldload"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := mustStore(t, s3Config(ep))
 	if err := st.EnsureBucket(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 				}
 			}
 		})
-		return objstore.NewDurable(newStore(t, fake.Endpoint()), "root/")
+		return objstore.NewDurable(mustStore(t, fakeConfig(fake.Endpoint())), "root/")
 	})
 }
 
@@ -138,15 +140,30 @@ func TestDurableStoreContractThroughHealthyProxy(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { p.Close() })
-		return objstore.NewDurable(newStore(t, p.Addr()), "root/")
+		return objstore.NewDurable(mustStore(t, fakeConfig(p.Addr())), "root/")
 	})
 }
 
-func newStore(t *testing.T, endpoint string) *objstore.Store {
+// fakeConfig is a store at endpoint with the credentials and bucket the s3test fake accepts.
+func fakeConfig(endpoint string) objstore.Config {
+	return objstore.Config{Endpoint: endpoint, AccessKey: "a", SecretKey: "b", Bucket: "bkt"}
+}
+
+func mustStore(t *testing.T, cfg objstore.Config) *objstore.Store {
 	t.Helper()
-	st, err := objstore.New(objstore.Config{Endpoint: endpoint, AccessKey: "a", SecretKey: "b", Bucket: "bkt"})
+	st, err := objstore.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// srcFile writes data to a temp file and returns its path and digest.
+func srcFile(t *testing.T, data []byte) (string, durable.Digest) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "src")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path, durabletest.DigestOf(data)
 }

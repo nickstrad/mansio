@@ -28,48 +28,57 @@ var idempotentRetry = func() retry.Policy {
 	return p
 }()
 
-// retryIdempotent runs fn until it succeeds, fails with a non-Transient error, runs out of attempts, or the
-// next backoff would end past ctx's deadline (never retry past the caller's deadline, T4).
+// retryIdempotent runs fn, one attempt at a time with budget d each, until it succeeds, fails with a
+// non-Transient error, runs out of attempts, or the next backoff would end past ctx's deadline (never retry
+// past the caller's deadline, T4).
 //
 //	pre:  fn is idempotent: running it twice has the effect of running it once
 //	post: the error returned is fn's last error
-func (s *Store) retryIdempotent(ctx context.Context, op, name string, fn func(context.Context) error) error {
+func (s *Store) retryIdempotent(ctx context.Context, op, name string, d time.Duration, fn func(*attempt) error) error {
 	var rng *rand.Rand
 	var prev time.Duration
 	for n := 1; ; n++ {
 		t0 := time.Now()
-		err := fn(ctx)
+		err := run(ctx, d, fn)
 		kind := Classify(err)
-		if err == nil || kind != Transient || n == idempotentRetry.MaxAttempts {
-			s.observe(op, name, kind, time.Since(t0), false, err)
+		var wait time.Duration
+		again := kind == Transient && n < idempotentRetry.MaxAttempts
+		if again {
+			if rng == nil {
+				rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+			}
+			wait = idempotentRetry.Delay(rng, n+1, prev)
+			if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= wait {
+				again = false
+			}
+		}
+		s.observe(op, name, kind, time.Since(t0), again, err)
+		if !again {
 			return err
 		}
-		if rng == nil {
-			rng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
-		}
-		d := idempotentRetry.Delay(rng, n+1, prev)
-		if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= d {
-			s.observe(op, name, kind, time.Since(t0), false, err)
-			return err
-		}
-		s.observe(op, name, kind, time.Since(t0), true, err)
-		t := time.NewTimer(d)
+		t := time.NewTimer(wait)
 		select {
 		case <-t.C:
 		case <-ctx.Done():
 			t.Stop()
 			return err
 		}
-		prev = d
+		prev = wait
 	}
 }
 
-// sendOnce runs a non-idempotent request (a PUT) exactly once.
-func (s *Store) sendOnce(ctx context.Context, op, name string, fn func(context.Context) error) error {
+// sendOnce runs a non-idempotent request (a PUT) exactly once, with budget d.
+func (s *Store) sendOnce(ctx context.Context, op, name string, d time.Duration, fn func(*attempt) error) error {
 	t0 := time.Now()
-	err := fn(ctx)
+	err := run(ctx, d, fn)
 	s.observe(op, name, Classify(err), time.Since(t0), false, err)
 	return err
+}
+
+// run is one attempt: fn under a fresh budget d, released when fn returns.
+func run(ctx context.Context, d time.Duration, fn func(*attempt) error) error {
+	a := begin(ctx, d)
+	return a.end(fn(a))
 }
 
 // attempt is one request's budget (Release It T1, T3): a deadline from its start, which a transfer can
@@ -85,36 +94,39 @@ type attempt struct {
 }
 
 // begin starts an attempt that must finish within d.
-func (s *Store) begin(parent context.Context, d time.Duration) *attempt {
+func begin(parent context.Context, d time.Duration) *attempt {
 	ctx, cancel := context.WithCancelCause(parent)
 	a := &attempt{parent: parent, ctx: ctx, cancel: cancel, start: time.Now()}
-	a.deadline = time.AfterFunc(d, func() { cancel(fmt.Errorf("%w: no answer within %s", ErrTimeout, d)) })
+	a.deadline = time.AfterFunc(d, a.timeout("no answer within %s", d))
 	return a
 }
 
-// within moves the attempt's deadline to total after its start (a transfer that now knows its size).
-func (a *attempt) within(total time.Duration) {
-	if a.deadline.Stop() { // not fired yet
-		d := total - time.Since(a.start)
-		a.deadline = time.AfterFunc(d, func() {
-			a.cancel(fmt.Errorf("%w: transfer not done within %s", ErrTimeout, total))
-		})
+// timeout returns the func that ends the attempt with an ErrTimeout cause.
+func (a *attempt) timeout(format string, arg any) func() {
+	return func() { a.cancel(fmt.Errorf("%w: "+format, ErrTimeout, arg)) }
+}
+
+// reset moves the deadline to d from now, unless it already fired.
+func (a *attempt) reset(d time.Duration, f func()) {
+	if a.deadline.Stop() {
+		a.deadline = time.AfterFunc(d, f)
 	}
 }
 
-// rearm restarts the deadline at d from now (a listing that just received a page).
-func (a *attempt) rearm(d time.Duration) {
-	if a.deadline.Stop() {
-		a.deadline = time.AfterFunc(d, func() { a.cancel(fmt.Errorf("%w: no progress within %s", ErrTimeout, d)) })
-	}
+// within moves the deadline to total after the attempt's start (a transfer that now knows its size).
+func (a *attempt) within(total time.Duration) {
+	a.reset(total-time.Since(a.start), a.timeout("transfer not done within %s", total))
 }
+
+// rearm restarts the deadline at d from now (a listing that just received a page).
+func (a *attempt) rearm(d time.Duration) { a.reset(d, a.timeout("no progress within %s", d)) }
 
 // watch returns r with a stall detector: the attempt ends if no byte moves through r for d, counted from
 // the first Read (an upload's body is first read only once the connection is ready). The detector stops at
 // EOF or once size bytes (size >= 0) went through, so a request body that was fully sent does not stall
 // while the server answers (ResponseHeaderTimeout bounds that wait).
 func (a *attempt) watch(r io.Reader, size int64, d time.Duration) io.Reader {
-	sr := &stallReader{r: r, d: d, left: size, stall: func() { a.cancel(fmt.Errorf("%w: no bytes for %s", ErrTimeout, d)) }}
+	sr := &stallReader{r: r, d: d, left: size, stall: a.timeout("no bytes for %s", d)}
 	a.stalls = append(a.stalls, sr)
 	return sr
 }

@@ -53,28 +53,22 @@ func NewDurable(s *Store, root string) *Durable { return &Durable{s: s, root: ro
 
 const maxSinglePut = 5 << 30
 
-func preconditionFailed(err error) bool {
-	code := minio.ToErrorResponse(err).Code
-	return code == minio.PreconditionFailed || code == "ConditionalRequestConflict"
-}
-
 func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
 	name := d.root + durable.ManifestObject(key)
 	var b []byte
 	var etag string
-	err := d.s.retryIdempotent(ctx, OpGetManifest, name, func(ctx context.Context) error {
-		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
+	err := d.s.retryIdempotent(ctx, OpGetManifest, name, d.s.cfg.OpTimeout, func(a *attempt) error {
 		body, info, _, err := d.s.core.GetObject(a.ctx, d.s.bucket, name, minio.GetObjectOptions{})
 		if err != nil {
-			return a.end(err)
+			return err
 		}
 		defer body.Close()
 		b, err = io.ReadAll(io.LimitReader(body, 1<<16))
 		etag = info.ETag
-		return a.end(err)
+		return err
 	})
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+		if noSuchKey(err) {
 			err = errors.Join(durable.ErrNoManifest, err)
 		}
 		return durable.Manifest{}, durable.NoVersion, wrap(err, "cannot read manifest %s; nothing changed, safe to retry", name)
@@ -107,24 +101,22 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3",
 		UserMetadata: map[string]string{"sha256": dg.SHA256}}
 	opts.SetMatchETagExcept("*") // create-only
-	err = d.s.sendOnce(ctx, OpPutGen, name, func(ctx context.Context) error {
-		a := d.s.begin(ctx, d.s.transferTime(dg.Size))
+	err = d.s.sendOnce(ctx, OpPutGen, name, d.s.transferTime(dg.Size), func(a *attempt) error {
 		_, err := d.s.core.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, sum, "", opts)
-		return a.end(err)
+		return err
 	})
 	if err != nil {
-		if preconditionFailed(err) {
+		if Classify(err) == Precondition {
 			err = errors.Join(durable.ErrExists, err)
 		}
 		return wrap(err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
 	}
 	d.s.moved(OpPutGen, dg.Size)
 	var st minio.ObjectInfo
-	err = d.s.retryIdempotent(ctx, OpHead, name, func(ctx context.Context) error {
-		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
+	err = d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
 		var err error
 		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
-		return a.end(err)
+		return err
 	})
 	if err != nil {
 		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
@@ -140,48 +132,27 @@ func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path 
 	name := d.root + m.Object
 	t0 := time.Now()
 	var st durable.Fetched
-	err := d.s.retryIdempotent(ctx, OpFetch, name, func(ctx context.Context) error {
-		var err error
-		st, err = d.fetch(ctx, name, m, path)
+	err := d.s.retryIdempotent(ctx, OpFetch, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+		h := sha256.New()
+		n, _, ttfb, err := d.s.getToPart(a, name, path, h)
+		st.TTFB = ttfb
+		if err == nil && (n != m.Size || hex.EncodeToString(h.Sum(nil)) != m.SHA256) {
+			err = errs.Wrap(module, durable.ErrCorrupt, "generation %s is %d bytes sha256 %x; manifest says %d bytes %s",
+				name, n, h.Sum(nil), m.Size, m.SHA256)
+		}
+		if err = finishPart(path, err); err == nil {
+			st.Bytes = n
+		}
 		return err
 	})
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+		if noSuchKey(err) {
 			err = errors.Join(durable.ErrNotFound, err)
 		}
 		return st, wrap(err, "cannot download generation %s; nothing cached", name)
 	}
 	st.Total = time.Since(t0)
 	d.s.moved(OpFetch, st.Bytes)
-	return st, nil
-}
-
-// fetch is one attempt of FetchGeneration: one GET, bounded by the size-derived deadline and the stall
-// timeout, hashed while it is written to .part.
-func (d *Durable) fetch(ctx context.Context, name string, m durable.Manifest, path string) (st durable.Fetched, err error) {
-	t0 := time.Now()
-	a := d.s.begin(ctx, d.s.transferTime(m.Size))
-	defer func() { err = a.end(err) }()
-	body, _, _, err := d.s.core.GetObject(a.ctx, d.s.bucket, name, minio.GetObjectOptions{})
-	if err != nil {
-		return st, err
-	}
-	defer body.Close()
-	st.TTFB = time.Since(t0)
-	h := sha256.New()
-	n, err := d.s.writeFile(path+".part", a.watch(body, -1, d.s.cfg.StallTimeout), h)
-	if err == nil && (n != m.Size || hex.EncodeToString(h.Sum(nil)) != m.SHA256) {
-		err = errs.Wrap(module, durable.ErrCorrupt, "generation %s is %d bytes sha256 %x; manifest says %d bytes %s",
-			name, n, h.Sum(nil), m.Size, m.SHA256)
-	}
-	if err == nil {
-		err = os.Rename(path+".part", path)
-	}
-	if err != nil {
-		os.Remove(path + ".part")
-		return st, err
-	}
-	st.Bytes = n
 	return st, nil
 }
 
@@ -208,15 +179,14 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		opts.SetMatchETag(string(prev))
 	}
 	var info minio.UploadInfo
-	err = d.s.sendOnce(ctx, OpPublish, name, func(ctx context.Context) error {
-		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
+	err = d.s.sendOnce(ctx, OpPublish, name, d.s.cfg.OpTimeout, func(a *attempt) error {
 		var err error
 		info, err = d.s.core.PutObject(a.ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)),
 			base64.StdEncoding.EncodeToString(sum[:]), "", opts)
-		return a.end(err)
+		return err
 	})
 	if err != nil {
-		if preconditionFailed(err) {
+		if Classify(err) == Precondition {
 			return durable.NoVersion, wrap(errors.Join(durable.ErrStale, err), "cannot publish %s: it changed meanwhile; nothing changed", name)
 		}
 		return durable.NoVersion, wrap(err, "publish of %s failed; it may or may not have applied, re-read before retrying", name)
