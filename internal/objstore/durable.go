@@ -99,8 +99,10 @@ func (d *Durable) PutGeneration(ctx context.Context, m durable.Manifest, path st
 		return wrap(err, "cannot upload %s; nothing uploaded, safe to retry", name)
 	}
 	defer f.Close()
-	sum, err := contentMD5(dg.MD5)
-	if dg.MD5 == "" {
+	var sum string
+	if dg.MD5 != "" {
+		sum, err = contentMD5(dg.MD5)
+	} else {
 		sum, err = d.s.md5File(f) // the caller did not compute it in its hashing pass: one more read
 	}
 	if err != nil {

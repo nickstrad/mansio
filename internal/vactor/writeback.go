@@ -228,8 +228,12 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	}
 
 	t = time.Now()
-	next.Epoch = max(next.Epoch, e.epoch.Load()) // raised meanwhile (GetAt): the object keeps its upload epoch
-	v, err := h.publish(ctx, e, &next)
+	obj := next
+	next, err = h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
+		m := obj
+		m.Epoch = max(m.Epoch, e.epoch.Load()) // raised since the upload (GetAt): the object keeps its name
+		return m, durable.CheckPublish(cur, m)
+	})
 	res.Publish = time.Since(t)
 	if err != nil {
 		if e.stale.Load() {
@@ -238,7 +242,6 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		}
 		return fail(err, "cannot write back %s: publishing generation %d failed or its reply was lost; database still warm, safe to retry", key, gen)
 	}
-	e.man, e.ver, e.pending = next, v, nil
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
 	e.lastWB.Store(h.opts.Now().UnixNano())
@@ -255,59 +258,71 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 	return err == nil && info.Holds(d)
 }
 
-// publish publishes next conditionally on e's version. When the outcome is unclear (an error, or ErrStale
-// that our own earlier publish may have caused), it re-reads the manifest (object-storage guide R3, R4):
+// publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
+// version, and records it in e. build also decides whether the publish is allowed (durable.CheckPublish,
+// durable.CheckStamp); a refusal returns its error. Write-back and Stamp both go through here, so they settle
+// an unclear outcome (an error, or ErrStale that our own earlier publish may have caused) the same way, by
+// re-reading the manifest (object-storage guide R3, R4):
 //
-//   - the stored manifest is next: the publish did apply;
-//   - it is e.pending (an earlier publish of ours whose reply was lost): adopt that, try once more on top;
-//   - it is the version we published on, or the re-read failed: unknown, so next becomes e.pending;
+//   - the stored manifest is the one we sent: the publish did apply;
+//
+//   - it is e.pending (an earlier publish or stamp of ours whose reply was lost): adopt that (and its
+//     epoch) and build once more on top of it;
+//
+//   - it is the version we published on, or the re-read failed: unknown, so ours becomes e.pending;
+//
 //   - anything else is another writer: e.stale is set and the error is ErrStale.
 //
-// Adopting a pending stamp of ours raises e's epoch and next's to the stamped one.
-//
-//	pre: e.wb is held
-func (h *Host) publish(ctx context.Context, e *entry, next *durable.Manifest) (durable.Version, error) {
+//     pre:  e.wb is held
+//     post: err == nil ⇒ e.man is the returned manifest, e.ver its version, and nothing is pending
+func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur *durable.Manifest) (durable.Manifest, error)) (durable.Manifest, error) {
 	for try := 0; ; try++ {
-		var prev *durable.Manifest
+		var cur *durable.Manifest
 		if e.ver != durable.NoVersion {
-			prev = &e.man
+			cur = &e.man
 		}
-		if err := durable.CheckPublish(prev, *next); err != nil {
-			e.stale.Store(true)
-			return durable.NoVersion, err
+		next, err := build(cur)
+		sent := err == nil
+		if sent {
+			var v durable.Version
+			if v, err = h.opts.Store.PublishManifest(ctx, next, e.ver); err == nil {
+				e.man, e.ver, e.pending = next, v, nil // a pending publish built on our old version can no longer apply
+				return next, nil
+			}
+		} else if e.pending == nil {
+			return durable.Manifest{}, err // refused on what we know, and nothing of ours is in doubt
 		}
-		v, err := h.opts.Store.PublishManifest(ctx, *next, e.ver)
-		if err == nil {
-			return v, nil
+		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
+		if rerr != nil && !errors.Is(rerr, durable.ErrNoManifest) {
+			if sent {
+				e.pending = &next
+			}
+			return durable.Manifest{}, err
 		}
-		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, next.Key)
-		switch other := e.otherWriter(stored, sv, rerr); {
-		case rerr == nil && stored.Same(*next):
-			return sv, nil
+		switch {
+		case rerr == nil && sent && stored.Same(next):
+			e.man, e.ver, e.pending = stored, sv, nil
+			return stored, nil
 		case rerr == nil && try == 0 && e.pending != nil && stored.Same(*e.pending):
 			e.man, e.ver, e.pending = stored, sv, nil
 			e.raiseEpoch(stored.Epoch) // ours: a pending stamp may have raised it
-			next.Epoch = max(next.Epoch, stored.Epoch)
 			continue
-		case other:
+		case e.otherWriter(stored, sv, rerr):
 			e.stale.Store(true)
-			return durable.NoVersion, errs.Wrap(module, errors.Join(durable.ErrStale, err),
-				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", next.Key, stored.Generation, stored.Epoch)
+			return durable.Manifest{}, errs.Wrap(module, errors.Join(durable.ErrStale, err),
+				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", stored.Key, stored.Generation, stored.Epoch)
+		case sent:
+			e.pending = &next
 		}
-		pending := *next
-		e.pending = &pending
-		return durable.NoVersion, err
+		return durable.Manifest{}, err
 	}
 }
 
-// otherWriter reports whether a re-read (stored, sv, rerr) shows a manifest someone else wrote: it exists
-// and is neither the version e last saw nor e.pending. The caller checks for its own write first.
+// otherWriter reports whether a re-read (stored, sv, rerr == nil or ErrNoManifest) shows a manifest someone
+// else wrote: ours vanished, or it is neither the version e last saw nor e.pending.
 func (e *durableState) otherWriter(stored durable.Manifest, sv durable.Version, rerr error) bool {
-	switch {
-	case errors.Is(rerr, durable.ErrNoManifest):
-		return e.ver != durable.NoVersion // ours vanished: not ours to continue
-	case rerr != nil:
-		return false // unknown
+	if rerr != nil {
+		return e.ver != durable.NoVersion
 	}
 	return sv != e.ver && (e.pending == nil || !stored.Same(*e.pending))
 }
@@ -482,10 +497,9 @@ func (h *Host) Discard(key string) (lostWrites bool) {
 // every lower-epoch publish fails. fencing's new owner calls it before admitting work. If the key is warm
 // here the stamp is conditional on the manifest this host last saw, and the entry adopts the new epoch.
 //
-// A failed warm stamp re-reads the manifest before deciding (object-storage guide R3, R4): if the stamp
-// applied (its reply was lost, or a re-send of it got 412) it succeeds; if the stored manifest is an earlier
-// publish of ours whose reply was lost, it adopts that and tries once more; the key is marked stale only if
-// the re-read shows another writer.
+// A warm stamp goes through publish, so an unclear outcome is settled by a re-read like a write-back's
+// (object-storage guide R3, R4): a stamp that applied succeeds, and the key is marked stale only if the
+// re-read shows another writer.
 func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durable.Manifest, error) {
 	if h.opts.Store == nil {
 		return durable.Manifest{}, errs.Wrap(module, nil, "cannot stamp %s: the host has no durable store", key)
@@ -500,38 +514,17 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 	}
 	e.wb.Lock()
 	defer e.wb.Unlock()
-	for try := 0; ; try++ {
-		var cur *durable.Manifest
-		if e.ver != durable.NoVersion {
-			cur = &e.man
+	m, err := h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
+		if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
+			return durable.Manifest{}, err
 		}
-		var next durable.Manifest
-		err := durable.CheckStamp(cur, key, epoch, gen)
-		if err == nil {
-			next = durable.Stamped(cur, key, epoch, h.opts.Now())
-			var v durable.Version
-			if v, err = h.opts.Store.PublishManifest(ctx, next, e.ver); err == nil {
-				e.man, e.ver = next, v
-				e.raiseEpoch(epoch)
-				return next, nil
-			}
-		}
-		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
-		switch other := e.otherWriter(stored, sv, rerr); {
-		case rerr == nil && next.Key != "" && stored.Same(next): // the stamp applied
-			e.man, e.ver = stored, sv
-			e.raiseEpoch(epoch)
-			return stored, nil
-		case rerr == nil && try == 0 && e.pending != nil && stored.Same(*e.pending):
-			e.man, e.ver, e.pending = stored, sv, nil
-			continue
-		case other && errors.Is(err, durable.ErrStale):
-			e.stale.Store(true)
-		case rerr != nil && next.Key != "":
-			e.pending = &next // it may have applied: a later publish that finds it adopts it
-		}
+		return durable.Stamped(cur, key, epoch, h.opts.Now()), nil
+	})
+	if err != nil {
 		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s at epoch %d; re-read the manifest before retrying", key, epoch)
 	}
+	e.raiseEpoch(epoch)
+	return m, nil
 }
 
 // PassivateAll passivates every active key, at most workers at a time, each write-back bounded by

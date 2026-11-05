@@ -248,14 +248,13 @@ func TestStamp(t *testing.T) {
 // re-read (object-storage guide R3): it succeeds. A stamp that did not apply still fails (OS-02).
 func TestStampAmbiguousOutcomes(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		f     durabletest.Faults
-		ok    bool
-		stale bool
+		name string
+		f    durabletest.Faults
+		ok   bool
 	}{
-		{"applied, reply lost", durabletest.Faults{LosePublishReply: true}, true, false},
-		{"applied, re-send got 412", durabletest.Faults{ApplyThenStale: true}, true, false},
-		{"not applied", durabletest.Faults{FailPublish: true}, false, false},
+		{"applied, reply lost", durabletest.Faults{LosePublishReply: true}, true},
+		{"applied, re-send got 412", durabletest.Faults{ApplyThenStale: true}, true},
+		{"not applied", durabletest.Faults{FailPublish: true}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := durabletest.NewStore()
@@ -267,7 +266,7 @@ func TestStampAmbiguousOutcomes(t *testing.T) {
 			switch {
 			case tc.ok && (err != nil || !m.Same(stored) || v != sv || m.Epoch != 2):
 				t.Fatalf("Stamp = %+v %q %v; stored %+v %q", m, v, err, stored, sv)
-			case !tc.ok && (err == nil || errors.Is(err, durable.ErrStale) != tc.stale || stored.Epoch != 1):
+			case !tc.ok && (err == nil || errors.Is(err, durable.ErrStale) || stored.Epoch != 1):
 				t.Fatalf("Stamp err = %v, stored epoch %d", err, stored.Epoch)
 			}
 		})

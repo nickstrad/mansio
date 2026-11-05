@@ -59,11 +59,14 @@ func (r *s3Rig) write(t *testing.T, key string, epoch uint64, v string) {
 // Stamp both re-read, succeed, and the owner can still write back.
 func TestStampLostReplyThroughS3(t *testing.T) {
 	for _, mode := range []s3test.Mode{s3test.ApplyThenDropReply, s3test.ApplyThenPreconditionFailed} {
-		for _, warm := range []bool{true, false} {
-			t.Run(mode.String()+map[bool]string{true: "/warm", false: "/cold"}[warm], func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			warm bool
+		}{{"warm", true}, {"cold", false}} {
+			t.Run(mode.String()+"/"+tc.name, func(t *testing.T) {
 				r := newS3Rig(t)
 				r.write(t, "t/a", 1, "v1")
-				if !warm {
+				if !tc.warm {
 					if err := r.h.Passivate(ctx, "t/a"); err != nil {
 						t.Fatal(err)
 					}

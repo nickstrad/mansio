@@ -32,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,18 +192,8 @@ func objectEpoch(key string, gen uint64, object string) (uint64, bool) {
 	if !ok || len(rest) != digits+len(".db") || !strings.HasSuffix(rest, ".db") {
 		return 0, false
 	}
-	var epoch uint64
-	for _, c := range rest[:digits] {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		next := epoch*10 + uint64(c-'0')
-		if next/10 != epoch { // overflow
-			return 0, false
-		}
-		epoch = next
-	}
-	return epoch, true
+	epoch, err := strconv.ParseUint(rest[:digits], 10, 64) // rejects signs, non-digits and overflow
+	return epoch, err == nil
 }
 
 // ManifestObject is the object name of key's manifest.
