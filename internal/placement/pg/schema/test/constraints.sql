@@ -91,9 +91,25 @@ insert into databases (database_id, tenant_id, name, is_default, state) values (
 update vms set bytes = 0 where vm_id = 'vm-a';
 update vms set bytes = -1 where vm_id = 'vm-a';
 
+-- 0004 api_keys. key_id: on point 16 hex; off points 15 and 17 digits, uppercase. principal: on point 128
+-- chars; off points 129 chars, uppercase. secret_sha256: on point 32 bytes; off point 31. perms: on points 1
+-- and 3; off points 0 and 4. An unknown tenant fails the foreign key.
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('0123456789abcdef', 'acme', 'p' || repeat('x', 127), sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('0123456789abcde', 'acme', 'p', sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('0123456789abcdef0', 'acme', 'p', sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('0123456789ABCDEF', 'acme', 'p', sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'p' || repeat('x', 128), sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'App', sha256('s'), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'p', substring(sha256('s') from 2), 1);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'p', sha256('s'), 0);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'p', sha256('s'), 4);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'nobody', 'p', sha256('s'), 3);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms) values ('1123456789abcdef', 'acme', 'p', sha256('s'), 3);
+
 -- What is left.
 select database_id, owner_vm, epoch, generation, state from placement order by database_id;
 select database_id, from_epoch, from_vm, to_vm, ack_generation from moves order by database_id, from_epoch;
 select vm_id, dead_attested_at is null as alive from vms order by vm_id;
 select database_id, is_default, state, target_vm from databases order by database_id;
+select key_id, tenant_id, length(principal) as principal_len, perms from api_keys order by key_id;
 select version from schema_version order by version;
