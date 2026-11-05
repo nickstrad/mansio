@@ -1,6 +1,8 @@
 package metrics_test
 
 import (
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,5 +74,44 @@ func TestOnScrapeSnapshotsOncePerScrape(t *testing.T) {
 	r.WriteText(&b)
 	if calls != 2 || !strings.Contains(b.String(), "a 20\n") || !strings.Contains(b.String(), "b 20\n") {
 		t.Fatalf("calls %d:\n%s", calls, b.String())
+	}
+}
+
+// Process counts goroutines and descriptors this process opens.
+func TestProcess(t *testing.T) {
+	r := metrics.NewRegistry()
+	metrics.Process(r)
+	stat := func(name string) float64 {
+		var b strings.Builder
+		r.WriteText(&b)
+		for line := range strings.SplitSeq(b.String(), "\n") {
+			if v, ok := strings.CutPrefix(line, `tsdb_process{stat="`+name+`"} `); ok {
+				f, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return f
+			}
+		}
+		t.Fatalf("no %s in the exposition:\n%s", name, b.String())
+		return 0
+	}
+	fds0, g0 := stat("open_fds"), stat("goroutines")
+	f, err := os.Open(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() { <-stop }()
+	if fds := stat("open_fds"); fds0 < 0 || fds != fds0+1 {
+		t.Errorf("open_fds %v after opening one file, was %v", fds, fds0)
+	}
+	if g := stat("goroutines"); g < g0+1 {
+		t.Errorf("goroutines %v after starting one, was %v", g, g0)
+	}
+	if stat("heap_bytes") <= 0 || stat("go_bytes") < stat("heap_bytes") {
+		t.Error("heap_bytes and go_bytes not plausible")
 	}
 }

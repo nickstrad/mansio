@@ -212,6 +212,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		// open (Release It C5, H2). They are exposed on /metrics instead.
 	)
 	reg := metrics.NewRegistry()
+	metrics.Process(reg)
 	frontMetrics(reg, srv)
 	lifecycleMetrics(reg, be.pending, ready, time.Now())
 	be.metrics(reg)
