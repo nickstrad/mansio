@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +23,14 @@ func TestDurableConfig(t *testing.T) {
 		{"static fields", `"s3":{"endpoint":"e:1","bucket":"b"},"db_dir":"d"`, "static mode only"},
 		{"gen cache = budget (off point)", `"s3":{"endpoint":"e:1","bucket":"b"},"cache_bytes":100,"gen_cache_bytes":100`, "below cache_bytes"},
 		{"no lifecycle slots", `"s3":{"endpoint":"e:1","bucket":"b"},"lifecycle_concurrency":0`, "lifecycle_concurrency"},
+		{"secure with a CA file", `"s3":{"endpoint":"e:1","bucket":"b","secure":true,"ca_file":"ca.pem"}`, ""},
+		{"CA file without secure", `"s3":{"endpoint":"e:1","bucket":"b","ca_file":"ca.pem"}`, "ca_file needs secure"},
+		{"admin on loopback v4", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"127.0.0.1:7072"`, ""},
+		{"admin on loopback v6", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"[::1]:0"`, ""},
+		{"admin on localhost", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"localhost:7072"`, ""},
+		{"admin on every interface", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":":7072"`, "loopback"},
+		{"admin on a routable address", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"10.0.0.5:7072"`, "loopback"},
+		{"admin without a port", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"127.0.0.1"`, "loopback"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := parseConfig(strings.NewReader(base+tc.fields+`}`), "/")
@@ -35,13 +45,66 @@ func TestDurableConfig(t *testing.T) {
 			}
 		})
 	}
-	c, err := parseConfig(strings.NewReader(base+`"s3":{"endpoint":"e:1","bucket":"b"},"cache_bytes":1000}`), "/")
+	c, err := parseConfig(strings.NewReader(base+`"s3":{"endpoint":"e:1","bucket":"b","secure":true,"ca_file":"ca.pem"}}`), "/etc/agentd")
+	if err != nil || c.S3.CAFile != "/etc/agentd/ca.pem" {
+		t.Fatalf("ca_file not resolved against the config's directory: %q %v", c.S3.CAFile, err)
+	}
+	c, err = parseConfig(strings.NewReader(base+`"s3":{"endpoint":"e:1","bucket":"b"},"cache_bytes":1000}`), "/")
 	if err != nil || c.GenCacheBytes != 250 || c.Maintenance.MaxBytes != 750 {
 		t.Fatalf("cache split: gen %d warm %d, %v", c.GenCacheBytes, c.Maintenance.MaxBytes, err)
 	}
 	if _, err := parseConfig(strings.NewReader(`{"vm":"v","keys_file":"k","s3":{"endpoint":"e:1","bucket":"b"}}`), "/"); err == nil ||
 		!strings.Contains(err.Error(), "secrets_file is required") {
 		t.Fatalf("missing dirs: %v", err)
+	}
+}
+
+// OS-11 (object-storage guide S2): durable mode over plain-HTTP S3 is refused without -dev, at startup with
+// exit 1 and a message saying what to do; -dev, s3.secure and static mode are accepted.
+func TestPlainHTTPS3NeedsDev(t *testing.T) {
+	for _, tc := range []struct {
+		name, s3 string
+		dev      bool
+		problem  string
+	}{
+		{"plain, no -dev", `{"endpoint":"e:1","bucket":"b"}`, false, "s3.secure is false"},
+		{"plain, -dev", `{"endpoint":"e:1","bucket":"b"}`, true, ""},
+		{"secure, no -dev", `{"endpoint":"e:1","bucket":"b","secure":true}`, false, ""},
+		{"static mode, no -dev", ``, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"vm":"v","keys_file":"k","db_dir":"d"}`
+			if tc.s3 != "" {
+				body = `{"vm":"v","keys_file":"k","secrets_file":"s","cache_dir":"c","owner_dir":"o","placement_dir":"p","s3":` + tc.s3 + `}`
+			}
+			c, err := parseConfig(strings.NewReader(body), "/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Dev = tc.dev
+			err = c.checkDev()
+			if tc.problem == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.problem) || !strings.Contains(err.Error(), "-dev") {
+				t.Fatalf("err %v, want %q and a hint", err, tc.problem)
+			}
+		})
+	}
+
+	// End to end: agentd itself refuses to start (exit 1) without -dev, before touching anything.
+	r := newDurableRig(t, "")
+	var stderr bytes.Buffer
+	if code := realMain(context.Background(), []string{"-config", r.cfg}, &stderr); code != exitError ||
+		!strings.Contains(stderr.String(), "s3.secure is false") {
+		t.Fatalf("exit %d, stderr %q; want 1 and the TLS refusal", code, stderr.String())
+	}
+	stderr.Reset()
+	if code := realMain(context.Background(), []string{"-dev", "-check", "-config", r.cfg}, &stderr); code != exitOK {
+		t.Fatalf("-dev -check: exit %d, %s", code, stderr.String())
 	}
 }
 

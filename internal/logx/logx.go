@@ -9,8 +9,9 @@ import (
 	"log/slog"
 )
 
-// New returns a JSON logger writing to w with UTC timestamps.
-func New(w io.Writer, level slog.Level) *slog.Logger {
+// New returns a JSON logger writing to w with UTC timestamps. level may be a *slog.LevelVar to change it at
+// run time.
+func New(w io.Writer, level slog.Leveler) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {

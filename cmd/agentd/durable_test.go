@@ -39,6 +39,7 @@ type durableRig struct {
 	bucket           string
 	endpoint         string // the S3 behind the proxy
 	access, secret   string
+	noDev            bool // start without -dev (needs s3.secure)
 }
 
 // newDurableRig writes keys, secrets and a config. extra is appended to the config object's fields.
@@ -47,12 +48,17 @@ func newDurableRig(t *testing.T, extra string) *durableRig {
 	r := &durableRig{dir: t.TempDir(), bucket: "bkt", prefix: "agentd-" + strconv.FormatInt(time.Now().UnixNano(), 36) + "/"}
 	endpoint, access, secret := "", "a", "b"
 	if ep := os.Getenv("AGENTD_REAL_S3"); ep != "" { // set by s3Rig for the gated runs
-		endpoint, access, secret, r.bucket = ep, "coldload", "coldload-secret", "coldload"
-		t.Cleanup(func() {
-			if st, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: access, SecretKey: secret, Bucket: r.bucket}); err == nil {
-				st.DeletePrefix(context.Background(), r.prefix)
-			}
-		})
+		// The agent runs with the scoped agent identity (deploy/seaweedfs/s3.json, OS-11: no LIST, no bucket
+		// creation); the admin identity makes sure the bucket exists and cleans the prefix up (a LIST).
+		endpoint, access, secret, r.bucket = ep, "agent", "agent-secret-dev", "coldload"
+		admin, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: r.bucket})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := admin.EnsureBucket(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { admin.DeletePrefix(context.Background(), r.prefix) })
 	} else {
 		r.fake = s3test.New()
 		t.Cleanup(r.fake.Close)
@@ -81,6 +87,7 @@ func newDurableRig(t *testing.T, extra string) *durableRig {
 // running is one started agent.
 type running struct {
 	addr, life string
+	admin      string // the admin listener ("" without admin_listen)
 	stderr     *syncBuf
 	stop       func() int // cancel (in-process) or SIGTERM (process) and wait; returns the exit code
 	kill       func()     // SIGKILL (process only)
@@ -93,9 +100,13 @@ func (r *durableRig) start(t *testing.T) *running {
 	ctx, cancel := context.WithCancel(context.Background())
 	stderr := &syncBuf{}
 	done := make(chan int, 1)
-	go func() { done <- realMain(ctx, []string{"-config", r.cfg, "-addr-file", addrFile}, stderr) }()
+	args := []string{"-config", r.cfg, "-addr-file", addrFile}
+	if !r.noDev {
+		args = append(args, "-dev")
+	}
+	go func() { done <- realMain(ctx, args, stderr) }()
 	addr := waitAddr(t, addrFile, done)
-	run := &running{addr: addr, life: lifecycleAddr(t, addrFile), stderr: stderr}
+	run := &running{addr: addr, life: lifecycleAddr(t, addrFile), admin: adminAddr(addrFile), stderr: stderr}
 	stopped := false
 	run.stop = func() int {
 		if stopped {
@@ -114,7 +125,7 @@ func (r *durableRig) startProcess(t *testing.T) *running {
 	t.Helper()
 	addrFile := filepath.Join(t.TempDir(), "addr")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperAgentd$")
-	args, _ := json.Marshal([]string{"-config", r.cfg, "-addr-file", addrFile})
+	args, _ := json.Marshal([]string{"-dev", "-config", r.cfg, "-addr-file", addrFile})
 	cmd.Env = append(os.Environ(), "AGENTD_HELPER=1", "AGENTD_ARGS="+string(args))
 	stderr := &syncBuf{}
 	cmd.Stderr = stderr
@@ -124,7 +135,7 @@ func (r *durableRig) startProcess(t *testing.T) *running {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	t.Cleanup(func() { cmd.Process.Kill(); <-exited })
-	run := &running{addr: waitAddr(t, addrFile, exited), life: lifecycleAddr(t, addrFile), stderr: stderr}
+	run := &running{addr: waitAddr(t, addrFile, exited), life: lifecycleAddr(t, addrFile), admin: adminAddr(addrFile), stderr: stderr}
 	run.stop = func() int {
 		cmd.Process.Signal(os.Interrupt)
 		<-exited
@@ -366,6 +377,9 @@ func TestDurableLifecycleEndpoints(t *testing.T) {
 		if !strings.Contains(r.log(), ev) {
 			t.Errorf("log lacks %s", ev)
 		}
+	}
+	if log := r.log(); strings.Contains(log, "Access Denied") || strings.Contains(log, "AccessDenied") || strings.Contains(log, "S3.BUCKET_CHECK_FAILED") {
+		t.Errorf("the agent needed more than its scoped identity allows:\n%s", log) // OS-11, against a real S3
 	}
 }
 

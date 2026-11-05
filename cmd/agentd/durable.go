@@ -53,7 +53,8 @@ const openTimeout = 10 * time.Second
 func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.StaticHost) (*backend, error) {
 	s := cfg.S3
 	st, err := objstore.New(objstore.Config{Endpoint: s.Endpoint, Bucket: s.Bucket, AccessKey: sec.S3AccessKey, SecretKey: sec.S3SecretKey,
-		MaxConns: s.MaxConns, OpTimeout: s.OpTimeout.Duration, StallTimeout: s.StallTimeout.Duration, Logger: log})
+		MaxConns: s.MaxConns, OpTimeout: s.OpTimeout.Duration, StallTimeout: s.StallTimeout.Duration, Logger: log,
+		Secure: s.Secure, CAFile: s.CAFile})
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +109,8 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		background: []func(context.Context){d.reconcile, d.maintain, d.runProbe},
 		close:      d.close,
 		abort:      func() { d.host.Close(); canary.Close() },
+		breakers:   map[string]*breaker.Breaker{"s3": d.s3b}, // the admin endpoints' breakers, by name
+		host:       d.host,
 	}, nil
 }
 

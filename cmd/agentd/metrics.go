@@ -197,7 +197,7 @@ func breakerLog(log *slog.Logger, dep string) func(breaker.Transition) {
 			level = slog.LevelWarn
 		}
 		log.Log(context.Background(), level, "circuit breaker "+t.To.String(), "event", code, "dep", dep, "from", t.From.String(),
-			"calls", t.Calls, "failures", t.Failures)
+			"calls", t.Calls, "failures", t.Failures, "manual", t.Manual)
 	}
 }
 

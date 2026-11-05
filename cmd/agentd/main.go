@@ -7,7 +7,11 @@
 // (internal/placement/file), and the control plane calls Claim, Fence, Forget and Health on the lifecycle
 // listener (control.go). Static (db_dir; benchmarks): the *.db files in one directory at fixed epochs.
 //
-//	agentd -config configs/agentd/local.json [-addr-file path] [-check]
+//	agentd -config configs/agentd/local.json [-addr-file path] [-check] [-dev]
+//
+// -dev allows what only a developer laptop may do: durable mode over plain-HTTP S3 (s3.secure false; refused
+// otherwise, object-storage guide S2) and the claim's "create" stand-in (control.go). An optional admin
+// listener (admin_listen, loopback only) serves the runtime controls of admin.go; cmd/agentctl is its client.
 //
 // Exit codes: 0 stopped cleanly after SIGINT/SIGTERM (drained), 1 failed (message and log ID on stderr; this
 // includes a shutdown that did not finish cleanly: a drain cut off at drain_timeout, or databases not closed within
@@ -34,12 +38,14 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
+	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/vactor"
 )
 
 const (
@@ -59,13 +65,15 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	fs := flag.NewFlagSet("agentd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "agent config (JSON)")
-	addrFile := fs.String("addr-file", "", "write the query listener's address here once serving (and the lifecycle listener's on a second line)")
+	addrFile := fs.String("addr-file", "", "write the query listener's address here once serving, the lifecycle listener's on a second line "+
+		"(the query listener's when they share it) and the admin listener's on a third (if any)")
 	check := fs.Bool("check", false, "validate the config, keys and databases, then exit")
+	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false) and claim's create stand-in")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	if fs.NArg() > 0 || *cfgPath == "" {
-		fmt.Fprintln(stderr, "usage: agentd -config <file> [-addr-file <file>] [-check]")
+		fmt.Fprintln(stderr, "usage: agentd -config <file> [-addr-file <file>] [-check] [-dev]")
 		return exitUsage
 	}
 	rep := reporter{stderr: stderr}
@@ -79,7 +87,12 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	if err != nil {
 		return rep.report(err)
 	}
-	log, closeLog, err := openLog(cfg, stderr)
+	cfg.Dev = *dev
+	if err := cfg.checkDev(); err != nil {
+		return rep.report(err)
+	}
+	level := new(slog.LevelVar)
+	log, closeLog, err := openLog(cfg, level, stderr)
 	if err != nil {
 		return rep.report(err)
 	}
@@ -116,6 +129,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	if err != nil {
 		return rep.report(err)
 	}
+	a.level = level
 	defer a.cleanup()
 	return a.serve(ctx, *addrFile, rep, stderr)
 }
@@ -128,6 +142,7 @@ type agent struct {
 	srv        *front.Server
 	be         *backend
 	lifecycle  *http.ServeMux              // /livez, /readyz, /healthz, /metrics, control endpoints; on the lifecycle listener
+	level      *slog.LevelVar              // the log level; POST /admin/loglevel sets it
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
 }
@@ -143,6 +158,10 @@ type backend struct {
 	background []func(ctx context.Context)
 	close      func(ctx context.Context) error // the host.close shutdown phase
 	abort      func()                          // closes everything if serving never started
+	// The admin endpoints' handles (admin.go): the remote-dependency breakers by name, and the host (nil in
+	// static mode: no breaker, fetch-limit or passivate controls).
+	breakers map[string]*breaker.Breaker
+	host     *vactor.Host
 }
 
 // newAgent wires the pipeline. Databases open (static) or reconcile (durable) in the background once serve
@@ -254,14 +273,32 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	servers := []*http.Server{hs}
 	listeners := []net.Listener{ln}
+	closeAll := func() {
+		for _, l := range listeners {
+			l.Close()
+		}
+	}
+	lifeAddr := ln.Addr().String()
 	if cfg.HealthListen != "" {
 		hl, err := net.Listen("tcp", cfg.HealthListen)
 		if err != nil {
-			ln.Close()
+			closeAll()
 			return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
 		}
 		servers = append(servers, healthServer(cfg, a.lifecycle))
 		listeners = append(listeners, hl)
+		lifeAddr = hl.Addr().String()
+	}
+	addrLines := ln.Addr().String() + "\n" + lifeAddr + "\n"
+	if cfg.AdminListen != "" {
+		al, err := net.Listen("tcp", cfg.AdminListen)
+		if err != nil {
+			closeAll()
+			return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.AdminListen))
+		}
+		servers = append(servers, healthServer(cfg, a.adminHandler()))
+		listeners = append(listeners, al)
+		addrLines += al.Addr().String() + "\n"
 	}
 	errc := make(chan error, len(servers))
 	for i, s := range servers {
@@ -269,18 +306,15 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	}
 	addr := ln.Addr().String()
 	if addrFile != "" {
-		lines := addr + "\n"
-		if len(listeners) > 1 {
-			lines += listeners[1].Addr().String() + "\n"
-		}
-		if err := os.WriteFile(addrFile, []byte(lines), 0o644); err != nil {
+		if err := os.WriteFile(addrFile, []byte(addrLines), 0o644); err != nil {
 			for _, s := range servers {
 				s.Close()
 			}
 			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
-	log.Info("serving", "addr", addr, "health_addr", cfg.HealthListen, "vm", cfg.VM, "protocols", cfg.Protocols)
+	log.Info("serving", "addr", addr, "health_addr", cfg.HealthListen, "admin_addr", cfg.AdminListen, "vm", cfg.VM, "protocols", cfg.Protocols,
+		"dev", cfg.Dev)
 	fmt.Fprintf(stderr, "agentd: serving on %s\n", addr)
 	bctx, stopBackground := context.WithCancel(context.Background())
 	var bg sync.WaitGroup
@@ -396,8 +430,12 @@ func listDBs(cfg *Config) ([]string, error) {
 
 func dbPath(cfg *Config, db string) string { return filepath.Join(cfg.DBDir, db+".db") }
 
-func openLog(cfg *Config, stderr io.Writer) (*slog.Logger, func(), error) {
-	level := map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn}[cfg.LogLevel]
+// logLevels are the log_level values (and /admin/loglevel's).
+var logLevels = map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn}
+
+// openLog opens the log at cfg.LogLevel, held in level so it can change at run time.
+func openLog(cfg *Config, level *slog.LevelVar, stderr io.Writer) (*slog.Logger, func(), error) {
+	level.Set(logLevels[cfg.LogLevel])
 	if cfg.LogFile == "" {
 		return logx.New(stderr, level), func() {}, nil
 	}
