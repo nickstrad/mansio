@@ -252,9 +252,8 @@ func TestSetFetchLimitAppliesToTheNextFetches(t *testing.T) {
 	}
 	first := get("a", "b")
 	vactor.WaitFor(t, func() bool { n, _, _ := vactor.FetchGate(h); return n == 2 })
-	h.SetFetchLimit(1)
-	if h.FetchLimit() != 1 {
-		t.Fatalf("FetchLimit %d", h.FetchLimit())
+	if prev := h.SetFetchLimit(1); prev != 4 || h.FetchLimit() != 1 {
+		t.Fatalf("SetFetchLimit(1) = previous %d, FetchLimit %d", prev, h.FetchLimit())
 	}
 	next := get("c", "d")
 	vactor.WaitFor(t, func() bool { _, _, q := vactor.FetchGate(h); return q == 2 })
@@ -275,6 +274,7 @@ func TestSetFetchLimitAppliesToTheNextFetches(t *testing.T) {
 				n, _, _ := vactor.FetchGate(h)
 				p = max(p, n)
 			}
+			time.Sleep(100 * time.Microsecond) // sample, do not spin against the locks under test
 		}
 	}()
 	close(hold)
