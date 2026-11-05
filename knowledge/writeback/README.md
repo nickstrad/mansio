@@ -7,6 +7,7 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-05 (CP-4 agent side): [scoped S3 identities, TLS, -dev](2026-11-05-s3-scoped-identities.md): `agent` (Read+Write, no LIST, no bucket creation), `gc`, `bench` in `s3.json`; X12 passes on SeaweedFS 4.47; agentd needs nothing more than `agent`; plain-HTTP S3 needs `-dev` (OS-11).
 - 2026-11-05 (books p4-gc): [storage runbook](2026-11-05-storage-runbook.md) with `cmd/dbtool` (inspect, verify, orphans, gc, rebuild-manifest) for corrupt generation, lost/unreadable manifest, orphan growth, cost spike, SlowDown storm (OS-12).
 - 2026-11-05 (books p4-gc): [generation GC and the generation cache](2026-11-05-gc-and-gen-cache.md): owner-side retention (K = 2) + orphan sweeper keep the bucket flat on SeaweedFS; a cached re-warm of 256 MiB takes ~2 ms instead of ~1 s; md5 is ~3/4 of upload hashing (OS-06, OS-10).
 - 2026-11-05 (books p2-storage): [layout v2 + ambiguity resolution](2026-11-05-layout-v2.md): `dbs/<h2>/<escaped key>/`, `gen/<G>-e<E>.db`, self-describing metadata; stamps and uploads re-read after ambiguous errors (OS-02, OS-04, OS-05).

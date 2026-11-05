@@ -376,7 +376,7 @@ where it lands.
     over the whole run).
 - **Size.** M.
 
-#### RI-16 — Runtime controls and admin CLI — secrets file **Done** in CP-1 (747abf3: `secrets_file`, 0600, S3 keys + control token); admin endpoints and `agentctl` remain (CP-4)
+#### RI-16 — Runtime controls and admin CLI — **Done** (secrets file in CP-1, 747abf3; admin endpoints, `breaker.Trip/Reset`, `vactor.SetFetchLimit`, `agentctl` in CP-4: dc0113d, 77f0bd6, 333425c, 8ee6927; note `knowledge/front/2026-11-05-agentd-admin-controls.md`). Deviation: the controls are on their own loopback-only `admin_listen`, not the lifecycle listener; the bind is the identity check. The Postgres DSN joins the secrets file with CP-4's placement wiring.
 
 - **Goal.** Ch16 (component-level control without a deploy) and ch14 (CLI first).
 - **Change.**

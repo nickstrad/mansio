@@ -25,7 +25,7 @@ owner may fold it into this folder's README.
 | X9 | pass | 5 keys listed right after PUT, pages of 2, lexicographic order |
 | X10 | pass | `RemoveObjects` of 2 keys + 1 missing key: no errors, prefix empty afterwards |
 | X11 | pass | `If-None-Match: *` on `CompleteMultipartUpload`: the second completion → 412, first upload kept |
-| X12 | skip | no scoped identity is configured; `s3.json` has only the admin identity (OS-11 adds one) |
+| X12 | skip | no scoped identity is configured; `s3.json` has only the admin identity (OS-11 adds one). **Update 2026-11-05: pass** with the `agent` identity ([note](2026-11-05-s3-scoped-identities.md)) |
 
 What this means:
 

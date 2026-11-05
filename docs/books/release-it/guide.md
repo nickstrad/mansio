@@ -131,7 +131,8 @@ if !b.Allow(now) {
 ```
 
 **C4. Breakers are visible and operable.** Log every transition with a message code. Expose state and the
-transition count. Ops can trip and reset them (RI-11, RI-16).
+transition count. Ops can trip and reset them (RI-11, RI-16): `breaker.Trip` holds a breaker
+open until `Reset`; `agentctl breaker s3 trip|reset` through agentd's admin listener.
 
 **C5. Open-circuit behavior is a product decision, written down.** Decided (2026-11-05): S3 open → cold
 activations `503`, warm traffic unaffected, write-backs deferred (RPO grows, alert on `oldest_dirty_age`), and
@@ -223,7 +224,8 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 **Inbound HTTP** (`agentd`)
 - `ReadHeaderTimeout` 5 s, body read deadline 5 s, write deadline = request deadline + grace, `MaxHeaderBytes`
   16 KiB, `MaxBody` 1 MiB.
-- Admission caps DB/tenant/VM. Health and admin on the lifecycle listener.
+- Admission caps DB/tenant/VM. Health and lifecycle on the lifecycle listener; runtime controls on their own
+  loopback-only `admin_listen` (RI-16), never behind queries.
 
 **Client** (CP step 6)
 - Per-request deadline sent as `X-Timeout-Ms`. `http.Client` with dial and response-header timeouts.
