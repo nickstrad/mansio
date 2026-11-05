@@ -193,33 +193,25 @@ func (b *Breaker) Done(p Permit, now time.Time, o Outcome) {
 // Reset, and no probe is let through. It reports whether anything changed (false: already forced open).
 //
 //	post: State(t) == Open for every t until Reset
-func (b *Breaker) Trip(now time.Time) bool {
-	b.mu.Lock()
-	var tr *Transition
-	defer func() { b.mu.Unlock(); b.notify(tr) }()
-	if b.forced {
-		return false
-	}
-	tr = b.move(Open, now)
-	tr.Manual, b.forced = true, true
-	b.invariant()
-	return true
-}
+func (b *Breaker) Trip(now time.Time) bool { return b.force(Open, now) }
 
 // Reset closes the breaker at now, from any state, with a fresh counting window (an operator's control; it
 // also undoes Trip). Outcomes of calls permitted before it are ignored. It reports whether anything changed
 // (false: already closed).
 //
 //	post: State(now) == Closed
-func (b *Breaker) Reset(now time.Time) bool {
+func (b *Breaker) Reset(now time.Time) bool { return b.force(Closed, now) }
+
+// force is an operator's transition to Open (held: forced) or Closed, unless the breaker is already there.
+func (b *Breaker) force(to State, now time.Time) bool {
 	b.mu.Lock()
 	var tr *Transition
 	defer func() { b.mu.Unlock(); b.notify(tr) }()
-	if b.state == Closed {
+	if to == Open && b.forced || to == Closed && b.state == Closed {
 		return false
 	}
-	tr = b.move(Closed, now)
-	tr.Manual = true
+	tr = b.move(to, now)
+	tr.Manual, b.forced = true, to == Open
 	b.invariant()
 	return true
 }
