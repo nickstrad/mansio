@@ -91,23 +91,19 @@ type Server struct {
 }
 
 // New starts a server; Close stops it.
-func New() *Server {
-	s := &Server{objects: map[string]object{}, done: make(chan struct{})}
-	s.srv = httptest.NewServer(s)
-	return s
-}
+func New() *Server { return start(httptest.NewServer) }
 
 // NewTLS starts a server that speaks HTTPS with a self-signed certificate; CAPEM is the CA to trust.
-func NewTLS() *Server {
+func NewTLS() *Server { return start(httptest.NewTLSServer) }
+
+func start(serve func(http.Handler) *httptest.Server) *Server {
 	s := &Server{objects: map[string]object{}, done: make(chan struct{})}
-	s.srv = httptest.NewTLSServer(s)
+	s.srv = serve(s)
 	return s
 }
 
 // Endpoint is the server's host:port, for objstore.Config.Endpoint.
-func (s *Server) Endpoint() string {
-	return strings.TrimPrefix(strings.TrimPrefix(s.srv.URL, "http://"), "https://")
-}
+func (s *Server) Endpoint() string { return s.srv.Listener.Addr().String() }
 
 // CAPEM is the PEM certificate a client must trust to reach a NewTLS server (nil for plain HTTP).
 func (s *Server) CAPEM() []byte {

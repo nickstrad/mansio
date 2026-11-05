@@ -178,11 +178,10 @@ func TestFetchGateInvariantFires(t *testing.T) {
 		t.Skip("assertions compiled out")
 	}
 	for name, g := range map[string]*fetchGate{
-		"over count":          {maxN: 1, maxBytes: 10, n: 2},
-		"over count + excess": {maxN: 1, maxBytes: 10, n: 3, excess: 1},
-		"over bytes":          {maxN: 4, maxBytes: 10, n: 2, bytes: 11},
-		"over queue":          {maxN: 1, maxBytes: 10, n: 1, queue: []*waiter{{}}},
-		"head fits":           {maxN: 2, maxBytes: 10, maxQueue: 1, n: 1, queue: []*waiter{{bytes: 1}}},
+		"negative count": {maxN: 1, maxBytes: 10, n: -1},
+		"over bytes":     {maxN: 4, maxBytes: 10, n: 2, bytes: 11},
+		"over queue":     {maxN: 1, maxBytes: 10, n: 1, queue: []*waiter{{}}},
+		"head fits":      {maxN: 2, maxBytes: 10, maxQueue: 1, n: 1, queue: []*waiter{{bytes: 1}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -193,6 +192,14 @@ func TestFetchGateInvariantFires(t *testing.T) {
 			g.invariant()
 		})
 	}
+	t.Run("grant at the limit", func(t *testing.T) {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("take did not fire")
+			}
+		}()
+		(&fetchGate{maxN: 1, maxBytes: 10, n: 1}).take(0)
+	})
 }
 
 func waitFor(t *testing.T, cond func() bool) {

@@ -27,6 +27,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/front"
 )
 
 const exitOK, exitError, exitUsage, exitInterrupted = 0, 1, 2, 130
@@ -149,7 +151,7 @@ func call(ctx context.Context, u string, timeout time.Duration) (answer, error) 
 	if err != nil {
 		return answer{}, err
 	}
-	req.Header.Set("X-Timeout-Ms", strconv.FormatInt(timeout.Milliseconds(), 10))
+	req.Header.Set(front.TimeoutHeader, strconv.FormatInt(timeout.Milliseconds(), 10))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return answer{}, fmt.Errorf("no answer from %s: %w", req.URL.Host, err)
