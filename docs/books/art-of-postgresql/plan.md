@@ -160,7 +160,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   the savepoints to batches > 1 write.
 - **Size:** M.
 
-#### PG-02 — Placement schema as an embedded, versioned `.sql` file (ch 6, 28, 29, 23)
+#### PG-02 — Placement schema as an embedded, versioned `.sql` file (ch 6, 28, 29, 23) — **Done** (06204e3; plus named constraints and indexes on `moves.from_vm`/`to_vm`)
 
 - **Files (new):** `internal/placement/pg/schema/0001_placement.sql`, `internal/placement/pg/schema.go`
   (`//go:embed schema/*.sql`, an apply function that runs each file once inside a transaction and records it
@@ -174,7 +174,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   epoch decrease, owner change without epoch increase).
 - **Size:** S.
 
-#### PG-03 — Placement adapter (ch 2, 36, 37, 41)
+#### PG-03 — Placement adapter (ch 2, 36, 37, 41) — **Done** (06204e3; adds `register_vm.sql` and `invariants.sql`; trigger/check → `pg.ErrInvariant`, unknown VM → `pg.ErrUnknownVM`, outages → `pg.ErrUnavailable`)
 
 - **Files (new):** `internal/placement/pg/placement.go`, `internal/placement/pg/queries/*.sql` (one named query
   per file, embedded), adapter for `owner.Placement` (`internal/owner/ports.go:87-90`).
@@ -193,7 +193,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   the real adapter (cancel the ctx after the statement is sent).
 - **Size:** M.
 
-#### PG-04 — Placement concurrency and contract gate (ch 37)
+#### PG-04 — Placement concurrency and contract gate (ch 37) — **Done** (06204e3; numbers in knowledge/fencing/2026-11-05-postgres-placement-adapter.md)
 
 - **Files:** `internal/placement/pg/placement_integration_test.go`, `cmd/sqlbench`-style load harness or a
   `go test -bench` under `scripts/lock.sh`.

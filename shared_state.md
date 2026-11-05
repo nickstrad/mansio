@@ -517,3 +517,12 @@ Branch `cp/cp2`. Details: `knowledge/front/2026-11-05-request-ids.md`.
   `ActorExecutor` passes `Call.RequestID`; any other Executor (CP-1's vactor executor) should delegate to it.
 - **Clients/benches must send unique ids per write** (frontbench now sends `fb-<run>-<seq>`); a reused id gets
   the first write's answer.
+## 2026-11-05 14:06 — cp3: placement/pg adapter and Placement contract suite (CP-3)
+
+Branch `cp/cp3`. New package `internal/placement/pg` implements `owner.Placement` on Postgres (not wired; CP-4 wires it).
+
+- **Contract suite:** `ownertest.RunPlacementSuite(t, func(t) owner.Placement)` + `ownertest.SuiteVMs()` (owners `vm-a`, `vm-b`, `vm-c`). `ownertest.TestPlacementCAS` runs it on the fake; CP-1's file-backed adapter should run it too.
+- **API:** `pg.Open(pg.Config{DSN, AppName, Schema, MaxConns, ...})` (lazy, no I/O), `p.Migrate(ctx)`, `Get`, `CAS`, `RegisterVM(ctx, vm, endpoint)` (owners must be registered: FK), `Moving`, `Load`, `Invariants`, `Breaker()` (register as `"placement"`), `Stat()`, `Close()`.
+- **Errors:** `owner.ErrNotFound`, `owner.ErrConflict`, `owner.ErrInvalid` (bad key: not UTF-8, NUL, length; bad VM id), `pg.ErrInvariant` (bug), `pg.ErrUnknownVM`, `pg.ErrUnavailable` (breaker open with `RetryAfter()`, or system failure; a CAS may have applied). Wiring must add `pg.ErrUnavailable` to agentd's/controld's `unavailableCauses`.
+- **Keys:** Postgres text cannot hold NUL or invalid UTF-8, so the adapter refuses them (`durable.ValidateKey` already refuses NUL).
+- **Deploy:** `deploy/postgres/docker-compose.yml` (container `tsdb-postgres`, port 5433); `TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable'`.

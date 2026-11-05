@@ -8,6 +8,10 @@ are stale (ts-db `scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4)
 
 ## Findings (newest first)
 
+- 2026-11-05 [Postgres placement adapter built](2026-11-05-postgres-placement-adapter.md) (`internal/placement/pg`,
+  CP-3): contract suite, lost-flip-reply crash point and the PG-04 gate pass on Postgres 17; CAS p50 177 µs
+  alone, 1.9 ms at 64 workers (20k CAS/s); one hot key at 64 workers: p99 45 ms, 85 % conflicts. pgx held a
+  pool slot 15 s after a half-open call; fixed by capping close deadlines at 1 s.
 - 2026-11-05 [safety argument](2026-11-05-safety-argument.md): what guarantees one owner (epochs + local
   durable state + fence-before-flip + storage stamp), under which assumptions (linearizable authority reads,
   atomic conditional publish, fsync, operator-attested VM loss; **no clocks**), and what breaks it. Mutation
@@ -47,4 +51,4 @@ scripts/lock.sh results/.bench-lock go test -run='^$' -bench=Admit ./internal/ow
 ```
 
 Open: request-id de-duplication (option 4 §3.5) lives in the database, not here; leases (time-bounded
-zombie window) not built; Postgres adapter not built.
+zombie window) not built. Postgres adapter: `internal/placement/pg` (not yet wired; CP-4).
