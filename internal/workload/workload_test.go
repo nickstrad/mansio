@@ -54,6 +54,15 @@ func run(db *sql.DB, st workload.Statement, timeout time.Duration) (err error, t
 	return err, ctx.Err() != nil
 }
 
+// Statement timeouts for checkRuns. An expected-slow class gets a short one, so the test does not wait for a
+// cross join to finish; any other class must succeed within a generous one. 30 ms for every class flaked
+// under load (go test -race ./... runs packages in parallel), failing fast statements that were merely
+// descheduled (CP-8).
+const (
+	slowTimeout = 30 * time.Millisecond
+	fastTimeout = 5 * time.Second
+)
+
 // checkRuns asserts st's contract: its Write flag matches its SQL, and it succeeds unless it is expected to be
 // slow and the timeout ended it.
 func checkRuns(t testing.TB, db *sql.DB, s *schema.Schema, st workload.Statement) {
@@ -61,7 +70,11 @@ func checkRuns(t testing.TB, db *sql.DB, s *schema.Schema, st workload.Statement
 	if want := actor.IsWrite(st.SQL); want != st.Write {
 		t.Fatalf("%s: Write=%v but SQL looks like write=%v: %s", st.Class, st.Write, want, st.SQL)
 	}
-	if err, timedOut := run(db, st, 30*time.Millisecond); err != nil && !(st.ExpectSlow && timedOut) {
+	timeout := fastTimeout
+	if st.ExpectSlow {
+		timeout = slowTimeout
+	}
+	if err, timedOut := run(db, st, timeout); err != nil && !(st.ExpectSlow && timedOut) {
 		t.Fatalf("%s: %v\nSQL: %s\nargs: %v\nDDL:\n%s", st.Class, err, st.SQL, st.Args, s.DDL())
 	}
 }

@@ -61,6 +61,17 @@ func dial(t *testing.T, p *faultnet.Proxy) net.Conn {
 	return c
 }
 
+// dialRoundTrip dials p and round-trips msg; a refused connection may fail already in the dial (the proxy's
+// reset can beat connect() under load), which counts as the round trip failing.
+func dialRoundTrip(t *testing.T, p *faultnet.Proxy, msg []byte, d time.Duration) ([]byte, error) {
+	c, err := net.DialTimeout("tcp", p.Addr(), d)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { c.Close() })
+	return roundTrip(c, msg, d)
+}
+
 // roundTrip writes msg and reads len(msg) bytes back within d.
 func roundTrip(c net.Conn, msg []byte, d time.Duration) ([]byte, error) {
 	c.SetDeadline(time.Now().Add(d))
@@ -90,12 +101,14 @@ func TestRefuseFailsFast(t *testing.T) {
 	p, e := newProxy(t)
 	p.Set(faultnet.RefuseConn(), 0)
 	t0 := time.Now()
-	_, err := roundTrip(dial(t, p), []byte("x"), 2*time.Second)
+	_, err := dialRoundTrip(t, p, []byte("x"), 2*time.Second)
 	if err == nil || isTimeout(err) {
 		t.Fatalf("err = %v, want a reset", err)
 	}
-	if d := time.Since(t0); d > 100*time.Millisecond {
-		t.Fatalf("refusal took %v, want < 100ms", d)
+	// Fast = well inside the 2 s read budget (a refusal that waited for it would also be a timeout, above).
+	// Not 100 ms: that flaked under load (CP-8).
+	if d := time.Since(t0); d > time.Second {
+		t.Fatalf("refusal took %v, want well under the 2s read budget", d)
 	}
 	if e.conns.Load() != 0 {
 		t.Fatal("a refused connection reached upstream")
@@ -121,7 +134,7 @@ func TestResetAfterCutsTheReplyAtTheBudget(t *testing.T) {
 	for _, n := range []int64{0, 1, 1000} {
 		p, _ := newProxy(t)
 		p.Set(faultnet.ResetAfterBytes(n), 0)
-		got, err := roundTrip(dial(t, p), make([]byte, 4096), 2*time.Second)
+		got, err := dialRoundTrip(t, p, make([]byte, 4096), 2*time.Second)
 		if err == nil || isTimeout(err) {
 			t.Fatalf("n=%d: err = %v, want a reset", n, err)
 		}
@@ -189,7 +202,7 @@ func TestFaultAppliesToTheNextNConnections(t *testing.T) {
 		p, _ := newProxy(t)
 		p.Set(faultnet.RefuseConn(), n)
 		for i := range n + 2 {
-			_, err := roundTrip(dial(t, p), []byte("x"), time.Second)
+			_, err := dialRoundTrip(t, p, []byte("x"), time.Second)
 			if failed := err != nil; failed != (i < n) {
 				t.Fatalf("n=%d conn %d: err = %v", n, i, err)
 			}
@@ -201,7 +214,12 @@ func TestCloseEndsHeldConnections(t *testing.T) {
 	p, _ := newProxy(t)
 	p.Set(faultnet.Silence(), 0)
 	c := dial(t, p)
-	time.Sleep(20 * time.Millisecond) // let the proxy accept it
+	for deadline := time.Now().Add(5 * time.Second); p.Accepted() == 0; { // let the proxy accept it
+		if time.Now().After(deadline) {
+			t.Fatal("the proxy never accepted the connection")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	done := make(chan error, 1)
 	go func() { _, err := roundTrip(c, []byte("x"), 5*time.Second); done <- err }()
 	if err := p.Close(); err != nil {
