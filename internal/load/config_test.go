@@ -118,7 +118,7 @@ func TestClientPoliciesAreBuiltOnce(t *testing.T) {
 	if bad.RetryOn != outcome.All || bad.Backoff != retry.Exponential || bad.Jitter != retry.Full {
 		t.Fatalf("bad: %+v; a profile that leaves backoff and jitter out gets the safe defaults", bad)
 	}
-	if plain.MaxAttempts != 1 || plain.RetryOn != outcome.SetOf(outcome.Shed, outcome.Aborted) {
+	if plain.MaxAttempts != 1 || plain.RetryOn != outcome.SetOf(outcome.Shed, outcome.Unavailable, outcome.Aborted) {
 		t.Fatalf("plain: %+v", plain)
 	}
 	if got := c.ClientNames(); strings.Join(got, ",") != "good,bad,plain" {

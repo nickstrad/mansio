@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/tls"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,9 +12,9 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,7 +33,7 @@ const (
 	DefaultResolveTimeout = 3 * time.Second  // one resolve (the locator's own deadline)
 	DefaultDialTimeout    = 3 * time.Second  // TCP connect
 	DefaultHeaderTimeout  = 60 * time.Second // backstop only: every call's ctx deadline ends it first
-	DefaultMaxReroutes    = 3                // re-resolves in one call
+	DefaultMaxReroutes    = 5                // re-resolves in one call: the backoff then spans a new owner's claim (~375 ms)
 	DefaultMaxRoutes      = 10_000           // cached databases
 	DefaultRefreshAhead   = 0.8              // refresh at 80% of the ticket TTL …
 	DefaultRefreshJitter  = 0.1              // … ±10% of the TTL
@@ -165,8 +163,7 @@ type Client struct {
 	idSeq  atomic.Uint64
 	stop   context.CancelFunc
 
-	rngMu sync.Mutex
-	rng   *mrand.Rand // guarded by rngMu (jitter draws)
+	rng *mrand.Rand // over the runtime's lock-free generator: safe for concurrent use
 
 	sleep func(ctx context.Context, d time.Duration) error // tests replace it
 }
@@ -217,14 +214,14 @@ func New(cfg Config) (*Client, error) {
 	b := make([]byte, 6)
 	rand.Read(b)
 	c := &Client{cfg: cfg, http: hc, budget: cfg.Budget, idBase: "c" + hex.EncodeToString(b) + "-",
-		rng: mrand.New(mrand.NewPCG(mrand.Uint64(), mrand.Uint64())), sleep: sleepCtx}
+		rng: mrand.New(globalSource{}), sleep: sleepCtx}
 	if c.budget == nil {
 		c.budget = &retry.Budget{Ratio: DefaultBudgetRatio}
 	}
 	root, stop := context.WithCancel(context.Background())
 	c.stop = stop
 	c.routes = newRoutes(root, c.resolve, cfg.ResolveTimeout, cfg.MaxRoutes, time.Now, func(at time.Time, ttl time.Duration) time.Time {
-		return refreshAt(at, ttl, cfg.RefreshAhead, cfg.RefreshJitter, c.float())
+		return refreshAt(at, ttl, cfg.RefreshAhead, cfg.RefreshJitter, c.rng.Float64())
 	})
 	return c, nil
 }
@@ -242,11 +239,11 @@ func NewHTTPClient(caFile string) (*http.Client, error) {
 		ForceAttemptHTTP2:     true,
 	}
 	if caFile != "" {
-		pool, err := tlsx.LoadPool(caFile)
+		cfg, err := tlsx.ClientConfig(caFile)
 		if err != nil {
 			return nil, errs.Wrap(module, err, "cannot load the CA file").With("path", caFile)
 		}
-		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		tr.TLSClientConfig = cfg
 	}
 	return &http.Client{Transport: tr}, nil
 }
@@ -260,23 +257,10 @@ func (c *Client) Close() {
 // Budget is the retry budget the client spends.
 func (c *Client) Budget() *retry.Budget { return c.budget }
 
-func (c *Client) float() float64 {
-	c.rngMu.Lock()
-	defer c.rngMu.Unlock()
-	return c.rng.Float64()
-}
+// globalSource draws from math/rand/v2's per-thread generator, so one *rand.Rand over it is safe to share.
+type globalSource struct{}
 
-func (c *Client) delay(next int, prev time.Duration) time.Duration {
-	c.rngMu.Lock()
-	defer c.rngMu.Unlock()
-	return c.cfg.Retry.Delay(c.rng, next, prev)
-}
-
-func (c *Client) decideRetry(a retry.Attempt) (time.Duration, bool) {
-	c.rngMu.Lock()
-	defer c.rngMu.Unlock()
-	return c.cfg.Retry.Decide(c.rng, a)
-}
+func (globalSource) Uint64() uint64 { return mrand.Uint64() }
 
 // Do runs req at the database's owner and returns the final answer. The loop (control-plane plan §2):
 //
@@ -321,7 +305,7 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 	for {
 		// 1. The route.
 		t0 := time.Now()
-		r, hit, err := c.routes.get(ctx, req.DB, 0) // a reroute's min_epoch lives in the cache (drop)
+		r, hit, err := c.routes.get(ctx, req.DB) // a reroute's min_epoch lives in the cache (drop)
 		if h := c.cfg.Hooks.Resolve; h != nil {
 			h(ResolveEvent{DB: req.DB, Hit: hit, Wait: time.Since(t0), Err: err})
 		}
@@ -356,7 +340,7 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 			if ctx.Err() != nil {
 				return fail(c.deadlineError(ctx, last))
 			}
-			if !a.Transport {
+			if a.Code != codeTransport {
 				res.Response = resp
 			}
 			st, oc = decide(a)
@@ -364,10 +348,7 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 				return res, nil
 			}
 			last = &Error{Op: "query", Code: a.Code, Message: resp.Message, Err: err,
-				MayHaveApplied: req.Kind == front.KindWrite && (a.Transport || a.Ambiguous || a.Code == string(front.Internal))}
-			if a.Transport {
-				last.Code = "transport"
-			}
+				MayHaveApplied: req.Kind == front.KindWrite && (a.Code == codeTransport || a.Ambiguous || a.Code == string(front.Internal))}
 			if st == stepFail {
 				return fail(last)
 			}
@@ -386,11 +367,11 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 			res.Reroutes++
 			d = a.RetryAfter
 			if res.Reroutes > 1 {
-				d = max(d, c.delay(res.Reroutes, prev))
+				d = max(d, c.cfg.Retry.Delay(c.rng, res.Reroutes, prev))
 			}
 		case stepRetry:
 			var ok bool
-			d, ok = c.decideRetry(retry.Attempt{N: retries + 1, Outcome: oc, Elapsed: time.Since(first), Prev: prev, ServerHint: a.RetryAfter})
+			d, ok = c.cfg.Retry.Decide(c.rng, retry.Attempt{N: retries + 1, Outcome: oc, Elapsed: time.Since(first), Prev: prev, ServerHint: a.RetryAfter})
 			if !ok || !c.budget.TryRetry() {
 				return fail(last)
 			}
@@ -436,13 +417,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // encode is the query body for database key db. It is built once per call: every attempt sends the same bytes,
 // so the same request_id.
 func encode(db string, req Request) ([]byte, error) {
-	args := make([]any, len(req.Args))
-	for i, a := range req.Args {
-		if b, ok := a.([]byte); ok {
-			a = front.Blob{B64: base64.StdEncoding.EncodeToString(b)}
-		}
-		args[i] = a
-	}
+	args := front.WireArgs(slices.Clone(req.Args))
 	return json.Marshal(struct {
 		DB        string     `json:"db"`
 		RequestID string     `json:"request_id,omitempty"`
@@ -461,28 +436,35 @@ func timeoutHeader(remaining time.Duration) int64 {
 	return max(ms, 1)
 }
 
-// send is one attempt at route r. A transport failure (no answer) returns answer.Transport and the error.
+// send is one attempt at route r. A transport failure (no answer) returns codeTransport and the error.
 func (c *Client) send(ctx context.Context, r Route, body []byte, deadline time.Time) (answer, front.Response, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(r.Endpoint)+front.QueryPath, bytes.NewReader(body))
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, r.queryURL, bytes.NewReader(body))
 	if err != nil {
-		return answer{Transport: true}, front.Response{}, err
+		return answer{Code: codeTransport}, front.Response{}, err
 	}
-	hr.Header.Set("Authorization", "Bearer "+r.Ticket)
+	hr.Header.Set("Authorization", r.auth)
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set(front.TimeoutHeader, strconv.FormatInt(timeoutHeader(time.Until(deadline)), 10))
 	hres, err := c.http.Do(hr)
 	if err != nil {
-		return answer{Transport: true}, front.Response{}, err
+		return answer{Code: codeTransport}, front.Response{}, err
 	}
-	defer hres.Body.Close()
+	defer drain(hres.Body)
 	var resp front.Response
 	if err := json.NewDecoder(io.LimitReader(hres.Body, MaxResponse)).Decode(&resp); err != nil || resp.Code == "" {
 		if err == nil {
 			err = fmt.Errorf("HTTP %d answer without a code", hres.StatusCode)
 		}
-		return answer{Transport: true}, front.Response{}, fmt.Errorf("unreadable answer: %w", err)
+		return answer{Code: codeTransport}, front.Response{}, fmt.Errorf("unreadable answer: %w", err)
 	}
 	return answer{Code: string(resp.Code), Ambiguous: resp.Ambiguous, RetryAfter: retryAfter(hres.Header.Get("Retry-After"), resp.RetryAfterMS)}, resp, nil
+}
+
+// drain reads what a decoder left (agentd's trailing newline, a chunk terminator) so the connection is reused,
+// then closes the body.
+func drain(b io.ReadCloser) {
+	io.Copy(io.Discard, io.LimitReader(b, 4<<10))
+	b.Close()
 }
 
 func (c *Client) url(endpoint string) string {
@@ -523,9 +505,9 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 	hr.Header.Set("Content-Type", "application/json")
 	hres, err := c.http.Do(hr)
 	if err != nil {
-		return Route{}, &resolveError{a: answer{Code: "transport", Transport: true}, err: err}
+		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: err}
 	}
-	defer hres.Body.Close()
+	defer drain(hres.Body)
 	var out struct {
 		Code     string `json:"code"`
 		Message  string `json:"message"`
@@ -533,7 +515,6 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 		VM       string `json:"vm"`
 		Endpoint string `json:"endpoint"`
 		Epoch    uint64 `json:"epoch"`
-		Gen      uint64 `json:"gen"`
 		Ticket   string `json:"ticket"`
 		TTLMs    int64  `json:"ttl_ms"`
 	}
@@ -541,14 +522,14 @@ func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route
 		if err == nil {
 			err = fmt.Errorf("HTTP %d answer without a code", hres.StatusCode)
 		}
-		return Route{}, &resolveError{a: answer{Code: "transport", Transport: true}, err: fmt.Errorf("unreadable locator answer: %w", err)}
+		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: fmt.Errorf("unreadable locator answer: %w", err)}
 	}
 	if out.Code != "ok" {
 		return Route{}, &resolveError{a: answer{Code: out.Code, RetryAfter: retryAfter(hres.Header.Get("Retry-After"), 0)}, msg: out.Message}
 	}
 	if out.Endpoint == "" || out.Ticket == "" || out.TTLMs <= 0 || out.DB == "" {
-		return Route{}, &resolveError{a: answer{Code: "transport", Transport: true}, err: errors.New("locator answer ok without endpoint, ticket, db or ttl")}
+		return Route{}, &resolveError{a: answer{Code: codeTransport}, err: errors.New("locator answer ok without endpoint, ticket, db or ttl")}
 	}
-	return Route{DB: out.DB, VM: out.VM, Endpoint: out.Endpoint, Epoch: out.Epoch, Gen: out.Gen, Ticket: out.Ticket,
-		TTL: time.Duration(out.TTLMs) * time.Millisecond}, nil
+	return Route{DB: out.DB, VM: out.VM, Endpoint: out.Endpoint, Epoch: out.Epoch, Ticket: out.Ticket,
+		TTL: time.Duration(out.TTLMs) * time.Millisecond, queryURL: c.url(out.Endpoint) + front.QueryPath, auth: "Bearer " + out.Ticket}, nil
 }

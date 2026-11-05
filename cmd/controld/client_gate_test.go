@@ -56,14 +56,8 @@ func TestClientGate(t *testing.T) {
 		Codes      map[string]int
 		Moves      int
 		MoveFailed int `json:"move_failed"`
-		Resolve    struct {
-			Hits, Misses        int
-			HitP50us, MissP50us float64 `json:"-"`
-		}
-		DuringMove struct {
-			Requests, Failed int
-			ErrorRate        float64 `json:"error_rate"`
-		} `json:"during_move"`
+		Resolve    struct{ Hits, Misses int }
+		DuringMove struct{ Requests, Failed int } `json:"during_move"`
 	}
 	b, _ := os.ReadFile(sumPath)
 	if err := json.Unmarshal(b, &sum); err != nil {

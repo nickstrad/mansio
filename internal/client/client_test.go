@@ -335,7 +335,7 @@ func TestDoGivesUp(t *testing.T) {
 		}, code: "resolve:not_found"},
 		{name: "locator moving until reroutes run out", resolve: func(int) (int, string, map[string]any) {
 			return 503, "1", map[string]any{"code": "moving"}
-		}, code: "resolve:moving", waits: 3},
+		}, code: "resolve:moving", waits: DefaultMaxReroutes},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

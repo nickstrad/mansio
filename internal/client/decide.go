@@ -21,13 +21,15 @@ const (
 	stepReroute             // the route is wrong or gone: drop it, resolve again, then retry
 )
 
-// answer is one attempt's result as the loop sees it: a wire code, or a transport failure (Code == "").
+// answer is one attempt's result as the loop sees it: a wire code, or codeTransport.
 type answer struct {
-	Code       string        // wire code; "" when no answer arrived (Transport is set)
+	Code       string        // wire or locator code, or codeTransport
 	Ambiguous  bool          // an expired write that may have committed
 	RetryAfter time.Duration // the server's hint; 0 = none
-	Transport  bool          // no answer: connect failure, reset, unreadable body
 }
+
+// codeTransport is the code of an attempt that got no answer: connect failure, reset, unreadable body.
+const codeTransport = "transport"
 
 // decide maps an answer from an agent to the next step (contract 3, front.Spec's "client should" column):
 //
@@ -39,7 +41,7 @@ type answer struct {
 //	                                       not in the default RetryOn)
 //	bad_request, anything unknown        → fail
 func decide(a answer) (step, outcome.Code) {
-	if a.Transport {
+	if a.Code == codeTransport {
 		return stepReroute, outcome.Error
 	}
 	switch front.Code(a.Code) {
@@ -73,13 +75,10 @@ func minEpochAfter(a answer, epoch uint64) uint64 {
 //	not_found, forbidden, unauthorized,
 //	suspended, bad_request, unknown          → fail
 func resolveStep(a answer) (step, outcome.Code) {
-	if a.Transport {
-		return stepRetry, outcome.Unavailable
-	}
 	switch a.Code {
 	case "moving":
 		return stepReroute, outcome.Unavailable
-	case "unavailable", "timeout":
+	case "unavailable", "timeout", codeTransport:
 		return stepRetry, outcome.Unavailable
 	}
 	return stepFail, outcome.Error

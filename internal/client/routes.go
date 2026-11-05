@@ -15,9 +15,10 @@ type Route struct {
 	VM       string
 	Endpoint string // host:port, or a URL with a scheme
 	Epoch    uint64
-	Gen      uint64
 	Ticket   string
 	TTL      time.Duration
+
+	queryURL, auth string // built once per route: every attempt at it sends the same
 
 	refreshAt time.Time // refresh in the background from here on (ahead of TTL, jittered)
 	until     time.Time // do not use after this (the ticket expires)
@@ -63,13 +64,13 @@ func newRoutes(root context.Context, load loader, timeout time.Duration, max int
 	return &routes{load: load, root: root, timeout: timeout, max: max, now: now, place: place, m: map[string]*slot{}}
 }
 
-// get returns db's route at epoch >= minEpoch. hit reports that it came from the cache without waiting. A
+// get returns db's route, at an epoch >= the one the last drop asked for (until the primary answers). hit reports that it came from the cache without waiting. A
 // cached route past its refresh time is still returned, and a background load replaces it.
-func (c *routes) get(ctx context.Context, db string, minEpoch uint64) (r Route, hit bool, err error) {
+func (c *routes) get(ctx context.Context, db string) (r Route, hit bool, err error) {
 	for try := 0; ; try++ {
 		c.mu.Lock()
 		s := c.slot(db)
-		need := max(minEpoch, s.minEpoch)
+		need := s.minEpoch
 		now := c.now()
 		if s.r != nil && s.r.Epoch >= need && now.Before(s.r.until) {
 			if !now.Before(s.r.refreshAt) && s.f == nil {
@@ -177,8 +178,10 @@ func (c *routes) finish(db string, f *flight) {
 		return
 	}
 	if f.minEpoch > 0 && f.minEpoch >= s.minEpoch {
-		// The locator read the primary for this load: its epoch is the truth, even below what we asked for (a
-		// new owner answers wrong_owner at the current epoch until its claim lands). Stop requiring more.
+		// The locator read the primary for this load: its epoch is the truth, even below what we asked for.
+		// Defence in depth: today the locator routes to a new owner before its claim lands (that owner answers
+		// wrong_owner at the current epoch for a few ms), a lost notification has the same effect, and the edge
+		// answers wrong_owner for a VM it cannot route; none of these means "the epoch is over".
 		s.minEpoch = 0
 	}
 	if s.r != nil && s.r.Epoch > f.r.Epoch {

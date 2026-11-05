@@ -62,21 +62,21 @@ func waitLoads(t *testing.T, loads *atomic.Int64, n int64) {
 func TestRoutesRefreshAheadOfTTL(t *testing.T) {
 	c, clk, loads, epoch := newTestRoutes(t, 10)
 	ctx := context.Background()
-	if r, hit, err := c.get(ctx, "d", 0); err != nil || hit || r.Epoch != 1 {
+	if r, hit, err := c.get(ctx, "d"); err != nil || hit || r.Epoch != 1 {
 		t.Fatalf("first get: %+v %v %v", r, hit, err)
 	}
 	clk.add(8*time.Second - 1) // off point
-	if _, hit, _ := c.get(ctx, "d", 0); !hit || loads.Load() != 1 {
+	if _, hit, _ := c.get(ctx, "d"); !hit || loads.Load() != 1 {
 		t.Fatalf("before refreshAt: hit %v, %d loads", hit, loads.Load())
 	}
 	epoch.Store(2)
 	clk.add(1) // on point
-	if r, hit, _ := c.get(ctx, "d", 0); !hit || r.Epoch != 1 {
+	if r, hit, _ := c.get(ctx, "d"); !hit || r.Epoch != 1 {
 		t.Fatalf("at refreshAt: %+v hit %v; want the cached route", r, hit)
 	}
 	waitLoads(t, loads, 2)
 	for deadline := time.Now().Add(2 * time.Second); ; {
-		if r, _, _ := c.get(ctx, "d", 0); r.Epoch == 2 {
+		if r, _, _ := c.get(ctx, "d"); r.Epoch == 2 {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -86,7 +86,7 @@ func TestRoutesRefreshAheadOfTTL(t *testing.T) {
 	}
 	// The refreshed route was fetched at t0+8s; it is unusable from t0+8s+9s on.
 	clk.add(9 * time.Second)
-	if _, hit, _ := c.get(ctx, "d", 0); hit {
+	if _, hit, _ := c.get(ctx, "d"); hit {
 		t.Fatal("a route past its ticket's TTL was used")
 	}
 }
@@ -95,14 +95,14 @@ func TestRoutesRefreshAheadOfTTL(t *testing.T) {
 func TestRoutesDrop(t *testing.T) {
 	c, _, loads, epoch := newTestRoutes(t, 10)
 	ctx := context.Background()
-	c.get(ctx, "d", 0)
+	c.get(ctx, "d")
 	epoch.Store(5)
 	c.drop("d", 4, 0) // not the cached epoch (1): kept
-	if _, hit, _ := c.get(ctx, "d", 0); !hit {
+	if _, hit, _ := c.get(ctx, "d"); !hit {
 		t.Fatal("a drop for another epoch dropped the route")
 	}
 	c.drop("d", 1, 2)
-	r, hit, _ := c.get(ctx, "d", 0)
+	r, hit, _ := c.get(ctx, "d")
 	if hit || r.Epoch < 2 || loads.Load() != 2 {
 		t.Fatalf("after drop: %+v hit %v loads %d", r, hit, loads.Load())
 	}
@@ -113,7 +113,7 @@ func TestRoutesErrorsAndBound(t *testing.T) {
 	c, _, loads, _ := newTestRoutes(t, 3)
 	ctx := context.Background()
 	for range 2 {
-		if _, _, err := c.get(ctx, "boom", 0); err == nil {
+		if _, _, err := c.get(ctx, "boom"); err == nil {
 			t.Fatal("want the loader's error")
 		}
 	}
@@ -121,7 +121,7 @@ func TestRoutesErrorsAndBound(t *testing.T) {
 		t.Fatalf("a failed load was cached: %d loads", loads.Load())
 	}
 	for _, db := range []string{"a", "b", "c", "d", "e"} {
-		c.get(ctx, db, 0)
+		c.get(ctx, db)
 	}
 	if n := c.size(); n > 3 {
 		t.Fatalf("cache holds %d entries, max 3", n)
@@ -139,14 +139,14 @@ func TestRoutesCallerLeaves(t *testing.T) {
 	}, time.Second, 10, time.Now, func(at time.Time, ttl time.Duration) time.Time { return at.Add(ttl / 2) })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { _, _, err := c.get(ctx, "d", 0); done <- err }()
+	go func() { _, _, err := c.get(ctx, "d"); done <- err }()
 	waitLoads(t, &loads, 1)
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("leaving caller: %v", err)
 	}
 	got := make(chan error, 1)
-	go func() { _, _, err := c.get(context.Background(), "d", 0); got <- err }()
+	go func() { _, _, err := c.get(context.Background(), "d"); got <- err }()
 	close(release)
 	if err := <-got; err != nil || loads.Load() != 1 {
 		t.Fatalf("the second caller: %v, %d loads; want the first load's route", err, loads.Load())
@@ -162,7 +162,7 @@ func TestRoutesLoaderPanic(t *testing.T) {
 			t.Fatal("no panic")
 		}
 	}()
-	c.get(context.Background(), "d", 0)
+	c.get(context.Background(), "d")
 }
 
 // The primary's answer ends a min_epoch requirement even when its epoch is lower: a new owner answers
@@ -175,12 +175,12 @@ func TestRoutesPrimaryAnswerEndsMinEpoch(t *testing.T) {
 		return Route{DB: db, Epoch: 1, TTL: 10 * time.Second}, nil // the primary stays at epoch 1
 	}
 	ctx := context.Background()
-	c.get(ctx, "d", 0)
+	c.get(ctx, "d")
 	c.drop("d", 1, 2)
-	if r, _, _ := c.get(ctx, "d", 0); r.Epoch != 1 || loads.Load() != 2 {
+	if r, _, _ := c.get(ctx, "d"); r.Epoch != 1 || loads.Load() != 2 {
 		t.Fatalf("%+v after %d loads", r, loads.Load())
 	}
-	if _, hit, _ := c.get(ctx, "d", 0); !hit || loads.Load() != 2 {
+	if _, hit, _ := c.get(ctx, "d"); !hit || loads.Load() != 2 {
 		t.Fatalf("hit %v, %d loads: the min_epoch requirement outlived the primary's answer", hit, loads.Load())
 	}
 }

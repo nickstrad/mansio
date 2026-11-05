@@ -145,6 +145,9 @@ type Attempt struct {
 // (front.RetryHint, a breaker's time to half-open), or 0. In-process callers pass it as Attempt.ServerHint;
 // network clients take the response's Retry-After instead.
 func HintOf(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
 	var h interface{ RetryAfter() time.Duration }
 	if errors.As(err, &h) {
 		return max(h.RetryAfter(), 0)

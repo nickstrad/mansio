@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -12,8 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -51,31 +50,18 @@ type locatorFlags struct {
 // before the move are found stale only when used.
 const moveWindow = 2 * time.Second
 
-// LocatorSummary is one locator run (also written as JSON with -out).
+// LocatorSummary is one locator run (also written as JSON with -out): run's fields (Codes are client.CodeOf
+// per call), plus the locator's.
 type LocatorSummary struct {
-	Mode       string         `json:"mode"` // "locator"
-	DBs        int            `json:"dbs"`
-	Conc       int            `json:"conc"`
-	WriteFrac  float64        `json:"write_frac"`
-	Duration   string         `json:"duration"`
-	Requests   int            `json:"requests"`
-	Codes      map[string]int `json:"codes"` // final code per request (client.CodeOf)
-	OKPerSec   float64        `json:"ok_per_sec"`
-	ErrorRate  float64        `json:"error_rate"` // non-ok / requests
-	P50us      float64        `json:"p50_us"`
-	P99us      float64        `json:"p99_us"`
-	P999us     float64        `json:"p999_us"`
-	MaxUS      float64        `json:"max_us"`
-	Resolve    ResolveStats   `json:"resolve"`
-	Reroutes   int            `json:"reroutes"`    // re-resolves inside calls
-	Retries    int64          `json:"retries"`     // same-route retries (budget spent)
-	Moves      int            `json:"moves"`       // moves that succeeded during the measured part
-	MoveFailed int            `json:"move_failed"` // moves controld refused or failed
-	MoveP50ms  float64        `json:"move_p50_ms"` // move call duration
-	DuringMove MoveWindow     `json:"during_move"` // requests started during a move or moveWindow after it
-	GoVersion  string         `json:"go"`
-	CPUs       int            `json:"cpus"`
-	StartedUTC string         `json:"started_utc"`
+	Summary
+	ErrorRate  float64      `json:"error_rate"` // non-ok / requests
+	Resolve    ResolveStats `json:"resolve"`
+	Reroutes   int          `json:"reroutes"`    // re-resolves inside calls
+	Retries    int64        `json:"retries"`     // same-route retries (budget spent)
+	Moves      int          `json:"moves"`       // moves that succeeded during the measured part
+	MoveFailed int          `json:"move_failed"` // moves controld refused or failed
+	MoveP50ms  float64      `json:"move_p50_ms"` // move call duration
+	DuringMove MoveWindow   `json:"during_move"` // requests started during a move or moveWindow after it
 }
 
 // ResolveStats are the route lookups of the measured part: hits come from the client's cache, misses wait for
@@ -153,22 +139,15 @@ func locatorCmd(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		sum.Conc, sum.WriteFrac, sum.DBs, sum.Requests, sum.OKPerSec, sum.P50us, sum.P99us, sum.ErrorRate,
 		sum.Resolve.Hits, sum.Resolve.HitP50us, sum.Resolve.Misses, sum.Resolve.MissP50us, sum.Resolve.MissP99us,
 		sum.Reroutes, sum.Retries, sum.Moves, sum.MoveFailed, sum.DuringMove.Requests, sum.DuringMove.ErrorRate, sum.Codes)
-	if f.out != "" {
-		b, _ := json.MarshalIndent(sum, "", "  ")
-		if err := os.MkdirAll(filepath.Dir(f.out), 0o755); err != nil {
-			return errs.Wrap(module, err, "cannot create %s", filepath.Dir(f.out))
-		}
-		if err := os.WriteFile(f.out, append(b, '\n'), 0o644); err != nil {
-			return errs.Wrap(module, err, "cannot write %s", f.out)
-		}
-	}
-	if sum.Codes["ok"] == 0 {
-		return errs.Wrap(module, nil, "no request succeeded: codes %v", sum.Codes)
-	}
-	return nil
+	return finish(f.out, sum, sum.Codes)
 }
 
 func fbName(i int) string { return fmt.Sprintf("fb-%d", i) }
+
+// clientConfig is the client every locator call uses; callers add their own fields.
+func (f locatorFlags) clientConfig(apiKey string) client.Config {
+	return client.Config{Locator: f.locator, APIKey: apiKey, Tenant: f.tenant, Scheme: f.scheme, CAFile: f.ca}
+}
 
 // adminAPI is the slice of controld's admin API the bench uses.
 type adminAPI struct {
@@ -209,8 +188,9 @@ func (a *adminAPI) createKey(ctx context.Context, tenant string) (string, error)
 
 // setupDBs creates the databases (an existing one is fine) and their table, through the client.
 func setupDBs(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey string) error {
-	c, err := client.New(client.Config{Locator: f.locator, APIKey: apiKey, Tenant: f.tenant, Scheme: f.scheme, CAFile: f.ca,
-		Timeout: 30 * time.Second, MaxReroutes: 20})
+	cfg := f.clientConfig(apiKey)
+	cfg.Timeout, cfg.MaxReroutes = 30*time.Second, 20
+	c, err := client.New(cfg)
 	if err != nil {
 		return err
 	}
@@ -232,10 +212,11 @@ func setupDBs(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey string) 
 	return nil
 }
 
-// latencies collects resolve lookups from the client's hook (shared by every worker).
+// latencies collects resolve lookups from the client's hook (shared by every worker). Slices are preallocated
+// so that growing them never stalls the workers inside a measured call.
 type latencies struct {
+	on        atomic.Bool
 	mu        sync.Mutex
-	on        bool
 	hit, miss []time.Duration
 	reroutes  int
 }
@@ -243,44 +224,41 @@ type latencies struct {
 const maxSamples = 2_000_000
 
 func (l *latencies) resolve(e client.ResolveEvent) {
+	if !l.on.Load() || e.Err != nil {
+		return
+	}
 	l.mu.Lock()
-	if l.on && e.Err == nil {
-		if e.Hit && len(l.hit) < maxSamples {
-			l.hit = append(l.hit, e.Wait)
-		} else if !e.Hit && len(l.miss) < maxSamples {
-			l.miss = append(l.miss, e.Wait)
-		}
+	if e.Hit && len(l.hit) < maxSamples {
+		l.hit = append(l.hit, e.Wait)
+	} else if !e.Hit && len(l.miss) < maxSamples {
+		l.miss = append(l.miss, e.Wait)
 	}
 	l.mu.Unlock()
 }
 
 func (l *latencies) retry(e client.RetryEvent) {
-	if e.Reroute {
+	if e.Reroute && l.on.Load() {
 		l.mu.Lock()
-		if l.on {
-			l.reroutes++
-		}
+		l.reroutes++
 		l.mu.Unlock()
 	}
 }
 
-func quantileUS(d []time.Duration, p float64) float64 {
-	if len(d) == 0 {
-		return 0
-	}
-	return float64(d[min(len(d)-1, int(p*float64(len(d))))].Nanoseconds()) / 1e3
-}
-
 // driveLocator runs conc closed-loop workers on one client, plus the mover, for warmup + duration.
 func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey string) (LocatorSummary, error) {
-	lat := &latencies{}
+	lat := &latencies{hit: make([]time.Duration, 0, min(maxSamples, f.conc*int(f.duration/time.Millisecond)))}
 	budget := &retry.Budget{Ratio: client.DefaultBudgetRatio}
-	c, err := client.New(client.Config{Locator: f.locator, APIKey: apiKey, Tenant: f.tenant, Scheme: f.scheme, CAFile: f.ca,
-		Timeout: f.timeout, Budget: budget, Hooks: client.Hooks{Resolve: lat.resolve, Retry: lat.retry}})
+	cfg := f.clientConfig(apiKey)
+	cfg.Timeout, cfg.Budget, cfg.Hooks = f.timeout, budget, client.Hooks{Resolve: lat.resolve, Retry: lat.retry}
+	c, err := client.New(cfg)
 	if err != nil {
 		return LocatorSummary{}, err
 	}
 	defer c.Close()
+	names := make([]string, f.dbs)
+	for i := range names {
+		names[i] = fbName(i)
+	}
 	start := time.Now()
 	measureFrom, end := start.Add(f.warmup), start.Add(f.warmup+f.duration)
 	var movingUntil atomic.Int64 // unix ns: requests starting before this overlap a move
@@ -293,17 +271,13 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 	results := make([]result, f.conc)
 	var retries0 int64
 	var wg sync.WaitGroup
-	measuring := make(chan struct{})
 	wg.Go(func() { // turns measurement on at measureFrom
 		select {
 		case <-time.After(time.Until(measureFrom)):
 		case <-ctx.Done():
 		}
-		lat.mu.Lock()
-		lat.on = true
-		lat.mu.Unlock()
 		_, retries0 = budget.Counts()
-		close(measuring)
+		lat.on.Store(true)
 	})
 	var moves, moveFailed int
 	var moveDur []time.Duration
@@ -321,39 +295,39 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 				if time.Now().Add(moveWindow).After(end) {
 					return
 				}
-				key := f.tenant + ":" + fbName(r.IntN(f.dbs))
+				key := f.tenant + ":" + names[r.IntN(f.dbs)]
 				movingUntil.Store(time.Now().Add(time.Hour).UnixNano())
 				t0 := time.Now()
 				mctx, cancel := context.WithTimeout(ctx, time.Minute)
 				code, err := ad.call(mctx, "/v1/databases/"+url.PathEscape(key)+"/move", map[string]string{}, nil)
 				cancel()
 				movingUntil.Store(time.Now().Add(moveWindow).UnixNano())
-				if t0.Before(measureFrom) {
-					continue
-				}
-				if err != nil || code != http.StatusOK {
+				switch {
+				case t0.Before(measureFrom):
+				case err != nil || code != http.StatusOK:
 					moveFailed++
-					continue
+				default:
+					moves++
+					moveDur = append(moveDur, time.Since(t0))
 				}
-				moves++
-				moveDur = append(moveDur, time.Since(t0))
 			}
 		})
 	}
-	var workers sync.WaitGroup
 	for w := range f.conc {
-		workers.Go(func() {
+		wg.Go(func() {
 			r := rand.New(rand.NewPCG(f.seed, uint64(w)+1))
 			res := result{codes: map[string]int{}}
 			blob := make([]byte, 64)
 			for ctx.Err() == nil {
-				db := r.IntN(f.dbs)
-				req := client.Request{DB: fbName(db), Kind: front.KindRead, SQL: "select id, v from fb where id = ?", Args: []any{r.Int64N(1000) + 1}}
+				db := names[r.IntN(f.dbs)]
+				var req client.Request
 				if r.Float64() < f.write {
-					for i := range blob {
-						blob[i] = byte(r.Uint32())
+					for i := 0; i < len(blob); i += 8 {
+						binary.LittleEndian.PutUint64(blob[i:], r.Uint64())
 					}
-					req = client.Request{DB: fbName(db), Kind: front.KindWrite, SQL: "insert into fb (v) values (?)", Args: []any{blob}}
+					req = client.Request{DB: db, Kind: front.KindWrite, SQL: "insert into fb (v) values (?)", Args: []any{blob}}
+				} else {
+					req = client.Request{DB: db, Kind: front.KindRead, SQL: "select id, v from fb where id = ?", Args: []any{r.Int64N(1000) + 1}}
 				}
 				t0 := time.Now()
 				if t0.After(end) {
@@ -363,9 +337,8 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 				if !t0.After(measureFrom) {
 					continue
 				}
-				code := client.CodeOf(err)
 				res.lat = append(res.lat, time.Since(t0))
-				res.codes[code]++
+				res.codes[client.CodeOf(err)]++
 				if t0.UnixNano() < movingUntil.Load() {
 					res.moveReqs++
 					if err != nil {
@@ -376,43 +349,35 @@ func driveLocator(ctx context.Context, f locatorFlags, ad *adminAPI, apiKey stri
 			results[w] = res
 		})
 	}
-	workers.Wait()
 	wg.Wait()
 	if ctx.Err() != nil {
 		return LocatorSummary{}, errs.Wrap(module, ctx.Err(), "run interrupted; no summary")
 	}
-	<-measuring
 	_, retries1 := budget.Counts()
 
 	var all []time.Duration
-	s := LocatorSummary{Mode: "locator", DBs: f.dbs, Conc: f.conc, WriteFrac: f.write, Duration: f.duration.String(),
-		Codes: map[string]int{}, Moves: moves, MoveFailed: moveFailed, Retries: retries1 - retries0,
-		GoVersion: runtime.Version(), CPUs: runtime.NumCPU(), StartedUTC: start.UTC().Format(time.RFC3339)}
+	codes := map[string]int{}
+	s := LocatorSummary{Moves: moves, MoveFailed: moveFailed, Retries: retries1 - retries0}
 	for _, r := range results {
 		all = append(all, r.lat...)
 		for c, n := range r.codes {
-			s.Codes[c] += n
+			codes[c] += n
 		}
 		s.DuringMove.Requests += r.moveReqs
 		s.DuringMove.Failed += r.moveFailures
 	}
-	slices.Sort(all)
-	s.Requests = len(all)
-	s.OKPerSec = float64(s.Codes["ok"]) / f.duration.Seconds()
+	s.Summary = summarize("locator", f.dbs, f.conc, f.write, f.duration, start, all, codes)
 	if s.Requests > 0 {
-		s.ErrorRate = float64(s.Requests-s.Codes["ok"]) / float64(s.Requests)
+		s.ErrorRate = float64(s.Requests-codes["ok"]) / float64(s.Requests)
 	}
 	if s.DuringMove.Requests > 0 {
 		s.DuringMove.ErrorRate = float64(s.DuringMove.Failed) / float64(s.DuringMove.Requests)
 	}
-	s.P50us, s.P99us, s.P999us, s.MaxUS = quantileUS(all, 0.5), quantileUS(all, 0.99), quantileUS(all, 0.999), quantileUS(all, 1)
-	lat.mu.Lock()
 	slices.Sort(lat.hit)
 	slices.Sort(lat.miss)
 	s.Resolve = ResolveStats{Hits: len(lat.hit), Misses: len(lat.miss), HitP50us: quantileUS(lat.hit, 0.5), HitP99us: quantileUS(lat.hit, 0.99),
 		MissP50us: quantileUS(lat.miss, 0.5), MissP99us: quantileUS(lat.miss, 0.99), MissMaxUS: quantileUS(lat.miss, 1)}
 	s.Reroutes = lat.reroutes
-	lat.mu.Unlock()
 	slices.Sort(moveDur)
 	s.MoveP50ms = quantileUS(moveDur, 0.5) / 1e3
 	return s, nil

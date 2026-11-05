@@ -38,7 +38,7 @@ func TestDecideEveryWireCode(t *testing.T) {
 	if s, _ := decide(answer{Code: "something_new"}); s != stepFail {
 		t.Errorf("unknown code: %v, want fail", s)
 	}
-	if s, _ := decide(answer{Transport: true}); s != stepReroute {
+	if s, _ := decide(answer{Code: codeTransport}); s != stepReroute {
 		t.Errorf("no answer: %v, want reroute", s)
 	}
 }
@@ -51,7 +51,7 @@ func TestResolveStep(t *testing.T) {
 		{answer{Code: "moving"}, stepReroute},
 		{answer{Code: "unavailable"}, stepRetry},
 		{answer{Code: "timeout"}, stepRetry},
-		{answer{Code: "transport", Transport: true}, stepRetry},
+		{answer{Code: codeTransport}, stepRetry},
 		{answer{Code: "not_found"}, stepFail},
 		{answer{Code: "forbidden"}, stepFail},
 		{answer{Code: "unauthorized"}, stepFail},
@@ -67,7 +67,7 @@ func TestResolveStep(t *testing.T) {
 
 func TestMinEpochAfter(t *testing.T) {
 	for code, want := range map[string]uint64{"wrong_owner": 8, "fenced": 8, "ticket_invalid": 0, "": 0} {
-		if got := minEpochAfter(answer{Code: code, Transport: code == ""}, 7); got != want {
+		if got := minEpochAfter(answer{Code: code}, 7); got != want {
 			t.Errorf("%q: %d, want %d", code, got, want)
 		}
 	}
