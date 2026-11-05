@@ -9,14 +9,15 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/nickstrad/ts-db-go/internal/coldload"
+	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 )
 
 // Template schema: a small meta table plus items with a 1000-byte random payload (incompressible) and one
 // secondary index. The size target is reached by adding rows.
 const templateDDL = `
-CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
-CREATE TABLE items(id INTEGER PRIMARY KEY, k INTEGER NOT NULL, name TEXT NOT NULL, payload BLOB NOT NULL);
+CREATE TABLE meta(k TEXT PRIMARY KEY, v TEXT NOT NULL) STRICT;
+CREATE TABLE items(id INTEGER PRIMARY KEY, k INTEGER NOT NULL, name TEXT NOT NULL, payload BLOB NOT NULL) STRICT;
 CREATE INDEX items_k ON items(k);
 `
 
@@ -38,7 +39,7 @@ func buildTemplate(dir string, s coldload.SizeClass) (path string, size int64, e
 		return "", 0, err
 	}
 	vactor.RemoveDB(path)
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(OFF)")
+	db, err := sql.Open("sqlite", sqlitedsn.Build(path, "journal_mode(WAL)", "synchronous(OFF)"))
 	if err != nil {
 		return "", 0, err
 	}
@@ -54,7 +55,7 @@ func buildTemplate(dir string, s coldload.SizeClass) (path string, size int64, e
 	if _, err := db.Exec(templateDDL); err != nil {
 		return "", 0, err
 	}
-	if _, err := db.Exec(`INSERT INTO meta VALUES ('size_class', ?), ('target_bytes', ?), ('created', ?)`,
+	if _, err := db.Exec(`INSERT INTO meta (k, v) VALUES ('size_class', ?), ('target_bytes', ?), ('created', ?)`,
 		s.Name, s.Bytes, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return "", 0, err
 	}

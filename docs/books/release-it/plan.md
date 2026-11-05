@@ -204,7 +204,7 @@ where it lands.
   - The same test passes through `s3test.ApplyThenDropReply` with `MaxRetries` 2 (proving G2c is real) and 1.
 - **Size.** S.
 
-#### RI-08 — `actor.Do` bounds execution
+#### RI-08 — `actor.Do` bounds execution — **Done** (049f5ca)
 
 - **Change.** `Do` sets `Deadline` from `ctx.Deadline()` and `StmtTimeout = time.Until(deadline)` when ctx has
   one (`actor.go:155-162`). agentd and vactor never pass a deadline-free ctx (guide T2).

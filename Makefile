@@ -97,7 +97,7 @@ coldload-disk:
 #   make sqlbench-run CONFIG=smoke       build, run configs/$(CONFIG).json under the bench lock, print the report
 
 SQLBENCH_PKGS := ./internal/actor ./internal/bench ./internal/panicx ./internal/load ./internal/stats ./internal/schema \
-                 ./internal/workload ./internal/retry ./internal/outcome ./cmd/sqlbench
+                 ./internal/workload ./internal/retry ./internal/outcome ./internal/sqlitedsn ./cmd/sqlbench ./queries
 SQLBENCH_FUZZ := internal/actor:FuzzActorModel internal/schema:FuzzGenerate internal/workload:FuzzStatementsRun \
                  internal/load:FuzzPacerSendsTheIntegratedRate internal/stats:FuzzRecordFormatRoundTrip \
                  internal/retry:FuzzDelayBounds internal/outcome:FuzzParse

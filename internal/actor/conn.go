@@ -6,11 +6,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver (pure Go, no cgo)
 )
@@ -78,17 +78,18 @@ func openSQLite(path string, cfg Config, readOnly bool) (executor, error) {
 	return k, nil
 }
 
-// dsn is the driver's URI for path. The path is percent-escaped: in a file: URI a raw '#' starts a fragment
-// and a raw '?' starts the query, so an unescaped path containing either opens a different file.
+// dsn is the driver's URI for path (sqlitedsn escapes it and always enforces foreign keys).
 func dsn(path string, cfg Config, readOnly bool) string {
-	u := url.URL{Scheme: "file", Opaque: (&url.URL{Path: path}).EscapedPath()}
-	q := fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(%s)&_pragma=synchronous(%s)&_pragma=cache_size(-%d)",
-		cfg.BusyTimeout.Milliseconds(), cfg.JournalMode, cfg.Synchronous, cfg.CacheKiB)
-	if readOnly {
-		q += "&_pragma=query_only(1)"
+	pragmas := []string{
+		fmt.Sprintf("busy_timeout(%d)", cfg.BusyTimeout.Milliseconds()),
+		fmt.Sprintf("journal_mode(%s)", cfg.JournalMode),
+		fmt.Sprintf("synchronous(%s)", cfg.Synchronous),
+		fmt.Sprintf("cache_size(-%d)", cfg.CacheKiB),
 	}
-	u.RawQuery = q
-	return u.String()
+	if readOnly {
+		pragmas = append(pragmas, "query_only(1)")
+	}
+	return sqlitedsn.Build(path, pragmas...)
 }
 
 func (k *sqliteConn) close() {

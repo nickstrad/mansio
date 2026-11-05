@@ -187,11 +187,11 @@ func newTablePlan(s *schema.Schema, t *schema.Table) tablePlan {
 	}
 	for _, g := range groups {
 		if len(nums) == 0 {
-			p.aggregate = append(p.aggregate, fmt.Sprintf("SELECT %s, COUNT(*) FROM %s GROUP BY %s ORDER BY 2 DESC LIMIT 20", g.Name, n, g.Name))
+			p.aggregate = append(p.aggregate, fmt.Sprintf("SELECT %s, COUNT(*) AS n FROM %s GROUP BY %s ORDER BY n DESC LIMIT 20", g.Name, n, g.Name))
 		}
 		for _, v := range nums {
 			p.aggregate = append(p.aggregate, fmt.Sprintf(
-				"SELECT %s, COUNT(*), AVG(%s), MAX(%s) FROM %s GROUP BY %s ORDER BY 2 DESC LIMIT 20", g.Name, v.Name, v.Name, n, g.Name))
+				"SELECT %s, COUNT(*) AS n, AVG(%s), MAX(%s) FROM %s GROUP BY %s ORDER BY n DESC LIMIT 20", g.Name, v.Name, v.Name, n, g.Name))
 		}
 	}
 	if len(p.aggregate) == 0 {
@@ -206,12 +206,18 @@ func newTablePlan(s *schema.Schema, t *schema.Table) tablePlan {
 
 // Generator produces statements for one database's schema. Not safe for concurrent use.
 //
-//	Invariant: nextID[i] >= 1 for every table i.
+// Foreign keys are enforced (SQL G-13), so the generator keeps every statement valid under them: deletes go only
+// to leaf tables (no other table references them), so a parent row is never deleted, and parent_id values are
+// drawn from the parent's seed rows, which therefore always exist. (nextID would over-count when inserts fail
+// or are shed, and a dangling parent_id would fail the insert.)
+//
+//	Invariant: nextID[i] >= 1 for every table i; len(leaves) >= 1 (the last table is never a parent).
 type Generator struct {
 	opts     Options
 	plans    []tablePlan
 	nextID   []int64 // per table: one past the largest id we believe exists
 	children []int   // tables with a parent
+	leaves   []int   // tables no other table references: the only delete targets
 }
 
 // NewGenerator precomputes every statement for s.
@@ -220,14 +226,22 @@ type Generator struct {
 func NewGenerator(s *schema.Schema, opts Options) *Generator {
 	assert.That(opts.Validate() == nil, "NewGenerator: invalid options %+v", opts)
 	g := &Generator{opts: opts, nextID: make([]int64, len(s.Tables))}
+	referenced := make([]bool, len(s.Tables))
 	for i := range s.Tables {
 		t := &s.Tables[i]
 		g.plans = append(g.plans, newTablePlan(s, t))
 		g.nextID[i] = int64(t.SeedRows) + 1
 		if t.HasParent() {
 			g.children = append(g.children, i)
+			referenced[t.Parent] = true
 		}
 	}
+	for i, ref := range referenced {
+		if !ref {
+			g.leaves = append(g.leaves, i)
+		}
+	}
+	assert.That(len(g.leaves) >= 1, "NewGenerator: no leaf table (parents must be earlier tables)")
 	return g
 }
 
@@ -236,16 +250,18 @@ func (g *Generator) id(r *rand.Rand, ti int) int64 { return 1 + r.Int64N(max(g.n
 
 func pick[T any](r *rand.Rand, xs []T) T { return xs[r.IntN(len(xs))] }
 
+// parentRows bounds t's parent_id: the parent's seed rows, which are never deleted (see Generator).
 func (g *Generator) parentRows(t *schema.Table) int64 {
 	if !t.HasParent() {
 		return 0
 	}
-	return g.nextID[t.Parent] - 1
+	return int64(g.plans[t.Parent].t.SeedRows)
 }
 
-// Next makes one statement of class c. A class the schema cannot support falls back: index_lookup without an
-// indexed column → point_read; filter_scan without an unindexed scalar column → range_scan; join without a child
-// table → index_lookup. Statement.Class reports the class actually made.
+// Next makes one statement of class c, against a random table (a delete: a random leaf table). A class the schema
+// cannot support falls back: index_lookup without an indexed column → point_read; filter_scan without an
+// unindexed scalar column → range_scan; join without a child table → index_lookup. Statement.Class reports the
+// class actually made.
 //
 //	pre: c is a known class
 func (g *Generator) Next(r *rand.Rand, c Class) Statement {
@@ -305,8 +321,10 @@ func (g *Generator) Next(r *rand.Rand, c Class) Statement {
 	case Update:
 		x := pick(r, p.update)
 		st.SQL, st.Args = x.sql, []any{schema.Value(r, x.col), g.id(r, ti)}
-	case Delete:
-		st.SQL, st.Args = p.deleteS, []any{g.id(r, ti)}
+	case Delete: // leaf tables only, so no foreign key ever blocks it
+		li := pick(r, g.leaves)
+		lp := &g.plans[li]
+		st.Table, st.SQL, st.Args = lp.t.Name, lp.deleteS, []any{g.id(r, li)}
 	case Upsert:
 		st.SQL, st.Args = p.upsert, p.t.AppendRow([]any{g.id(r, ti)}, r, g.parentRows(p.t))
 	case SlowCTE:

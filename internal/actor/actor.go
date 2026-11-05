@@ -29,7 +29,9 @@ var (
 	ErrMailboxFull = errors.New("actor: mailbox full")
 	ErrClosed      = errors.New("actor: closed")
 	ErrExpired     = errors.New("actor: deadline passed while queued")
-	ErrAborted     = errors.New("actor: batch transaction aborted by another write's timeout")
+	// ErrAborted: another write in the batch ended the transaction (timeout, OR ROLLBACK, I/O error), so this
+	// write was rolled back or never run. Nothing of it is committed; retrying is safe.
+	ErrAborted = errors.New("actor: batch transaction aborted by another write")
 	// ErrTooManyRows: a read with Request.MaxRows > 0 produced more than MaxRows rows.
 	ErrTooManyRows = errors.New("actor: read returned more rows than its limit")
 )
@@ -68,6 +70,15 @@ type Result struct {
 	TimedOut  bool          // the statement timeout interrupted it
 	Columns   []string      // reads with Request.MaxRows > 0: column names
 	Values    [][]any       // reads with Request.MaxRows > 0: one slice per row, len(Values) == Rows
+}
+
+// boundBy makes ctx's deadline, if any, r's Deadline and StmtTimeout. The timeout is measured from now, so it
+// also covers time spent queued; a deadline already past still gets 1 ms (the queue check answers ErrExpired).
+func (r *Request) boundBy(ctx context.Context) {
+	if d, ok := ctx.Deadline(); ok {
+		r.Deadline = d
+		r.StmtTimeout = max(time.Until(d), time.Millisecond)
+	}
 }
 
 // Wait returns the result, or ctx's error if it ends first.
@@ -151,9 +162,15 @@ func (a *Actor) Submit(r *Request) error {
 	}
 }
 
-// Do submits one statement and waits for its result or ctx.
+// Do submits one statement and waits for its result or ctx. ctx's deadline also bounds the work, not only the
+// wait (waiting is not working, Release It T5): it becomes the request's Deadline (still queued then → ErrExpired,
+// never run) and its StmtTimeout (SQLite is interrupted when it passes), so a caller that gives up does not leave
+// the statement running and holding the connection.
+//
+//	post: ctx has a deadline d ⇒ the statement is not running after about d (plus the interrupt latency)
 func (a *Actor) Do(ctx context.Context, sql string, write bool, args ...any) Result {
 	r := &Request{SQL: sql, Args: args, Write: write}
+	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return Result{Err: err}
 	}
@@ -186,8 +203,8 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 
 // Snapshot writes a consistent copy of the database to path (which must not exist) with VACUUM INTO, on the
 // actor's own write connection, between batches. Writes queued meanwhile wait in the mailbox; none are lost.
-// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline becomes the
-// statement timeout.
+// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline bounds it as in
+// Do.
 //
 //	post: err == nil ⇒ path is a complete database holding at least the first `commits` committed write
 //	      transactions (commits is read before the snapshot is queued, so it may hold more)
@@ -195,9 +212,7 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
 	commits = a.Commits()
 	r := &Request{SQL: "VACUUM INTO ?", Args: []any{path}, onWriter: true}
-	if d, ok := ctx.Deadline(); ok {
-		r.StmtTimeout = max(time.Until(d), time.Millisecond)
-	}
+	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return commits, err
 	}
@@ -306,8 +321,14 @@ func (a *Actor) process(batch []*Request) {
 	}
 }
 
-// writeBatch runs writes in one transaction. A write interrupted by its timeout makes SQLite roll back the whole
-// transaction, so the rest are skipped and the batch is rolled back; settle decides every write's outcome.
+// writeBatch runs writes in one transaction, each inside its own savepoint (SQL G-8, psql's ON_ERROR_ROLLBACK).
+// A write that fails is rolled back to its savepoint, so its error stays its own and its batch-mates commit.
+// A write can also end the whole transaction under us (a statement timeout interrupts it; INSERT OR ROLLBACK,
+// a RAISE(ROLLBACK) trigger, or an I/O error rolls it back): the next ROLLBACK TO or RELEASE then finds no
+// savepoint. From there the batch is aborted: the rest are never run (so nothing autocommits outside the
+// transaction) and settle reports every write that had not failed on its own as ErrAborted.
+//
+//	post: every write is either committed and answered without error, or not committed and answered with one
 func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	ctx := context.Background()
 	if err := a.w.run(ctx, "BEGIN IMMEDIATE"); err != nil {
@@ -319,20 +340,20 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	results := make([]Result, len(writes))
 	aborted := false
 	for i, r := range writes {
-		if aborted { // SQLite already rolled the transaction back; settle answers these ErrAborted
+		if aborted { // the transaction is gone; settle answers these ErrAborted
 			results[i] = Result{QueueWait: time.Since(r.enqueued)}
 			continue
 		}
-		results[i] = a.run1(a.w, r)
-		aborted = results[i].TimedOut
+		results[i], aborted = a.runInSavepoint(ctx, r)
 	}
 	end := "COMMIT"
 	if aborted {
-		end = "ROLLBACK"
+		end = "ROLLBACK" // usually fails with "no transaction is active"; it matters only if one is left open
 	}
 	c0 := time.Now()
 	endErr := a.w.run(ctx, end)
 	commit := time.Since(c0)
+	checkEnd(aborted, endErr)
 	if !aborted && endErr == nil {
 		a.commits.Add(1) // before the replies: a caller that saw its write acknowledged sees it counted
 	}
@@ -341,6 +362,22 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 		results[i].Commit = commit
 		meta.reply(r, results[i])
 	}
+}
+
+// runInSavepoint runs one write inside SAVEPOINT w. gone reports that the batch transaction no longer exists
+// (or its state is unknown), so no further statement may run in it.
+//
+//	pre:  a transaction is open on a.w
+//	post: !gone ⇒ the transaction is still open and holds r's effects iff res.Err == nil
+func (a *Actor) runInSavepoint(ctx context.Context, r *Request) (res Result, gone bool) {
+	if err := a.w.run(ctx, "SAVEPOINT w"); err != nil {
+		return Result{Err: err, QueueWait: time.Since(r.enqueued)}, true
+	}
+	res = a.run1(a.w, r)
+	if res.Err != nil && a.w.run(ctx, "ROLLBACK TO w") != nil {
+		return res, true
+	}
+	return res, a.w.run(ctx, "RELEASE w") != nil
 }
 
 // reader serves reads from the read pool until the queue is closed, then closes its connection.

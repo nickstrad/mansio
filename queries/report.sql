@@ -2,10 +2,12 @@
 --   cd results/<run> && duckdb < ../../queries/report.sql      (or: scripts/report.sh results/<run>)
 -- Files: requests.csv (one row per request), samples.csv (resource samples), phases.csv, schemas.csv.
 
-CREATE OR REPLACE VIEW req AS SELECT * FROM read_csv('requests.csv', header = true);
-CREATE OR REPLACE VIEW smp AS SELECT * FROM read_csv('samples.csv', header = true);
-CREATE OR REPLACE VIEW ph AS SELECT * FROM read_csv('phases.csv', header = true, quote = '');
-CREATE OR REPLACE VIEW sch AS SELECT * FROM read_csv('schemas.csv', header = true);
+-- The typed readers live in queries/views.sql; this path assumes the run directory is results/<run>.
+.read ../../queries/views.sql
+CREATE OR REPLACE VIEW req AS SELECT * EXCLUDE (filename) FROM requests_csv('requests.csv');
+CREATE OR REPLACE VIEW smp AS SELECT * EXCLUDE (filename) FROM samples_csv('samples.csv');
+CREATE OR REPLACE VIEW ph AS SELECT * EXCLUDE (filename) FROM phases_csv('phases.csv');
+CREATE OR REPLACE VIEW sch AS SELECT * EXCLUDE (filename) FROM schemas_csv('schemas.csv');
 CREATE OR REPLACE VIEW db_shape AS
   SELECT db, count(*) AS tables, sum(columns) AS columns, sum(indexed_columns) AS indexes, sum(seed_rows) AS rows
   FROM sch GROUP BY db;
@@ -37,7 +39,7 @@ SELECT
   round(quantile_cont(exec_us, 0.99) FILTER (WHERE err = 'ok') / 1000, 3) AS exec_p99_ms,
   round(quantile_cont(latency_us, 0.99) FILTER (WHERE err = 'ok') / 1000, 3) AS latency_p99_ms,
   round(avg(rows) FILTER (WHERE err = 'ok'), 1) AS avg_rows
-FROM req GROUP BY class ORDER BY expect_slow, write, n DESC;
+FROM req GROUP BY class ORDER BY expect_slow, write, n DESC, class;
 
 .print '== 4. Where the time goes (ok requests, µs): queue → exec → commit =='
 SELECT
@@ -80,7 +82,7 @@ FROM per_db GROUP BY phase ORDER BY phase;
 SELECT r.db, count(*) AS requests, round(100.0 * count(*) / (SELECT count(*) FROM req), 2) AS pct_of_all,
        round(quantile_cont(latency_us, 0.99) FILTER (WHERE err = 'ok') / 1000, 3) AS p99_ms,
        count(*) FILTER (WHERE err = 'shed') AS shed, s.tables, s.indexes, s.rows
-FROM req r JOIN db_shape s USING (db) GROUP BY r.db, s.tables, s.indexes, s.rows ORDER BY requests DESC LIMIT 10;
+FROM req r JOIN db_shape s USING (db) GROUP BY r.db, s.tables, s.indexes, s.rows ORDER BY requests DESC, r.db LIMIT 10;
 
 .print '== 9. Does schema shape matter? Scan-type exec time by database size =='
 SELECT class,
