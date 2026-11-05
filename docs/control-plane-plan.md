@@ -115,7 +115,7 @@ replacing raw SQL on the wire (the reserved `op` field).
 ## 4. Assumptions the plan rests on (from the fencing safety argument)
 
 - Postgres CAS is atomic, epochs only move forward, and Claim and Reconcile read the primary.
-- S3 conditional PUT is atomic. **Verified 2026-11-05 on single-node SeaweedFS** (`knowledge/writeback/2026-11-05-s3-conditional-put-verified.md`); a multi-node cluster isn't tested.
+- S3 conditional PUT is atomic. **Verified 2026-11-05 on single-node SeaweedFS** (`knowledge/writeback/2026-11-05-s3-conditional-put-verified.md`; `TestS3Compat` X1–X11: `knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md`); a multi-node cluster isn't tested.
 - `fsync` is durable. On macOS it isn't, without `F_FULLFSYNC`.
 - An operator restores around a VM only when it's really dead. There are no leases and no clocks in the safety
   path.
