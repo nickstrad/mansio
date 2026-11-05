@@ -178,7 +178,7 @@ var (
 )
 
 // checkSQL is the defense-in-depth guard (see the package comment): one statement, an allowed leading keyword,
-// and a read must not look like a write.
+// a read must not look like a write, and no reserved name.
 func checkSQL(k Kind, sql string) error {
 	if !utf8.ValidString(sql) || strings.IndexByte(sql, 0) >= 0 {
 		return bad("sql must be UTF-8 without NUL bytes")
@@ -205,6 +205,9 @@ func checkSQL(k Kind, sql string) error {
 	}
 	if k == KindRead && actor.IsWrite(s) {
 		return bad("read request looks like a write; send kind \"write\"")
+	}
+	if strings.Contains(strings.ToLower(s), actor.ReservedPrefix) { // so a client cannot read, forge or drop request ids
+		return bad("sql may not name %s tables (reserved for the agent)", actor.ReservedPrefix)
 	}
 	return nil
 }

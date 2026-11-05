@@ -395,3 +395,21 @@ type noopExec struct{}
 func (noopExec) Exec(context.Context, front.Call) (front.Reply, error) {
 	return front.Reply{Columns: []string{"k", "v"}, Rows: [][]any{{int64(1), "v1"}}, Count: 1}, nil
 }
+
+// CP-2: a write retried with the same request_id (after an ambiguous expired, an internal, or a lost reply) is
+// answered ok with the original's count and duplicate=true, and does not run again.
+func TestDuplicateRequestIDAnswersOK(t *testing.T) {
+	r := newRig(t, front.Config{})
+	in := func() front.Input { return front.Input{Ticket: r.tok(t, "db-1", nil), Body: put(40)} }
+	if o := r.s.Handle(context.Background(), in()); o.Resp.Code != front.OK || o.Resp.Duplicate {
+		t.Fatalf("first: %+v", o.Resp)
+	}
+	o := r.s.Handle(context.Background(), in())
+	if o.Resp.Code != front.OK || o.Status != 200 || !o.Resp.Duplicate || o.Resp.Count != 1 || o.Resp.RequestID != "r1" {
+		t.Fatalf("retry: %d %+v", o.Status, o.Resp)
+	}
+	if b, _ := json.Marshal(o.Resp); !strings.Contains(string(b), `"duplicate":true`) {
+		t.Fatalf("wire: %s", b)
+	}
+	r.balanced(t)
+}

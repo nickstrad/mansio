@@ -97,7 +97,7 @@ The glue every agent report specified. No new service: a file-backed `Placement`
     `/readyz` 200, `/metrics` shows the breaker open. `ApplyThenDropReply` on a publish → resolved by re-read.
   - SIGTERM with dirty keys meets `shutdown_budget`; `TestBucketBytesFlatThroughS3` still holds.
 
-### CP-2. Request ids (PG-09)
+### CP-2. Request ids (PG-09) — **Done** (d7c921d; the HTTP kill -9 form of the gate waits for CP-1's wiring — actor-level crash/move tests cover the database half)
 
 A `_tsdb_requests` table (`STRICT, WITHOUT ROWID`; DDL in [art-of-postgresql plan §5.3](books/art-of-postgresql/plan.md))
 in each tenant database, so it travels with snapshots. `insert … on conflict (request_id) do nothing returning`

@@ -12,6 +12,8 @@ Notes:
   and Retry-After, health, shutdown. **Internal, trusted-caller protocol** (raw SQL); `op` is reserved.
 - [2026-11-05 handler executor](2026-11-05-handler-executor.md): what a TypeScript handler executor needs from
   the `Executor` port (transaction scope, synchronous db calls on the actor goroutine, savepoint per handler).
+- [2026-11-05 request ids](2026-11-05-request-ids.md) (CP-2): a write's `request_id` applies at most once per
+  database; a retry is answered `ok` with the original count and `"duplicate": true`. Resolves `ambiguous`.
 - [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed
   Retry-After estimate (RI-11).
 - Raw numbers: [2026-11-05-matrix/](2026-11-05-matrix/) (`matrix.txt`, `micro.txt`, one JSON per run).
@@ -109,7 +111,8 @@ statement timeout. Every outcome maps through one table to the ten wire codes.
   protocol to clients.
 - An unauthenticated flood of distinct garbage tickets costs 26 µs each at most (signature check), and nothing
   rate-limits it yet. Connection and request-rate caps per source belong in the edge or the front (option 4 §5.2).
-- `ambiguous` writes have no request-id store to resolve them yet (option 4 §3.5).
+- `ambiguous` writes: resolved by request ids since CP-2 ([note](2026-11-05-request-ids.md)); retry with the same
+  `request_id` within `RequestTTL` (24 h).
 - One admission mutex per agent: 0.29 µs per acquire+release under full contention; shard by tenant if it
   shows up.
 - No TLS; option 4 recommends a stateless edge in front, which terminates it.

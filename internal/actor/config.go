@@ -19,6 +19,13 @@ type Config struct {
 	CacheKiB    int           // SQLite page cache per connection; default 256
 	BusyTimeout time.Duration // default 5s
 	StmtCache   int           // prepared statements kept per connection (least recently used evicted); default 64
+	// RequestTTL is how long a database remembers an applied request id (CP-2): a retry within it is answered
+	// from the record, a retry after it applies again. Default 24h. It must exceed the longest client retry
+	// window, including a move.
+	RequestTTL time.Duration
+	// RequestSweep is the least time between retention sweeps of request ids; a sweep piggybacks on a write
+	// batch. Default 1m.
+	RequestSweep time.Duration
 }
 
 // JournalModes and SynchronousModes are the values Config accepts (upper case; input is case-insensitive).
@@ -46,6 +53,12 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.StmtCache <= 0 {
 		c.StmtCache = 64
+	}
+	if c.RequestTTL <= 0 {
+		c.RequestTTL = 24 * time.Hour
+	}
+	if c.RequestSweep <= 0 {
+		c.RequestSweep = time.Minute
 	}
 	return c
 }
