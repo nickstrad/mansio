@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/owner"
@@ -574,4 +575,23 @@ func TestDoReturnsFnError(t *testing.T) {
 		t.Fatal("Keys")
 	}
 	owner.Permit{}.Done() // zero permit: no-op
+}
+
+// A slow authority: Claim gives up with the caller's deadline, reports "unavailable", and changes nothing.
+func TestClaimWithSlowAuthorityHonoursDeadline(t *testing.T) {
+	w := newWorld(t, "a")
+	w.pl.Create("k", owner.Place{Owner: "a", Epoch: 1, State: owner.PlaceActive})
+	w.pl.SetDelay(time.Second)
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := w.tab("a").Claim(cctx, "k")
+	mustIs(t, err, owner.ErrUnavailable)
+	mustIs(t, err, context.DeadlineExceeded)
+	if time.Since(start) > 500*time.Millisecond {
+		t.Fatal("Claim waited for the slow authority past its deadline")
+	}
+	if w.tab("a").State("k").State != owner.Absent {
+		t.Fatal("state changed")
+	}
 }

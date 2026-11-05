@@ -28,8 +28,11 @@ func (a agentFor) Claim(ctx context.Context, key string) (owner.Local, error) {
 	if a.p.tab == nil || a.p.pl.cut {
 		return owner.Local{}, ownertest.ErrDown
 	}
+	before := a.p.tab.State(key)
 	l, err := a.p.tab.Claim(ctx, key)
-	if err == nil {
+	// Fetch only when the claim activated the key here. Re-fetching on an idempotent claim would replace the
+	// warm local copy, and with it acknowledged writes not yet published (FuzzOwnershipModel found this).
+	if err == nil && (before.State != owner.Active || before.Epoch != l.Epoch) {
 		m := a.p.wb.Fetch(key)
 		if err := a.p.tab.CheckActivation(ctx, key, l.Epoch, m); err != nil {
 			return owner.Local{}, err

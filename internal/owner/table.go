@@ -175,7 +175,9 @@ func (p Permit) Done() {
 
 func (s *slot) release() {
 	n := s.inflight.Add(-1)
-	assert.That(n >= 0, "owner: %q in-flight count went negative (Permit.Done called twice?)", s.key)
+	if n < 0 { // guarded: assert.That's arguments would box s.key and allocate on every release
+		assert.That(false, "owner: %q in-flight count went negative (Permit.Done called twice?)", s.key)
+	}
 	if n == 0 {
 		if v := s.view.Load(); v.drain != nil {
 			v.drain.signal()
