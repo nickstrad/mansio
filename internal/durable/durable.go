@@ -1,10 +1,19 @@
 // Package durable is the durable copy of one database in object storage: immutable generations plus a
 // manifest that names the current one (contract 1 in shared_state.md, 2026-11-05).
 //
-// Layout per database key:
+// Layout per database key (v2, object-storage guide K1–K3), under KeyPrefix(key) = dbs/<h2>/<esc>/ where
+// h2 is the first 2 hex digits of sha256(key) and esc is the key path-escaped ("/" becomes "%2F"), so no
+// key's prefix contains another's:
 //
-//	dbs/<key>/gen/<generation, 20 digits>.db   immutable SQLite snapshot, created once, never overwritten
-//	dbs/<key>/manifest.json                     {key, generation, epoch, object, size, sha256, written_at}
+//	dbs/<h2>/<esc>/gen/<generation 20d>-e<epoch 20d>.db   immutable SQLite snapshot, uploaded at epoch,
+//	                                                      created once, never overwritten
+//	dbs/<h2>/<esc>/manifest.json   {key, generation, epoch, object, size, sha256, written_at}
+//
+// The epoch in a generation's name (guide K4, OS-05) means two owners can never collide on a name, and an
+// orphan names the epoch that wrote it. Each generation also carries user metadata (sha256, epoch,
+// generation, key, format: guide I4), enough to rebuild a manifest from the object alone. A manifest names
+// an object uploaded at an epoch no greater than its own: a Stamp raises the manifest's epoch without
+// renaming the object.
 //
 // Activation reads the manifest and fetches its generation. Write-back uploads a new generation, then
 // publishes a manifest naming it, conditionally: the publish fails with ErrStale if the stored manifest
@@ -17,10 +26,13 @@ package durable
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,16 +67,38 @@ type Manifest struct {
 	Key        string    `json:"key"`
 	Generation uint64    `json:"generation"`
 	Epoch      uint64    `json:"epoch"`
-	Object     string    `json:"object"` // GenObject(Key, Generation); "" for generation 0
+	Object     string    `json:"object"` // GenObject(Key, Generation, e) with e <= Epoch; "" for generation 0
 	Size       int64     `json:"size"`
-	SHA256     string    `json:"sha256"` // lower-case hex; "" for generation 0
+	SHA256     string    `json:"sha256"`        // lower-case hex; "" for generation 0
+	MD5        string    `json:"md5,omitempty"` // lower-case hex, when the writer computed it (Content-MD5)
 	WrittenAt  time.Time `json:"written_at"`
 }
 
-// Digest is what a snapshot file holds.
+// Digest is what a snapshot file holds. Writers compute SHA256 and MD5 in one pass over the file; the MD5
+// becomes the upload's Content-MD5 (guide V2), so the adapter need not read the file again.
 type Digest struct {
 	Size   int64
 	SHA256 string // lower-case hex
+	MD5    string // lower-case hex; "" if not computed (the adapter then computes it)
+}
+
+// Format is the format metadata of a generation that holds one SQLite database file.
+const Format = "sqlite3-v1"
+
+// GenInfo is what the store says about one stored generation object (its HEAD): its size and the user
+// metadata PutGeneration recorded (guide I4). Fields are zero when the object lacks that metadata.
+type GenInfo struct {
+	Size       int64
+	SHA256     string // lower-case hex
+	Key        string
+	Generation uint64
+	Epoch      uint64 // the epoch it was uploaded at (also in its name)
+	Format     string
+}
+
+// Holds reports whether the object holds exactly the snapshot d (same size and recorded sha256).
+func (g GenInfo) Holds(d Digest) bool {
+	return g.SHA256 != "" && g.Size == d.Size && g.SHA256 == d.SHA256
 }
 
 // Fetched describes one generation download.
@@ -83,13 +117,21 @@ type Store interface {
 	//	post: err == nil ⇒ v != NoVersion and m.Key == key
 	ReadManifest(ctx context.Context, key string) (m Manifest, v Version, err error)
 
-	// PutGeneration uploads the file at path as GenObject(key, gen), only if that object does not exist.
+	// PutGeneration uploads the file at path as m.Object, only if that object does not exist, with user
+	// metadata sha256, epoch, generation, key and format (GenInfo).
 	//
-	//	pre:  d is the file's size and sha256; gen >= 1
+	//	pre:  m is NextManifest(key, gen, epoch, d, _) for the file's digest d, with gen >= 1
 	//	post: the object already existed ⇒ errors.Is(err, ErrExists), nothing overwritten
 	//	post: err == nil ⇒ the object holds the file's bytes (size verified; sha256 sent for the store to check)
 	//	post: other err ⇒ the object may or may not exist; it is not referenced by any manifest
-	PutGeneration(ctx context.Context, key string, gen uint64, path string, d Digest) error
+	PutGeneration(ctx context.Context, m Manifest, path string) error
+
+	// StatGeneration returns the size and recorded metadata of the stored object named object (a GenObject
+	// name). It is the re-read that resolves an ambiguous PutGeneration (object-storage guide R3).
+	//
+	//	post: missing object ⇒ errors.Is(err, ErrNotFound)
+	//	post: err == nil ⇒ info describes the object as PutGeneration uploaded it
+	StatGeneration(ctx context.Context, object string) (GenInfo, error)
 
 	// FetchGeneration downloads m.Object to path and checks it against m.Size and m.SHA256.
 	//
@@ -108,11 +150,16 @@ type Store interface {
 	PublishManifest(ctx context.Context, m Manifest, prev Version) (v Version, err error)
 }
 
-// ValidateKey checks a database key at the edge. Keys become object names, so they must be non-empty
-// path segments without "..", empty segments, or a leading or trailing "/".
+// MaxKeyLen is the longest database key in bytes, for every package (internal/owner uses it too). An
+// escaped key is at most 3×120 bytes, so every object name stays far below S3's 1024-byte limit.
+const MaxKeyLen = 120
+
+// ValidateKey checks a database key at the edge: 1 to MaxKeyLen bytes, "/"-separated segments that are
+// not empty, "." or "..", with no leading or trailing "/", backslash or NUL. Keys are escaped in object
+// names (KeyPrefix), so these rules keep keys readable; they are not what keeps prefixes apart.
 func ValidateKey(key string) error {
-	if key == "" || len(key) > 512 {
-		return errs.Wrap(module, nil, "invalid database key %q: must be 1-512 bytes", key)
+	if key == "" || len(key) > MaxKeyLen {
+		return errs.Wrap(module, nil, "invalid database key %q: must be 1-%d bytes", key, MaxKeyLen)
 	}
 	for _, seg := range strings.Split(key, "/") {
 		if seg == "" || seg == "." || seg == ".." {
@@ -125,11 +172,32 @@ func ValidateKey(key string) error {
 	return nil
 }
 
-// GenObject is the object name of key's generation gen.
-func GenObject(key string, gen uint64) string { return fmt.Sprintf("dbs/%s/gen/%020d.db", key, gen) }
+// KeyPrefix is the one prefix every object of key lives under: "dbs/<h2>/<esc>/" (see the package doc).
+// Escaping makes the key one path segment, so for distinct keys a and b neither KeyPrefix is a prefix of
+// the other (FuzzKeyPrefixDisjoint): GC, drop and inventory by prefix never reach another database.
+func KeyPrefix(key string) string {
+	h := sha256.Sum256([]byte(key))
+	return "dbs/" + hex.EncodeToString(h[:1]) + "/" + url.PathEscape(key) + "/"
+}
+
+// GenObject is the object name of key's generation gen uploaded at epoch.
+func GenObject(key string, gen, epoch uint64) string {
+	return fmt.Sprintf("%sgen/%020d-e%020d.db", KeyPrefix(key), gen, epoch)
+}
+
+// objectEpoch returns the epoch in object if it is a GenObject name of key's generation gen.
+func objectEpoch(key string, gen uint64, object string) (uint64, bool) {
+	const digits = 20
+	rest, ok := strings.CutPrefix(object, fmt.Sprintf("%sgen/%020d-e", KeyPrefix(key), gen))
+	if !ok || len(rest) != digits+len(".db") || !strings.HasSuffix(rest, ".db") {
+		return 0, false
+	}
+	epoch, err := strconv.ParseUint(rest[:digits], 10, 64) // rejects signs, non-digits and overflow
+	return epoch, err == nil
+}
 
 // ManifestObject is the object name of key's manifest.
-func ManifestObject(key string) string { return "dbs/" + key + "/manifest.json" }
+func ManifestObject(key string) string { return KeyPrefix(key) + "manifest.json" }
 
 // Encode is the manifest's JSON.
 func Encode(m Manifest) []byte {
@@ -158,21 +226,32 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if m.Generation == 0 {
-		if m.Object != "" || m.Size != 0 || m.SHA256 != "" {
+		if m.Object != "" || m.Size != 0 || m.SHA256 != "" || m.MD5 != "" {
 			return errs.Wrap(module, nil, "manifest of %s: generation 0 must name no object", m.Key)
 		}
 		return nil
 	}
-	if m.Object != GenObject(m.Key, m.Generation) {
+	if e, ok := objectEpoch(m.Key, m.Generation, m.Object); !ok {
 		return errs.Wrap(module, nil, "manifest of %s: object %q is not generation %d's name", m.Key, m.Object, m.Generation)
+	} else if e > m.Epoch {
+		return errs.Wrap(module, nil, "manifest of %s at epoch %d names %q, uploaded at the later epoch %d", m.Key, m.Epoch, m.Object, e)
 	}
 	if m.Size < 0 {
 		return errs.Wrap(module, nil, "manifest of %s: negative size %d", m.Key, m.Size)
 	}
-	if b, err := hex.DecodeString(m.SHA256); err != nil || len(b) != 32 || strings.ToLower(m.SHA256) != m.SHA256 {
+	if !lowerHex(m.SHA256, 32) {
 		return errs.Wrap(module, nil, "manifest of %s: sha256 %q is not 64 lower-case hex digits", m.Key, m.SHA256)
 	}
+	if m.MD5 != "" && !lowerHex(m.MD5, 16) {
+		return errs.Wrap(module, nil, "manifest of %s: md5 %q is not 32 lower-case hex digits", m.Key, m.MD5)
+	}
 	return nil
+}
+
+// lowerHex reports whether s is n bytes in lower-case hex.
+func lowerHex(s string, n int) bool {
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == n && strings.ToLower(s) == s
 }
 
 // Same reports whether two manifests describe the same publish (WrittenAt aside).
@@ -181,12 +260,22 @@ func (m Manifest) Same(o Manifest) bool {
 		m.Size == o.Size && m.SHA256 == o.SHA256
 }
 
-// NextManifest is the manifest that publishes generation gen of key at epoch.
+// Digest is the snapshot m's generation holds.
+func (m Manifest) Digest() Digest { return Digest{Size: m.Size, SHA256: m.SHA256, MD5: m.MD5} }
+
+// ObjectInfo is the metadata PutGeneration records with m's object.
+//
+//	pre: m.Object == GenObject(m.Key, m.Generation, m.Epoch) (m is a NextManifest)
+func (m Manifest) ObjectInfo() GenInfo {
+	return GenInfo{Size: m.Size, SHA256: m.SHA256, Key: m.Key, Generation: m.Generation, Epoch: m.Epoch, Format: Format}
+}
+
+// NextManifest is the manifest that publishes generation gen of key, uploaded and published at epoch.
 //
 //	pre:  gen >= 1, d.SHA256 is 64 lower-case hex digits
 func NextManifest(key string, gen, epoch uint64, d Digest, now time.Time) Manifest {
-	return Manifest{Key: key, Generation: gen, Epoch: epoch, Object: GenObject(key, gen), Size: d.Size,
-		SHA256: d.SHA256, WrittenAt: now.UTC()}
+	return Manifest{Key: key, Generation: gen, Epoch: epoch, Object: GenObject(key, gen, epoch), Size: d.Size,
+		SHA256: d.SHA256, MD5: d.MD5, WrittenAt: now.UTC()}
 }
 
 // CheckPublish decides whether next may replace stored (nil: no manifest yet). Pure; the Store's
@@ -242,6 +331,10 @@ func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
 // Stamp re-publishes key's manifest at epoch, keeping generation gen (see CheckStamp). With no manifest and
 // gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Stamping at
 // the stored epoch again is a no-op that returns the stored manifest.
+//
+// A failed publish is ambiguous (a lost reply, or a 412 that a re-send of our own applied PUT caused), so
+// Stamp re-reads before it reports failure (object-storage guide R3): if the stored manifest is the one it
+// stamped, the stamp applied and Stamp succeeds.
 func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time.Time) (Manifest, Version, error) {
 	stored, v, err := s.ReadManifest(ctx, key)
 	var cur *Manifest
@@ -261,6 +354,9 @@ func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time
 	next := Stamped(cur, key, epoch, now)
 	nv, err := s.PublishManifest(ctx, next, v)
 	if err != nil {
+		if got, gv, rerr := s.ReadManifest(ctx, key); rerr == nil && got.Same(next) {
+			return got, gv, nil
+		}
 		if errors.Is(err, ErrStale) {
 			return Manifest{}, NoVersion, errs.Wrap(module, err, "cannot stamp %s at epoch %d: the manifest changed meanwhile; nothing changed", key, epoch)
 		}

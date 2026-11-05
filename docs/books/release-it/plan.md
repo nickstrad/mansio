@@ -194,7 +194,7 @@ where it lands.
   - `Dribble` fails `GetToFile` before its size-derived deadline.
 - **Size.** M.
 
-#### RI-14 — Warm `Stamp` resolves ambiguity like `publish`
+#### RI-14 — Warm `Stamp` resolves ambiguity like `publish` — **Done** (6d768de; the fake switch is `durabletest.Faults.ApplyThenStale`, and since RI-01 removed the `MaxRetries` knob the G2c re-send is reproduced by `s3test.ApplyThenPreconditionFailed` next to `ApplyThenDropReply`)
 
 - **Change.** In `vactor.Stamp` (`writeback.go:469-474`), on any error re-read the manifest. If the stored
   manifest `Same(next)`, adopt it and succeed. Set `e.stale` only when the stored epoch is greater than ours.

@@ -9,7 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -37,9 +40,11 @@ import (
 //     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
 //   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
 //     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
-//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. The
-//     size is also verified with a HEAD after the PUT, and the sha256 is recorded as x-amz-meta-sha256 (the
-//     manifest holds it too); the server does not check that one (minio-go's AutoChecksum does not add
+//     it (TestS3Compat X6). The generation's MD5 comes from the caller's digest (vactor computes it in
+//     its sha256 pass); only a digest without one costs an extra read of the file before the PUT. Each
+//     generation records x-amz-meta-{sha256, epoch, generation, key, format} (guide I4: enough to rebuild
+//     its manifest), and a HEAD after the PUT checks the size and the sha256 metadata; the server does not
+//     check the sha256 itself (minio-go's AutoChecksum does not add
 //     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
 //     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
 type Durable struct {
@@ -84,8 +89,8 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 	return m, durable.Version(etag), nil
 }
 
-func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, path string, dg durable.Digest) error {
-	name := d.root + durable.GenObject(key, gen)
+func (d *Durable) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
+	name, dg := d.root+m.Object, m.Digest()
 	if dg.Size > maxSinglePut {
 		return errs.Wrap(module, nil, "cannot upload %s: %d bytes is over the 5 GiB single-PUT limit; nothing uploaded", name, dg.Size)
 	}
@@ -94,12 +99,16 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 		return wrap(err, "cannot upload %s; nothing uploaded, safe to retry", name)
 	}
 	defer f.Close()
-	sum, err := d.s.md5File(f)
-	if err != nil {
-		return wrap(err, "cannot upload %s: reading %s failed; nothing uploaded, safe to retry", name, path)
+	var sum string
+	if dg.MD5 != "" {
+		sum, err = contentMD5(dg.MD5)
+	} else {
+		sum, err = d.s.md5File(f) // the caller did not compute it in its hashing pass: one more read
 	}
-	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3",
-		UserMetadata: map[string]string{"sha256": dg.SHA256}}
+	if err != nil {
+		return wrap(err, "cannot upload %s: no Content-MD5 for %s; nothing uploaded, safe to retry", name, path)
+	}
+	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", UserMetadata: metadata(m.ObjectInfo())}
 	opts.SetMatchETagExcept("*") // create-only
 	err = d.s.sendOnce(ctx, OpPutGen, name, d.s.transferTime(dg.Size), func(a *attempt) error {
 		_, err := d.s.core.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, sum, "", opts)
@@ -112,20 +121,66 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 		return wrap(err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
 	}
 	d.s.moved(OpPutGen, dg.Size)
+	info, err := d.stat(ctx, name)
+	if err != nil {
+		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
+	}
+	if !info.Holds(dg) {
+		return errs.Wrap(module, nil, "uploaded %s but the store holds %d bytes sha256 %q, not %d bytes %s; no manifest names it, safe to retry with a new generation",
+			name, info.Size, info.SHA256, dg.Size, dg.SHA256)
+	}
+	return nil
+}
+
+// contentMD5 turns a hex MD5 into a Content-MD5 header value (base64).
+func contentMD5(hexSum string) (string, error) {
+	b, err := hex.DecodeString(hexSum)
+	if err == nil && len(b) != md5.Size {
+		err = errs.Wrap(module, nil, "md5 %q is not %d bytes", hexSum, md5.Size)
+	}
+	return base64.StdEncoding.EncodeToString(b), err
+}
+
+// StatGeneration HEADs a generation object (retried while Transient) and returns its size and its
+// x-amz-meta-sha256.
+func (d *Durable) StatGeneration(ctx context.Context, object string) (durable.GenInfo, error) {
+	name := d.root + object
+	info, err := d.stat(ctx, name)
+	if err != nil {
+		if noSuchKey(err) {
+			err = errors.Join(durable.ErrNotFound, err)
+		}
+		return durable.GenInfo{}, wrap(err, "cannot stat generation %s; nothing changed, safe to retry", name)
+	}
+	return info, nil
+}
+
+// stat HEADs the full object name.
+func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error) {
 	var st minio.ObjectInfo
-	err = d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
+	err := d.s.retryIdempotent(ctx, OpHead, name, d.s.cfg.OpTimeout, func(a *attempt) error {
 		var err error
 		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
 		return err
 	})
-	if err != nil {
-		return wrap(err, "uploaded %s but cannot verify it; no manifest names it, safe to retry with a new generation", name)
-	}
-	if st.Size != dg.Size {
-		return errs.Wrap(module, nil, "uploaded %s but the store holds %d bytes, not %d; no manifest names it, safe to retry with a new generation",
-			name, st.Size, dg.Size)
-	}
-	return nil
+	return genInfo(st.Size, st.Metadata), err
+}
+
+// metadata is a generation's x-amz-meta-* (object-storage guide I4). The key is path-escaped, as in the
+// object name: header values must be ASCII.
+func metadata(g durable.GenInfo) map[string]string {
+	return map[string]string{"sha256": g.SHA256, "epoch": strconv.FormatUint(g.Epoch, 10),
+		"generation": strconv.FormatUint(g.Generation, 10), "key": url.PathEscape(g.Key), "format": g.Format}
+}
+
+// genInfo parses what metadata wrote. A missing or malformed field stays zero: the HEAD is evidence, not
+// input to trust (callers compare it with what they expect).
+func genInfo(size int64, h http.Header) durable.GenInfo {
+	g := durable.GenInfo{Size: size, SHA256: h.Get("X-Amz-Meta-Sha256"), Format: h.Get("X-Amz-Meta-Format")}
+	g.Epoch, _ = strconv.ParseUint(h.Get("X-Amz-Meta-Epoch"), 10, 64)
+	g.Generation, _ = strconv.ParseUint(h.Get("X-Amz-Meta-Generation"), 10, 64)
+	g.Key, _ = url.PathUnescape(h.Get("X-Amz-Meta-Key"))
+	return g
 }
 
 func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {

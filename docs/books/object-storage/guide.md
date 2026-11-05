@@ -25,7 +25,7 @@ Related rules:
 - Example: build every name from `durable.KeyPrefix(key)`, with the key escaped (OS-04). Never use
   `"dbs/" + key` directly.
   ```go
-  durable.KeyPrefix("t1/a") // "dbs/7c/t1%2Fa/"   never "dbs/t1/a/"
+  durable.KeyPrefix("t1/a") // "dbs/bb/t1%2Fa/"   never "dbs/t1/a/"
   ```
 
 **K2. Compute keys; do not LIST on a request path.**

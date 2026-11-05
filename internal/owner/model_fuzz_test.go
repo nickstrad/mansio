@@ -48,11 +48,12 @@ const (
 	opClaim
 	opFailWriteBack
 	opRogueRestore
+	opLostReply
 	numOps
 )
 
 var opNames = [...]string{"write", "stale-write", "flush", "move", "begin", "fence", "crash", "restart",
-	"partition", "reconcile", "restore", "claim", "fail-write-back", "rogue-restore"}
+	"partition", "reconcile", "restore", "claim", "fail-write-back", "rogue-restore", "lost-reply"}
 
 // FuzzOwnershipModel runs random scripts of activate/write/fence/move/crash/restart/partition/stale-route ops
 // over 3 simulated processes sharing one authority and one contract-1 store. After every op: at most one
@@ -68,6 +69,7 @@ func FuzzOwnershipModel(f *testing.F) {
 	f.Add([]byte{opFailWriteBack, 0, opWrite, 0, opMove, 12, opFailWriteBack, 0, opMove, 12, opFence, 2})
 	f.Add([]byte{opWrite, 0, opFlush, 0, opCrash, 0, opRestore, 12, opRestart, 0, opReconcile, 0, opMove, 6, opWrite, 2})
 	f.Add([]byte{opWrite, 0, opRogueRestore, 6, opWrite, 0, opFlush, 0, opClaim, 1, opWrite, 0, opFlush, 0, opWrite, 1, opFlush, 1})
+	f.Add([]byte{opWrite, 0, opLostReply, 0, opMove, 6, opWrite, 1, opLostReply, 0, opFlush, 1, opWrite, 1})
 	f.Fuzz(func(t *testing.T, script []byte) {
 		if len(script) > 400 {
 			script = script[:400]
@@ -159,6 +161,8 @@ func (m *model) step(t *testing.T, opb, arg byte) {
 		_, _ = agentFor{w, pr}.Claim(ctx, k) // a retried or wrong placement: must fail unless p is the owner
 	case opFailWriteBack:
 		pr.wb.Set(func(wb *ownertest.WriteBack) { wb.FailPublish = !wb.FailPublish })
+	case opLostReply:
+		w.objs.LoseNextReply() // the next publish or stamp applies, then reports ErrStale
 	}
 }
 

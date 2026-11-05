@@ -4,7 +4,7 @@
 // Conditional PUTs are checked and applied under one lock, the semantics AWS documents.
 //
 // It also breaks the protocol on request: stall after the headers, dribble the body, truncate it, lie in
-// Content-Length, answer 5xx/429, apply a PUT and drop the reply, corrupt the body. Each fault is a
+// Content-Length, answer 5xx/429, apply a PUT and drop the reply (or answer 412), corrupt the body. Each fault is a
 // counter-limited switch, so a test can fail N requests and then see the server heal.
 //
 // It is NOT evidence about a real backend: that is TestS3Compat's job.
@@ -41,11 +41,14 @@ const (
 	Status                  // any request: answer with Status (and Code) instead
 	ApplyThenDropReply      // PUT: apply the write, then close the connection without a response
 	CorruptBody             // GET: flip one byte of the body
+	// ApplyThenPreconditionFailed: PUT: apply the write, then answer 412. That is what a client that re-sends
+	// a conditional PUT whose reply was lost sees (minio-go's own retries did this, object-storage plan G2).
+	ApplyThenPreconditionFailed
 )
 
 func (m Mode) String() string {
 	return [...]string{"healthy", "headers_then_stall", "dribble", "truncate_body", "wrong_content_length",
-		"status", "apply_then_drop_reply", "corrupt_body"}[m]
+		"status", "apply_then_drop_reply", "corrupt_body", "apply_then_precondition_failed"}[m]
 }
 
 // Fault is a mode, which requests it hits, and how many times.
@@ -169,7 +172,7 @@ func applies(m Mode, method string) bool {
 		return true
 	case HeadersThenStall:
 		return method == http.MethodGet || method == http.MethodHead
-	case ApplyThenDropReply:
+	case ApplyThenDropReply, ApplyThenPreconditionFailed:
 		return method == http.MethodPut
 	case Dribble, TruncateBody, WrongContentLength, CorruptBody:
 		return method == http.MethodGet
@@ -242,8 +245,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		status, code, tag := s.putLocked(r, path, cur, exists, body)
 		s.mu.Unlock()
-		if f.Mode == ApplyThenDropReply {
+		switch {
+		case f.Mode == ApplyThenDropReply:
 			dropConnection(w)
+			return
+		case f.Mode == ApplyThenPreconditionFailed && status == http.StatusOK:
+			writeError(w, r, http.StatusPreconditionFailed, "PreconditionFailed")
 			return
 		}
 		if status != http.StatusOK {

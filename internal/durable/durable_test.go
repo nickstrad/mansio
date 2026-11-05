@@ -23,8 +23,8 @@ func TestValidateKey(t *testing.T) {
 		ok  bool
 	}{
 		{"a", true},                       // shortest (on point)
-		{strings.Repeat("k", 512), true},  // longest (on point)
-		{strings.Repeat("k", 513), false}, // off point
+		{strings.Repeat("k", 120), true},  // longest (on point): durable.MaxKeyLen
+		{strings.Repeat("k", 121), false}, // off point
 		{"", false},                       // off point
 		{"tenant/db-1", true},
 		{"/a", false}, {"a/", false}, {"a//b", false},
@@ -38,15 +38,46 @@ func TestValidateKey(t *testing.T) {
 }
 
 func TestLayout(t *testing.T) {
-	if got := durable.GenObject("t/a", 42); got != "dbs/t/a/gen/00000000000000000042.db" {
-		t.Fatal(got)
+	for _, tc := range []struct{ got, want string }{
+		{durable.KeyPrefix("t1/a"), "dbs/bb/t1%2Fa/"}, // "/" is escaped: one path segment per key
+		{durable.KeyPrefix("t1"), "dbs/62/t1/"},
+		{durable.KeyPrefix("a b%"), "dbs/bc/a%20b%25/"},
+		{durable.GenObject("t/a", 42, 3), "dbs/84/t%2Fa/gen/00000000000000000042-e00000000000000000003.db"},
+		{durable.GenObject("a", 1<<64-1, 1<<64-1), "dbs/ca/a/gen/18446744073709551615-e18446744073709551615.db"}, // 20 digits fit uint64
+		{durable.ManifestObject("t/a"), "dbs/84/t%2Fa/manifest.json"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("got %q, want %q", tc.got, tc.want)
+		}
 	}
-	if got := durable.GenObject("a", 1<<64-1); got != "dbs/a/gen/18446744073709551615.db" { // 20 digits fit uint64
-		t.Fatal(got)
+	if len(durable.ManifestObject(strings.Repeat("/", durable.MaxKeyLen))) > 1024 {
+		t.Fatal("the longest escaped key's object name is over S3's 1024-byte limit")
 	}
-	if durable.ManifestObject("t/a") != "dbs/t/a/manifest.json" {
-		t.Fatal("manifest/prefix layout")
-	}
+}
+
+// FuzzKeyPrefixDisjoint (OS-04, guide K1): for distinct valid keys a and b, no object of a lies under
+// KeyPrefix(b), so prefix-based GC, drop and inventory never reach another database.
+func FuzzKeyPrefixDisjoint(f *testing.F) {
+	f.Add("t1", "t1/gen/x")
+	f.Add("a", "a/b")
+	f.Add("a%2Fb", "a/b")
+	f.Add("a b", "a%20b")
+	f.Add("x", "x")
+	f.Fuzz(func(t *testing.T, a, b string) {
+		if a == b || durable.ValidateKey(a) != nil || durable.ValidateKey(b) != nil {
+			return
+		}
+		pb := durable.KeyPrefix(b)
+		for _, name := range []string{durable.KeyPrefix(a), durable.ManifestObject(a), durable.GenObject(a, 1, 1)} {
+			if strings.HasPrefix(name, pb) {
+				t.Fatalf("%q (of key %q) is under KeyPrefix(%q) = %q", name, a, b, pb)
+			}
+		}
+		if !strings.HasPrefix(durable.ManifestObject(a), durable.KeyPrefix(a)) ||
+			!strings.HasPrefix(durable.GenObject(a, 1, 1), durable.KeyPrefix(a)) {
+			t.Fatalf("an object of %q is outside its own prefix", a)
+		}
+	})
 }
 
 func TestManifestValidateAndDecode(t *testing.T) {
@@ -71,18 +102,59 @@ func TestManifestValidateAndDecode(t *testing.T) {
 	if err := empty.Validate(); err != nil {
 		t.Fatalf("generation 0 with no object: %v", err)
 	}
+	noMD5 := good
+	noMD5.MD5 = "" // optional: older writers and callers that did not compute it
+	if err := noMD5.Validate(); err != nil {
+		t.Fatalf("manifest without md5: %v", err)
+	}
+	if empty.MD5 = good.MD5; empty.Validate() == nil {
+		t.Fatal("generation 0 with an md5 accepted")
+	}
 	for name, mut := range map[string]func(*durable.Manifest){
-		"gen 0 with object": func(m *durable.Manifest) { m.Generation = 0 },
-		"object name":       func(m *durable.Manifest) { m.Object = durable.GenObject("k", 4) },
-		"negative size":     func(m *durable.Manifest) { m.Size = -1 },
-		"short hash":        func(m *durable.Manifest) { m.SHA256 = m.SHA256[:63] },
-		"upper-case hash":   func(m *durable.Manifest) { m.SHA256 = strings.ToUpper(m.SHA256) },
-		"bad key":           func(m *durable.Manifest) { m.Key = "" },
+		"gen 0 with object":  func(m *durable.Manifest) { m.Generation = 0 },
+		"object name":        func(m *durable.Manifest) { m.Object = durable.GenObject("k", 4, 2) },
+		"other key's object": func(m *durable.Manifest) { m.Object = durable.GenObject("j", 3, 2) },
+		"old layout name":    func(m *durable.Manifest) { m.Object = durable.KeyPrefix("k") + "gen/00000000000000000003.db" },
+		"epoch digits":       func(m *durable.Manifest) { m.Object = strings.Replace(m.Object, "-e0", "-ex", 1) },
+		"short epoch":        func(m *durable.Manifest) { m.Object = strings.Replace(m.Object, "-e0", "-e", 1) },
+		"epoch overflow":     func(m *durable.Manifest) { m.Object = overflow(m.Object) },
+		"negative size":      func(m *durable.Manifest) { m.Size = -1 },
+		"short hash":         func(m *durable.Manifest) { m.SHA256 = m.SHA256[:63] },
+		"upper-case hash":    func(m *durable.Manifest) { m.SHA256 = strings.ToUpper(m.SHA256) },
+		"short md5":          func(m *durable.Manifest) { m.MD5 = m.MD5[:31] },
+		"upper-case md5":     func(m *durable.Manifest) { m.MD5 = strings.ToUpper(m.MD5) },
+		"bad key":            func(m *durable.Manifest) { m.Key = "" },
 	} {
 		m := good
 		mut(&m)
 		if err := m.Validate(); err == nil {
 			t.Errorf("%s: Validate accepted %+v", name, m)
+		}
+	}
+}
+
+// overflow replaces the 20-digit epoch in object with 99999999999999999999 (> 2^64-1).
+func overflow(object string) string {
+	i := strings.Index(object, "-e")
+	return object[:i+2] + strings.Repeat("9", 20) + ".db"
+}
+
+// Validate's epoch rule (OS-05): a manifest may name an object uploaded at its own epoch or an earlier one
+// (a Stamp raises the manifest's epoch without renaming the object), never a later one.
+func TestValidateObjectEpoch(t *testing.T) {
+	for _, tc := range []struct {
+		objEpoch, epoch uint64
+		ok              bool
+	}{
+		{2, 2, true},  // on point: uploaded and published at one epoch
+		{1, 2, true},  // stamped since the upload
+		{0, 0, true},  // epoch 0 (unfenced)
+		{3, 2, false}, // off point: named object is from a later epoch
+	} {
+		m := durable.NextManifest("k", 3, tc.objEpoch, dg, t0)
+		m.Epoch = tc.epoch
+		if err := m.Validate(); (err == nil) != tc.ok {
+			t.Errorf("object epoch %d, manifest epoch %d: Validate = %v, want ok=%v", tc.objEpoch, tc.epoch, err, tc.ok)
 		}
 	}
 }
@@ -169,5 +241,34 @@ func TestStamp(t *testing.T) {
 	s.Bump("k", 9) // another owner moved it between our read and publish? emulate by racing: stale version
 	if _, _, err := durable.Stamp(ctx, s, "k", 8, seeded.Generation, t0); !errors.Is(err, durable.ErrStale) {
 		t.Fatalf("stamp below a bumped epoch: %v", err)
+	}
+}
+
+// A stamp whose publish applied but whose reply was lost (or re-sent and refused with 412) is resolved by a
+// re-read (object-storage guide R3): it succeeds. A stamp that did not apply still fails (OS-02).
+func TestStampAmbiguousOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    durabletest.Faults
+		ok   bool
+	}{
+		{"applied, reply lost", durabletest.Faults{LosePublishReply: true}, true},
+		{"applied, re-send got 412", durabletest.Faults{ApplyThenStale: true}, true},
+		{"not applied", durabletest.Faults{FailPublish: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := durabletest.NewStore()
+			seeded := s.Seed("k", 1, []byte("g1"))
+			s.SetFaults(tc.f)
+			m, v, err := durable.Stamp(ctx, s, "k", 2, seeded.Generation, t0)
+			s.SetFaults(durabletest.Faults{})
+			stored, sv, _ := s.ReadManifest(ctx, "k")
+			switch {
+			case tc.ok && (err != nil || !m.Same(stored) || v != sv || m.Epoch != 2):
+				t.Fatalf("Stamp = %+v %q %v; stored %+v %q", m, v, err, stored, sv)
+			case !tc.ok && (err == nil || errors.Is(err, durable.ErrStale) || stored.Epoch != 1):
+				t.Fatalf("Stamp err = %v, stored epoch %d", err, stored.Epoch)
+			}
+		})
 	}
 }

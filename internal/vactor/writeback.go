@@ -2,6 +2,7 @@ package vactor
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -27,13 +28,13 @@ type durableState struct {
 	man      durable.Manifest
 	ver      durable.Version
 	lastGen  uint64            // highest generation this host tried to upload for the key
-	pending  *durable.Manifest // a publish whose outcome we never learned (ambiguous error)
+	pending  *durable.Manifest // a publish or stamp of ours whose outcome we never learned (ambiguous error)
 	stranded bool              // passivation's write-back failed and the file could not be reopened
 
 	epoch      atomic.Uint64
 	pubCommits atomic.Uint64
 	forceDirty atomic.Bool // the db was reopened after a failed passivation: its commit counter restarted
-	stale      atomic.Bool // a publish hit ErrStale: a higher epoch or another writer owns the key
+	stale      atomic.Bool // a re-read after a failed publish or stamp showed another writer (guide R4)
 	lastUsed   atomic.Int64
 	lastWB     atomic.Int64
 }
@@ -204,15 +205,22 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	res.Bytes = d.Size
 
 	t = time.Now()
-	var gen uint64
+	var next durable.Manifest
+	// The object is named by the epoch we upload at, so no other owner can collide with it; the loop on
+	// ErrExists is only a defence against our own orphans (guide I2).
 	for try := 0; ; try++ {
-		gen = max(e.man.Generation, e.lastGen) + 1
+		gen := max(e.man.Generation, e.lastGen) + 1
 		e.lastGen = gen // never reuse a number we tried: its object may exist (orphan)
-		err = h.opts.Store.PutGeneration(ctx, key, gen, path, d)
+		next = durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Now())
+		err = h.opts.Store.PutGeneration(ctx, next, path)
+		if err != nil && h.holds(ctx, next.Object, d) {
+			err = nil // the PUT applied and its reply was lost (or a re-send of it found it): it is ours
+		}
 		if !errors.Is(err, durable.ErrExists) || try == 7 {
 			break
 		}
 	}
+	gen := next.Generation
 	res.Upload = time.Since(t)
 	if err != nil {
 		return fail(err, "cannot write back %s: upload of generation %d failed; manifest unchanged (generation %d), database still warm, safe to retry",
@@ -220,19 +228,20 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	}
 
 	t = time.Now()
-	next := durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Now())
-	v, err := h.publish(ctx, e, next)
+	obj := next
+	next, err = h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
+		m := obj
+		m.Epoch = max(m.Epoch, e.epoch.Load()) // raised since the upload (GetAt): the object keeps its name
+		return m, durable.CheckPublish(cur, m)
+	})
 	res.Publish = time.Since(t)
 	if err != nil {
-		if errors.Is(err, durable.ErrStale) {
-			e.stale.Store(true)
+		if e.stale.Load() {
 			return fail(err, "cannot write back %s: the manifest moved on or a higher epoch owns it; generation %d uploaded but not published, database still warm; not safe to retry, re-check ownership",
 				key, gen)
 		}
-		e.pending = &next
 		return fail(err, "cannot write back %s: publishing generation %d failed or its reply was lost; database still warm, safe to retry", key, gen)
 	}
-	e.man, e.ver, e.pending = next, v, nil
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
 	e.lastWB.Store(h.opts.Now().UnixNano())
@@ -242,37 +251,80 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	return res, nil
 }
 
-// publish publishes next conditionally on e's version. When the outcome is unclear (an error, or ErrStale
-// that our own earlier publish may have caused), it re-reads the manifest: if the stored one is next, the
-// publish did apply; if it is e.pending (an earlier publish of ours whose reply was lost), it adopts that
-// and tries once more on top of it.
+// holds reports whether the stored object name holds exactly the snapshot d: the re-read that settles an
+// upload whose outcome is unclear (object-storage guide R3). A failed HEAD says nothing: false.
+func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
+	info, err := h.opts.Store.StatGeneration(ctx, name)
+	return err == nil && info.Holds(d)
+}
+
+// publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
+// version, and records it in e. build also decides whether the publish is allowed (durable.CheckPublish,
+// durable.CheckStamp); a refusal returns its error. Write-back and Stamp both go through here, so they settle
+// an unclear outcome (an error, or ErrStale that our own earlier publish may have caused) the same way, by
+// re-reading the manifest (object-storage guide R3, R4):
 //
-//	pre: e.wb is held
-func (h *Host) publish(ctx context.Context, e *entry, next durable.Manifest) (durable.Version, error) {
+//   - the stored manifest is the one we sent: the publish did apply;
+//
+//   - it is e.pending (an earlier publish or stamp of ours whose reply was lost): adopt that (and its
+//     epoch) and build once more on top of it;
+//
+//   - it is the version we published on, or the re-read failed: unknown, so ours becomes e.pending;
+//
+//   - anything else is another writer: e.stale is set and the error is ErrStale.
+//
+//     pre:  e.wb is held
+//     post: err == nil ⇒ e.man is the returned manifest, e.ver its version, and nothing is pending
+func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur *durable.Manifest) (durable.Manifest, error)) (durable.Manifest, error) {
 	for try := 0; ; try++ {
-		var prev *durable.Manifest
+		var cur *durable.Manifest
 		if e.ver != durable.NoVersion {
-			prev = &e.man
+			cur = &e.man
 		}
-		if err := durable.CheckPublish(prev, next); err != nil {
-			return durable.NoVersion, err
+		next, err := build(cur)
+		sent := err == nil
+		if sent {
+			var v durable.Version
+			if v, err = h.opts.Store.PublishManifest(ctx, next, e.ver); err == nil {
+				e.man, e.ver, e.pending = next, v, nil // a pending publish built on our old version can no longer apply
+				return next, nil
+			}
+		} else if e.pending == nil {
+			return durable.Manifest{}, err // refused on what we know, and nothing of ours is in doubt
 		}
-		v, err := h.opts.Store.PublishManifest(ctx, next, e.ver)
-		if err == nil {
-			return v, nil
+		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
+		if rerr != nil && !errors.Is(rerr, durable.ErrNoManifest) {
+			if sent {
+				e.pending = &next
+			}
+			return durable.Manifest{}, err
 		}
-		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, next.Key)
 		switch {
-		case rerr != nil:
-			return durable.NoVersion, err
-		case stored.Same(next):
-			return sv, nil
-		case try == 0 && e.pending != nil && stored.Same(*e.pending):
+		case rerr == nil && sent && stored.Same(next):
 			e.man, e.ver, e.pending = stored, sv, nil
+			return stored, nil
+		case rerr == nil && try == 0 && e.pending != nil && stored.Same(*e.pending):
+			e.man, e.ver, e.pending = stored, sv, nil
+			e.raiseEpoch(stored.Epoch) // ours: a pending stamp may have raised it
 			continue
+		case e.otherWriter(stored, sv, rerr):
+			e.stale.Store(true)
+			return durable.Manifest{}, errs.Wrap(module, errors.Join(durable.ErrStale, err),
+				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", stored.Key, stored.Generation, stored.Epoch)
+		case sent:
+			e.pending = &next
 		}
-		return durable.NoVersion, err
+		return durable.Manifest{}, err
 	}
+}
+
+// otherWriter reports whether a re-read (stored, sv, rerr == nil or ErrNoManifest) shows a manifest someone
+// else wrote: ours vanished, or it is neither the version e last saw nor e.pending.
+func (e *durableState) otherWriter(stored durable.Manifest, sv durable.Version, rerr error) bool {
+	if rerr != nil {
+		return e.ver != durable.NoVersion
+	}
+	return sv != e.ver && (e.pending == nil || !stored.Same(*e.pending))
 }
 
 // Passivate drops key's database. In durable mode it first closes the database (so nothing more can be
@@ -444,6 +496,10 @@ func (h *Host) Discard(key string) (lostWrites bool) {
 // Stamp re-publishes key's manifest at epoch, same generation gen (durable.CheckStamp), so that from then on
 // every lower-epoch publish fails. fencing's new owner calls it before admitting work. If the key is warm
 // here the stamp is conditional on the manifest this host last saw, and the entry adopts the new epoch.
+//
+// A warm stamp goes through publish, so an unclear outcome is settled by a re-read like a write-back's
+// (object-storage guide R3, R4): a stamp that applied succeeds, and the key is marked stale only if the
+// re-read shows another writer.
 func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durable.Manifest, error) {
 	if h.opts.Store == nil {
 		return durable.Manifest{}, errs.Wrap(module, nil, "cannot stamp %s: the host has no durable store", key)
@@ -458,24 +514,17 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 	}
 	e.wb.Lock()
 	defer e.wb.Unlock()
-	var cur *durable.Manifest
-	if e.ver != durable.NoVersion {
-		cur = &e.man
-	}
-	if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
-		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s", key)
-	}
-	next := durable.Stamped(cur, key, epoch, h.opts.Now())
-	v, err := h.opts.Store.PublishManifest(ctx, next, e.ver)
-	if err != nil {
-		if errors.Is(err, durable.ErrStale) {
-			e.stale.Store(true)
+	m, err := h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
+		if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
+			return durable.Manifest{}, err
 		}
+		return durable.Stamped(cur, key, epoch, h.opts.Now()), nil
+	})
+	if err != nil {
 		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s at epoch %d; re-read the manifest before retrying", key, epoch)
 	}
-	e.man, e.ver = next, v
 	e.raiseEpoch(epoch)
-	return next, nil
+	return m, nil
 }
 
 // PassivateAll passivates every active key, at most workers at a time, each write-back bounded by
@@ -588,19 +637,19 @@ func (h *Host) closeRemaining() int {
 	}
 }
 
-// hashFile returns a file's size and sha256.
+// hashFile returns a file's size, sha256 and md5, in one read of the file.
 func hashFile(path string) (durable.Digest, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return durable.Digest{}, err
 	}
 	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
+	h, m := sha256.New(), md5.New()
+	n, err := io.Copy(io.MultiWriter(h, m), f)
 	if err != nil {
 		return durable.Digest{}, err
 	}
-	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil))}, nil
+	return durable.Digest{Size: n, SHA256: hex.EncodeToString(h.Sum(nil)), MD5: hex.EncodeToString(m.Sum(nil))}, nil
 }
 
 // checkedStore asserts the durable.Store postconditions the host relies on (assertion builds only). A broken

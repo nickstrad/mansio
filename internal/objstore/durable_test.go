@@ -83,7 +83,7 @@ func TestDurableStoreDownIsAWrappedErrorNotASentinel(t *testing.T) {
 	os.WriteFile(path, []byte("x"), 0o644)
 	m := durable.NextManifest("k", 1, 0, durabletest.DigestOf([]byte("x")), time.Now())
 	_, _, e1 := d.ReadManifest(c, "k")
-	e2 := d.PutGeneration(c, "k", 1, path, durabletest.DigestOf([]byte("x")))
+	e2 := d.PutGeneration(c, m, path)
 	_, e3 := d.FetchGeneration(c, m, filepath.Join(t.TempDir(), "out"))
 	_, e4 := d.PublishManifest(c, m, durable.NoVersion)
 	for i, err := range []error{e1, e2, e3, e4} {
@@ -96,8 +96,8 @@ func TestDurableStoreDownIsAWrappedErrorNotASentinel(t *testing.T) {
 			}
 		}
 	}
-	big := durable.Digest{Size: 6 << 30, SHA256: m.SHA256}
-	if err := d.PutGeneration(c, "k", 2, path, big); err == nil {
+	big := durable.NextManifest("k", 2, 0, durable.Digest{Size: 6 << 30, SHA256: m.SHA256}, time.Now())
+	if err := d.PutGeneration(c, big, path); err == nil {
 		t.Error("a 6 GiB single PUT was attempted")
 	}
 }

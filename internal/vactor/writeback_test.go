@@ -289,7 +289,7 @@ func TestOrphanGenerationIsSkippedNotOverwritten(t *testing.T) {
 	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil {
 		t.Fatal("WriteBack with a failing publish succeeded")
 	}
-	orphan := durable.GenObject("t/a", 2)
+	orphan := durable.GenObject("t/a", 2, 0)
 	if b, ok := r.s.Object(orphan); !ok || string(b) != "v2" {
 		t.Fatal("expected an orphan generation 2")
 	}
@@ -730,5 +730,83 @@ func TestPassivateWithALeftoverWALAndAFailingSnapshotStaysWarm(t *testing.T) {
 	os.Remove(r.h.LocalPath("t/a") + "-wal")
 	if err := r.h.Passivate(ctx, "t/a"); err != nil || r.published("t/a") != "v1" {
 		t.Fatalf("final Passivate: %v, published %q", err, r.published("t/a"))
+	}
+}
+
+// RI-14 / OS-02: a warm Stamp whose publish applied but was reported ErrStale (a re-send of a lost reply
+// finds the version moved) or lost must re-read and succeed, not mark the key superseded forever.
+func TestWarmStampLostReplyIsNotSuperseded(t *testing.T) {
+	for _, f := range []durabletest.Faults{{ApplyThenStale: true}, {LosePublishReply: true}} {
+		t.Run(fmt.Sprintf("%+v", f), func(t *testing.T) {
+			r := newDurable(t, nil)
+			m := r.s.Seed("t/a", 1, []byte("v1"))
+			if _, err := r.h.GetAt(ctx, "t/a", 1); err != nil {
+				t.Fatal(err)
+			}
+			r.s.SetFaults(f)
+			got, err := r.h.Stamp(ctx, "t/a", 2, m.Generation)
+			r.s.SetFaults(durabletest.Faults{})
+			if err != nil || got.Epoch != 2 {
+				t.Fatalf("warm Stamp = %+v, %v; the re-read shows our stamp applied", got, err)
+			}
+			r.put("t/a", "v2")
+			if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+				t.Fatalf("write-back after a resolved stamp: %v", err)
+			}
+			if st, _ := r.s.Manifest("t/a"); st.Epoch != 2 || r.published("t/a") != "v2" {
+				t.Fatalf("manifest %+v published %q", st, r.published("t/a"))
+			}
+		})
+	}
+}
+
+// A stamp that fails without another writer showing up (the re-read finds the manifest we last saw) must
+// not mark the key stale either: only a re-read showing another writer does (object-storage guide R4).
+func TestWarmStampFailureWithoutAnotherWriterIsNotStale(t *testing.T) {
+	r := newDurable(t, nil)
+	m := r.s.Seed("t/a", 0, []byte("v1"))
+	r.get("t/a")
+	if _, err := r.h.Stamp(ctx, "t/a", 2, m.Generation+1); !errors.Is(err, durable.ErrStale) {
+		t.Fatalf("stamp at a wrong generation: %v", err)
+	}
+	r.s.SetFaults(durabletest.Faults{FailPublish: true})
+	if _, err := r.h.Stamp(ctx, "t/a", 2, m.Generation); err == nil {
+		t.Fatal("stamp with a failing publish succeeded")
+	}
+	r.s.SetFaults(durabletest.Faults{})
+	r.put("t/a", "v2")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatalf("write-back after failed stamps: %v", err)
+	}
+}
+
+// OS-02: an upload whose reply was lost is resolved by HEADing the object and comparing its sha256: it is
+// adopted, not uploaded again under the next generation (which would cost a full upload and an orphan).
+func TestLostUploadReplyIsAdoptedByHash(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	r.s.SetFaults(durabletest.Faults{LoseUploadReply: true})
+	res, err := r.h.WriteBack(ctx, "t/a")
+	r.s.SetFaults(durabletest.Faults{})
+	if err != nil || !res.Wrote || res.Generation != 1 || r.published("t/a") != "v1" {
+		t.Fatalf("WriteBack = %+v, %v; published %q", res, err, r.published("t/a"))
+	}
+	if puts, _, _ := r.s.Counts(); puts != 1 {
+		t.Fatalf("%d uploads, want 1", puts)
+	}
+}
+
+// An existing object at the next generation with other bytes is someone else's (or an orphan): skipped.
+func TestExistingGenerationWithOtherBytesIsSkipped(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	path := filepath.Join(t.TempDir(), "x")
+	os.WriteFile(path, []byte("other"), 0o644)
+	if err := r.s.PutGeneration(ctx, durable.NextManifest("t/a", 1, 0, durabletest.DigestOf([]byte("other")), time.Now()), path); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.h.WriteBack(ctx, "t/a")
+	if err != nil || res.Generation != 2 || r.published("t/a") != "v1" {
+		t.Fatalf("WriteBack = %+v, %v", res, err)
 	}
 }

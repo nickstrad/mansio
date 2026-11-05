@@ -215,6 +215,7 @@ type Objects struct {
 	gens      map[string]map[owner.Generation][]string
 	history   map[string][][]string // contents of every successful publish, in order (for invariants)
 	down      bool
+	lostReply bool // the next successful Publish reports ErrStale (applied, then the reply was lost)
 	Publishes int
 	Stale     int // publishes and stamps refused with ErrStale
 }
@@ -224,6 +225,10 @@ func NewObjects() *Objects {
 }
 
 func (o *Objects) SetDown(v bool) { o.mu.Lock(); o.down = v; o.mu.Unlock() }
+
+// LoseNextReply makes the next successful Publish apply and then report ErrStale: what a re-send of a
+// conditional PUT whose reply was lost gets (object-storage plan G2, OS-02).
+func (o *Objects) LoseNextReply() { o.mu.Lock(); o.lostReply = true; o.mu.Unlock() }
 
 // PublishCount is the number of successful publishes that changed a generation.
 func (o *Objects) PublishCount() int { o.mu.Lock(); defer o.mu.Unlock(); return o.Publishes }
@@ -282,7 +287,24 @@ func (o *Objects) Publish(key string, readVersion uint64, gen owner.Generation, 
 		o.history[key] = append(o.history[key], slices.Clone(o.gens[key][gen]))
 		o.Publishes++
 	}
+	if o.lostReply {
+		o.lostReply = false
+		return fmt.Errorf("%w: reply lost, the re-send found the manifest moved", owner.ErrStale)
+	}
 	return nil
+}
+
+// publishResolved is Publish followed, on failure, by the re-read a real WriteBack does (guide R3): if the
+// stored manifest is the one we asked for, the publish applied.
+func (o *Objects) publishResolved(key string, readVersion uint64, gen owner.Generation, epoch owner.Epoch) error {
+	err := o.Publish(key, readVersion, gen, epoch)
+	if err == nil {
+		return nil
+	}
+	if g, e, v, _, ok := o.Read(key); ok && g == gen && e == epoch && v == readVersion+1 {
+		return nil
+	}
+	return err
 }
 
 // Disk is one process's local database copies: key → contents (write ids). It survives a process crash
@@ -344,7 +366,7 @@ func (w *WriteBack) Publish(ctx context.Context, key string, epoch owner.Epoch) 
 	if err != nil {
 		return 0, err
 	}
-	if err := w.Objects.Publish(key, v, g, epoch); err != nil {
+	if err := w.Objects.publishResolved(key, v, g, epoch); err != nil {
 		return 0, err
 	}
 	return g, nil
@@ -375,7 +397,7 @@ func (w *WriteBack) Stamp(ctx context.Context, key string, epoch owner.Epoch, ge
 	if (ok && g != gen) || (!ok && gen != 0) {
 		return fmt.Errorf("%w: stored generation %d, caller expected %d", owner.ErrStale, g, gen)
 	}
-	return w.Objects.Publish(key, v, gen, epoch)
+	return w.Objects.publishResolved(key, v, gen, epoch)
 }
 
 // Fetch copies key's current published generation into the Disk (what a host's activation does) and
