@@ -18,14 +18,9 @@ import (
 )
 
 // requests is the number of attempts per op, ops with none left out.
+// requests is through the durable adapter, as vactor.Host reads it (durable.RequestCounter).
 func requests(st *objstore.Store) map[string]int64 {
-	out := map[string]int64{}
-	for op, o := range st.Metrics() {
-		if n := o.Requests(); n > 0 {
-			out[op] = n
-		}
-	}
-	return out
+	return durable.RequestCounter(objstore.NewDurable(st, "")).RequestCounts()
 }
 
 func diff(after, before map[string]int64) map[string]int64 {

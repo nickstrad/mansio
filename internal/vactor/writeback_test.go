@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,6 +246,36 @@ func TestPassivateWritesBackOnlyWhenDirty(t *testing.T) {
 	}
 	if got := r.getLocal("t/a"); got != "v2" {
 		t.Fatalf("reactivated %q", got)
+	}
+}
+
+// OS-08: Host.Stats reports the store's request counts and their cost. An activation is one manifest read and
+// one fetch; a warm write-back is four requests (put_gen + head + get_manifest + publish, guide G7).
+func TestStatsCountRequestsPerWriteBack(t *testing.T) {
+	r := newDurable(t, nil)
+	r.s.Seed("t/a", 0, []byte("v1"))
+	r.put("t/a", "v2")
+	act := r.h.Stats().Requests
+	if want := map[string]int64{durable.OpGetManifest: 1, durable.OpFetch: 1}; !maps.Equal(act, want) {
+		t.Fatalf("after activation Requests = %v, want %v", act, want)
+	}
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	st := r.h.Stats()
+	wb := map[string]int64{}
+	for op, n := range st.Requests {
+		if d := n - act[op]; d != 0 {
+			wb[op] = d
+		}
+	}
+	want := map[string]int64{durable.OpPutGen: 1, durable.OpHead: 1, durable.OpGetManifest: 1, durable.OpPublish: 1}
+	if !maps.Equal(wb, want) {
+		t.Fatalf("one write-back sent %v, want %v", wb, want)
+	}
+	// 2 class A (PUTs) + 4 class B (2 manifest GETs, fetch, HEAD).
+	if cost, want := st.RequestCostUSD, 2*durable.S3Standard.ClassA+4*durable.S3Standard.ClassB; math.Abs(cost-want) > 1e-15 {
+		t.Fatalf("RequestCostUSD = %g, want %g", cost, want)
 	}
 }
 

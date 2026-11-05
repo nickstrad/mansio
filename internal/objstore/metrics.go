@@ -4,22 +4,24 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
 // Operation names for Metrics (Release It guide §P, object-storage guide O1). One name per kind of HTTP
-// request this package sends; a durable write-back is put_gen + head + get_manifest + publish.
+// request this package sends; a durable write-back is put_gen + head + get_manifest + publish. The durable
+// ones are durable's names, so request counts mean the same for every Store (durable.RequestCounter).
 const (
-	OpGetManifest = "get_manifest" // GET manifest.json
-	OpFetch       = "fetch"        // GET a generation
-	OpPutGen      = "put_gen"      // PUT a generation (create-only)
-	OpPublish     = "publish"      // PUT manifest.json (conditional)
-	OpHead        = "head"         // HEAD after an upload
-	OpList        = "list"         // one listing page
-	OpDelete      = "delete"       // one batch delete
-	OpGet         = "get"          // GetToFile
-	OpPut         = "put"          // PutFile
-	OpBucket      = "bucket"       // bucket check or create
+	OpGetManifest = durable.OpGetManifest // GET manifest.json
+	OpFetch       = durable.OpFetch       // GET a generation
+	OpPutGen      = durable.OpPutGen      // PUT a generation (create-only)
+	OpPublish     = durable.OpPublish     // PUT manifest.json (conditional)
+	OpHead        = durable.OpHead        // HEAD after an upload
+	OpList        = durable.OpList        // one listing page
+	OpDelete      = durable.OpDelete      // one batch delete
+	OpGet         = "get"                 // GetToFile
+	OpPut         = "put"                 // PutFile
+	OpBucket      = "bucket"              // bucket check or create
 )
 
 var opNames = []string{OpGetManifest, OpFetch, OpPutGen, OpPublish, OpHead, OpList, OpDelete, OpGet, OpPut, OpBucket}
@@ -81,6 +83,17 @@ func (s *Store) Metrics() map[string]OpStats {
 			st.Latency[i] = c.latency[i].Load()
 		}
 		out[op] = st
+	}
+	return out
+}
+
+// RequestCounts is attempts by operation, retries included (durable.RequestCounter).
+func (s *Store) RequestCounts() map[string]int64 {
+	out := make(map[string]int64, len(s.metrics))
+	for op, st := range s.Metrics() {
+		if n := st.Requests(); n > 0 {
+			out[op] = n
+		}
 	}
 	return out
 }
