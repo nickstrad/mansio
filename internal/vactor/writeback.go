@@ -204,18 +204,22 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	res.Bytes = d.Size
 
 	t = time.Now()
-	var gen uint64
+	var next durable.Manifest
+	// The object is named by the epoch we upload at, so no other owner can collide with it; the loop on
+	// ErrExists is only a defence against our own orphans (guide I2).
 	for try := 0; ; try++ {
-		gen = max(e.man.Generation, e.lastGen) + 1
+		gen := max(e.man.Generation, e.lastGen) + 1
 		e.lastGen = gen // never reuse a number we tried: its object may exist (orphan)
-		err = h.opts.Store.PutGeneration(ctx, key, gen, path, d)
-		if err != nil && h.holds(ctx, durable.GenObject(key, gen), d) {
+		next = durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Now())
+		err = h.opts.Store.PutGeneration(ctx, next, path)
+		if err != nil && h.holds(ctx, next.Object, d) {
 			err = nil // the PUT applied and its reply was lost (or a re-send of it found it): it is ours
 		}
 		if !errors.Is(err, durable.ErrExists) || try == 7 {
 			break
 		}
 	}
+	gen := next.Generation
 	res.Upload = time.Since(t)
 	if err != nil {
 		return fail(err, "cannot write back %s: upload of generation %d failed; manifest unchanged (generation %d), database still warm, safe to retry",
@@ -223,7 +227,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	}
 
 	t = time.Now()
-	next := durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Now())
+	next.Epoch = max(next.Epoch, e.epoch.Load()) // raised meanwhile (GetAt): the object keeps its upload epoch
 	v, err := h.publish(ctx, e, &next)
 	res.Publish = time.Since(t)
 	if err != nil {

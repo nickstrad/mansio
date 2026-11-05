@@ -29,13 +29,17 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 		}
 		return p
 	}
+	putAt := func(t *testing.T, s durable.Store, key string, gen, epoch uint64, data []byte) durable.Manifest {
+		t.Helper()
+		m := durable.NextManifest(key, gen, epoch, DigestOf(data), now)
+		if err := s.PutGeneration(ctx, m, file(t, data)); err != nil {
+			t.Fatalf("PutGeneration(%s): %v", m.Object, err)
+		}
+		return m
+	}
 	put := func(t *testing.T, s durable.Store, key string, gen uint64, data []byte) durable.Manifest {
 		t.Helper()
-		d := DigestOf(data)
-		if err := s.PutGeneration(ctx, key, gen, file(t, data), d); err != nil {
-			t.Fatalf("PutGeneration(%s, %d): %v", key, gen, err)
-		}
-		return durable.NextManifest(key, gen, 1, d, now)
+		return putAt(t, s, key, gen, 1, data)
 	}
 	publish := func(t *testing.T, s durable.Store, m durable.Manifest, prev durable.Version) durable.Version {
 		t.Helper()
@@ -96,7 +100,7 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 	t.Run("generations are create-only", func(t *testing.T) {
 		s := newStore(t)
 		m := put(t, s, "suite/once", 1, []byte("first"))
-		err := s.PutGeneration(ctx, "suite/once", 1, file(t, []byte("second")), DigestOf([]byte("second")))
+		err := s.PutGeneration(ctx, durable.NextManifest("suite/once", 1, 1, DigestOf([]byte("second")), now), file(t, []byte("second")))
 		if !errors.Is(err, durable.ErrExists) {
 			t.Fatalf("second PutGeneration err = %v, want ErrExists", err)
 		}
@@ -109,23 +113,39 @@ func RunStoreSuite(t *testing.T, newStore NewStoreFunc) {
 		}
 	})
 
-	t.Run("stat names the uploaded bytes; a duplicate upload is recognized by its hash", func(t *testing.T) {
+	t.Run("stat returns the upload's metadata; a duplicate upload is recognized by its hash", func(t *testing.T) {
 		s := newStore(t)
-		m := put(t, s, "suite/stat", 1, []byte("ours"))
-		d := DigestOf([]byte("ours"))
-		info, err := s.StatGeneration(ctx, m.Object)
-		if err != nil || info.Size != d.Size || info.SHA256 != d.SHA256 || !info.Holds(d) {
-			t.Fatalf("StatGeneration = %+v, %v; want %+v", info, err, d)
+		key := "suite/stat é+%" // non-ASCII and escape characters survive the metadata round trip
+		m := putAt(t, s, key, 1, 3, []byte("ours"))
+		want := durable.GenInfo{Size: 4, SHA256: DigestOf([]byte("ours")).SHA256, Key: key, Generation: 1, Epoch: 3,
+			Format: durable.Format}
+		if info, err := s.StatGeneration(ctx, m.Object); err != nil || info != want || !info.Holds(m.Digest()) {
+			t.Fatalf("StatGeneration = %+v, %v; want %+v", info, err, want)
 		}
 		// Our own PUT again (a re-send of a lost reply): ErrExists, and the stat proves it holds our bytes.
-		if err := s.PutGeneration(ctx, "suite/stat", 1, file(t, []byte("ours")), d); !errors.Is(err, durable.ErrExists) {
+		if err := s.PutGeneration(ctx, m, file(t, []byte("ours"))); !errors.Is(err, durable.ErrExists) {
 			t.Fatalf("duplicate PutGeneration err = %v, want ErrExists", err)
 		}
-		if info, err := s.StatGeneration(ctx, m.Object); err != nil || !info.Holds(d) || info.Holds(DigestOf([]byte("other"))) {
+		if info, err := s.StatGeneration(ctx, m.Object); err != nil || !info.Holds(m.Digest()) || info.Holds(DigestOf([]byte("other"))) {
 			t.Fatalf("StatGeneration after a duplicate = %+v, %v", info, err)
 		}
-		if _, err := s.StatGeneration(ctx, durable.GenObject("suite/stat", 2)); !errors.Is(err, durable.ErrNotFound) {
+		if _, err := s.StatGeneration(ctx, durable.GenObject(key, 2, 3)); !errors.Is(err, durable.ErrNotFound) {
 			t.Fatalf("StatGeneration of a missing object: %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("two epochs upload the same generation number: both stored, neither overwritten", func(t *testing.T) {
+		s := newStore(t)
+		m1 := putAt(t, s, "suite/epochs", 2, 1, []byte("old owner"))
+		m2 := putAt(t, s, "suite/epochs", 2, 2, []byte("new owner"))
+		if m1.Object == m2.Object {
+			t.Fatalf("both epochs named %s", m1.Object)
+		}
+		for _, m := range []durable.Manifest{m1, m2} {
+			path := filepath.Join(t.TempDir(), "db")
+			if _, err := s.FetchGeneration(ctx, m, path); err != nil {
+				t.Fatalf("FetchGeneration(%s): %v", m.Object, err)
+			}
 		}
 	})
 

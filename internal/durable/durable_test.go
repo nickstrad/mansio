@@ -42,8 +42,8 @@ func TestLayout(t *testing.T) {
 		{durable.KeyPrefix("t1/a"), "dbs/bb/t1%2Fa/"}, // "/" is escaped: one path segment per key
 		{durable.KeyPrefix("t1"), "dbs/62/t1/"},
 		{durable.KeyPrefix("a b%"), "dbs/bc/a%20b%25/"},
-		{durable.GenObject("t/a", 42), "dbs/84/t%2Fa/gen/00000000000000000042.db"},
-		{durable.GenObject("a", 1<<64-1), "dbs/ca/a/gen/18446744073709551615.db"}, // 20 digits fit uint64
+		{durable.GenObject("t/a", 42, 3), "dbs/84/t%2Fa/gen/00000000000000000042-e00000000000000000003.db"},
+		{durable.GenObject("a", 1<<64-1, 1<<64-1), "dbs/ca/a/gen/18446744073709551615-e18446744073709551615.db"}, // 20 digits fit uint64
 		{durable.ManifestObject("t/a"), "dbs/84/t%2Fa/manifest.json"},
 	} {
 		if tc.got != tc.want {
@@ -68,13 +68,13 @@ func FuzzKeyPrefixDisjoint(f *testing.F) {
 			return
 		}
 		pb := durable.KeyPrefix(b)
-		for _, name := range []string{durable.KeyPrefix(a), durable.ManifestObject(a), durable.GenObject(a, 1)} {
+		for _, name := range []string{durable.KeyPrefix(a), durable.ManifestObject(a), durable.GenObject(a, 1, 1)} {
 			if strings.HasPrefix(name, pb) {
 				t.Fatalf("%q (of key %q) is under KeyPrefix(%q) = %q", name, a, b, pb)
 			}
 		}
 		if !strings.HasPrefix(durable.ManifestObject(a), durable.KeyPrefix(a)) ||
-			!strings.HasPrefix(durable.GenObject(a, 1), durable.KeyPrefix(a)) {
+			!strings.HasPrefix(durable.GenObject(a, 1, 1), durable.KeyPrefix(a)) {
 			t.Fatalf("an object of %q is outside its own prefix", a)
 		}
 	})
@@ -103,17 +103,48 @@ func TestManifestValidateAndDecode(t *testing.T) {
 		t.Fatalf("generation 0 with no object: %v", err)
 	}
 	for name, mut := range map[string]func(*durable.Manifest){
-		"gen 0 with object": func(m *durable.Manifest) { m.Generation = 0 },
-		"object name":       func(m *durable.Manifest) { m.Object = durable.GenObject("k", 4) },
-		"negative size":     func(m *durable.Manifest) { m.Size = -1 },
-		"short hash":        func(m *durable.Manifest) { m.SHA256 = m.SHA256[:63] },
-		"upper-case hash":   func(m *durable.Manifest) { m.SHA256 = strings.ToUpper(m.SHA256) },
-		"bad key":           func(m *durable.Manifest) { m.Key = "" },
+		"gen 0 with object":  func(m *durable.Manifest) { m.Generation = 0 },
+		"object name":        func(m *durable.Manifest) { m.Object = durable.GenObject("k", 4, 2) },
+		"other key's object": func(m *durable.Manifest) { m.Object = durable.GenObject("j", 3, 2) },
+		"old layout name":    func(m *durable.Manifest) { m.Object = durable.KeyPrefix("k") + "gen/00000000000000000003.db" },
+		"epoch digits":       func(m *durable.Manifest) { m.Object = strings.Replace(m.Object, "-e0", "-ex", 1) },
+		"short epoch":        func(m *durable.Manifest) { m.Object = strings.Replace(m.Object, "-e0", "-e", 1) },
+		"epoch overflow":     func(m *durable.Manifest) { m.Object = overflow(m.Object) },
+		"negative size":      func(m *durable.Manifest) { m.Size = -1 },
+		"short hash":         func(m *durable.Manifest) { m.SHA256 = m.SHA256[:63] },
+		"upper-case hash":    func(m *durable.Manifest) { m.SHA256 = strings.ToUpper(m.SHA256) },
+		"bad key":            func(m *durable.Manifest) { m.Key = "" },
 	} {
 		m := good
 		mut(&m)
 		if err := m.Validate(); err == nil {
 			t.Errorf("%s: Validate accepted %+v", name, m)
+		}
+	}
+}
+
+// overflow replaces the 20-digit epoch in object with 99999999999999999999 (> 2^64-1).
+func overflow(object string) string {
+	i := strings.Index(object, "-e")
+	return object[:i+2] + strings.Repeat("9", 20) + ".db"
+}
+
+// Validate's epoch rule (OS-05): a manifest may name an object uploaded at its own epoch or an earlier one
+// (a Stamp raises the manifest's epoch without renaming the object), never a later one.
+func TestValidateObjectEpoch(t *testing.T) {
+	for _, tc := range []struct {
+		objEpoch, epoch uint64
+		ok              bool
+	}{
+		{2, 2, true},  // on point: uploaded and published at one epoch
+		{1, 2, true},  // stamped since the upload
+		{0, 0, true},  // epoch 0 (unfenced)
+		{3, 2, false}, // off point: named object is from a later epoch
+	} {
+		m := durable.NextManifest("k", 3, tc.objEpoch, dg, t0)
+		m.Epoch = tc.epoch
+		if err := m.Validate(); (err == nil) != tc.ok {
+			t.Errorf("object epoch %d, manifest epoch %d: Validate = %v, want ok=%v", tc.objEpoch, tc.epoch, err, tc.ok)
 		}
 	}
 }

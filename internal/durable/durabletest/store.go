@@ -40,7 +40,8 @@ type Faults struct {
 // Store keeps objects and manifests in memory.
 type Store struct {
 	mu        sync.Mutex
-	objects   map[string][]byte // object name → bytes
+	objects   map[string][]byte          // object name → bytes
+	meta      map[string]durable.GenInfo // object name → metadata recorded at upload
 	manifests map[string]stored
 	next      uint64 // version counter
 	f         Faults
@@ -54,7 +55,7 @@ type stored struct {
 }
 
 func NewStore() *Store {
-	return &Store{objects: map[string][]byte{}, manifests: map[string]stored{}}
+	return &Store{objects: map[string][]byte{}, meta: map[string]durable.GenInfo{}, manifests: map[string]stored{}}
 }
 
 // SetFaults replaces the switches.
@@ -92,6 +93,7 @@ func (s *Store) DeleteObject(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.objects, name)
+	delete(s.meta, name)
 }
 
 // Corrupt flips one byte of an object (or appends one to an empty object).
@@ -128,13 +130,14 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 	st := s.manifests[key]
 	gen := st.m.Generation + 1
 	for {
-		if _, taken := s.objects[durable.GenObject(key, gen)]; !taken {
+		if _, taken := s.objects[durable.GenObject(key, gen, epoch)]; !taken {
 			break
 		}
 		gen++
 	}
 	m := durable.NextManifest(key, gen, epoch, DigestOf(data), time.Now())
 	s.objects[m.Object] = bytes.Clone(data)
+	s.meta[m.Object] = m.ObjectInfo()
 	s.next++
 	s.manifests[key] = stored{m, durable.Version(strconv.FormatUint(s.next, 10))}
 	return m
@@ -184,7 +187,7 @@ func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest,
 	return st.m, st.v, nil
 }
 
-func (s *Store) PutGeneration(ctx context.Context, key string, gen uint64, path string, d durable.Digest) error {
+func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
 	f, err := s.begin(ctx)
 	if err != nil {
 		return err
@@ -194,21 +197,21 @@ func (s *Store) PutGeneration(ctx context.Context, key string, gen uint64, path 
 		return err
 	}
 	if f.FailUpload {
-		return fmt.Errorf("upload %s gen %d: connection reset after %d of %d bytes: %w", key, gen, len(data)/2, len(data), ErrInjected)
+		return fmt.Errorf("upload %s: connection reset after %d of %d bytes: %w", m.Object, len(data)/2, len(data), ErrInjected)
 	}
-	if got := DigestOf(data); got != d {
-		return fmt.Errorf("upload %s gen %d: store computed %+v, caller sent %+v", key, gen, got, d)
+	if got := DigestOf(data); got != m.Digest() {
+		return fmt.Errorf("upload %s: store computed %+v, caller sent %+v", m.Object, got, m.Digest())
 	}
-	name := durable.GenObject(key, gen)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.objects[name]; ok {
-		return fmt.Errorf("upload %s: %w", name, durable.ErrExists)
+	if _, ok := s.objects[m.Object]; ok {
+		return fmt.Errorf("upload %s: %w", m.Object, durable.ErrExists)
 	}
-	s.objects[name] = data
+	s.objects[m.Object] = data
+	s.meta[m.Object] = m.ObjectInfo()
 	s.puts++
 	if f.LoseUploadReply {
-		return fmt.Errorf("upload %s: reply lost: %w", name, ErrInjected)
+		return fmt.Errorf("upload %s: reply lost: %w", m.Object, ErrInjected)
 	}
 	return nil
 }
@@ -218,13 +221,14 @@ func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenI
 		return durable.GenInfo{}, err
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	data, ok := s.objects[object]
-	s.mu.Unlock()
 	if !ok {
 		return durable.GenInfo{}, fmt.Errorf("stat %s: %w", object, durable.ErrNotFound)
 	}
-	d := DigestOf(data)
-	return durable.GenInfo{Size: d.Size, SHA256: d.SHA256}, nil
+	info := s.meta[object]
+	info.Size = int64(len(data)) // the real size, even after Corrupt
+	return info, nil
 }
 
 func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {

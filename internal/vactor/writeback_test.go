@@ -289,7 +289,7 @@ func TestOrphanGenerationIsSkippedNotOverwritten(t *testing.T) {
 	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil {
 		t.Fatal("WriteBack with a failing publish succeeded")
 	}
-	orphan := durable.GenObject("t/a", 2)
+	orphan := durable.GenObject("t/a", 2, 0)
 	if b, ok := r.s.Object(orphan); !ok || string(b) != "v2" {
 		t.Fatal("expected an orphan generation 2")
 	}
@@ -802,7 +802,7 @@ func TestExistingGenerationWithOtherBytesIsSkipped(t *testing.T) {
 	r.put("t/a", "v1")
 	path := filepath.Join(t.TempDir(), "x")
 	os.WriteFile(path, []byte("other"), 0o644)
-	if err := r.s.PutGeneration(ctx, "t/a", 1, path, durabletest.DigestOf([]byte("other"))); err != nil {
+	if err := r.s.PutGeneration(ctx, durable.NextManifest("t/a", 1, 0, durabletest.DigestOf([]byte("other")), time.Now()), path); err != nil {
 		t.Fatal(err)
 	}
 	res, err := r.h.WriteBack(ctx, "t/a")

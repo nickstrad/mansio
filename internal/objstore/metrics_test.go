@@ -58,7 +58,7 @@ func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 
 	// Write-back: PUT generation, HEAD, GET manifest (pre-read), PUT manifest = 4.
 	before := requests(st)
-	if err := d.PutGeneration(ctx, "k", 1, path, dg); err != nil {
+	if err := d.PutGeneration(ctx, durable.NextManifest("k", 1, 1, dg, time.Now()), path); err != nil {
 		t.Fatal(err)
 	}
 	m := durable.NextManifest("k", 1, 1, dg, time.Now())

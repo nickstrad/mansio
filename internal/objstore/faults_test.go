@@ -67,7 +67,7 @@ func (r *rig) seed(t *testing.T, key string, data []byte) durable.Manifest {
 	t.Helper()
 	path, dg := srcFile(t, data)
 	ctx := context.Background()
-	if err := r.d.PutGeneration(ctx, key, 1, path, dg); err != nil {
+	if err := r.d.PutGeneration(ctx, durable.NextManifest(key, 1, 1, dg, time.Now()), path); err != nil {
 		t.Fatal(err)
 	}
 	m := durable.NextManifest(key, 1, 1, dg, time.Now())
@@ -154,7 +154,7 @@ func TestStatusStormRequestCounts(t *testing.T) {
 		r.fake.Inject(s3test.Fault{Mode: s3test.Status, Status: tc.status})
 		r.fake.ResetRequests()
 		path, _ := srcFile(t, []byte("x"))
-		err = r.d.PutGeneration(context.Background(), "k", 2, path, durabletest.DigestOf([]byte("x")))
+		err = r.d.PutGeneration(context.Background(), durable.NextManifest("k", 2, 1, durabletest.DigestOf([]byte("x")), time.Now()), path)
 		wantKind(t, err, objstore.Transient)
 		if n := r.fake.Count("PUT"); n != 1 {
 			t.Fatalf("%d storm: %d PUTs, want 1", tc.status, n)
@@ -373,7 +373,7 @@ func TestSilentPutIsSentOnceAndFailsAtTheDeadline(t *testing.T) {
 	path, _ := srcFile(t, []byte("x"))
 	before := r.proxy.Accepted()
 	t0 := time.Now()
-	err := d.PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf([]byte("x")))
+	err := d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, durabletest.DigestOf([]byte("x")), time.Now()), path)
 	wantKind(t, err, objstore.Transient)
 	if el := time.Since(t0); el < opTimeout || el > opTimeout+500*time.Millisecond {
 		t.Fatalf("PUT failed after %v, want ≈ %v: %v", el, opTimeout, err)
@@ -398,7 +398,7 @@ func TestS3TransportFaults(t *testing.T) {
 	d := objstore.NewDurable(st, root)
 	data := body(1 << 20)
 	path, dg := srcFile(t, data)
-	if err := d.PutGeneration(context.Background(), "k", 1, path, dg); err != nil {
+	if err := d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, dg, time.Now()), path); err != nil {
 		t.Fatal(err)
 	}
 	m := durable.NextManifest("k", 1, 1, dg, time.Now())
@@ -428,13 +428,13 @@ func TestFlippedUploadByteIsRejectedByTheServer(t *testing.T) {
 	path, _ := srcFile(t, data)
 	r.proxy.Set(faultnet.FlipByteAt(32<<10), 0)
 	d := r.fresh(t)
-	err := d.PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
+	err := d.PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, durabletest.DigestOf(data), time.Now()), path)
 	wantKind(t, err, objstore.Permanent)
-	if _, ok := r.fake.Object("bkt", durable.GenObject("k", 1)); ok {
+	if _, ok := r.fake.Object("bkt", durable.GenObject("k", 1, 1)); ok {
 		t.Fatal("a corrupted upload was stored")
 	}
 	r.proxy.Heal()
-	if err := r.fresh(t).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data)); err != nil {
+	if err := r.fresh(t).PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, durabletest.DigestOf(data), time.Now()), path); err != nil {
 		t.Fatalf("clean upload after the flip: %v", err)
 	}
 }
@@ -453,7 +453,7 @@ func TestS3FlippedUploadByteIsRejected(t *testing.T) {
 	data := bytes.Repeat([]byte("a"), 64<<10)
 	path, _ := srcFile(t, data)
 	p.Set(faultnet.FlipByteAt(32<<10), 0)
-	err = objstore.NewDurable(mustStore(t, s3Config(p.Addr())), root).PutGeneration(context.Background(), "k", 1, path, durabletest.DigestOf(data))
+	err = objstore.NewDurable(mustStore(t, s3Config(p.Addr())), root).PutGeneration(context.Background(), durable.NextManifest("k", 1, 1, durabletest.DigestOf(data), time.Now()), path)
 	// SeaweedFS 4.47 answers 500 InternalError here (Transient), not BadDigest: the flipped byte also breaks
 	// the chunk signature of the streaming-signed body. Either way it is rejected and the PUT is not re-sent.
 	if err == nil {

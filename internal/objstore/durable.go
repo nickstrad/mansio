@@ -9,7 +9,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -37,9 +40,10 @@ import (
 //     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
 //   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
 //     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
-//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. The
-//     sha256 is recorded as x-amz-meta-sha256 (the manifest holds it too), and a HEAD after the PUT checks
-//     the size and that metadata; the server does not check the sha256 itself (minio-go's AutoChecksum does not add
+//     it (TestS3Compat X6). The generation's MD5 costs one extra read of the local file before the PUT. Each
+//     generation records x-amz-meta-{sha256, epoch, generation, key, format} (guide I4: enough to rebuild
+//     its manifest), and a HEAD after the PUT checks the size and the sha256 metadata; the server does not
+//     check the sha256 itself (minio-go's AutoChecksum does not add
 //     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
 //     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
 type Durable struct {
@@ -84,8 +88,8 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 	return m, durable.Version(etag), nil
 }
 
-func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, path string, dg durable.Digest) error {
-	name := d.root + durable.GenObject(key, gen)
+func (d *Durable) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
+	name, dg := d.root+m.Object, m.Digest()
 	if dg.Size > maxSinglePut {
 		return errs.Wrap(module, nil, "cannot upload %s: %d bytes is over the 5 GiB single-PUT limit; nothing uploaded", name, dg.Size)
 	}
@@ -98,8 +102,7 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 	if err != nil {
 		return wrap(err, "cannot upload %s: reading %s failed; nothing uploaded, safe to retry", name, path)
 	}
-	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3",
-		UserMetadata: map[string]string{"sha256": dg.SHA256}}
+	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", UserMetadata: metadata(m.ObjectInfo())}
 	opts.SetMatchETagExcept("*") // create-only
 	err = d.s.sendOnce(ctx, OpPutGen, name, d.s.transferTime(dg.Size), func(a *attempt) error {
 		_, err := d.s.core.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, sum, "", opts)
@@ -145,7 +148,24 @@ func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error
 		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
 		return err
 	})
-	return durable.GenInfo{Size: st.Size, SHA256: st.Metadata.Get("X-Amz-Meta-Sha256")}, err
+	return genInfo(st.Size, st.Metadata), err
+}
+
+// metadata is a generation's x-amz-meta-* (object-storage guide I4). The key is path-escaped, as in the
+// object name: header values must be ASCII.
+func metadata(g durable.GenInfo) map[string]string {
+	return map[string]string{"sha256": g.SHA256, "epoch": strconv.FormatUint(g.Epoch, 10),
+		"generation": strconv.FormatUint(g.Generation, 10), "key": url.PathEscape(g.Key), "format": g.Format}
+}
+
+// genInfo parses what metadata wrote. A missing or malformed field stays zero: the HEAD is evidence, not
+// input to trust (callers compare it with what they expect).
+func genInfo(size int64, h http.Header) durable.GenInfo {
+	g := durable.GenInfo{Size: size, SHA256: h.Get("X-Amz-Meta-Sha256"), Format: h.Get("X-Amz-Meta-Format")}
+	g.Epoch, _ = strconv.ParseUint(h.Get("X-Amz-Meta-Epoch"), 10, 64)
+	g.Generation, _ = strconv.ParseUint(h.Get("X-Amz-Meta-Generation"), 10, 64)
+	g.Key, _ = url.PathUnescape(h.Get("X-Amz-Meta-Key"))
+	return g
 }
 
 func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {
