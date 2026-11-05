@@ -78,15 +78,13 @@ func openSQLite(path string, cfg Config, readOnly bool) (executor, error) {
 	return k, nil
 }
 
-// dsn is the driver's URI for path (sqlitedsn escapes it). Foreign keys are always enforced (SQL G-13): a
-// declared REFERENCES that SQLite ignores is a lie the application trusts.
+// dsn is the driver's URI for path (sqlitedsn escapes it and always enforces foreign keys).
 func dsn(path string, cfg Config, readOnly bool) string {
 	pragmas := []string{
 		fmt.Sprintf("busy_timeout(%d)", cfg.BusyTimeout.Milliseconds()),
 		fmt.Sprintf("journal_mode(%s)", cfg.JournalMode),
 		fmt.Sprintf("synchronous(%s)", cfg.Synchronous),
 		fmt.Sprintf("cache_size(-%d)", cfg.CacheKiB),
-		"foreign_keys(1)",
 	}
 	if readOnly {
 		pragmas = append(pragmas, "query_only(1)")

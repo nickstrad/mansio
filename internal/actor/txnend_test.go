@@ -2,6 +2,7 @@ package actor
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -20,15 +21,11 @@ func TestWriteThatEndsTheTransactionNeverMisreportsBatchMates(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			a := newKV(t, Config{}, 1) // row (1, 10)
-			if err := a.Start(true); err != nil {
+			path := filepath.Join(t.TempDir(), "db.sqlite")
+			if err := Seed(path, Config{}, kvDDL+";\n"+trigger, fillKV(1)); err != nil { // row (1, 10)
 				t.Fatal(err)
 			}
-			if r := a.Do(ctx(t), trigger, true); r.Err != nil {
-				t.Fatal(r.Err)
-			}
-			a.Close()
-			a = New(1, a.Path, Config{})
+			a := New(0, path, Config{})
 			t.Cleanup(a.Close)
 			reqs := []*Request{
 				{SQL: `INSERT INTO kv (id, v) VALUES (2, 20)`, Write: true},
@@ -40,10 +37,7 @@ func TestWriteThatEndsTheTransactionNeverMisreportsBatchMates(t *testing.T) {
 			if res[1].Err == nil || errors.Is(res[1].Err, ErrAborted) {
 				t.Fatalf("the transaction-ending write must fail: %+v", res[1])
 			}
-			for i, id := range []int64{2, 0, 3, 4} {
-				if id == 0 {
-					continue
-				}
+			for i, id := range map[int]int64{0: 2, 2: 3, 3: 4} { // write index → the id it inserts
 				r := a.Do(ctx(t), `SELECT COUNT(*) FROM kv WHERE id = ?`, false, id)
 				if r.Err != nil {
 					t.Fatal(r.Err)

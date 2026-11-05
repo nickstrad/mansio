@@ -13,13 +13,14 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/schema"
+	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
 )
 
 // memDB is a private in-memory database (one connection, so every statement sees the same database) with
 // foreign keys enforced, as the actor opens every database.
 func memDB(t testing.TB) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", sqlitedsn.Build(":memory:"))
 	if err != nil {
 		t.Fatal(err)
 	}

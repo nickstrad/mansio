@@ -259,9 +259,9 @@ func (g *Generator) parentRows(t *schema.Table) int64 {
 }
 
 // Next makes one statement of class c, against a random table (a delete: a random leaf table). A class the schema
-// cannot support falls back: index_lookup without an
-// indexed column → point_read; filter_scan without an unindexed scalar column → range_scan; join without a child
-// table → index_lookup. Statement.Class reports the class actually made.
+// cannot support falls back: index_lookup without an indexed column → point_read; filter_scan without an
+// unindexed scalar column → range_scan; join without a child table → index_lookup. Statement.Class reports the
+// class actually made.
 //
 //	pre: c is a known class
 func (g *Generator) Next(r *rand.Rand, c Class) Statement {

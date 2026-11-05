@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/nickstrad/ts-db-go/internal/bench"
@@ -24,16 +25,25 @@ import (
 
 var update = flag.Bool("update", false, "rewrite testdata/*.expected from the current output")
 
-// duckdb runs script (stdin) in dir with one thread, so row order and float sums are reproducible.
-func duckdb(t *testing.T, dir, script string) []byte {
-	t.Helper()
+// duckdbArgs finds the CLI once: its path ("" if missing) and the flags for plain, deterministic output.
+var duckdbArgs = sync.OnceValues(func() (string, []string) {
 	bin, err := exec.LookPath("duckdb")
 	if err != nil {
-		t.Skip("duckdb CLI not on PATH (brew install duckdb)")
+		return "", nil
 	}
 	args := []string{"-box", "-cmd", "SET threads = 1"}
 	if exec.Command(bin, "-no-agent", "-c", "SELECT 1").Run() == nil { // newer CLIs: plain output for agents too
 		args = append([]string{"-no-agent"}, args...)
+	}
+	return bin, args
+})
+
+// duckdb runs script (stdin) in dir with one thread, so row order and float sums are reproducible.
+func duckdb(t *testing.T, dir, script string) []byte {
+	t.Helper()
+	bin, args := duckdbArgs()
+	if bin == "" {
+		t.Skip("duckdb CLI not on PATH (brew install duckdb)")
 	}
 	in, err := os.ReadFile(script)
 	if err != nil {
@@ -103,12 +113,14 @@ func golden(t *testing.T, name string, got []byte) {
 }
 
 func TestReportGolden(t *testing.T) {
+	t.Parallel()
 	root := tree(t, "fixture")
 	run := filepath.Join(root, "results", "fixture")
 	golden(t, "report", duckdb(t, run, filepath.Join(root, "queries", "report.sql")))
 }
 
 func TestCompareGolden(t *testing.T) {
+	t.Parallel()
 	root := tree(t, "run-a", "run-b")
 	golden(t, "compare", duckdb(t, root, filepath.Join(root, "queries", "compare.sql")))
 }
@@ -116,6 +128,7 @@ func TestCompareGolden(t *testing.T) {
 // The header each writer produces equals the column list views.sql declares, in order, so renaming a column
 // in internal/stats or internal/bench fails here rather than in a report nobody has read yet.
 func TestViewsMatchTheWritersHeaders(t *testing.T) {
+	t.Parallel()
 	views, err := os.ReadFile("views.sql")
 	if err != nil {
 		t.Fatal(err)

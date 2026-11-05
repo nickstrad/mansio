@@ -16,4 +16,4 @@ All requests (ok and failed) included; latency = send → reply.
 Result: in the phases that are not overloaded, write p99 and commit p99 change by ≤ 2% (commit is lower), well
 inside the 10% gate, so savepoints stay on for every batch (no gating to batches > 1). Phase 2 is overloaded
 in both runs and dominated by machine load; do not read the improvement as caused by the change.
-The three extra statements per write are prepared once and cached (`sqliteConn.stmt`).
+The extra statements per write (two on success, three on failure) are prepared once and cached (`sqliteConn.stmt`).

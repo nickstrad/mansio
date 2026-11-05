@@ -53,7 +53,10 @@ func settle(results []Result, aborted bool, endErr error) {
 // while being reported failed: a bug, not an error to return. (The message is SQLite's; this is the one place
 // that reads it, and only to catch our own bug.)
 func checkEnd(aborted bool, endErr error) {
-	assert.That(aborted || endErr == nil || !strings.Contains(endErr.Error(), "no transaction is active"),
+	if aborted || endErr == nil { // the common path: no assertion arguments built per batch
+		return
+	}
+	assert.That(!strings.Contains(endErr.Error(), "no transaction is active"),
 		"COMMIT found no transaction: a write ended it without the savepoint check noticing: %v", endErr)
 }
 

@@ -38,38 +38,31 @@ func runExecutorContract(t *testing.T, newExec func(t *testing.T) executor) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("a savepoint undoes a failed statement and keeps the transaction", func(t *testing.T) {
-		e := newExec(t)
-		for _, q := range []string{"BEGIN IMMEDIATE", "SAVEPOINT w"} {
-			if err := e.run(c, q); err != nil {
-				t.Fatal(err)
+	for _, tc := range []struct {
+		name  string
+		sql   string
+		endOK bool // ROLLBACK TO w, RELEASE w and COMMIT succeed afterwards
+	}{
+		{"a savepoint undoes a failed statement and keeps the transaction", `SELEKT nonsense`, true},
+		{"a statement that ends the transaction leaves no savepoint and nothing to commit", endsTxnSQL, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newExec(t)
+			for _, q := range []string{"BEGIN IMMEDIATE", "SAVEPOINT w"} {
+				if err := e.run(c, q); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		if r := e.exec(c, &Request{SQL: `SELEKT nonsense`, Write: true}); r.Err == nil {
-			t.Fatal("bad SQL must return an error")
-		}
-		for _, q := range []string{"ROLLBACK TO w", "RELEASE w", "COMMIT"} {
-			if err := e.run(c, q); err != nil {
-				t.Fatalf("%s: %v", q, err)
+			if r := e.exec(c, &Request{SQL: tc.sql, Write: true}); r.Err == nil {
+				t.Fatal("the statement must fail")
 			}
-		}
-	})
-	t.Run("a statement that ends the transaction leaves no savepoint and nothing to commit", func(t *testing.T) {
-		e := newExec(t)
-		for _, q := range []string{"BEGIN IMMEDIATE", "SAVEPOINT w"} {
-			if err := e.run(c, q); err != nil {
-				t.Fatal(err)
+			for _, q := range []string{"ROLLBACK TO w", "RELEASE w", "COMMIT"} {
+				if err := e.run(c, q); (err == nil) != tc.endOK {
+					t.Fatalf("%s: err = %v, want success %v", q, err, tc.endOK)
+				}
 			}
-		}
-		if r := e.exec(c, &Request{SQL: endsTxnSQL, Write: true}); r.Err == nil {
-			t.Fatal("the duplicate must fail")
-		}
-		for _, q := range []string{"ROLLBACK TO w", "RELEASE w", "COMMIT"} {
-			if err := e.run(c, q); err == nil {
-				t.Fatalf("%s succeeded after the transaction ended", q)
-			}
-		}
-	})
+		})
+	}
 	t.Run("a canceled context ends a statement with an error", func(t *testing.T) {
 		e := newExec(t)
 		cc, cancel := context.WithTimeout(c, 20*time.Millisecond)
