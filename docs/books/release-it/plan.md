@@ -346,7 +346,7 @@ where it lands.
   guide O1. `knowledge/front/` gains the metric catalog.
 - **Size.** M.
 
-#### RI-12 — Postgres placement adapter stability
+#### RI-12 — Postgres placement adapter stability — **Done** (06204e3; `internal/placement/pg`; breaker registered as "placement" when CP-4 wires it; close deadlines capped at 1 s, see knowledge/fencing/2026-11-05-postgres-placement-adapter.md)
 
 - **Change.** Implement the adapter per `knowledge/fencing/2026-11-05-postgres-placement.md`, plus guide §P:
   - pgxpool `MaxConns` sized to the reconcile workers plus lifecycle concurrency, and an acquire timeout via ctx

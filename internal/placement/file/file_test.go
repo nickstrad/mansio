@@ -28,7 +28,7 @@ func open(t *testing.T, dir string) *Placement {
 
 // The shared owner.Placement contract (CP-1 gate: the file adapter passes TestPlacementCAS).
 func TestPlacementCAS(t *testing.T) {
-	ownertest.RunPlacementSuite(t, func(t *testing.T) owner.Placement { return open(t, t.TempDir()) })
+	ownertest.RunPlacementSuite(t, func(t *testing.T) owner.Placement { return open(t, t.TempDir()) }) // accepts any owner, so SuiteVMs too
 }
 
 // Two instances over one directory are one authority (two processes on a host): concurrent CASes from the

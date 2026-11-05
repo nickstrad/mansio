@@ -1,0 +1,25 @@
+# Single Postgres 17 for the placement authority's integration tests (internal/placement/pg).
+#   docker compose -f deploy/postgres/docker-compose.yml up -d
+#   export TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable'
+# Throwaway dev credentials; tests create and drop their own schema per test.
+services:
+  postgres:
+    image: postgres:17
+    container_name: tsdb-postgres
+    environment:
+      POSTGRES_USER: tsdb
+      POSTGRES_PASSWORD: tsdb-dev
+      POSTGRES_DB: tsdb
+    # max_connections covers the PG-04 concurrency gate (64 workers) plus parallel test packages.
+    command: ["postgres", "-c", "max_connections=300"]
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tsdb -d tsdb"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - tsdb-pg-data:/var/lib/postgresql/data
+volumes:
+  tsdb-pg-data:

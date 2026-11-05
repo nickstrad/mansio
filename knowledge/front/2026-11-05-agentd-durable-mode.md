@@ -1,7 +1,7 @@
 # 2026-11-05 — agentd durable mode: the CP-1 wiring
 
 Author: CP-1 agent. Plan: [control-plane plan CP-1](../../docs/control-plane-plan.md). Code: `cmd/agentd`
-(`durable.go`, `glue.go`, `control.go`, `config.go`), `internal/placement/file`, `ownertest.RunPlacementSuite`.
+(`durable.go`, `glue.go`, `control.go`, `config.go`), `internal/placement/file` (passes CP-3's `ownertest.RunPlacementSuite`).
 Tests: `cmd/agentd/glue_test.go`, `durable_test.go` (gates), `durable_config_test.go`, `internal/placement/file`.
 
 ## What runs

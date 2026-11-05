@@ -77,12 +77,14 @@ func TestWriteBackStampConditions(t *testing.T) {
 	}
 }
 
+// TestPlacementCAS runs the Placement contract suite on the fake (the Postgres adapter runs it too:
+// internal/placement/pg), then checks the fake's fault switches.
 func TestPlacementCAS(t *testing.T) {
 	ownertest.RunPlacementSuite(t, func(*testing.T) owner.Placement { return ownertest.NewPlacement() })
+	t.Run("fault switches", testPlacementSwitches)
 }
 
-// The fake's fault switches (Stale, LoseReply, Down) behave as documented.
-func TestPlacementSwitches(t *testing.T) {
+func testPlacementSwitches(t *testing.T) {
 	ctx := context.Background()
 	p := ownertest.NewPlacement()
 	a1 := owner.Place{Owner: "a", Epoch: 1, State: owner.PlaceActive}
