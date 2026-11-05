@@ -8,14 +8,12 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 )
@@ -67,10 +65,12 @@ type control struct {
 }
 
 func (c *control) routes(mux *http.ServeMux) {
-	mux.HandleFunc("POST "+claimPath, c.handle(c.claim))
-	mux.HandleFunc("POST "+fencePath, c.handle(c.fence))
-	mux.HandleFunc("POST "+forgetPath, c.handle(c.forget))
-	mux.HandleFunc("GET "+healthPath, c.handle(c.health))
+	ep := &jsonEndpoints{log: c.d.log, event: "LIFECYCLE", timeout: c.d.cfg.LifecycleTimeout.Duration, sem: c.sem, authorize: c.authorize,
+		logRefusal: func(ce *controlError) bool { return ce.status >= 500 || ce.code == "fenced" }}
+	mux.HandleFunc("POST "+claimPath, ep.handle(c.claim))
+	mux.HandleFunc("POST "+fencePath, ep.handle(c.fence))
+	mux.HandleFunc("POST "+forgetPath, ep.handle(c.forget))
+	mux.HandleFunc("GET "+healthPath, ep.handle(c.health))
 }
 
 // controlRequest is the body of claim, fence and forget.
@@ -90,36 +90,13 @@ func (e *controlError) Error() string { return e.code + ": " + e.msg }
 
 func badRequest(msg string) error { return &controlError{"bad_request", http.StatusBadRequest, msg} }
 
-// handle runs fn under the endpoint's identity check, slot and deadline, and writes its answer.
-func (c *control) handle(fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !c.authorized(r) {
-			c.write(w, r, nil, &controlError{"unauthorized", http.StatusUnauthorized, "control-plane token required"})
-			return
-		}
-		select {
-		case c.sem <- struct{}{}:
-			defer func() { <-c.sem }()
-		default:
-			c.write(w, r, nil, &controlError{"unavailable", http.StatusServiceUnavailable, "too many lifecycle calls in flight; retry"})
-			return
-		}
-		timeout := c.d.cfg.LifecycleTimeout.Duration
-		if ms, err := strconv.Atoi(r.Header.Get(front.TimeoutHeader)); err == nil && ms > 0 {
-			timeout = min(timeout, time.Duration(ms)*time.Millisecond)
-		}
-		// The lifecycle listener's write timeout is short (health answers); a fence may write back for longer.
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + healthWriteTimeout))
-		ctx, cancel := context.WithTimeout(r.Context(), timeout)
-		defer cancel()
-		out, err := fn(ctx, r)
-		c.write(w, r, out, err)
-	}
-}
-
-func (c *control) authorized(r *http.Request) bool {
+// authorize is the control-plane identity check: the bearer token from the secrets file.
+func (c *control) authorize(r *http.Request) error {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return ok && subtle.ConstantTimeCompare([]byte(tok), []byte(c.token)) == 1
+	if ok && subtle.ConstantTimeCompare([]byte(tok), []byte(c.token)) == 1 {
+		return nil
+	}
+	return &controlError{"unauthorized", http.StatusUnauthorized, "control-plane token required"}
 }
 
 // decode reads the request body: a small JSON object with a valid database id.
@@ -285,32 +262,6 @@ func classifyControl(err error) *controlError {
 		return &controlError{"timeout", http.StatusGatewayTimeout, "deadline passed; nothing acknowledged, safe to call again"}
 	}
 	return nil
-}
-
-// write answers one lifecycle call and logs failures once: dependency trouble at WARN, bugs at ERROR with a
-// log ID (Release It F2, O3).
-func (c *control) write(w http.ResponseWriter, r *http.Request, out any, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	if err == nil {
-		_ = json.NewEncoder(w).Encode(out)
-		return
-	}
-	body := map[string]string{}
-	ce := classifyControl(err)
-	if ce == nil {
-		id := logx.NewID()
-		c.d.log.Error("lifecycle call failed (bug)", "event", "LIFECYCLE.FAILED", "path", r.URL.Path, "log_id", id,
-			"error", err.Error(), "chain", errs.Chain(err))
-		ce, body["log_id"] = &controlError{"internal", http.StatusInternalServerError, "internal error"}, id
-	} else if ce.status >= 500 || ce.code == "fenced" {
-		c.d.log.Warn("lifecycle call refused", "event", "LIFECYCLE.REFUSED", "path", r.URL.Path, "code", ce.code, "error", err.Error())
-	}
-	if ce.status == http.StatusServiceUnavailable {
-		w.Header().Set("Retry-After", strconv.Itoa(retrySeconds(err)))
-	}
-	body["code"], body["message"] = ce.code, ce.msg
-	w.WriteHeader(ce.status)
-	_ = json.NewEncoder(w).Encode(body)
 }
 
 // retrySeconds is the Retry-After for an unavailable answer: 1 s, raised by a hint in the chain (an open
