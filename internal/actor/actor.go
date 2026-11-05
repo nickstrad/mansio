@@ -29,7 +29,9 @@ var (
 	ErrMailboxFull = errors.New("actor: mailbox full")
 	ErrClosed      = errors.New("actor: closed")
 	ErrExpired     = errors.New("actor: deadline passed while queued")
-	ErrAborted     = errors.New("actor: batch transaction aborted by another write's timeout")
+	// ErrAborted: another write in the batch ended the transaction (timeout, OR ROLLBACK, I/O error), so this
+	// write was rolled back or never run. Nothing of it is committed; retrying is safe.
+	ErrAborted = errors.New("actor: batch transaction aborted by another write")
 	// ErrTooManyRows: a read with Request.MaxRows > 0 produced more than MaxRows rows.
 	ErrTooManyRows = errors.New("actor: read returned more rows than its limit")
 )
@@ -306,8 +308,14 @@ func (a *Actor) process(batch []*Request) {
 	}
 }
 
-// writeBatch runs writes in one transaction. A write interrupted by its timeout makes SQLite roll back the whole
-// transaction, so the rest are skipped and the batch is rolled back; settle decides every write's outcome.
+// writeBatch runs writes in one transaction, each inside its own savepoint (SQL G-8, psql's ON_ERROR_ROLLBACK).
+// A write that fails is rolled back to its savepoint, so its error stays its own and its batch-mates commit.
+// A write can also end the whole transaction under us (a statement timeout interrupts it; INSERT OR ROLLBACK,
+// a RAISE(ROLLBACK) trigger, or an I/O error rolls it back): the next ROLLBACK TO or RELEASE then finds no
+// savepoint. From there the batch is aborted: the rest are never run (so nothing autocommits outside the
+// transaction) and settle reports every write that had not failed on its own as ErrAborted.
+//
+//	post: every write is either committed and answered without error, or not committed and answered with one
 func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	ctx := context.Background()
 	if err := a.w.run(ctx, "BEGIN IMMEDIATE"); err != nil {
@@ -319,20 +327,20 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	results := make([]Result, len(writes))
 	aborted := false
 	for i, r := range writes {
-		if aborted { // SQLite already rolled the transaction back; settle answers these ErrAborted
+		if aborted { // the transaction is gone; settle answers these ErrAborted
 			results[i] = Result{QueueWait: time.Since(r.enqueued)}
 			continue
 		}
-		results[i] = a.run1(a.w, r)
-		aborted = results[i].TimedOut
+		results[i], aborted = a.runInSavepoint(ctx, r)
 	}
 	end := "COMMIT"
 	if aborted {
-		end = "ROLLBACK"
+		end = "ROLLBACK" // usually fails with "no transaction is active"; it matters only if one is left open
 	}
 	c0 := time.Now()
 	endErr := a.w.run(ctx, end)
 	commit := time.Since(c0)
+	checkEnd(aborted, endErr)
 	if !aborted && endErr == nil {
 		a.commits.Add(1) // before the replies: a caller that saw its write acknowledged sees it counted
 	}
@@ -341,6 +349,22 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 		results[i].Commit = commit
 		meta.reply(r, results[i])
 	}
+}
+
+// runInSavepoint runs one write inside SAVEPOINT w. gone reports that the batch transaction no longer exists
+// (or its state is unknown), so no further statement may run in it.
+//
+//	pre:  a transaction is open on a.w
+//	post: !gone ⇒ the transaction is still open and holds r's effects iff res.Err == nil
+func (a *Actor) runInSavepoint(ctx context.Context, r *Request) (res Result, gone bool) {
+	if err := a.w.run(ctx, "SAVEPOINT w"); err != nil {
+		return Result{Err: err, QueueWait: time.Since(r.enqueued)}, true
+	}
+	res = a.run1(a.w, r)
+	if res.Err != nil && a.w.run(ctx, "ROLLBACK TO w") != nil {
+		return res, true
+	}
+	return res, a.w.run(ctx, "RELEASE w") != nil
 }
 
 // reader serves reads from the read pool until the queue is closed, then closes its connection.

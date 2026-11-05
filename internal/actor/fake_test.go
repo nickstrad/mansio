@@ -3,6 +3,7 @@ package actor
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -10,26 +11,44 @@ import (
 )
 
 // faultExec is an in-memory executor with fault switches, so the actor's error branches can be tested without
-// SQLite. Statements containing "SLOW" block until their context ends (a statement timeout).
+// SQLite. It models SQLite's transaction state: statements containing "SLOW" block until their context ends (a
+// statement timeout) and, like an interrupted SQLite write, end the open transaction; EndsTxn statements fail
+// and end it too (INSERT OR ROLLBACK, RAISE(ROLLBACK)). With no transaction, ROLLBACK TO / RELEASE fail with
+// "no such savepoint" and COMMIT / ROLLBACK with "no transaction is active", as in SQLite.
 type faultExec struct {
-	mu         sync.Mutex
-	FailBegin  error
-	FailCommit error
-	FailOn     map[string]error // exec of this SQL fails
-	ran        []string
-	closed     bool
+	mu            sync.Mutex
+	FailBegin     error
+	FailCommit    error
+	FailSavepoint error            // SAVEPOINT w fails (the transaction stays open)
+	FailOn        map[string]error // exec of this SQL fails
+	EndsTxn       map[string]bool  // exec of this SQL fails and ends the open transaction
+	ran           []string
+	closed        bool
+	inTxn         bool
+	savepoints    int
 }
+
+var (
+	errNoSavepoint = errors.New("no such savepoint: w")
+	errNoTxn       = errors.New("cannot commit - no transaction is active")
+)
 
 func (f *faultExec) exec(ctx context.Context, r *Request) Result {
 	f.mu.Lock()
 	f.ran = append(f.ran, r.SQL)
 	err := f.FailOn[r.SQL]
+	ends := f.EndsTxn[r.SQL]
+	if ends || strings.Contains(r.SQL, "SLOW") && r.Write {
+		f.inTxn, f.savepoints = false, 0
+	}
 	f.mu.Unlock()
-	if strings.Contains(r.SQL, "SLOW") {
+	switch {
+	case strings.Contains(r.SQL, "SLOW"):
 		<-ctx.Done()
 		return Result{Err: errors.New("interrupted")}
-	}
-	if err != nil {
+	case ends:
+		return Result{Err: errors.New("UNIQUE constraint failed; transaction rolled back")}
+	case err != nil:
 		return Result{Err: err}
 	}
 	return Result{Rows: 1}
@@ -41,9 +60,31 @@ func (f *faultExec) run(_ context.Context, q string) error {
 	f.ran = append(f.ran, q)
 	switch {
 	case strings.HasPrefix(q, "BEGIN"):
+		if f.FailBegin == nil {
+			f.inTxn = true
+		}
 		return f.FailBegin
-	case q == "COMMIT":
-		return f.FailCommit
+	case q == "SAVEPOINT w":
+		if f.FailSavepoint != nil {
+			return f.FailSavepoint
+		}
+		f.inTxn = true // outside a transaction SQLite starts one
+		f.savepoints++
+	case q == "ROLLBACK TO w" || q == "RELEASE w":
+		if f.savepoints == 0 {
+			return errNoSavepoint
+		}
+		if q == "RELEASE w" {
+			f.savepoints--
+		}
+	case q == "COMMIT" || q == "ROLLBACK":
+		if !f.inTxn {
+			return errNoTxn
+		}
+		f.inTxn, f.savepoints = false, 0
+		if q == "COMMIT" {
+			return f.FailCommit
+		}
 	}
 	return nil
 }
@@ -127,7 +168,7 @@ func TestTimedOutWriteRollsBackAndSkipsTheRest(t *testing.T) {
 		t.Fatalf("results: %+v", res)
 	}
 	got := strings.Join(f.statements(), ",")
-	if got != "BEGIN IMMEDIATE,w1,w2 SLOW,ROLLBACK" {
+	if got != "BEGIN IMMEDIATE,SAVEPOINT w,w1,RELEASE w,SAVEPOINT w,w2 SLOW,ROLLBACK TO w,ROLLBACK" {
 		t.Fatalf("statements = %s (w3 must not run; must roll back)", got)
 	}
 }
@@ -213,5 +254,44 @@ func TestCloseAnswersQueuedRequestsAndClosesConnection(t *testing.T) {
 	}
 	if err := a.Submit(&Request{SQL: "r"}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("Submit after Close: %v", err)
+	}
+}
+
+// PG-01: a write that ends the transaction aborts the batch; nothing after it runs, so nothing autocommits.
+func TestWriteThatEndsTheTransactionStopsTheBatch(t *testing.T) {
+	f := &faultExec{EndsTxn: map[string]bool{"w2": true}}
+	res := submitAll(t, fakeActor(t, Config{}, f, nil), write("w1"), write("w2"), write("w3"))
+	if !errors.Is(res[0].Err, ErrAborted) || res[1].Err == nil || errors.Is(res[1].Err, ErrAborted) || !errors.Is(res[2].Err, ErrAborted) {
+		t.Fatalf("results: %v / %v / %v", res[0].Err, res[1].Err, res[2].Err)
+	}
+	got := strings.Join(f.statements(), ",")
+	if got != "BEGIN IMMEDIATE,SAVEPOINT w,w1,RELEASE w,SAVEPOINT w,w2,ROLLBACK TO w,ROLLBACK" {
+		t.Fatalf("statements = %s (w3 must not run; no COMMIT)", got)
+	}
+}
+
+// A write that fails on its own is rolled back to its savepoint; its batch-mates still commit.
+func TestFailedWriteRollsBackToItsSavepointAndTheBatchCommits(t *testing.T) {
+	own := errors.New("constraint")
+	f := &faultExec{FailOn: map[string]error{"w2": own}}
+	res := submitAll(t, fakeActor(t, Config{}, f, nil), write("w1"), write("w2"), write("w3"))
+	if res[0].Err != nil || !errors.Is(res[1].Err, own) || res[2].Err != nil {
+		t.Fatalf("results: %v / %v / %v", res[0].Err, res[1].Err, res[2].Err)
+	}
+	if s := f.statements(); s[len(s)-1] != "COMMIT" || !slices.Contains(s, "ROLLBACK TO w") {
+		t.Fatalf("statements = %v", s)
+	}
+}
+
+// A SAVEPOINT that fails leaves the transaction's state unknown: the batch is rolled back, not committed.
+func TestSavepointFailureRollsBackTheBatch(t *testing.T) {
+	boom := errors.New("out of memory")
+	f := &faultExec{FailSavepoint: boom}
+	res := submitAll(t, fakeActor(t, Config{}, f, nil), write("w1"), write("w2"))
+	if !errors.Is(res[0].Err, boom) || !errors.Is(res[1].Err, ErrAborted) {
+		t.Fatalf("results: %v / %v", res[0].Err, res[1].Err)
+	}
+	if got := strings.Join(f.statements(), ","); got != "BEGIN IMMEDIATE,SAVEPOINT w,ROLLBACK" {
+		t.Fatalf("statements = %s", got)
 	}
 }

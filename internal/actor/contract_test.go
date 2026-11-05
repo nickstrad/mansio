@@ -38,6 +38,38 @@ func runExecutorContract(t *testing.T, newExec func(t *testing.T) executor) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("a savepoint undoes a failed statement and keeps the transaction", func(t *testing.T) {
+		e := newExec(t)
+		for _, q := range []string{"BEGIN IMMEDIATE", "SAVEPOINT w"} {
+			if err := e.run(c, q); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if r := e.exec(c, &Request{SQL: `SELEKT nonsense`, Write: true}); r.Err == nil {
+			t.Fatal("bad SQL must return an error")
+		}
+		for _, q := range []string{"ROLLBACK TO w", "RELEASE w", "COMMIT"} {
+			if err := e.run(c, q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+	})
+	t.Run("a statement that ends the transaction leaves no savepoint and nothing to commit", func(t *testing.T) {
+		e := newExec(t)
+		for _, q := range []string{"BEGIN IMMEDIATE", "SAVEPOINT w"} {
+			if err := e.run(c, q); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if r := e.exec(c, &Request{SQL: endsTxnSQL, Write: true}); r.Err == nil {
+			t.Fatal("the duplicate must fail")
+		}
+		for _, q := range []string{"ROLLBACK TO w", "RELEASE w", "COMMIT"} {
+			if err := e.run(c, q); err == nil {
+				t.Fatalf("%s succeeded after the transaction ended", q)
+			}
+		}
+	})
 	t.Run("a canceled context ends a statement with an error", func(t *testing.T) {
 		e := newExec(t)
 		cc, cancel := context.WithTimeout(c, 20*time.Millisecond)
@@ -48,6 +80,9 @@ func runExecutorContract(t *testing.T, newExec func(t *testing.T) executor) {
 		}
 	})
 }
+
+// endsTxnSQL conflicts with row 1, so SQLite rolls back the whole transaction.
+const endsTxnSQL = `INSERT OR ROLLBACK INTO kv (id, v) VALUES (1, 0)`
 
 func TestSQLiteExecutorContract(t *testing.T) {
 	runExecutorContract(t, func(t *testing.T) executor {
@@ -62,7 +97,10 @@ func TestSQLiteExecutorContract(t *testing.T) {
 
 func TestFaultExecutorContract(t *testing.T) {
 	runExecutorContract(t, func(t *testing.T) executor {
-		return &faultExec{FailOn: map[string]error{`SELEKT nonsense`: errors.New("syntax error")}}
+		return &faultExec{
+			FailOn:  map[string]error{`SELEKT nonsense`: errors.New("syntax error")},
+			EndsTxn: map[string]bool{endsTxnSQL: true},
+		}
 	})
 }
 
@@ -80,6 +118,11 @@ func TestAssertionsCanFire(t *testing.T) {
 		}()
 		f()
 	}
+	mustPanic("COMMIT finding no transaction is a bug", func() {
+		checkEnd(false, errors.New("SQL logic error: cannot commit - no transaction is active (1)"))
+	})
+	checkEnd(true, errors.New("cannot rollback - no transaction is active")) // off point: an aborted batch's ROLLBACK
+	checkEnd(false, errors.New("disk I/O error"))                            // off point: a real COMMIT failure
 	mustPanic("parallel forwards a worker panic", func() {
 		_ = parallel(0, 10, 3, func(i int) error {
 			if i == 7 {
