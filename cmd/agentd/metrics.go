@@ -87,12 +87,14 @@ func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
 // lifecycleMetrics exposes startup and readiness (Release It S3: the oldest unfinished thing). pending counts
 // the databases not served yet since start: unopened (static mode) or unreconciled (durable mode).
 func lifecycleMetrics(reg *metrics.Registry, pending func() int, ready *front.Readiness, started time.Time) {
+	var n int
+	reg.OnScrape(func() { n = pending() }) // once per scrape: durable mode's count is O(keys)
 	reg.Add("tsdb_startup_pending", "Databases not open or reconciled yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
-		e.Value(nil, float64(pending()))
+		e.Value(nil, float64(n))
 	})
 	reg.Add("tsdb_startup_pending_age_seconds", "How long the oldest unopened or unreconciled database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
 		age := 0.0
-		if pending() > 0 {
+		if n > 0 {
 			age = time.Since(started).Seconds()
 		}
 		e.Value(nil, age)

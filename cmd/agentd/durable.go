@@ -45,7 +45,7 @@ type durableAgent struct {
 // are system failures (Release It C2).
 func s3Transient(err error) bool { return objstore.Classify(err) == objstore.Transient }
 
-// openTimeout bounds startup's local work and its one S3 call (the bucket check).
+// openTimeout bounds startup's local work, and the bucket check.
 const openTimeout = 10 * time.Second
 
 // newDurable wires durable mode. S3 being down does not stop startup: keys stay unreconciled (unavailable)
@@ -95,10 +95,6 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		WriteBack: hostWriteBack{host: d.host, store: d.store}, OnChange: d.events.onChange})
 	if err != nil {
 		return fail(err)
-	}
-	if err := st.EnsureBucket(ctx); err != nil {
-		log.Warn("S3 bucket check failed; serving nothing from S3 until it answers", "event", "S3.BUCKET_CHECK_FAILED",
-			"bucket", s.Bucket, "error", err.Error())
 	}
 	return &backend{
 		admitter: ownerAdmitter{d.tab},
@@ -185,7 +181,15 @@ type s3Probe struct {
 	failures atomic.Int64
 }
 
+// runProbe first makes sure the bucket exists (off the startup path: S3 being down must not delay serving),
+// then probes every ready_interval.
 func (d *durableAgent) runProbe(ctx context.Context) {
+	bctx, cancel := context.WithTimeout(ctx, openTimeout)
+	if err := d.s3.EnsureBucket(bctx); err != nil && ctx.Err() == nil {
+		d.log.Warn("S3 bucket check failed; nothing activates from S3 until it answers", "event", "S3.BUCKET_CHECK_FAILED",
+			"bucket", d.cfg.S3.Bucket, "error", err.Error())
+	}
+	cancel()
 	t := time.NewTicker(d.cfg.ReadyInterval.Duration)
 	defer t.Stop()
 	for {

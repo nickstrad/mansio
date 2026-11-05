@@ -168,17 +168,16 @@ func (p *Placement) read(key string) (pl owner.Place, found bool, err error) {
 	if err := dec.Decode(&r); err != nil {
 		return owner.Place{}, false, fmt.Errorf("%w: row file: %v", owner.ErrInvalid, err)
 	}
-	pl = owner.Place{Owner: r.Owner, Epoch: owner.Epoch(r.Epoch), Gen: owner.Generation(r.Gen)}
-	switch r.State {
-	case owner.PlaceActive.String():
-		pl.State = owner.PlaceActive
-	case owner.PlaceMoving.String():
-		pl.State = owner.PlaceMoving
-	}
 	if r.V != rowFormat || r.Key != key {
 		return owner.Place{}, false, fmt.Errorf("%w: row file holds format %d, key %q (want %d, %q)", owner.ErrInvalid, r.V, r.Key, rowFormat, key)
 	}
-	if err := checkPlace(pl); err != nil {
+	pl = owner.Place{Owner: r.Owner, Epoch: owner.Epoch(r.Epoch), Gen: owner.Generation(r.Gen)}
+	for _, st := range []owner.PlaceState{owner.PlaceActive, owner.PlaceMoving} {
+		if r.State == st.String() {
+			pl.State = st
+		}
+	}
+	if err := checkPlace(pl); err != nil { // an unknown state stays 0 and fails here
 		return owner.Place{}, false, fmt.Errorf("%w: stored row: %w", owner.ErrInvalid, err)
 	}
 	return pl, true, nil

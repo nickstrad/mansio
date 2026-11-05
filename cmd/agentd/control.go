@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/durable"
@@ -53,7 +54,6 @@ const (
 	healthPath = "/v1/lifecycle/health"
 
 	maxControlBody = 4 << 10
-	timeoutHeader  = "X-Timeout-Ms"
 )
 
 // control serves the lifecycle endpoints.
@@ -103,7 +103,7 @@ func (c *control) handle(fn func(ctx context.Context, r *http.Request) (any, err
 			return
 		}
 		timeout := c.d.cfg.LifecycleTimeout.Duration
-		if ms, err := strconv.Atoi(r.Header.Get(timeoutHeader)); err == nil && ms > 0 {
+		if ms, err := strconv.Atoi(r.Header.Get(front.TimeoutHeader)); err == nil && ms > 0 {
 			timeout = min(timeout, time.Duration(ms)*time.Millisecond)
 		}
 		// The lifecycle listener's write timeout is short (health answers); a fence may write back for longer.
@@ -116,12 +116,8 @@ func (c *control) handle(fn func(ctx context.Context, r *http.Request) (any, err
 }
 
 func (c *control) authorized(r *http.Request) bool {
-	const prefix = "Bearer "
-	h := r.Header.Get("Authorization")
-	if len(h) <= len(prefix) || h[:len(prefix)] != prefix {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(h[len(prefix):]), []byte(c.token)) == 1
+	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && subtle.ConstantTimeCompare([]byte(tok), []byte(c.token)) == 1
 }
 
 // decode reads the request body: a small JSON object with a valid database id.
@@ -138,12 +134,13 @@ func decode(r *http.Request) (controlRequest, error) {
 	return req, nil
 }
 
-type claimed struct {
+// lifecycleOK is every ok answer of claim, fence and forget.
+type lifecycleOK struct {
 	Code  string `json:"code"`
 	DB    string `json:"db"`
-	State string `json:"state"`
-	Epoch uint64 `json:"epoch"`
-	Gen   uint64 `json:"gen"`
+	State string `json:"state,omitempty"` // claim
+	Epoch uint64 `json:"epoch,omitempty"` // claim, fence
+	Gen   uint64 `json:"gen,omitempty"`   // claim, fence (0 is left out: a new database)
 }
 
 func (c *control) claim(ctx context.Context, r *http.Request) (any, error) {
@@ -160,7 +157,7 @@ func (c *control) claim(ctx context.Context, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return claimed{"ok", req.DB, l.State.String(), uint64(l.Epoch), uint64(l.Gen)}, nil
+	return lifecycleOK{"ok", req.DB, l.State.String(), uint64(l.Epoch), uint64(l.Gen)}, nil
 }
 
 // create writes ACTIVE(self, 1, 0) if the key has no placement row (the single-node stand-in for flow B).
@@ -174,13 +171,6 @@ func (c *control) create(ctx context.Context, key string) error {
 		return nil // created meanwhile; Claim reads whatever is there
 	}
 	return err
-}
-
-type acked struct {
-	Code  string `json:"code"`
-	DB    string `json:"db"`
-	Epoch uint64 `json:"epoch"`
-	Gen   uint64 `json:"gen"`
 }
 
 // fence hands the key off (owner.Table.Fence) and then drops the warm copy: the fence published every write
@@ -197,7 +187,7 @@ func (c *control) fence(ctx context.Context, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return acked{"ok", ack.Key, uint64(ack.Epoch), uint64(ack.Gen)}, nil
+	return lifecycleOK{Code: "ok", DB: ack.Key, Epoch: uint64(ack.Epoch), Gen: uint64(ack.Gen)}, nil
 }
 
 func (c *control) forget(ctx context.Context, r *http.Request) (any, error) {
@@ -208,7 +198,7 @@ func (c *control) forget(ctx context.Context, r *http.Request) (any, error) {
 	if err := c.d.tab.Forget(ctx, req.DB); err != nil {
 		return nil, err
 	}
-	return map[string]string{"code": "ok", "db": req.DB}, nil
+	return lifecycleOK{Code: "ok", DB: req.DB}, nil
 }
 
 // healthReport is what the control plane's placement policy reads: databases held, bytes, load.
@@ -229,7 +219,8 @@ type healthReport struct {
 
 func (c *control) health(ctx context.Context, _ *http.Request) (any, error) {
 	d := c.d
-	h := healthReport{Code: "ok", VM: d.cfg.VM, Owned: map[string]int{}, Active: d.host.Gauges().Active, S3Breaker: d.s3b.State(time.Now()).String()}
+	g := d.host.Gauges()
+	h := healthReport{Code: "ok", VM: d.cfg.VM, Owned: map[string]int{}, Active: g.Active, S3Breaker: d.s3b.State(time.Now()).String()}
 	for _, k := range d.tab.Keys() {
 		h.Owned[d.tab.State(k).State.String()]++
 	}
@@ -240,7 +231,7 @@ func (c *control) health(ctx context.Context, _ *http.Request) (any, error) {
 	h.Bytes = n
 	h.Load.InFlight = int(c.srv.InFlight())
 	h.Load.AdmissionQueue = c.srv.Admission().Stats().Queued
-	h.Load.FetchQueued = d.host.Gauges().FetchQueued
+	h.Load.FetchQueued = g.FetchQueued
 	h.Load.OldestDirtyAge = d.ticks.lastTick().OldestDirtyAge.Seconds()
 	return h, nil
 }

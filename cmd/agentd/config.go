@@ -31,7 +31,7 @@ type Config struct {
 	DBs   []string `json:"dbs"`    // serve only these; default every *.db in db_dir
 
 	// Durable mode (an s3 section): databases live in S3 (internal/durable layout v2) behind a virtual-actor
-	// host, ownership is the owner table, and the control plane calls the lifecycle endpoints (lifecycle.go).
+	// host, ownership is the owner table, and the control plane calls the lifecycle endpoints (control.go).
 	S3 *S3Config `json:"s3"`
 	// SecretsFile holds the S3 keys and the control-plane token: a JSON file outside the config, mode 0600 or
 	// stricter (object-storage guide S2). Required in durable mode.
@@ -241,7 +241,7 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 		bad("s3: endpoint and bucket are required")
 	}
 	if bc := s.breakerConfig(); bc.Normalize() != nil {
-		bad("s3.breaker: %v", bc.Normalize())
+		bad("s3.breaker: invalid thresholds (window, min_calls >= 1, failure_rate in (0, 1], cool_down)")
 	}
 	if s.Prefix != "" && !strings.HasSuffix(s.Prefix, "/") {
 		bad("s3: prefix %q must end in /", s.Prefix)
