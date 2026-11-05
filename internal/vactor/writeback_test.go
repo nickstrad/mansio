@@ -15,6 +15,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
 )
@@ -688,5 +689,45 @@ func TestOwnershipHooks(t *testing.T) {
 	}
 	if m, _ := r.s.Manifest("t/a"); m.Epoch != 3 {
 		t.Fatalf("published at epoch %d, want 3", m.Epoch)
+	}
+}
+
+// A panic in a Tick worker (here: the Guard) reaches Tick's caller with the worker's stack, after the other
+// workers stopped (Cox-Buday: panics do not cross goroutines on their own).
+func TestTickForwardsWorkerPanic(t *testing.T) {
+	r := newDurable(t, func(o *vactor.Options) {
+		o.Policy = vactor.Policy{WriteBackCommits: 1}
+		o.Guard = func(context.Context, string, uint64, func(context.Context) error) error { panic("guard bug") }
+	})
+	r.put("t/a", "v1")
+	r.put("t/b", "v1")
+	defer func() {
+		p, ok := recover().(*panicx.Panic)
+		if !ok || p.Value != "guard bug" || !strings.Contains(p.Stack, "TestTickForwardsWorkerPanic") {
+			t.Fatalf("recovered %#v, want the guard's panic with its stack", p)
+		}
+	}()
+	r.h.Tick(ctx)
+}
+
+func TestPassivateWithALeftoverWALAndAFailingSnapshotStaysWarm(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	os.WriteFile(r.h.LocalPath("t/a")+"-wal", []byte("frames"), 0o644)
+	r.o.SetFailSnapshot(true)
+	err := r.h.Passivate(ctx, "t/a")
+	mustModule(t, err, "WAL left after close and the snapshot failed")
+	if r.h.Active() != 1 || r.local("t/a") != "v1" {
+		t.Fatal("not warm after the failed passivation")
+	}
+	r.o.SetFailSnapshot(false)
+	r.o.Set(true, false) // reopen for the WAL snapshot fails: the entry is stranded, the file kept
+	if err := r.h.Passivate(ctx, "t/a"); err == nil {
+		t.Fatal("Passivate with a failing reopen succeeded")
+	}
+	r.o.Set(false, false)
+	os.Remove(r.h.LocalPath("t/a") + "-wal")
+	if err := r.h.Passivate(ctx, "t/a"); err != nil || r.published("t/a") != "v1" {
+		t.Fatalf("final Passivate: %v, published %q", err, r.published("t/a"))
 	}
 }
