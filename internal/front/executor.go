@@ -38,6 +38,8 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 		Deadline: c.Deadline}
 	if c.Kind == KindRead {
 		r.MaxRows = c.MaxRows
+	} else {
+		r.RequestID = c.RequestID // the actor applies each id at most once per database (CP-2)
 	}
 	if err := a.Submit(r); err != nil {
 		return Reply{}, actorError(err, false)
@@ -56,7 +58,7 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 		return Reply{}, actorError(res.Err, res.TimedOut)
 	}
 	if c.Kind == KindWrite {
-		return Reply{Count: res.Rows}, nil
+		return Reply{Count: res.Rows, Duplicate: res.Duplicate}, nil
 	}
 	return Reply{Columns: res.Columns, Rows: res.Values, Count: res.Rows}, nil
 }

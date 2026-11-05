@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
@@ -231,6 +232,13 @@ func inproc(host *front.StaticHost, f runFlags) target {
 	}
 }
 
+// requestSeq makes request ids unique per run: the actor applies each id at most once per database (CP-2), so
+// a shared id would turn every write after the first into a duplicate.
+var (
+	requestRun = time.Now().UnixNano()
+	requestSeq atomic.Int64
+)
+
 func requestBody(db int, st workload.Statement) []byte {
 	args := make([]any, len(st.Args))
 	for i, a := range st.Args {
@@ -243,7 +251,7 @@ func requestBody(db int, st workload.Statement) []byte {
 	if st.Write {
 		kind = front.KindWrite
 	}
-	b, _ := json.Marshal(map[string]any{"db": dbID(db), "request_id": "fb", "kind": kind, "sql": st.SQL, "args": args})
+	b, _ := json.Marshal(map[string]any{"db": dbID(db), "request_id": fmt.Sprintf("fb-%d-%d", requestRun, requestSeq.Add(1)), "kind": kind, "sql": st.SQL, "args": args})
 	return b
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,9 +22,10 @@ const (
 // RunExecutorSuite checks the Executor contract (see front.Executor). newExec returns a fresh executor serving
 // SuiteDB; it runs once per subtest.
 func RunExecutorSuite(t *testing.T, newExec func(t *testing.T) front.Executor) {
-	call := func(kind front.Kind, sql string, args ...any) front.Call {
-		return front.Call{Tenant: "t", DB: SuiteDB, RequestID: "r1", Kind: kind, SQL: sql, Args: args,
-			Deadline: time.Now().Add(5 * time.Second), StmtTimeout: time.Second, MaxRows: 100}
+	var ids atomic.Int64
+	call := func(kind front.Kind, sql string, args ...any) front.Call { // a fresh request id per call
+		return front.Call{Tenant: "t", DB: SuiteDB, RequestID: fmt.Sprintf("r%d", ids.Add(1)), Kind: kind, SQL: sql,
+			Args: args, Deadline: time.Now().Add(5 * time.Second), StmtTimeout: time.Second, MaxRows: 100}
 	}
 	ctx := context.Background()
 
@@ -77,6 +79,34 @@ func RunExecutorSuite(t *testing.T, newExec func(t *testing.T) front.Executor) {
 		r, _ := e.Exec(ctx, call(front.KindRead, GetSQL, int64(1)))
 		if r.Count != 1 || r.Rows[0][1] != "v1" {
 			t.Fatalf("row changed: %+v", r)
+		}
+	})
+	t.Run("same request_id applies once and answers the original count", func(t *testing.T) {
+		e := newExec(t)
+		c := call(front.KindWrite, PutSQL, int64(30), "once")
+		if r, err := e.Exec(ctx, c); err != nil || r.Count != 1 || r.Duplicate {
+			t.Fatalf("first: %+v %v", r, err)
+		}
+		// The retry would fail on the key if it ran; it must not run.
+		if r, err := e.Exec(ctx, c); err != nil || r.Count != 1 || !r.Duplicate {
+			t.Fatalf("retry: %+v %v", r, err)
+		}
+		// Ids are per database and per write: a read with the same id is just a read.
+		read := call(front.KindRead, GetSQL, int64(30))
+		read.RequestID = c.RequestID
+		if r, err := e.Exec(ctx, read); err != nil || r.Count != 1 || r.Duplicate {
+			t.Fatalf("read with the id: %+v %v", r, err)
+		}
+	})
+	t.Run("failed write leaves its request_id unused", func(t *testing.T) {
+		e := newExec(t)
+		c := call(front.KindWrite, PutSQL, int64(1), "dup")
+		if _, err := e.Exec(ctx, c); !errors.Is(err, front.ErrStatement) {
+			t.Fatalf("err %v", err)
+		}
+		c.Args = []any{int64(31), "fixed"}
+		if r, err := e.Exec(ctx, c); err != nil || r.Duplicate || r.Count != 1 {
+			t.Fatalf("retry with the same id: %+v %v", r, err)
 		}
 	})
 	t.Run("bad statement is ErrStatement", func(t *testing.T) {

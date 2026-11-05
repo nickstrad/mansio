@@ -55,6 +55,9 @@ type Reply struct {
 	Columns []string
 	Rows    [][]any // reads: the rows; writes: nil
 	Count   int64   // reads: len(Rows); writes: rows affected
+	// Duplicate: a write whose RequestID this database already applied. It did not run again; Count is the
+	// original's. The wire answers ok with "duplicate": true (knowledge/front/2026-11-05-request-ids.md).
+	Duplicate bool
 }
 
 // Executor runs calls. Today: one statement on the database's actor (ActorExecutor). Later: a handler executor
@@ -64,6 +67,9 @@ type Reply struct {
 //
 //	post: returns by Deadline plus a bounded grace, whatever the statement does
 //	post: err == nil ⇒ reads: Count == len(Rows) <= MaxRows, every row has len(Columns) values
+//	post: writes: a RequestID is applied at most once per database; a call whose id was applied answers
+//	      err == nil, Duplicate, and the original's Count, and changes nothing. A write that fails leaves its id
+//	      unused, so a retry with the same id may apply
 //	post: errors.Is(err, ErrUnknownDB): db is not hosted here; nothing ran
 //	post: errors.Is(err, ErrShed | ErrUnavailable | ErrExpired): nothing ran
 //	post: errors.Is(err, ErrStmtTimeout | ErrAborted | ErrStatement | ErrTooManyRows): nothing changed

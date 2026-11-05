@@ -24,11 +24,13 @@ const (
 // KVRows is the suite database's initial content: k = 1..3, v = "v<k>".
 var KVRows = [][]any{{int64(1), "v1"}, {int64(2), "v2"}, {int64(3), "v3"}}
 
-// Executor is a fake executor over in-memory kv tables, one per database. Switches: Delay before answering,
-// Block until the deadline (then ErrNoReply), Panic, Err (returned as is).
+// Executor is a fake executor over in-memory kv tables, one per database. Like the actor, it applies each
+// write's RequestID at most once per database and remembers only writes that succeeded. Switches: Delay before
+// answering, Block until the deadline (then ErrNoReply), Panic, Err (returned as is).
 type Executor struct {
 	mu    sync.Mutex
 	dbs   map[string]map[int64]string
+	ids   map[string]map[string]int64 // db → applied request id → rows affected
 	Delay time.Duration
 	Block bool
 	Panic bool
@@ -45,13 +47,14 @@ func (e *Executor) Last() front.Call {
 
 // NewExecutor serves the given databases, each starting with KVRows.
 func NewExecutor(dbs ...string) *Executor {
-	e := &Executor{dbs: map[string]map[int64]string{}}
+	e := &Executor{dbs: map[string]map[int64]string{}, ids: map[string]map[string]int64{}}
 	for _, db := range dbs {
 		m := map[int64]string{}
 		for _, r := range KVRows {
 			m[r[0].(int64)] = r[1].(string)
 		}
 		e.dbs[db] = m
+		e.ids[db] = map[string]int64{}
 	}
 	return e
 }
@@ -91,6 +94,9 @@ func (e *Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) 
 	if !ok {
 		return front.Reply{}, front.ErrUnknownDB
 	}
+	if n, ok := e.ids[c.DB][c.RequestID]; ok && c.Kind == front.KindWrite && c.RequestID != "" {
+		return front.Reply{Count: n, Duplicate: true}, nil
+	}
 	cols := []string{"k", "v"}
 	switch c.SQL {
 	case GetSQL:
@@ -123,6 +129,9 @@ func (e *Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) 
 			return front.Reply{}, fmt.Errorf("%w: UNIQUE constraint failed: kv.k", front.ErrStatement)
 		}
 		kv[k] = v
+		if c.RequestID != "" {
+			e.ids[c.DB][c.RequestID] = 1
+		}
 		return front.Reply{Count: 1}, nil
 	case front.CanarySQL:
 		return front.Reply{Columns: []string{"1"}, Rows: [][]any{{int64(1)}}, Count: 1}, nil
