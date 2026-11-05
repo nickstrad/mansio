@@ -255,7 +255,9 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 	var wrote atomic.Bool
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) }})
 	out, err := http.NewRequestWithContext(ctx, http.MethodPost, up.url, bytes.NewReader(body))
-	assert.That(err == nil, "edge: cannot build the agent request for %q: %v", up.url, err) // the URL was validated
+	if err != nil { // the URL was validated; checked before asserting so the request path does not box arguments
+		assert.That(false, "edge: cannot build the agent request for %q: %v", up.url, err)
+	}
 	out.Header.Set("Authorization", r.Header.Get("Authorization"))
 	out.Header.Set("Content-Type", "application/json")
 	out.Header.Set(front.TimeoutHeader, strconv.FormatInt(max(int64((left+time.Millisecond-1)/time.Millisecond), 1), 10))

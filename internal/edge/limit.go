@@ -66,8 +66,7 @@ func (l *SourceLimiter) Allow(src string, now time.Time) (ok bool, wait time.Dur
 	} else {
 		wait = max(time.Duration((1-b.tokens)/l.rate*float64(time.Second)), time.Millisecond)
 	}
-	assert.That(b.tokens >= 0 && b.tokens <= l.burst && len(l.buckets) <= l.max, "edge: limiter bucket %v of %v, %d sources of %d",
-		b.tokens, l.burst, len(l.buckets), l.max)
+	assert.That(b.tokens >= 0 && b.tokens <= l.burst && len(l.buckets) <= l.max, "edge: limiter invariant broken") // no args: no allocation
 	return wait == 0, wait
 }
 
