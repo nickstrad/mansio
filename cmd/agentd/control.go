@@ -47,7 +47,9 @@ import (
 //	internal     | 500    | a bug; report the log_id
 //
 // "create" is the single-node stand-in for the control plane's create (flow B): with no placement row, the
-// agent writes ACTIVE(self, epoch 1, gen 0) first. It goes away when controld owns placement (CP-4).
+// agent writes ACTIVE(self, epoch 1, gen 0) first. Only with -dev (tests and single-node local runs); without
+// it a claim with create answers bad_request: creating databases is the control plane's job (controld, CP-4),
+// which writes the placement row itself and then calls a plain claim.
 const (
 	claimPath  = "/v1/lifecycle/claim"
 	fencePath  = "/v1/lifecycle/fence"
@@ -150,6 +152,9 @@ func (c *control) claim(ctx context.Context, r *http.Request) (any, error) {
 		return nil, err
 	}
 	if req.Create {
+		if !c.d.cfg.Dev {
+			return nil, badRequest("create is the control plane's job (controld); -dev only")
+		}
 		if err := c.create(ctx, req.DB); err != nil {
 			return nil, err
 		}

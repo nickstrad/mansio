@@ -7,6 +7,9 @@
 // (message code S3.BREAKER_OPEN etc.) and to expose (RI-11). The caller decides what counts as a failure
 // (Release It C2: only system failures; answers such as not-found are successes).
 //
+// Operators can force it (Release It C4, plan RI-16): Trip holds it open until Reset, whatever calls do; Reset
+// closes it at once. Both are transitions, reported through OnChange with Manual set.
+//
 // Use: p, wait, ok := b.Allow(now); if !ok, fail fast with a retry hint of wait; else make the call and report
 // b.Done(p, now, outcome). Outcomes of calls permitted before the last transition are ignored, so a slow
 // call that started while Closed cannot reopen a breaker that has since closed again.
@@ -61,6 +64,7 @@ type Transition struct {
 	At       time.Time
 	Calls    int // calls and failures in the window that opened it (From == Closed); else 0
 	Failures int
+	Manual   bool // an operator's Trip or Reset, not the calls' outcomes
 }
 
 // Normalize fills in defaults and checks the config (the edge: it may come from a file).
@@ -92,8 +96,8 @@ type Permit struct {
 
 // Breaker is safe for concurrent use.
 //
-// Invariant: Closed ⇒ 0 <= fails <= calls and not probing; Open ⇒ not probing; HalfOpen ⇒ calls == fails == 0.
-// gen counts transitions, so permits from before the last one are recognized and ignored.
+// Invariant: Closed ⇒ 0 <= fails <= calls and not probing; Open ⇒ not probing; HalfOpen ⇒ calls == fails == 0;
+// forced ⇒ Open. gen counts transitions, so permits from before the last one are recognized and ignored.
 type Breaker struct {
 	cfg Config
 
@@ -105,6 +109,7 @@ type Breaker struct {
 	fails       int
 	until       time.Time // Open: when the cool-down ends
 	probing     bool      // HalfOpen: the probe is in flight
+	forced      bool      // Open by Trip: stays open, no probe, until Reset
 }
 
 // New returns a closed breaker. It fails only on an invalid config.
@@ -120,6 +125,7 @@ func New(cfg Config) (*Breaker, error) {
 //	post: ok ⇒ the caller must report Done(p, …) once
 //	post: !ok ⇒ wait > 0 is how long until a call may be let through again (a retry hint)
 //	post: HalfOpen ⇒ at most one permit is outstanding
+//	post: forced open (Trip) ⇒ !ok, with wait = the cool-down (a hint: it holds until Reset)
 func (b *Breaker) Allow(now time.Time) (p Permit, wait time.Duration, ok bool) {
 	b.mu.Lock()
 	var tr *Transition
@@ -129,6 +135,9 @@ func (b *Breaker) Allow(now time.Time) (p Permit, wait time.Duration, ok bool) {
 		b.roll(now)
 		return Permit{gen: b.gen}, 0, true
 	case Open:
+		if b.forced {
+			return Permit{}, max(b.cfg.CoolDown, time.Millisecond), false
+		}
 		if now.Before(b.until) {
 			return Permit{}, b.until.Sub(now), false
 		}
@@ -180,6 +189,48 @@ func (b *Breaker) Done(p Permit, now time.Time, o Outcome) {
 	b.invariant()
 }
 
+// Trip forces the breaker open at now (an operator's control, Release It C4): every Allow fails fast until
+// Reset, and no probe is let through. It reports whether anything changed (false: already forced open).
+//
+//	post: State(t) == Open for every t until Reset
+func (b *Breaker) Trip(now time.Time) bool {
+	b.mu.Lock()
+	var tr *Transition
+	defer func() { b.mu.Unlock(); b.notify(tr) }()
+	if b.forced {
+		return false
+	}
+	tr = b.move(Open, now)
+	tr.Manual, b.forced = true, true
+	b.invariant()
+	return true
+}
+
+// Reset closes the breaker at now, from any state, with a fresh counting window (an operator's control; it
+// also undoes Trip). Outcomes of calls permitted before it are ignored. It reports whether anything changed
+// (false: already closed).
+//
+//	post: State(now) == Closed
+func (b *Breaker) Reset(now time.Time) bool {
+	b.mu.Lock()
+	var tr *Transition
+	defer func() { b.mu.Unlock(); b.notify(tr) }()
+	if b.state == Closed {
+		return false
+	}
+	tr = b.move(Closed, now)
+	tr.Manual = true
+	b.invariant()
+	return true
+}
+
+// Forced reports whether Trip holds the breaker open.
+func (b *Breaker) Forced() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.forced
+}
+
 // roll starts a new counting window when the current one has ended. pre: b.mu held, state Closed.
 func (b *Breaker) roll(now time.Time) {
 	if !now.Before(b.windowStart.Add(b.cfg.Window)) {
@@ -193,7 +244,7 @@ func (b *Breaker) move(to State, now time.Time) *Transition {
 	if b.state == Closed {
 		t.Calls, t.Failures = b.calls, b.fails
 	}
-	b.state, b.probing, b.calls, b.fails = to, false, 0, 0
+	b.state, b.probing, b.calls, b.fails, b.forced = to, false, 0, 0, false
 	b.gen++
 	switch to {
 	case Open:
@@ -211,9 +262,11 @@ func (b *Breaker) notify(t *Transition) {
 }
 
 func (b *Breaker) invariant() {
-	if !assert.Enabled || b.fails >= 0 && b.fails <= b.calls && (b.state == HalfOpen || !b.probing) && (b.state == Closed || b.calls == 0) {
+	if !assert.Enabled || b.fails >= 0 && b.fails <= b.calls && (b.state == HalfOpen || !b.probing) && (b.state == Closed || b.calls == 0) &&
+		(!b.forced || b.state == Open) {
 		return // checked without boxing the arguments below (this runs on every Done)
 	}
+	assert.That(!b.forced || b.state == Open, "breaker: forced in state %s", b.state)
 	assert.That(b.fails >= 0 && b.fails <= b.calls, "breaker: %d failures of %d calls", b.fails, b.calls)
 	assert.That(b.state == HalfOpen || !b.probing, "breaker: probing in state %s", b.state)
 	assert.That(b.state == Closed || b.calls == 0, "breaker: %d calls counted in state %s", b.calls, b.state)
@@ -224,7 +277,7 @@ func (b *Breaker) invariant() {
 func (b *Breaker) State(now time.Time) State {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.state == Open && !now.Before(b.until) {
+	if b.state == Open && !b.forced && !now.Before(b.until) {
 		return HalfOpen
 	}
 	return b.state

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,10 @@ type Config struct {
 	HealthListen string   `json:"health_listen"` // optional lifecycle listener: /healthz, /livez, /readyz, /metrics
 	Protocols    []string `json:"protocols"`     // "h1", "h2c"; default both
 	VM           string   `json:"vm"`            // this VM's id: the ticket audience (required)
+
+	// AdminListen is the optional admin listener (runtime controls, admin.go): a loopback address only, since
+	// binding is its only access control.
+	AdminListen string `json:"admin_listen"`
 
 	// Static mode (no s3 section; benchmarks and local runs): serve the <db>.db files in db_dir, owned at
 	// default_epoch (or epochs[db]). No ownership table, no write-back.
@@ -84,7 +89,11 @@ type Config struct {
 	ReadyTimeout   load.Duration `json:"ready_timeout"`   // default 500 ms
 
 	LogFile  string `json:"log_file"`  // JSON log; default stderr
-	LogLevel string `json:"log_level"` // debug | info (default) | warn
+	LogLevel string `json:"log_level"` // debug | info (default) | warn; POST /admin/loglevel changes it at run time
+
+	// Dev is the -dev flag, not a file field: local development, where plain-HTTP S3 and the claim's create
+	// stand-in are allowed (object-storage guide S2; control.go).
+	Dev bool `json:"-"`
 }
 
 // S3Config is where durable mode keeps databases. The keys come from the secrets file.
@@ -103,6 +112,12 @@ type S3Config struct {
 		FailureRate float64       `json:"failure_rate"`
 		CoolDown    load.Duration `json:"cool_down"`
 	} `json:"breaker"`
+
+	// Secure speaks HTTPS to the endpoint; false (plain HTTP) is refused without -dev (object-storage guide S2).
+	Secure bool `json:"secure"`
+	// CAFile is a PEM bundle of the CAs that sign the endpoint's certificate (a private CA); default the
+	// system roots. Requires secure.
+	CAFile string `json:"ca_file"`
 }
 
 // breakerConfig is the S3 breaker's config (Normalize fills the defaults and checks it).
@@ -180,6 +195,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.Listen == "" {
 		bad("listen is required")
 	}
+	if c.AdminListen != "" && !loopback(c.AdminListen) {
+		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7072 (binding is the admin endpoints' only access control)", c.AdminListen)
+	}
 	if len(c.Protocols) == 0 {
 		bad("protocols: at least one of h1, h2c")
 	}
@@ -244,7 +262,11 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir} {
+	paths := []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir}
+	if c.S3 != nil {
+		paths = append(paths, &c.S3.CAFile)
+	}
+	for _, p := range paths {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
@@ -263,6 +285,9 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 	}
 	if s.Prefix != "" && !strings.HasSuffix(s.Prefix, "/") {
 		bad("s3: prefix %q must end in /", s.Prefix)
+	}
+	if s.CAFile != "" && !s.Secure {
+		bad("s3: ca_file needs secure: true (plain HTTP would ignore it)")
 	}
 	if s.OpTimeout.Duration < 0 || s.StallTimeout.Duration < 0 || s.MaxConns < 0 {
 		bad("s3: op_timeout, stall_timeout and max_conns must be >= 0 (0 = default)")
@@ -314,6 +339,30 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 	if c.LifecycleTimeout.Duration <= 0 || c.LifecycleConcurrency < 1 || c.ReconcilePerKey.Duration <= 0 {
 		bad("lifecycle_timeout and reconcile_per_key must be > 0, lifecycle_concurrency >= 1")
 	}
+}
+
+// loopback reports whether addr (host:port) names a loopback host: localhost or a loopback IP. An empty host
+// (":7072") binds every interface, so it is not.
+func loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// checkDev refuses what only local development may do unless -dev is given: durable mode over plain-HTTP S3
+// (object-storage guide S1, S2; plan OS-11).
+func (c *Config) checkDev() error {
+	if c.Durable() && !c.S3.Secure && !c.Dev {
+		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+
+			"(and \"ca_file\" for a private CA) in the s3 section, or pass -dev for a local run").With("endpoint", c.S3.Endpoint)
+	}
+	return nil
 }
 
 // Secrets is the secrets file (0600, outside the config; object-storage guide S2, Release It RI-16).

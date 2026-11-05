@@ -668,6 +668,16 @@ func (h *Host) query(ctx context.Context, db DB, q string) error {
 	return db.Query(ctx, q)
 }
 
+// SetFetchLimit changes Options.MaxFetches at run time (an operator's control, Release It C4, plan RI-16).
+// Fetches already running finish; the next ones respect n: none starts while n or more run. Raising it lets
+// queued activations start at once. The byte bound and the queue bound are unchanged.
+//
+//	pre: n >= 1 (the caller validates it)
+func (h *Host) SetFetchLimit(n int) { h.gate.setMaxN(n) }
+
+// FetchLimit is the current limit on fetches in flight (Options.MaxFetches, or the last SetFetchLimit).
+func (h *Host) FetchLimit() int { return h.gate.limit() }
+
 // Active counts keys that are active or activating.
 func (h *Host) Active() int {
 	h.mu.Lock()

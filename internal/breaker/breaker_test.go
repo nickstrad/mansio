@@ -172,6 +172,54 @@ func TestStalePermitIgnored(t *testing.T) {
 	}
 }
 
+// RI-16: Trip holds the breaker open past the cool-down (no probe) until Reset; both are manual transitions;
+// a repeat changes nothing; permits from before either are ignored.
+func TestTripHoldsUntilReset(t *testing.T) {
+	var log []Transition
+	b := newB(t, Config{CoolDown: time.Second, OnChange: func(tr Transition) { log = append(log, tr) }})
+	if b.Reset(t0) {
+		t.Fatal("Reset of a closed breaker changed something")
+	}
+	old, _, _ := b.Allow(t0)
+	if !b.Trip(t0) || b.Trip(t0) {
+		t.Fatal("Trip: want true, then false (already forced)")
+	}
+	b.Done(old, t0, Success) // permitted before the trip: ignored, does not close it
+	for _, at := range []time.Time{t0, t0.Add(time.Second), t0.Add(time.Hour)} {
+		if _, wait, ok := b.Allow(at); ok || wait != time.Second || b.State(at) != Open || !b.Forced() {
+			t.Fatalf("at %v: Allow ok %v wait %v state %s forced %v, want refused with the cool-down as hint, open",
+				at.Sub(t0), ok, wait, b.State(at), b.Forced())
+		}
+	}
+	at := t0.Add(time.Hour)
+	if !b.Reset(at) || b.State(at) != Closed || b.Forced() {
+		t.Fatalf("after Reset: state %s forced %v", b.State(at), b.Forced())
+	}
+	if _, _, ok := b.Allow(at); !ok {
+		t.Fatal("refused after Reset")
+	}
+	if len(log) != 2 || log[0] != (Transition{From: Closed, To: Open, At: t0, Manual: true}) ||
+		log[1] != (Transition{From: Open, To: Closed, At: at, Manual: true}) {
+		t.Fatalf("transitions %+v", log)
+	}
+
+	// Trip of a breaker the calls opened: forced from then on (past the cool-down); Reset of a half-open one
+	// voids its probe.
+	b = newB(t, Config{MinCalls: 1, FailureRate: 1, CoolDown: time.Second})
+	calls(b, t0, 1, Failure)
+	if !b.Trip(t0) || b.State(t0.Add(time.Minute)) != Open {
+		t.Fatal("Trip of an open breaker did not force it")
+	}
+	b.Reset(t0)
+	calls(b, t0, 1, Failure)
+	probe, _, _ := b.Allow(t0.Add(time.Second))
+	b.Reset(t0.Add(time.Second))
+	b.Done(probe, t0.Add(time.Second), Failure)
+	if b.State(t0.Add(time.Second)) != Closed {
+		t.Fatal("a probe from before Reset reopened the breaker")
+	}
+}
+
 // Every assertion in Done and invariant can fire.
 func TestAssertionsFire(t *testing.T) {
 	if !assert.Enabled {
@@ -184,6 +232,7 @@ func TestAssertionsFire(t *testing.T) {
 		"invariant: fails > calls":   func() { (&Breaker{fails: 1}).invariant() },
 		"invariant: probing closed":  func() { (&Breaker{probing: true}).invariant() },
 		"invariant: calls when open": func() { (&Breaker{state: Open, calls: 1, fails: 1}).invariant() },
+		"invariant: forced closed":   func() { (&Breaker{forced: true}).invariant() },
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -207,6 +256,7 @@ type model struct {
 	outcomes    []bool // counted outcomes in the window; true = failure
 	openedAt    time.Time
 	probeOut    bool
+	forced      bool
 	era         int
 }
 
@@ -217,6 +267,9 @@ type mpermit struct {
 }
 
 func (m *model) allow(now time.Time) (mpermit, time.Duration, bool) {
+	if m.forced {
+		return mpermit{}, m.c.CoolDown, false
+	}
 	if m.state == Open {
 		if now.Before(m.openedAt.Add(m.c.CoolDown)) {
 			return mpermit{}, m.openedAt.Add(m.c.CoolDown).Sub(now), false
@@ -273,19 +326,37 @@ func (m *model) done(p mpermit, now time.Time, o Outcome) {
 	}
 }
 
+// trip and reset: the operator's controls. Each is a transition unless it changes nothing.
+func (m *model) trip(now time.Time) bool {
+	if m.forced {
+		return false
+	}
+	m.state, m.forced, m.openedAt, m.outcomes, m.probeOut, m.era = Open, true, now, nil, false, m.era+1
+	return true
+}
+
+func (m *model) reset(now time.Time) bool {
+	if m.state == Closed {
+		return false
+	}
+	m.state, m.forced, m.windowStart, m.outcomes, m.probeOut, m.era = Closed, false, now, nil, false, m.era+1
+	return true
+}
+
 func (m *model) stateAt(now time.Time) State {
-	if m.state == Open && !now.Before(m.openedAt.Add(m.c.CoolDown)) {
+	if m.state == Open && !m.forced && !now.Before(m.openedAt.Add(m.c.CoolDown)) {
 		return HalfOpen
 	}
 	return m.state
 }
 
-// FuzzBreakerModel runs a byte script of allow / done(success, failure, ignore) / tick against the breaker and
-// the model, comparing every answer and the state after every step (plan RI-03).
+// FuzzBreakerModel runs a byte script of allow / done(success, failure, ignore) / tick / trip / reset against the
+// breaker and the model, comparing every answer and the state after every step (plans RI-03, RI-16).
 func FuzzBreakerModel(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 2, 2, 2, 4, 50, 0, 1})
 	f.Add([]byte{0, 2, 0, 2, 0, 2, 0, 2, 4, 60, 0, 0, 3, 0, 1, 0, 1})
 	f.Add([]byte{0, 0, 0, 0, 2, 2, 2, 2, 4, 200, 0, 1, 4, 10, 0, 2})
+	f.Add([]byte{0, 0, 5, 1, 0, 4, 200, 0, 5, 6, 0, 1, 0, 2, 2, 2, 6, 0})
 	f.Fuzz(func(t *testing.T, script []byte) {
 		cfg := Config{Window: 2 * time.Second, MinCalls: 3, FailureRate: 0.5, CoolDown: time.Second}
 		b := newB(t, cfg)
@@ -293,7 +364,7 @@ func FuzzBreakerModel(f *testing.F) {
 		now := t0
 		var out []mpermit // outstanding permits, oldest first
 		for i := 0; i < len(script); i++ {
-			switch op := script[i] % 5; op {
+			switch op := script[i] % 7; op {
 			case 0:
 				rp, rwait, rok := b.Allow(now)
 				mp, mwait, mok := m.allow(now)
@@ -328,6 +399,14 @@ func FuzzBreakerModel(f *testing.F) {
 					d = time.Duration(script[i]) * 20 * time.Millisecond
 				}
 				now = now.Add(d)
+			case 5:
+				if got, want := b.Trip(now), m.trip(now); got != want {
+					t.Fatalf("step %d Trip: %v, model %v", i, got, want)
+				}
+			case 6:
+				if got, want := b.Reset(now), m.reset(now); got != want {
+					t.Fatalf("step %d Reset: %v, model %v", i, got, want)
+				}
 			}
 			if got, want := b.State(now), m.stateAt(now); got != want {
 				t.Fatalf("step %d: state %s, model %s", i, got, want)
