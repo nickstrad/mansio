@@ -1,6 +1,6 @@
 // Package actordb adapts internal/actor to vactor's Opener port in durable mode: one actor (goroutine +
-// connections) per database, with Commits as the dirty check and Snapshot (VACUUM INTO on the actor's
-// writer) as the consistent copy.
+// connections) per database, with Commits as the dirty check and Snapshot (the SQLite backup API, on a reader
+// connection in WAL mode) as the consistent copy.
 package actordb
 
 import (

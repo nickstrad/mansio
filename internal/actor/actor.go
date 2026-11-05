@@ -63,7 +63,7 @@ type Request struct {
 
 	enqueued time.Time
 	reply    chan Result
-	onWriter bool // a read that must run on the write connection (Snapshot); never sent to the read pool
+	backupTo string // Snapshot: copy the database to this path with the backup API instead of running SQL
 }
 
 // Result carries the answer and where the time went.
@@ -218,17 +218,19 @@ func (a *Actor) QueueLen() int { return len(a.mailbox) + int(a.readQueued.Load()
 //	post: monotonic; it increases only after a COMMIT returned success, before any write in it is answered
 func (a *Actor) Commits() uint64 { return a.commits.Load() }
 
-// Snapshot writes a consistent copy of the database to path (which must not exist) with VACUUM INTO, on the
-// actor's own write connection, between batches. Writes queued meanwhile wait in the mailbox; none are lost.
-// It always uses the write connection: VACUUM INTO fails on a query_only reader. A ctx deadline bounds it as in
-// Do.
+// Snapshot writes a consistent copy of the database to path (which must not exist) with SQLite's online backup
+// API, from one read transaction. In WAL mode with a read pool it runs on a reader, so writes go on meanwhile
+// (CP-8; VACUUM INTO on the writer stalled them for the whole copy). Otherwise (no read pool, or a rollback
+// journal, where a long reader would block the writer's commit) it runs on the write connection between
+// batches, and writes queued meanwhile wait in the mailbox; none are lost. A ctx deadline bounds it as in Do: the
+// copy checks it between steps. With a read pool it can be shed (ErrMailboxFull) like any read.
 //
 //	post: err == nil ⇒ path is a complete database holding at least the first `commits` committed write
 //	      transactions (commits is read before the snapshot is queued, so it may hold more)
 //	post: err != nil ⇒ nothing is guaranteed about path; the caller removes it
 func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
 	commits = a.Commits()
-	r := &Request{SQL: "VACUUM INTO ?", Args: []any{path}, onWriter: true}
+	r := &Request{SQL: "-- snapshot", backupTo: path}
 	r.boundBy(ctx)
 	if err := a.Submit(r); err != nil {
 		return commits, err
@@ -324,7 +326,7 @@ func (a *Actor) process(batch []*Request) {
 		switch {
 		case r.expiredAt(time.Now()): // may have expired while the writes ran
 			meta.fail(r, ErrExpired)
-		case a.readQ != nil && !r.onWriter:
+		case a.readQ != nil && (r.backupTo == "" || a.cfg.JournalMode == "WAL"):
 			a.readQueued.Add(1)
 			select {
 			case a.readQ <- r:
@@ -497,7 +499,12 @@ func (a *Actor) run1(k executor, r *Request) Result {
 		ctx, cancel = context.WithTimeout(ctx, r.StmtTimeout)
 		defer cancel()
 	}
-	res := k.exec(ctx, r)
+	var res Result
+	if r.backupTo != "" {
+		res.Err = k.backup(ctx, r.backupTo)
+	} else {
+		res = k.exec(ctx, r)
+	}
 	res.TimedOut = res.Err != nil && ctx.Err() != nil
 	res.QueueWait = t0.Sub(r.enqueued)
 	res.Exec = time.Since(t0)
