@@ -1,0 +1,47 @@
+{
+  "name": "sizes",
+  "sizes": [
+    {
+      "name": "64k",
+      "size": "64KiB",
+      "count": 2000
+    },
+    {
+      "name": "1m",
+      "size": "1MiB",
+      "count": 1000
+    },
+    {
+      "name": "16m",
+      "size": "16MiB",
+      "count": 100
+    },
+    {
+      "name": "128m",
+      "size": "128MiB",
+      "count": 20
+    },
+    {
+      "name": "1g",
+      "size": "1GiB",
+      "count": 4,
+      "concurrency": [
+        1,
+        4
+      ]
+    }
+  ],
+  "concurrency": [
+    1,
+    4,
+    16,
+    64,
+    256
+  ],
+  "per_level": 400,
+  "warm_queries": [
+    "SELECT count(*), sum(length(payload)) FROM items"
+  ],
+  "dup_callers": 500,
+  "upload_workers": 32
+}
