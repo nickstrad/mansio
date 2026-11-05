@@ -543,3 +543,14 @@ Branch `cp/cp1` (merged main incl. CP-2). Contract/API changes others depend on:
   `POST /v1/lifecycle/forget`, `GET /v1/lifecycle/health`. Error codes in `cmd/agentd/control.go`. `create` is a
   single-node stand-in for controld's flow B; delete it at CP-4. controld (CP-4) should call these.
 - Details and gate numbers: `knowledge/front/2026-11-05-agentd-durable-mode.md`.
+
+## 2026-11-05 14:44 — cp4: controld, registries, agentd placement_pg, admin controls, S3 identities (CP-4)
+
+Branch `cp/cp4`. Details: `knowledge/front/2026-11-05-controld.md`, `knowledge/front/2026-11-05-agentd-admin-controls.md`, `knowledge/writeback/2026-11-05-s3-scoped-identities.md`.
+
+- **placement/pg schema 0002** (`tenants`, `databases` with lifecycle state + `target_vm`, `vms.bytes`). New methods: `CreateDatabase`, `GetDatabase`, `SetDatabaseState` (CAS), `Pending`, `DropPlacement`, `Heartbeat`, `AttestDead`, `VM`, `OwnedBy`, `ValidTenant/ValidName`. `Moving` rows gain `Intent`/`Target`; `VMLoad` gains `Bytes`/`HeartbeatAge`. Database key = `tenant:name`; dropped names are never reused.
+- **internal/control** (domain): `Policy.Pick` (M8 decided), `Controller` Create/Move/Suspend/Resume/Drop/AttestDead/Restore/ResumeStuck. **internal/control/agenthttp**: lifecycle client, breaker per agent.
+- **cmd/controld**: API on `listen` (Bearer `admin_token`): `POST /v1/databases`, `GET /v1/databases/{key}`, `POST /v1/databases/{key}/{move,suspend,resume,drop}`, `GET /v1/vms`, `POST /v1/vms/{vm}/{attest-dead,restore}`; same binary as CLI (`controld <cmd> -addr -secrets`). Secrets: `pg_dsn`, `control_token`, `admin_token`, gc S3 keys. Needs `-dev` for plain-HTTP S3.
+- **agentd**: `placement_pg` (DSN `pg_dsn` in secrets) as an alternative to `placement_dir`; `pg.ErrUnavailable` → `unavailable`; breaker `"placement"`. `-dev` required for `s3.secure: false`; `claim {"create": true}` only with `-dev`. `admin_listen` (loopback only) with `/admin/breaker/{dep}:trip|reset`, `/admin/fetch:limit?n=`, `/admin/drain`, `/admin/passivate?key=`, `/admin/loglevel?level=`; `cmd/agentctl`. Addr-file: line 2 lifecycle, line 3 admin.
+- **Shared helpers**: `logx.BreakerLog`, `metrics.Breakers` (moved from agentd); `breaker.Trip/Reset/Forced`; `vactor.Host.SetFetchLimit/FetchLimit`; `objstore.Config.Secure/CAFile`.
+- **SeaweedFS identities** (`deploy/seaweedfs/s3.json`, container recreated): `coldload` (admin, unchanged), `agent`/`agent-secret-dev` (Read+Write, no List), `gc`/`gc-secret-dev` (Read+List+Write), `bench`/`bench-secret-dev` (dev admin).
