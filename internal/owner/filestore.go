@@ -3,7 +3,6 @@ package owner
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/fsx"
 )
 
 // FileStore is the LocalStore adapter: one small JSON file per key in Dir, named by the key in hex (so any
@@ -27,7 +27,7 @@ type FileStore struct {
 
 const (
 	recExt    = ".rec"
-	tmpMarker = ".tmp-" // temp files are ".tmp-<random>"
+	tmpMarker = fsx.TempPrefix // temp files are ".tmp-<random>"
 	recFormat = 1
 )
 
@@ -67,7 +67,7 @@ func (s *FileStore) Put(ctx context.Context, r Record) error {
 	if err := ctx.Err(); err != nil {
 		return errs.Wrap(module, err, "cannot store ownership of %q; nothing changed, safe to retry", r.Key)
 	}
-	if err := writeAtomic(s.path(r.Key), data); err != nil {
+	if err := fsx.WriteAtomic(s.path(r.Key), data, 0o644); err != nil {
 		return errs.Wrap(module, err, "cannot store ownership of %q; old record kept or replaced, safe to retry", r.Key).With("dir", s.Dir)
 	}
 	return nil
@@ -81,7 +81,7 @@ func (s *FileStore) Delete(ctx context.Context, key string) error {
 	if err := os.Remove(s.path(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return errs.Wrap(module, err, "cannot delete ownership of %q; safe to retry", key)
 	}
-	if err := syncDir(s.Dir); err != nil {
+	if err := fsx.SyncDir(s.Dir); err != nil {
 		return errs.Wrap(module, err, "cannot delete ownership of %q durably; safe to retry", key)
 	}
 	return nil
@@ -139,41 +139,4 @@ func readRecord(path string) (Record, error) {
 		return Record{}, fmt.Errorf("%w: state %q", ErrInvalid, fr.State)
 	}
 	return r, r.Validate()
-}
-
-func writeAtomic(path string, data []byte) error {
-	var rnd [6]byte
-	_, _ = rand.Read(rnd[:])
-	tmp := filepath.Join(filepath.Dir(path), tmpMarker+hex.EncodeToString(rnd[:])) // not named after the key: <hex key> may already be near the 255-byte limit
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(data)
-	if werr == nil {
-		werr = f.Sync()
-	}
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr == nil {
-		werr = os.Rename(tmp, path)
-	}
-	if werr != nil {
-		_ = os.Remove(tmp)
-		return werr
-	}
-	return syncDir(filepath.Dir(path))
-}
-
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	err = d.Sync()
-	if cerr := d.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }

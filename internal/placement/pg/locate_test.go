@@ -89,6 +89,11 @@ func (r *recorder) hooks() ListenHooks {
 				add(key[len(r.prefix):] + ":" + strconv.FormatUint(epoch, 10))
 			}
 		},
+		State: func(key string) {
+			if len(key) >= len(r.prefix) && key[:len(r.prefix)] == r.prefix {
+				add("state " + key[len(r.prefix):])
+			}
+		},
 		Lost: func(error) { add("lost") },
 	}
 }
@@ -161,6 +166,35 @@ func TestListenNotifiesEveryChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait(t, "ready", "k:1", "k:1", "k:2", "k:2", "k:2", "z:3")
+}
+
+// Every committed change of a database's registry state or target notifies its key on StateChannel; a CAS that
+// changes nothing, and the insert, do not. Locate returns the target while moving.
+func TestListenNotifiesRegistryStateChanges(t *testing.T) {
+	p, _ := newPlacement(t, nil)
+	tenant := "s" + uniq()
+	r := &recorder{prefix: tenant + ":"}
+	startListener(t, p, r)
+	r.wait(t, "ready")
+	if _, err := p.CreateDatabase(ctx, tenant, "main"); err != nil {
+		t.Fatal(err)
+	}
+	key := tenant + ":main"
+	must(t, p.SetDatabaseState(ctx, key, "creating", "active", ""))
+	if err := p.SetDatabaseState(ctx, key, "creating", "active", ""); !errors.Is(err, owner.ErrConflict) {
+		t.Fatalf("stale CAS: %v", err)
+	}
+	must(t, p.SetDatabaseState(ctx, key, "active", "moving", "vm-b"))
+	l, err := p.Locate(ctx, key)
+	if err != nil || l.Intent != "moving" || l.Target != "vm-b" {
+		t.Fatalf("Locate = %+v, %v", l, err)
+	}
+	must(t, p.SetDatabaseState(ctx, key, "moving", "moving", "vm-c")) // a new target alone notifies too
+	must(t, p.SetDatabaseState(ctx, key, "moving", "active", ""))
+	r.wait(t, "ready", "state main", "state main", "state main", "state main")
+	if l, err := p.Locate(ctx, key); err != nil || l.Intent != "active" || l.Target != "" {
+		t.Fatalf("Locate = %+v, %v", l, err)
+	}
 }
 
 // PG-10: killing the listener's connection → Lost, reconnect, Ready again, and later changes arrive.

@@ -25,6 +25,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 )
 
 const module = "edge"
@@ -34,7 +35,7 @@ const module = "edge"
 type Config struct {
 	Resolver Resolver
 	Gate     *Gate
-	Limiter  *SourceLimiter
+	Limiter  *ratelimit.SourceLimiter
 	// Transport carries requests to the agents: one per process (it pools connections), TLS to the agents'
 	// private CA outside development. It must bound dialing and the TLS handshake; each request's ctx bounds
 	// the rest. The edge never retries (Release It R1: the client is the one retry layer).
@@ -192,7 +193,7 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 		e.st.hits.Add(1)
 	} else {
 		e.st.misses.Add(1)
-		if ok, wait := e.cfg.Limiter.Allow(SourceKey(r.RemoteAddr), start); !ok {
+		if ok, wait := e.cfg.Limiter.Allow(ratelimit.SourceKey(r.RemoteAddr), start); !ok {
 			e.st.limited.Add(1)
 			return answer{code: front.Shed, hint: wait, msg: "too many new tickets from this source; nothing ran"}, false
 		}

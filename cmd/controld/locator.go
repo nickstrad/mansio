@@ -30,7 +30,7 @@ func (s locStore) Locate(ctx context.Context, key string, primary bool) (locator
 		p = s.primary
 	}
 	l, err := p.Locate(ctx, key)
-	return locator.Placement{Intent: l.Intent, Found: l.Found, VM: l.Place.Owner, Endpoint: l.Endpoint, Epoch: uint64(l.Place.Epoch),
+	return locator.Placement{Intent: l.Intent, Target: l.Target, Found: l.Found, VM: l.Place.Owner, Endpoint: l.Endpoint, Epoch: uint64(l.Place.Epoch),
 		Gen: uint64(l.Place.Gen), Moving: l.Place.State == owner.PlaceMoving}, err
 }
 
@@ -43,7 +43,8 @@ func (s locStore) APIKey(ctx context.Context, id string) (locator.StoredKey, err
 }
 
 // listen runs the placement listener until ctx ends: each (re)connect resets the locator's cache, each
-// notification invalidates one key, a lost connection turns the cache off until the next connect.
+// notification (a placement change, or a registry state flip that ends a claim window) invalidates one key, a
+// lost connection turns the cache off until the next connect.
 func (d *daemon) listen(ctx context.Context) {
 	d.pg.Listen(ctx, pg.ListenConfig{Ping: d.cfg.Locator.ListenPing.Duration}, pg.ListenHooks{
 		Ready: func() {
@@ -51,6 +52,7 @@ func (d *daemon) listen(ctx context.Context) {
 			d.log.Info("placement listener connected; locator cache reset", "event", "LOCATOR.LISTENING")
 		},
 		Notify: d.loc.Invalidate,
+		State:  d.loc.InvalidateState,
 		Lost: func(err error) {
 			d.loc.Untrust()
 			d.log.Warn("placement listener lost; locator cache off until it reconnects", "event", "LOCATOR.LISTEN_LOST", "error", err.Error())
@@ -141,7 +143,8 @@ func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(req.DB) {
 			return nil, errBadRequest("tenant and db must be a valid tenant id and database name")
 		}
-		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch})
+		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch,
+			Source: r.RemoteAddr})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, &apiError{"timeout", http.StatusGatewayTimeout, "resolve deadline passed; retry with backoff", false}
 		}
@@ -167,6 +170,7 @@ func (d *daemon) registerLocator(reg *metrics.Registry) {
 		{"controld_locator_notifications_total", "Placement notifications applied.", func() int64 { return st.Notifications }},
 		{"controld_locator_resets_total", "Listener connects (each resets the cache).", func() int64 { return st.Resets }},
 		{"controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", d.resolveShed.Load},
+		{"controld_locator_rate_limited_total", "Resolves refused: an uncached api key id from a source out of tokens.", func() int64 { return st.RateLimited }},
 	} {
 		reg.Add(m.name, m.help, metrics.Counter, func(e *metrics.Emit) { e.Value(nil, float64(m.v())) })
 	}

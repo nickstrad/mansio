@@ -304,3 +304,86 @@ func TestKeysURLRotation(t *testing.T) {
 		t.Fatalf("key cache not written: %v", err)
 	}
 }
+
+// Routes from controld's VM registry over TLS (control_ca_file, the edge token): a VM registered after start is
+// learned at the first ticket that names it (wrong_owner, then an early fetch), and a failing registry keeps the
+// last routes.
+func TestRegistryRoutes(t *testing.T) {
+	dir := t.TempDir()
+	ca := edgetest.NewCA(t)
+	caFile, certFile, keyFile := ca.WriteFiles(t, dir, "edge", "127.0.0.1")
+	keysFile, mint := keys(t, dir)
+	a, b := tlsAgent(t, ca), tlsAgent(t, ca)
+	const token = "edge-token-0123456789"
+	var mu sync.Mutex
+	agents, failing, gets := map[string]string{"vm-a": strings.TrimPrefix(a.URL, "https://")}, false, 0
+	reg := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		gets++
+		switch {
+		case r.URL.Path != "/v1/agents" || r.Header.Get("Authorization") != "Bearer "+token:
+			w.WriteHeader(http.StatusUnauthorized)
+		case failing:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"code": "ok", "agents": agents})
+		}
+	}))
+	reg.TLS = &tls.Config{Certificates: []tls.Certificate{ca.TLS(t, "127.0.0.1")}}
+	reg.StartTLS()
+	defer reg.Close()
+	tokenFile := filepath.Join(dir, "edge-token")
+	os.WriteFile(tokenFile, []byte(token+"\n"), 0o600)
+	e := start(t, dir, fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","tls":{"cert_file":%q,"key_file":%q},
+		"keys_file":%q,"control_ca_file":%q,"agent_tls":{"ca_file":%q},"log_file":"edge.log",
+		"registry":{"url":%q,"token_file":"edge-token","refresh":"1h","timeout":"2s"}}`, certFile, keyFile, keysFile, caFile, caFile, reg.URL+"/v1/agents"))
+
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: ca.Pool()}, ForceAttemptHTTP2: true}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
+	status := func(vm string) (int, any) {
+		s, out, _, err := query(t, client, "https://"+e.addr, mint(vm))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s, out["code"]
+	}
+	if s, code := status("vm-a"); s != 200 {
+		t.Fatalf("vm-a from the registry: %d %v\n%s", s, code, e.stderr)
+	}
+	if s, code := status("vm-b"); s != 421 || code != "wrong_owner" {
+		t.Fatalf("vm-b before it is registered: %d %v", s, code)
+	}
+	mu.Lock()
+	agents["vm-b"] = strings.TrimPrefix(b.URL, "https://")
+	mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second) // MinGap 1 s after the last fetch; refresh is an hour
+	for {
+		s, _ := status("vm-b")
+		if s == 200 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("vm-b never learned:\n%s", e.stderr)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	mu.Lock()
+	failing = true
+	mu.Unlock()
+	status("vm-c") // asks for an early fetch, which fails
+	time.Sleep(1500 * time.Millisecond)
+	if s, _ := status("vm-a"); s != 200 {
+		t.Fatalf("vm-a while the registry fails: %d", s)
+	}
+	mu.Lock()
+	n := gets
+	mu.Unlock()
+	if n < 3 || n > 4 {
+		t.Fatalf("%d registry fetches, want 3 or 4: start, vm-b's miss, vm-c's miss (kicks coalesce)", n)
+	}
+	if c := e.stop(); c != exitOK {
+		t.Fatalf("exit %d\n%s", c, e.stderr)
+	}
+}

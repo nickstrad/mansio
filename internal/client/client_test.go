@@ -370,6 +370,24 @@ func TestDoGivesUp(t *testing.T) {
 	}
 }
 
+// The locator's "moving" while a new owner's claim lands carries a millisecond hint in the body: the client waits
+// that, not the header's whole second.
+func TestLocatorMovingHintInMilliseconds(t *testing.T) {
+	f := newFake(t)
+	a := f.agent("a", ok)
+	f.resolve = func(n int, _ uint64) (int, string, map[string]any) {
+		if n == 1 {
+			return 503, "1", map[string]any{"code": "moving", "retry_after_ms": 50}
+		}
+		return 200, "", routeTo("vm-a", a, 1)
+	}
+	c, s := f.client(nil)
+	res, err := c.Do(context.Background(), write(""))
+	if err != nil || res.Reroutes != 1 || len(s.d) != 1 || s.d[0] != 50*time.Millisecond {
+		t.Fatalf("%+v %v, waits %v", res, err, s.d)
+	}
+}
+
 // A write that got no answer may have applied: the error says so, and the request id is safe to reuse.
 func TestMayHaveApplied(t *testing.T) {
 	f := newFake(t)

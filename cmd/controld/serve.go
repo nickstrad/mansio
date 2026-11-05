@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -29,7 +29,9 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // daemon is a running controld: the authority, the controller and one client per agent.
@@ -40,6 +42,7 @@ type daemon struct {
 	ctl    *control.Controller
 	agents map[string]*agenthttp.Client
 	token  string // the API's admin token
+	edge   string // the edges' token for GET /v1/agents; "" = off
 	sem    chan struct{}
 
 	ready      atomic.Bool // schema migrated and agents registered
@@ -61,7 +64,7 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "controld config (JSON)")
 	addrFile := fs.String("addr-file", "", "write the API listener's address here once serving")
-	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false)")
+	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false) and a listener without tls")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -69,36 +72,36 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 		fmt.Fprintln(stderr, "usage: controld -config <file> [-addr-file <file>] [-dev] | controld <command> -addr URL -secrets FILE ...")
 		return exitUsage
 	}
-	rep := reporter{stderr: stderr}
+	rep := logx.Reporter{Stderr: stderr, Name: "controld", Known: wellFormed}
 	defer func() {
 		if p := panicx.From(recover()); p != nil {
-			code = rep.bug(p, p.Stack)
+			code = rep.Bug(p, p.Stack)
 		}
 	}()
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	cfg.Dev = *dev
 	if err := cfg.checkDev(); err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
-	log, closeLog, err := openLog(cfg, stderr)
+	log, closeLog, err := logx.Open(cfg.LogFile, logx.Levels[cfg.LogLevel], stderr)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(errs.Wrap(module, err, "cannot open the log").With("path", cfg.LogFile))
 	}
 	defer closeLog()
-	rep.log = log
+	rep.Log = log
 	sec, err := loadSecrets(cfg.SecretsFile)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	if ctx.Err() != nil {
 		return exitInterrupted
 	}
 	d, err := newDaemon(cfg, log, sec)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	defer d.close()
 	return d.serve(ctx, *addrFile, rep, stderr)
@@ -116,7 +119,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		p.Close()
 		return nil, err
 	}
-	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken,
+	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
 		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
@@ -134,7 +137,8 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration})
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration,
+		Limiter: ratelimit.NewSourceLimiter(lc.RateLimit.PerSecond, lc.RateLimit.Burst, lc.RateLimit.MaxSources)})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
 		c, err := agenthttp.New(agenthttp.Config{VM: a.VM, BaseURL: a.Lifecycle, Token: sec.ControlToken, Timeout: cfg.AgentTimeout.Duration,
@@ -172,10 +176,20 @@ func (d *daemon) close() {
 
 // serve runs the API until ctx ends, with the startup job (migrate, register agents), the heartbeat poller
 // and the resumer in the background (Release It H1: serve first, become ready when startup is done).
-func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stderr io.Writer) int {
+func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, stderr io.Writer) int {
+	var tc *tls.Config // loaded before the socket exists: a bad certificate fails without one
+	if d.cfg.TLS != nil {
+		var err error
+		if tc, err = tlsx.ServerConfig(d.cfg.TLS.CertFile, d.cfg.TLS.KeyFile); err != nil {
+			return rep.Report(errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", d.cfg.TLS.CertFile))
+		}
+	}
 	ln, err := net.Listen("tcp", d.cfg.Listen)
 	if err != nil {
-		return rep.report(errs.Wrap(module, err, "cannot listen on %s", d.cfg.Listen))
+		return rep.Report(errs.Wrap(module, err, "cannot listen on %s", d.cfg.Listen))
+	}
+	if tc != nil {
+		ln = tls.NewListener(ln, tc)
 	}
 	reg := metrics.NewRegistry()
 	d.register(reg)
@@ -187,10 +201,10 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stder
 	if addrFile != "" {
 		if err := os.WriteFile(addrFile, []byte(ln.Addr().String()+"\n"), 0o644); err != nil {
 			hs.Close()
-			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
+			return rep.Report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
-	d.log.Info("serving", "event", "CONTROLD.SERVING", "addr", ln.Addr().String(), "agents", len(d.agents))
+	d.log.Info("serving", "event", "CONTROLD.SERVING", "addr", ln.Addr().String(), "agents", len(d.agents), "tls", d.cfg.TLS != nil)
 	fmt.Fprintf(stderr, "controld: serving on %s\n", ln.Addr())
 	bctx, stop := context.WithCancel(context.Background())
 	var bg sync.WaitGroup
@@ -219,9 +233,9 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stder
 	}
 	switch {
 	case serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed):
-		return rep.report(errs.Wrap(module, serveErr, "listener failed; stopped"))
+		return rep.Report(errs.Wrap(module, serveErr, "listener failed; stopped"))
 	case shutErr != nil:
-		return rep.report(errs.Wrap(module, shutErr, "shutdown did not finish within %v", d.cfg.ShutdownBudget))
+		return rep.Report(errs.Wrap(module, shutErr, "shutdown did not finish within %v", d.cfg.ShutdownBudget))
 	}
 	fmt.Fprintln(stderr, "controld: stopped")
 	return exitOK
@@ -363,56 +377,5 @@ func (d *daemon) register(reg *metrics.Registry) {
 	})
 }
 
-func openLog(cfg *Config, stderr io.Writer) (*slog.Logger, func(), error) {
-	level := map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn}[cfg.LogLevel]
-	if cfg.LogFile == "" {
-		return logx.New(stderr, level), func() {}, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755); err != nil {
-		return nil, nil, errs.Wrap(module, err, "cannot create log directory").With("path", cfg.LogFile)
-	}
-	f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, nil, errs.Wrap(module, err, "cannot open log file").With("path", cfg.LogFile)
-	}
-	return logx.New(f, level), func() { f.Close() }, nil
-}
-
-// reporter classifies a top-level error once: a wrapped error from a known module is expected (exit 1),
-// anything else a bug (exit 70). One line with a log ID for the user; chain and stack in the log.
-type reporter struct {
-	log    *slog.Logger
-	stderr io.Writer
-}
-
+// wellFormed are the error modules whose errors controld reports as expected failures (exit 1).
 var wellFormed = map[string]bool{module: true, "placement": true, "objstore": true, "agenthttp": true, "control": true}
-
-func (r reporter) report(err error) int {
-	if e, ok := errs.Outermost(err); ok && wellFormed[e.Module] {
-		fmt.Fprintf(r.stderr, "error: %s%s\n", e.Error(), r.record(slog.LevelWarn, "controld failed", err, errs.Stack(err)))
-		return exitError
-	}
-	return r.bug(err, errs.Stack(err))
-}
-
-func (r reporter) bug(err error, stack string) int {
-	if r.log == nil {
-		fmt.Fprintf(r.stderr, "%v\n%s\nerror: something unexpected went wrong. This is a bug; please report the details above\n", err, stack)
-		return exitBug
-	}
-	fmt.Fprintf(r.stderr, "error: something unexpected went wrong. This is a bug; please report%s\n", r.record(slog.LevelError, "unexpected error (bug)", err, stack))
-	return exitBug
-}
-
-func (r reporter) record(level slog.Level, msg string, err error, stack string) string {
-	if r.log == nil {
-		return ""
-	}
-	id := logx.NewID()
-	attrs := []slog.Attr{slog.String("log_id", id), slog.String("error", err.Error()), slog.Any("chain", errs.Chain(err))}
-	if stack != "" {
-		attrs = append(attrs, slog.String("stack", stack))
-	}
-	r.log.LogAttrs(context.Background(), level, msg, attrs...)
-	return " [log ID " + id + "]"
-}

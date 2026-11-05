@@ -15,13 +15,17 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/load"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // Config is controld's JSON config. Defaults are applied before decoding; unknown fields are errors;
 // relative paths are relative to the config file's directory.
 type Config struct {
-	Listen      string `json:"listen"`       // the control API and /livez, /readyz, /metrics; default 127.0.0.1:7080
-	SecretsFile string `json:"secrets_file"` // 0600: pg_dsn, control_token, admin_token, s3 keys (required)
+	Listen string `json:"listen"` // the control API and /livez, /readyz, /metrics; default 127.0.0.1:7080
+	// TLS is the listener's certificate: HTTPS (h2 + h1) for the admin API, POST /v1/resolve (API keys and
+	// tickets cross it) and GET /v1/keys (whoever can change its answer can mint tickets). Required unless -dev.
+	TLS         *tlsx.Files `json:"tls"`
+	SecretsFile string      `json:"secrets_file"` // 0600: pg_dsn, control_token, admin_token, s3 keys (required)
 
 	PG struct {
 		Schema   string `json:"schema"`    // search_path ("" = server default); tests use one schema each
@@ -40,7 +44,7 @@ type Config struct {
 		CAFile string `json:"ca_file"` // PEM bundle of a private CA; needs secure
 	} `json:"s3"`
 
-	// Dev is the -dev flag, not a file field: allows plain-HTTP S3 for a local run.
+	// Dev is the -dev flag, not a file field: allows plain-HTTP S3 and a plain-HTTP listener for a local run.
 	Dev bool `json:"-"`
 
 	// Agents is the VM registry's source: every agent controld may place databases on. Registered at start
@@ -74,7 +78,15 @@ type Config struct {
 		Timeout     load.Duration `json:"timeout"`      // one resolve; default 3 s
 		Concurrency int           `json:"concurrency"`  // resolves at once; more are refused 503; default 256
 		MovingRetry load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
+		ClaimRetry  load.Duration `json:"claim_retry"`  // retry_after_ms while a new owner's claim is pending; default 50 ms
 		ListenPing  load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
+		// RateLimit charges each source (client IP, IPv6 /64) one token per API key id not in the key cache
+		// (unknown ids are never cached and each costs a primary read). Empty: answer shed + Retry-After.
+		RateLimit struct {
+			PerSecond  float64 `json:"lookups_per_second"` // default 20
+			Burst      float64 `json:"burst"`              // default 50
+			MaxSources int     `json:"max_sources"`        // default 100 000
+		} `json:"rate_limit"`
 	} `json:"locator"`
 
 	// TicketKeys is the issuer's Ed25519 key ring: one file per key in dir (0700, files 0600; never shared with
@@ -114,7 +126,8 @@ func defaults() Config {
 	c.PG.MaxConns = 20
 	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
 	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
-	c.Locator.MovingRetry, c.Locator.ListenPing = d(time.Second), d(5*time.Second)
+	c.Locator.RateLimit.PerSecond, c.Locator.RateLimit.Burst, c.Locator.RateLimit.MaxSources = 20, 50, 100_000
+	c.Locator.MovingRetry, c.Locator.ClaimRetry, c.Locator.ListenPing = d(time.Second), d(50*time.Millisecond), d(5*time.Second)
 	c.TicketKeys.Rotate, c.TicketKeys.Activate, c.TicketKeys.Check = d(24*time.Hour), d(5*time.Minute), d(time.Minute)
 	return c
 }
@@ -134,6 +147,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.S3.Endpoint == "" || c.S3.Bucket == "" {
 		bad("s3: endpoint and bucket are required (drop deletes the database's objects)")
+	}
+	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
+		bad("tls: cert_file and key_file are both required")
 	}
 	if c.S3.CAFile != "" && !c.S3.Secure {
 		bad("s3: ca_file needs secure: true")
@@ -166,10 +182,14 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	lc, tk := c.Locator, c.TicketKeys
 	for name, d := range map[string]time.Duration{"locator.ticket_ttl": lc.TicketTTL.Duration, "locator.cache_ttl": lc.CacheTTL.Duration,
 		"locator.auth_ttl": lc.AuthTTL.Duration, "locator.timeout": lc.Timeout.Duration, "locator.moving_retry": lc.MovingRetry.Duration,
+		"locator.claim_retry": lc.ClaimRetry.Duration,
 		"locator.listen_ping": lc.ListenPing.Duration, "ticket_keys.rotate": tk.Rotate.Duration, "ticket_keys.check": tk.Check.Duration} {
 		if d <= 0 {
 			bad("%s must be > 0", name)
 		}
+	}
+	if rl := lc.RateLimit; rl.PerSecond <= 0 || rl.Burst < 1 || rl.MaxSources < 1 {
+		bad("locator.rate_limit: lookups_per_second > 0, burst >= 1 and max_sources >= 1 required")
 	}
 	if lc.CacheMax < 1 || lc.Concurrency < 1 || tk.Activate.Duration < 0 {
 		bad("locator.cache_max and locator.concurrency must be >= 1, ticket_keys.activate >= 0")
@@ -207,7 +227,11 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile, &c.TicketKeys.Dir} {
+	paths := []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile, &c.TicketKeys.Dir}
+	if c.TLS != nil {
+		paths = append(paths, &c.TLS.CertFile, &c.TLS.KeyFile)
+	}
+	for _, p := range paths {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
@@ -228,12 +252,18 @@ func loadConfig(path string) (*Config, error) {
 	return c, nil
 }
 
-// checkDev refuses plain-HTTP S3 unless -dev is given: the gc identity's keys would cross the network in
-// the clear (object-storage guide S1, S2; OS-11).
+// checkDev refuses, unless -dev is given, plain-HTTP S3 (the gc identity's keys would cross the network in the
+// clear; object-storage guide S1, S2; OS-11) and a plain-HTTP listener (admin tokens and API keys in the clear,
+// and whoever answers GET /v1/keys in its place can mint tickets).
 func (c *Config) checkDev() error {
-	if !c.S3.Secure && !c.Dev {
+	switch {
+	case c.Dev:
+	case !c.S3.Secure:
 		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+
 			"(and \"ca_file\" for a private CA) in the s3 section, or pass -dev for a local run").With("endpoint", c.S3.Endpoint)
+	case c.TLS == nil:
+		return errs.Wrap(module, nil, "no tls section: the API (admin tokens, api keys, ticket keys) in plain HTTP is for local "+
+			"development only; add \"tls\": {\"cert_file\", \"key_file\"}, or pass -dev for a local run").With("listen", c.Listen)
 	}
 	return nil
 }
@@ -248,6 +278,9 @@ type Secrets struct {
 	// PGReplicaDSN, if set, is a read replica the locator reads placement from (stale is safe; min_epoch
 	// and notified keys read the primary). Default: the primary.
 	PGReplicaDSN string `json:"pg_replica_dsn"`
+	// EdgeToken, if set (at least 16 characters), is the edges' token for GET /v1/agents (the VM registry's
+	// query endpoints). Without it that endpoint is off.
+	EdgeToken string `json:"edge_token"`
 }
 
 const minToken = 16
@@ -276,8 +309,9 @@ func loadSecrets(path string) (*Secrets, error) {
 	switch {
 	case s.PGDSN == "" || s.S3AccessKey == "" || s.S3SecretKey == "":
 		return nil, errs.Wrap(module, nil, "secrets_file %s: pg_dsn, s3_access_key and s3_secret_key are required", path)
-	case len(s.ControlToken) < minToken || len(s.AdminToken) < minToken:
-		return nil, errs.Wrap(module, nil, "secrets_file %s: control_token and admin_token must be at least %d characters", path, minToken)
+	case len(s.ControlToken) < minToken || len(s.AdminToken) < minToken || s.EdgeToken != "" && len(s.EdgeToken) < minToken:
+		return nil, errs.Wrap(module, nil, "secrets_file %s: control_token, admin_token and edge_token (if set) must be at least %d characters",
+			path, minToken)
 	}
 	return &s, nil
 }

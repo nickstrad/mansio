@@ -5,6 +5,8 @@
 //
 //	edge -config configs/edge/local.json [-addr-file path] [-check] [-dev]
 //
+// Routes come from the config's agents (static) or from controld's VM registry (registry: GET /v1/agents, polled).
+//
 // -dev allows plain HTTP on either hop: to clients (no tls section; h1 + h2c) and to agents (http:// URLs).
 // Without it both hops must be TLS. The lifecycle listener (health_listen) serves /livez, /readyz (503 once
 // draining) and /metrics, never behind queries.
@@ -27,7 +29,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -40,6 +41,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 )
 
 const (
@@ -68,56 +70,71 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		fmt.Fprintln(stderr, "usage: edge -config <file> [-addr-file <file>] [-check] [-dev]")
 		return exitUsage
 	}
-	rep := reporter{stderr: stderr}
+	rep := logx.Reporter{Stderr: stderr, Name: "edge", Known: map[string]bool{module: true}}
 	defer func() {
 		if p := panicx.From(recover()); p != nil {
-			code = rep.bug(p, p.Stack)
+			code = rep.Bug(p, p.Stack)
 		}
 	}()
 	cfg, err := loadConfig(*cfgPath)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	cfg.Dev = *dev
 	if err := cfg.checkDev(); err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
-	log, closeLog, err := openLog(cfg, stderr)
+	log, closeLog, err := logx.Open(cfg.LogFile, logx.Levels[cfg.LogLevel], stderr)
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(errs.Wrap(module, err, "cannot open the log").With("path", cfg.LogFile))
 	}
 	defer closeLog()
-	rep.log = log
-	keys, fetcher, err := openKeys(ctx, cfg, log)
+	rep.Log = log
+	hc, err := cfg.controlClient()
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
+	}
+	keys, fetcher, err := openKeys(ctx, cfg, hc, log)
+	if err != nil {
+		return rep.Report(err)
 	}
 	tr, err := cfg.agentTransport()
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	defer tr.CloseIdleConnections()
 	var tlsCfg *tls.Config
 	if cfg.TLS != nil {
 		if tlsCfg, err = cfg.serverTLS(); err != nil {
-			return rep.report(err)
+			return rep.Report(err)
 		}
 	}
+	registry, err := cfg.registry(ctx, hc, log)
+	if err != nil {
+		return rep.Report(err)
+	}
+	var resolver edge.Resolver = edge.StaticRoutes(cfg.Agents)
+	if registry != nil {
+		resolver = registry
+	}
 	e, err := edge.New(edge.Config{
-		Resolver:  edge.StaticRoutes(cfg.Agents),
+		Resolver:  resolver,
 		Gate:      edge.NewGate(keys, cfg.ClockSkew.Duration, cfg.MaxTicketTTL.Duration, cfg.TicketCache),
-		Limiter:   edge.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
+		Limiter:   ratelimit.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
 		Transport: tr, VerifySlots: cfg.VerifySlots, AgentInFlight: cfg.AgentInFlight, Breaker: cfg.AgentBreaker.config(),
 		OnBreaker:      func(vm string) func(breaker.Transition) { return logx.BreakerLog(log, "agent:"+vm) },
 		DefaultTimeout: cfg.DefaultTimeout.Duration, MaxTimeout: cfg.MaxTimeout.Duration, Grace: cfg.ReplyGrace.Duration,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, MaxBody: cfg.MaxBody, Log: log,
 	})
 	if err != nil {
-		return rep.report(err)
+		return rep.Report(err)
 	}
 	if *check {
-		fmt.Fprintf(stderr, "config ok: %d agents (%s), %d keys, tls %v\n", len(cfg.Agents),
-			strings.Join(slices.Sorted(maps.Keys(cfg.Agents)), ", "), len(keys.KIDs()), cfg.TLS != nil)
+		routes := fmt.Sprintf("%d agents (%s)", len(cfg.Agents), strings.Join(slices.Sorted(maps.Keys(cfg.Agents)), ", "))
+		if registry != nil {
+			routes = fmt.Sprintf("registry %s: %d agents", cfg.Registry.URL, registry.Len())
+		}
+		fmt.Fprintf(stderr, "config ok: %s, %d keys, tls %v\n", routes, len(keys.KIDs()), cfg.TLS != nil)
 		return exitOK
 	}
 	if ctx.Err() != nil {
@@ -128,26 +145,35 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 	e.Register(reg)
 	if fetcher != nil {
 		fetcher.Register(reg, "edge")
-		fctx, stopFetch := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		go func() { fetcher.Run(fctx); close(done) }()
-		defer func() { stopFetch(); <-done }()
+		defer background(fetcher.Run)()
+	}
+	if registry != nil {
+		registry.Register(reg)
+		defer background(registry.Run)()
 	}
 	return serve(ctx, cfg, e, reg, tlsCfg, log, *addrFile, rep, stderr)
 }
 
+// background runs run until the returned stop is called; stop waits for it to return.
+func background(run func(context.Context)) (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { run(ctx); close(done) }()
+	return func() { cancel(); <-done }
+}
+
 // serve runs both listeners until ctx ends, then shuts down within shutdown_budget: drain (readiness fails, new
 // requests are shed, in-flight ones get drain_timeout), then close the lifecycle listener.
-func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry, tlsCfg *tls.Config, log *slog.Logger, addrFile string, rep reporter,
+func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry, tlsCfg *tls.Config, log *slog.Logger, addrFile string, rep logx.Reporter,
 	stderr io.Writer) int {
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
-		return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.Listen))
+		return rep.Report(errs.Wrap(module, err, "cannot listen on %s", cfg.Listen))
 	}
 	hl, err := net.Listen("tcp", cfg.HealthListen)
 	if err != nil {
 		ln.Close()
-		return rep.report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
+		return rep.Report(errs.Wrap(module, err, "cannot listen on %s", cfg.HealthListen))
 	}
 	protos := new(http.Protocols)
 	protos.SetHTTP1(true)
@@ -169,11 +195,11 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 		if err := os.WriteFile(addrFile, []byte(ln.Addr().String()+"\n"+hl.Addr().String()+"\n"), 0o644); err != nil {
 			hs.Close()
 			life.Close()
-			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
+			return rep.Report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
 	log.Info("serving", "event", "EDGE.SERVING", "addr", ln.Addr().String(), "health_addr", hl.Addr().String(),
-		"agents", len(cfg.Agents), "tls", tlsCfg != nil, "dev", cfg.Dev)
+		"agents", len(cfg.Agents), "registry", cfg.Registry != nil, "tls", tlsCfg != nil, "dev", cfg.Dev)
 	fmt.Fprintf(stderr, "edge: serving on %s\n", ln.Addr())
 
 	var serveErr error
@@ -200,9 +226,9 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	log.Info("shutdown done", "event", "EDGE.SHUTDOWN_DONE", "took_ms", time.Since(start).Milliseconds(), "ok", drainErr == nil)
 	switch {
 	case serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed):
-		return rep.report(errs.Wrap(module, serveErr, "listener failed; stopped"))
+		return rep.Report(errs.Wrap(module, serveErr, "listener failed; stopped"))
 	case drainErr != nil:
-		return rep.report(drainErr)
+		return rep.Report(drainErr)
 	}
 	fmt.Fprintln(stderr, "edge: stopped")
 	return exitOK
@@ -229,59 +255,4 @@ func lifecycleServer(cfg *Config, e *edge.Edge, reg *metrics.Registry) *http.Ser
 	mux.Handle("/metrics", reg.Handler())
 	return &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration, ReadTimeout: cfg.ReadHeaderTimeout.Duration,
 		WriteTimeout: 5 * time.Second, IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10}
-}
-
-func openLog(cfg *Config, stderr io.Writer) (*slog.Logger, func(), error) {
-	level := map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn}[cfg.LogLevel]
-	if cfg.LogFile == "" {
-		return logx.New(stderr, level), func() {}, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755); err != nil {
-		return nil, nil, errs.Wrap(module, err, "cannot create log directory").With("path", cfg.LogFile)
-	}
-	f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, nil, errs.Wrap(module, err, "cannot open log file").With("path", cfg.LogFile)
-	}
-	return logx.New(f, level), func() { f.Close() }, nil
-}
-
-// reporter classifies an error at the top level and reports it once (as agentd and controld do): an error from
-// a known module is expected (exit 1), anything else a bug (exit 70).
-type reporter struct {
-	log    *slog.Logger
-	stderr io.Writer
-}
-
-var wellFormed = map[string]bool{module: true}
-
-func (r reporter) report(err error) int {
-	if e, ok := errs.Outermost(err); ok && wellFormed[e.Module] {
-		fmt.Fprintf(r.stderr, "error: %s%s\n", e.Error(), r.record(slog.LevelWarn, "edge failed", err, errs.Stack(err)))
-		return exitError
-	}
-	return r.bug(err, errs.Stack(err))
-}
-
-func (r reporter) bug(err error, stack string) int {
-	if r.log == nil {
-		fmt.Fprintf(r.stderr, "%v\n%s\nerror: something unexpected went wrong. This is a bug; please report the details above\n", err, stack)
-		return exitBug
-	}
-	fmt.Fprintf(r.stderr, "error: something unexpected went wrong. This is a bug; please report%s\n",
-		r.record(slog.LevelError, "unexpected error (bug)", err, stack))
-	return exitBug
-}
-
-func (r reporter) record(level slog.Level, msg string, err error, stack string) string {
-	if r.log == nil {
-		return ""
-	}
-	id := logx.NewID()
-	attrs := []slog.Attr{slog.String("log_id", id), slog.String("error", err.Error()), slog.Any("chain", errs.Chain(err))}
-	if stack != "" {
-		attrs = append(attrs, slog.String("stack", stack))
-	}
-	r.log.LogAttrs(context.Background(), level, msg, attrs...)
-	return " [log ID " + id + "]"
 }

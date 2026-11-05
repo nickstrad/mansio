@@ -18,6 +18,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/breaker"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 )
 
 // fakeAgent counts calls and answers with its handler (default: 200 ok naming itself).
@@ -70,7 +71,7 @@ func newFixture(t *testing.T, routes StaticRoutes, mod func(*Config)) *fixture {
 	tr := transport(&f.dials)
 	t.Cleanup(tr.CloseIdleConnections)
 	cfg := Config{Resolver: routes, Gate: NewGate(f.is.ring, time.Second, 10*time.Minute, 1000),
-		Limiter: NewSourceLimiter(100, 100, 1000), Transport: tr, DefaultTimeout: 2 * time.Second, MaxTimeout: 5 * time.Second,
+		Limiter: ratelimit.NewSourceLimiter(100, 100, 1000), Transport: tr, DefaultTimeout: 2 * time.Second, MaxTimeout: 5 * time.Second,
 		Grace: 200 * time.Millisecond, BodyReadTimeout: time.Second, MaxBody: 1 << 10}
 	if mod != nil {
 		mod(&cfg)
@@ -180,7 +181,7 @@ func TestBadTicketsNeverReachAgents(t *testing.T) {
 // while valid traffic, new tickets from other sources and cached tickets from the flooding source, all proceed.
 func TestGarbageFloodIsRateLimited(t *testing.T) {
 	a := newFakeAgent(t, "a", nil)
-	f := newFixture(t, StaticRoutes{"vm-a": a.URL}, func(c *Config) { c.Limiter = NewSourceLimiter(1, 20, 1000) })
+	f := newFixture(t, StaticRoutes{"vm-a": a.URL}, func(c *Config) { c.Limiter = ratelimit.NewSourceLimiter(1, 20, 1000) })
 	now := time.Now()
 	cached := f.is.mint(t, "vm-a", "db-1", now, time.Minute)
 	if r := f.do(t, "198.51.100.1", cached, nil); r.status != 200 { // the flooder's one real ticket, verified first
@@ -417,7 +418,7 @@ func TestMetrics(t *testing.T) {
 
 func TestNewValidates(t *testing.T) {
 	is := newIssuer(t)
-	ok := Config{Resolver: StaticRoutes{}, Gate: NewGate(is.ring, 0, 0, 0), Limiter: NewSourceLimiter(1, 1, 1),
+	ok := Config{Resolver: StaticRoutes{}, Gate: NewGate(is.ring, 0, 0, 0), Limiter: ratelimit.NewSourceLimiter(1, 1, 1),
 		Transport: http.DefaultTransport, DefaultTimeout: time.Second, MaxTimeout: time.Second, Grace: time.Second,
 		BodyReadTimeout: time.Second, MaxBody: 1}
 	if _, err := New(ok); err != nil {

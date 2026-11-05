@@ -12,7 +12,7 @@ import (
 var queryFS embed.FS
 
 type queries struct {
-	get, create, cas, moving, vmLoad, registerVM, invariants string
+	get, create, cas, moving, vmLoad, liveVMs, registerVM, invariants string
 	// Registries (0002, CP-4).
 	heartbeat, attestDead, vm, ownedBy, createDatabase, getDatabase, setDatabaseState, pending, dropPlacement string
 	// Locator and API keys (0003, 0004, CP-5).
@@ -26,6 +26,7 @@ var q = queries{
 	cas:        mustQuery("cas"),
 	moving:     mustQuery("moving"),
 	vmLoad:     mustQuery("vm_load"),
+	liveVMs:    mustQuery("live_vms"),
 	registerVM: mustQuery("register_vm"),
 	invariants: mustQuery("invariants"),
 

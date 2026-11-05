@@ -9,9 +9,10 @@
 // database, permission, epoch). What the edge adds is a cheap filter in front of the 26 µs Ed25519 verify, so a
 // flood of garbage tickets costs the attacker's own budget, not every client's.
 //
-// The decisions are pure and take the time as an argument (limit.go, gate.go); the HTTP adapter (proxy.go)
-// does the I/O. Ports: Resolver (VM → agent address; static config now, controld's VM registry later) and
-// ticket.KeySet (the issuer's public keys; a key file now, CP-5's key endpoint later).
+// The decisions are pure and take the time as an argument (gate.go; the per-source limiter is
+// internal/ratelimit); the HTTP adapter (proxy.go) does the I/O. Ports: Resolver (VM → agent address:
+// StaticRoutes from config, or RegistryRoutes polling controld's GET /v1/agents, registry.go) and
+// ticket.KeySet (the issuer's public keys: a key file, or controld's GET /v1/keys through internal/keyfetch).
 //
 // Error module: "edge". Wire answers reuse internal/front's codes (contract 3 in shared_state.md); the edge
 // makes only shed, unavailable, expired, wrong_owner, ticket_invalid, bad_request and internal itself, and passes

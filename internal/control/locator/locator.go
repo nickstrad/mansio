@@ -12,6 +12,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/control"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
@@ -24,7 +25,13 @@ type Config struct {
 	AuthMax     int           // API keys cached; default 10 000
 	LoadTimeout time.Duration // one store read (placement or key); default 2.5 s
 	MovingRetry time.Duration // the retry hint while a database is moving or being created; default 1 s
-	Now         func() time.Time
+	// ClaimRetry is the retry hint while the placement already names the new owner but its Claim has not landed
+	// (the registry still says creating/moving): a few milliseconds of work left. Default 50 ms.
+	ClaimRetry time.Duration
+	// Limiter, if set, is charged Request.Source once for each API key id not in the key cache, before the
+	// store is read: unknown ids are never cached, so without it every garbage key costs a primary read.
+	Limiter *ratelimit.SourceLimiter
+	Now     func() time.Time
 }
 
 func (c *Config) normalize() {
@@ -38,6 +45,7 @@ func (c *Config) normalize() {
 	def(&c.AuthTTL, 10*time.Second)
 	def(&c.LoadTimeout, 2500*time.Millisecond)
 	def(&c.MovingRetry, time.Second)
+	def(&c.ClaimRetry, 50*time.Millisecond)
 	if c.CacheMax <= 0 {
 		c.CacheMax = 100_000
 	}
@@ -54,6 +62,9 @@ type Request struct {
 	Tenant string
 	Name   string // the database's name inside the tenant; the key is Tenant ":" Name
 	APIKey string
+	// Source is who sent it (the remote address, host:port; ratelimit.SourceKey keys it): charged by
+	// Config.Limiter.
+	Source string
 	// MinEpoch > 0 says the caller saw this epoch refused (last seen + 1): a cached row below it is not used
 	// and the primary is read.
 	MinEpoch uint64
@@ -77,6 +88,7 @@ type Route struct {
 // Stats are the locator's counters since start.
 type Stats struct {
 	Hits, Misses, Coalesced int64 // placement reads: from the cache, started a load, joined a load
+	RateLimited             int64 // resolves refused by the Limiter (an uncached key id from a source out of tokens)
 	Notifications, Resets   int64 // Invalidate calls; Reset calls (listener connects)
 	Entries                 int   // placements cached now (tombstones included)
 	Trusted                 bool  // the cache is in use (a listener is connected)
@@ -127,14 +139,14 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 //
 //	post: err == nil ⇒ the ticket names r.Tenant ":" r.Name, the row's VM, epoch and generation, and the
 //	      key's principal and permissions, and expires TicketTTL from now
-//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound, ErrMoving (with a RetryAfter hint),
-//	      ErrSuspended, the ctx's error, or the store's own error
+//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound, ErrMoving or ErrRateLimited (with a RetryAfter
+//	      hint), ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
 		return Route{}, errs.Wrap(module, err, "cannot resolve %q", key)
 	}
-	k, err := l.authenticate(ctx, r.APIKey)
+	k, err := l.authenticate(ctx, r.APIKey, r.Source)
 	if err != nil {
 		return fail(err)
 	}
@@ -152,6 +164,8 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 		return fail(ErrSuspended)
 	case !pl.Found || pl.Moving:
 		return fail(moving{l.cfg.MovingRetry})
+	case claimPending(pl):
+		return fail(moving{l.cfg.ClaimRetry})
 	}
 	now := l.cfg.Now()
 	c := ticket.Claims{TID: r.Tenant, DBID: key, VM: pl.VM, Epoch: pl.Epoch, Gen: pl.Gen, Sub: k.Principal, Perms: k.Perms,
@@ -165,19 +179,45 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 		Perms: k.Perms.String(), Expires: exp, TTL: exp.Sub(now)}, nil
 }
 
+// claimPending reports that pl's placement is ACTIVE on an owner whose Claim the registry has not confirmed: a
+// create's first owner, or a move's destination, before the registry flips to active. That owner answers
+// wrong_owner at the current epoch until its Claim lands, so a client sent there would learn nothing; it is told
+// "moving" instead, and the registry's flip (StateChannel) invalidates the cache when the Claim is done. A move
+// whose placement still names the source is routed there (the source serves until it is fenced).
+//
+//	pre: pl.Found && !pl.Moving
+func claimPending(pl Placement) bool {
+	return pl.Intent == control.StateCreating || pl.Intent == control.StateMoving && pl.VM == pl.Target
+}
+
 // authenticate checks an API key: its id names a row, the secret's hash matches in constant time, and it is
-// not revoked. Rows are cached for AuthTTL; unknown ids are not (a flood of garbage keys is the edge's to
-// rate-limit, CP-7).
-func (l *Locator) authenticate(ctx context.Context, raw string) (StoredKey, error) {
+// not revoked. Rows are cached for AuthTTL; unknown ids are not, so an id not in the cache first costs src a
+// token of the Limiter (a known id's refresh is free).
+func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey, error) {
 	id, hash, ok := ParseAPIKey(raw)
 	if !ok {
 		return StoredKey{}, ErrUnauthorized
 	}
 	l.mu.Lock()
+	_, known := l.keys[id]
+	_, loading := l.keyLoads[id]
+	if !known && !loading && l.cfg.Limiter != nil {
+		// A new id would start a store read: charge its source first, outside l.mu (a full limiter sweeps its
+		// buckets). Callers joining a load in flight cost nothing; a race here costs at most an extra token.
+		l.mu.Unlock()
+		ok, wait := l.cfg.Limiter.Allow(ratelimit.SourceKey(src), l.cfg.Now())
+		l.mu.Lock()
+		if !ok {
+			l.stats.RateLimited++
+			l.mu.Unlock()
+			return StoredKey{}, limited{wait}
+		}
+	}
 	now := l.cfg.Now()
 	var k StoredKey
 	var err error
-	if e, ok := l.keys[id]; ok && now.Sub(e.at) < l.cfg.AuthTTL {
+	e, known := l.keys[id]
+	if known && now.Sub(e.at) < l.cfg.AuthTTL {
 		l.mu.Unlock()
 		k = e.k
 	} else {
@@ -263,17 +303,33 @@ func (l *Locator) Invalidate(key string, epoch uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.stats.Notifications++
-	e := l.routes[key]
-	if e != nil && !e.dirty && e.pl.Epoch > epoch {
+	if e := l.routes[key]; e != nil && !e.dirty && e.pl.Epoch > epoch {
 		return
 	}
+	l.invalidate(key)
+}
+
+// InvalidateState applies one registry notification: key's lifecycle state changed. Its cached row (whatever its
+// epoch) becomes a tombstone and loads in flight are not cached: the registry flip does not change the epoch, so
+// Invalidate's late-notification rule cannot apply.
+func (l *Locator) InvalidateState(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.stats.Notifications++
+	l.invalidate(key)
+}
+
+// invalidate marks key's loads in flight stale and turns its cached row into a tombstone.
+//
+//	pre: l.mu held
+func (l *Locator) invalidate(key string) {
 	if f := l.loads[loadKey{key, false}]; f != nil {
 		f.stale = true
 	}
 	if f := l.loads[loadKey{key, true}]; f != nil {
 		f.stale = true
 	}
-	if e != nil {
+	if e := l.routes[key]; e != nil {
 		*e = entry{dirty: true, at: l.cfg.Now()}
 	}
 }

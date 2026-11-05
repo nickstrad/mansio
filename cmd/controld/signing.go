@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/fsx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
 
@@ -125,28 +126,8 @@ func (k *keyDir) create(now time.Time) (keyFile, ed25519.PrivateKey, error) {
 	fail := func(err error, what string) (keyFile, ed25519.PrivateKey, error) {
 		return keyFile{}, nil, errs.Wrap(module, err, "cannot create a ticket key: %s; the ring is unchanged, retried next check", what).With("path", path)
 	}
-	tmp, err := os.CreateTemp(k.dir, ".new-*")
-	if err != nil {
-		return fail(err, "temp file")
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
+	if err := fsx.WriteAtomic(path, b, 0o600); err != nil {
 		return fail(err, "write")
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fail(err, "fsync")
-	}
-	if err := tmp.Close(); err != nil {
-		return fail(err, "close")
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fail(err, "rename")
-	}
-	if d, err := os.Open(k.dir); err == nil {
-		d.Sync()
-		d.Close()
 	}
 	return kf, ed25519.NewKeyFromSeed(seed[:]), nil
 }

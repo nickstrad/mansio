@@ -164,7 +164,7 @@ modes during a load run (`RI H5`). Track fds, RSS, goroutines, cache-dir bytes, 
 `oldest_dirty_age` (`RI S3`); find the one constraint per workload; write the per-feature SLA table.
 - **Gate:** every steady-state gauge has slope ≈ 0 after the first hour; a results note in `knowledge/writeback/`.
 
-### CP-5. Locator and ticket issuer (PG-10) — **Done** (9f98cc4; deferred: per-database grants and revocation floors, TLS on the resolve/keys endpoints (CP-7), caching minted tickets, a shared atomic-file helper (now 4 copies), the locator as its own binary; notes in `knowledge/front/2026-11-05-locator.md`)
+### CP-5. Locator and ticket issuer (PG-10) — **Done** (9f98cc4; deferred: per-database grants and revocation floors, TLS on the resolve/keys endpoints (CP-7), caching minted tickets, a shared atomic-file helper (now 4 copies), the locator as its own binary; notes in `knowledge/front/2026-11-05-locator.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): TLS for `/v1/resolve`/`/v1/keys`, unknown-key rate limiting, `fsx.WriteAtomic`.
 
 Inside controld first; split out later.
 - `resolve(tenant, db, principal)` → endpoint, epoch, gen, ticket, TTL. Reads replicas, takes a primary read when
@@ -178,7 +178,7 @@ Inside controld first; split out later.
   VM within one re-resolve; a cached locator sees a move before TTL; killing the LISTEN connection mid-move →
   reconnect, reload, correct resolve.
 
-### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `knowledge/front/2026-11-05-client.md`)
+### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `knowledge/front/2026-11-05-client.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): the locator answers `moving` until the claim lands (0005 NOTIFY on registry flips).
 
 A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
 - Location cache refreshed ahead of TTL with jitter; re-resolve on `wrong_owner`, `fenced`, `ticket_invalid` or a
@@ -191,7 +191,7 @@ A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
   move; with the S3 breaker tripped, the first retry waits ≥ `Retry-After`; `configs/retry-storm.json` keeps
   retries/first ≤ ratio over every 1 s window.
 
-### CP-7. Edge and TLS — **Done** (fc434e8; deferred: resolver from controld's VM registry (static `agents` now, `edge.Resolver` seam), TLS + unknown-API-key rate limiting for controld's `/v1/resolve` and `/v1/keys` (building blocks `tlsx`, `edge.SourceLimiter`), mTLS edge → agent, edge admin controls, numbers on separate hosts; notes in `knowledge/front/2026-11-05-edge.md`)
+### CP-7. Edge and TLS — **Done** (fc434e8; deferred: resolver from controld's VM registry (static `agents` now, `edge.Resolver` seam), TLS + unknown-API-key rate limiting for controld's `/v1/resolve` and `/v1/keys` (building blocks `tlsx`, `edge.SourceLimiter`), mTLS edge → agent, edge admin controls, numbers on separate hosts; notes in `knowledge/front/2026-11-05-edge.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): registry resolver (`edge.RegistryRoutes`), controld TLS + rate limiting, `logx.Reporter`/`logx.Open` for controld and edge (agentd still has its copy); mTLS, edge admin controls, separate-host numbers remain.
 
 Option 4 §3.6: a stateless proxy that routes on the ticket's `vm` claim, so agents stay private. Rate-limit
 garbage tickets there (each costs a 26 µs verify). TLS client → edge → agent.

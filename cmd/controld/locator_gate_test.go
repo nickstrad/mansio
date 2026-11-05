@@ -105,7 +105,7 @@ func freeAddr(t *testing.T) string {
 func TestLocatorGate(t *testing.T) {
 	c := newCluster(t)
 	c.locator, c.controldAddr = true, freeAddr(t)
-	c.extra = `,"locator":{"ticket_ttl":"4s","cache_ttl":"10m","listen_ping":"500ms"}`
+	c.extra = `,"locator":{"ticket_ttl":"4s","cache_ttl":"10m","listen_ping":"500ms","rate_limit":{"lookups_per_second":1,"burst":5}}`
 	c.startAgent("vm-a")
 	c.startAgent("vm-b")
 	c.startControld()
@@ -121,6 +121,26 @@ func TestLocatorGate(t *testing.T) {
 		}
 	}
 	waitListening(t, c)
+
+	// The edges' VM registry (GET /v1/agents, edge_token only).
+	agentsAs := func(token string) (int, map[string]string) {
+		req, _ := http.NewRequest(http.MethodGet, c.api+"/v1/agents", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out struct{ Agents map[string]string }
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out.Agents
+	}
+	if code, agents := agentsAs(edgeToken); code != 200 || agents["vm-a"] != c.agents["vm-a"].query || agents["vm-b"] != c.agents["vm-b"].query {
+		t.Fatalf("GET /v1/agents: %d %v", code, agents)
+	}
+	if code, _ := agentsAs(adminToken); code != 401 {
+		t.Fatalf("GET /v1/agents with the admin token: %d", code)
+	}
 
 	// Answers other than ok.
 	var other map[string]string
@@ -251,6 +271,26 @@ func TestLocatorGate(t *testing.T) {
 		return ds[len(ds)/2]
 	}
 	t.Logf("resolve p50 over HTTP: cache hit %v, primary read %v", lat(0), lat(r5.Epoch+1))
+
+	// Unknown api key ids are charged to their source (here loopback, burst 5, 1/s; two keys already spent two):
+	// a flood of them is shed with Retry-After, while the cached key from the same source still resolves.
+	secret := apiKey[len("tsdb_")+17:]
+	statuses := map[int]int{}
+	for i := range 40 {
+		code, ra, _ := c.resolve(fmt.Sprintf("tsdb_%016x_%s", i+1, secret), "gate", "loc", 0)
+		statuses[code]++
+		if code == 503 && ra == "" {
+			t.Fatal("shed without Retry-After")
+		}
+	}
+	if statuses[401] < 3 || statuses[401] > 5 || statuses[503] != 40-statuses[401] {
+		t.Fatalf("garbage key flood: %v, want 3..5 unauthorized (the burst left) and the rest shed", statuses)
+	}
+	if code, _, _ := c.resolve(apiKey, "gate", "loc", 0); code != 200 {
+		t.Fatalf("the cached key during the flood: %d", code)
+	}
+	t.Logf("garbage key flood from one source: %v; rate_limited_total %v; the cached key resolves", statuses,
+		c.metric("controld_locator_rate_limited_total"))
 
 	// 4. With the locator stopped, traffic continues until the tickets expire.
 	_, _, r6 := c.resolve(apiKey, "gate", "loc", 0)

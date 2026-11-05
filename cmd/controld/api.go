@@ -27,6 +27,9 @@ import (
 // api_concurrency at once (more are refused 503 at once, never queued; Release It T1, B1). Answers are JSON:
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
 //
+// GET /v1/agents (Bearer <edge_token>, only when the secrets set one) answers {"code":"ok","agents":{vm: endpoint}}
+// for every VM not attested dead (read from the locator's replica, if any: stale is safe).
+//
 //	code         | status | meaning
 //	-------------+--------+---------------------------------------------------------------------------
 //	bad_request  | 400    | malformed body, tenant, name or key
@@ -35,12 +38,17 @@ import (
 //	not_found    | 404    | no such database or vm
 //	suspended    | 409    | resolve: the database is suspended
 //	moving       | 503    | resolve: the database is moving or being created; resolve again after Retry-After
+//	             |        | (the body's retry_after_ms is the precise hint: ~50 ms while a new owner's claim lands)
+//	shed         | 503    | resolve: too many unknown api key ids from this source; retry after Retry-After
 //	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation
 //	no_capacity  | 503    | no live vm under the policy's caps
 //	unavailable  | 503    | Postgres, S3 or an agent cannot do it now; the flow is recorded and resumes; Retry-After
 //	timeout      | 504    | api_timeout passed; the flow is recorded and resumes (call again to follow it)
 //	internal     | 500    | a bug; report the log_id
 const maxBody = 4 << 10
+
+// maxAgents bounds GET /v1/agents (Release It B6): more VMs than any deployment of this design.
+const maxAgents = 10_000
 
 func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	mux := http.NewServeMux()
@@ -87,6 +95,20 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	mux.HandleFunc("GET /v1/vms", d.handle("", func(ctx context.Context, r *http.Request) (any, error) {
 		return d.ctl.Registry.Load(ctx, 1000)
 	}))
+	if d.edge != "" {
+		// The edges' resolver (edge.RegistryRoutes): every VM not attested dead → its query endpoint.
+		mux.HandleFunc("GET /v1/agents", d.handleAs(d.edge, "edge", "", func(ctx context.Context, r *http.Request) (any, error) {
+			vms, err := d.replica.LiveVMs(ctx, maxAgents)
+			if err != nil {
+				return nil, err
+			}
+			agents := make(map[string]string, len(vms))
+			for _, v := range vms {
+				agents[v.VM] = v.Endpoint
+			}
+			return map[string]any{"code": "ok", "agents": agents}, nil
+		}))
+	}
 	mux.HandleFunc("POST /v1/vms/{vm}/attest-dead", d.handle("attest-dead", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ By string }
 		if err := decode(r, &req); err != nil {
@@ -140,10 +162,15 @@ func decode(r *http.Request, v any) error {
 // handle runs fn under the admin identity, a slot and the API deadline, and writes its answer. A named
 // action (not "") is logged once when it succeeds.
 func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
+	return d.handleAs(d.token, "admin", action, fn)
+}
+
+// handleAs is handle for the holder of token (named who in the refusal).
+func (d *daemon) handleAs(token, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(d.token)) != 1 {
-			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, "admin token required", false})
+		if !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(token)) != 1 {
+			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
 		d.call(w, r, d.sem, nil, d.cfg.APITimeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
@@ -195,6 +222,8 @@ func classify(err error) *apiError {
 		return &apiError{"not_found", http.StatusNotFound, "no such database", false}
 	case errors.Is(err, locator.ErrMoving):
 		return &apiError{"moving", http.StatusServiceUnavailable, "the database is moving or being created; resolve again after Retry-After", true}
+	case errors.Is(err, locator.ErrRateLimited): // counted (controld_locator_rate_limited_total), not logged: a flood
+		return &apiError{"shed", http.StatusServiceUnavailable, "too many unknown api key ids from this source; retry after Retry-After", true}
 	case errors.Is(err, locator.ErrSuspended):
 		return &apiError{"suspended", http.StatusConflict, "the database is suspended", false}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
@@ -222,29 +251,37 @@ func (d *daemon) write(w http.ResponseWriter, r *http.Request, out any, err erro
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
-	body := map[string]string{}
+	var body struct {
+		Code         string `json:"code"`
+		Message      string `json:"message"`
+		LogID        string `json:"log_id,omitempty"`
+		RetryAfterMS int64  `json:"retry_after_ms,omitempty"`
+	}
 	ae := classify(err)
 	if ae == nil {
 		id := logx.NewID()
 		d.log.Error("control call failed (bug)", "event", "CONTROLD.FAILED", "path", r.URL.Path, "log_id", id, "error", err.Error(), "chain", errs.Chain(err))
-		ae, body["log_id"] = &apiError{"internal", http.StatusInternalServerError, "internal error", false}, id
+		ae, body.LogID = &apiError{"internal", http.StatusInternalServerError, "internal error", false}, id
 	} else if ae.status >= 500 && !ae.quiet {
 		d.log.Warn("control call refused", "event", "CONTROLD.REFUSED", "path", r.URL.Path, "code", ae.code, "error", err.Error())
 	}
 	if ae.status == http.StatusServiceUnavailable {
-		w.Header().Set("Retry-After", strconv.Itoa(retrySeconds(err)))
+		hint := retryHint(err)
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int((hint+time.Second-1)/time.Second))))
+		body.RetryAfterMS = max(1, hint.Milliseconds())
 	}
-	body["code"], body["message"] = ae.code, ae.msg
+	body.Code, body.Message = ae.code, ae.msg
 	w.WriteHeader(ae.status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// retrySeconds is 1 s, raised by a breaker's hint in the chain (front.RetryHint), capped at
-// front.MaxRetryAfter: the same rule as agentd's answers.
-func retrySeconds(err error) int {
+// retryHint is the hint in err's chain (front.RetryHint: a breaker's, the locator's moving), else 1 s, capped at
+// front.MaxRetryAfter. The Retry-After header rounds it up to whole seconds (at least 1); the body's
+// retry_after_ms keeps it precise, as agentd's answers do.
+func retryHint(err error) time.Duration {
 	var h front.RetryHint
-	if !errors.As(err, &h) {
-		return 1
+	if !errors.As(err, &h) || h.RetryAfter() <= 0 {
+		return time.Second
 	}
-	return max(1, int((min(h.RetryAfter(), front.MaxRetryAfter)+time.Second-1)/time.Second))
+	return min(h.RetryAfter(), front.MaxRetryAfter)
 }

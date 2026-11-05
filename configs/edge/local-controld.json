@@ -1,0 +1,14 @@
+{
+  "listen": "127.0.0.1:7443",
+  "health_listen": "127.0.0.1:7444",
+  "keys_url": "http://127.0.0.1:7080/v1/keys",
+  "keys_file": "../../results/edge/ticket-keys.json",
+  "registry": {
+    "url": "http://127.0.0.1:7080/v1/agents",
+    "token_file": "../../results/edge/edge-token",
+    "refresh": "10s",
+    "timeout": "2s",
+    "agent_scheme": "http"
+  },
+  "log_file": "../../results/edge/edge.log"
+}

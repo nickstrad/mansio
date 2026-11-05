@@ -17,9 +17,11 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/edge"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/keyfetch"
 	"github.com/nickstrad/ts-db-go/internal/load"
+	"github.com/nickstrad/ts-db-go/internal/logx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
@@ -34,21 +36,26 @@ type Config struct {
 
 	// Ticket public keys, as agentd: keys_file (static), or keys_url (controld's GET /v1/keys, fetched every
 	// keys_refresh by internal/keyfetch; keys_file is then the cache). Plain-HTTP keys_url needs -dev.
-	KeysFile     string        `json:"keys_file"`
-	KeysURL      string        `json:"keys_url"`
-	KeysRefresh  load.Duration `json:"keys_refresh"` // default 30 s
-	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
-	ClockSkew    load.Duration `json:"clock_skew"`
-	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
-	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	KeysFile string `json:"keys_file"`
+	KeysURL  string `json:"keys_url"`
+	// ControlCAFile is the PEM CA bundle that signs controld's certificate (an https keys_url or registry url
+	// with a private CA); default the system roots.
+	ControlCAFile string        `json:"control_ca_file"`
+	KeysRefresh   load.Duration `json:"keys_refresh"` // default 30 s
+	KeysTimeout   load.Duration `json:"keys_timeout"` // one fetch; default 3 s
+	ClockSkew     load.Duration `json:"clock_skew"`
+	MaxTicketTTL  load.Duration `json:"max_ticket_ttl"`
+	TicketCache   int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 	// RateLimit charges each source (client IP, IPv6 /64) one token per ticket the edge must verify.
 	RateLimit   RateLimit `json:"rate_limit"`
 	VerifySlots int       `json:"verify_slots"` // full verifies at once; 0 = 2 × GOMAXPROCS
 
-	// Agents maps each VM id (the tickets' vm claim) to its agent's query listener, e.g. https://10.0.0.5:7070.
-	// The seam for controld's VM registry: edge.Resolver.
-	Agents   map[string]string `json:"agents"`
-	AgentTLS AgentTLS          `json:"agent_tls"`
+	// Agents maps each VM id (the tickets' vm claim) to its agent's query listener, e.g. https://10.0.0.5:7070
+	// (static routes), unless Registry is set: exactly one of the two.
+	Agents map[string]string `json:"agents"`
+	// Registry fetches the routes from controld's VM registry instead (edge.RegistryRoutes).
+	Registry *Registry `json:"registry"`
+	AgentTLS AgentTLS  `json:"agent_tls"`
 	// AgentInFlight bounds requests in flight per agent (0 = 4096); more are shed.
 	AgentInFlight int           `json:"agent_in_flight"`
 	AgentBreaker  BreakerConfig `json:"agent_breaker"`
@@ -73,9 +80,17 @@ type Config struct {
 }
 
 // TLSFiles is a server certificate and its key (PEM).
-type TLSFiles struct {
-	CertFile string `json:"cert_file"`
-	KeyFile  string `json:"key_file"`
+type TLSFiles = tlsx.Files
+
+// Registry is controld's GET /v1/agents: VM → query endpoint (host:port), polled every refresh (and sooner when a
+// verified ticket names an unknown VM), each fetch bounded by timeout and behind a breaker. A failed fetch keeps
+// the last routes.
+type Registry struct {
+	URL         string        `json:"url"`
+	TokenFile   string        `json:"token_file"`   // 0600; controld's edge_token
+	Refresh     load.Duration `json:"refresh"`      // default 10 s
+	Timeout     load.Duration `json:"timeout"`      // one fetch; default 2 s
+	AgentScheme string        `json:"agent_scheme"` // the agents' scheme: https (default), http only with -dev
 }
 
 // AgentTLS is how the edge checks agents' certificates.
@@ -145,8 +160,38 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
 		}
 	}
-	if len(c.Agents) == 0 {
-		bad("agents: at least one vm → URL")
+	if c.ControlCAFile != "" && !strings.HasPrefix(c.KeysURL, "https:") && (c.Registry == nil || !strings.HasPrefix(c.Registry.URL, "https:")) {
+		bad("control_ca_file needs an https keys_url or registry.url (it would be unused)")
+	}
+	if r := c.Registry; r != nil { // a pointer section: its defaults apply after decoding
+		if r.Refresh.Duration == 0 {
+			r.Refresh.Duration = 10 * time.Second
+		}
+		if r.Timeout.Duration == 0 {
+			r.Timeout.Duration = 2 * time.Second
+		}
+		if r.AgentScheme == "" {
+			r.AgentScheme = "https"
+		}
+	}
+	switch r := c.Registry; {
+	case r == nil && len(c.Agents) == 0:
+		bad("agents (at least one vm → URL) or registry is required")
+	case r != nil && len(c.Agents) > 0:
+		bad("agents and registry are exclusive: static routes or controld's registry")
+	case r != nil:
+		if u, err := url.Parse(r.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("registry.url %q must be an http(s) URL", r.URL)
+		}
+		if r.TokenFile == "" {
+			bad("registry.token_file is required (controld's edge_token)")
+		}
+		if r.Refresh.Duration <= 0 || r.Timeout.Duration <= 0 || r.Timeout.Duration >= r.Refresh.Duration {
+			bad("registry: refresh and timeout must be > 0, timeout shorter than refresh")
+		}
+		if r.AgentScheme != "http" && r.AgentScheme != "https" {
+			bad("registry.agent_scheme %q: want https (or http with -dev)", r.AgentScheme)
+		}
 	}
 	for vm, u := range c.Agents {
 		if vm == "" || len(vm) > ticket.MaxVM {
@@ -189,9 +234,12 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	paths := []*string{&c.KeysFile, &c.LogFile, &c.AgentTLS.CAFile}
+	paths := []*string{&c.ControlCAFile, &c.KeysFile, &c.LogFile, &c.AgentTLS.CAFile}
 	if c.TLS != nil {
 		paths = append(paths, &c.TLS.CertFile, &c.TLS.KeyFile)
+	}
+	if c.Registry != nil {
+		paths = append(paths, &c.Registry.TokenFile)
 	}
 	for _, p := range paths {
 		if *p != "" && !filepath.IsAbs(*p) {
@@ -220,25 +268,33 @@ func checkAgentURL(s string) error {
 // checkDev refuses what only local development may do unless -dev is given: plain HTTP to clients or to agents
 // (object-storage guide S2's rule for S3, applied to the edge's two hops), and a CA file nothing would use.
 func (c *Config) checkDev() error {
-	plain := 0
+	plain := 0 // agents reached over plain http
 	for _, u := range c.Agents {
 		if pu, _ := url.Parse(u); pu.Scheme == "http" {
 			plain++
 		}
 	}
+	if c.Registry != nil && c.Registry.AgentScheme == "http" {
+		plain = 1
+	}
 	switch {
-	case c.AgentTLS.CAFile != "" && plain == len(c.Agents):
+	case c.AgentTLS.CAFile != "" && c.Registry == nil && plain == len(c.Agents):
 		return errs.Wrap(module, nil, "agent_tls.ca_file is set but every agent URL is plain http (the CA would be unused)")
+	case c.AgentTLS.CAFile != "" && plain > 0 && c.Registry != nil:
+		return errs.Wrap(module, nil, "agent_tls.ca_file is set but registry.agent_scheme is http (the CA would be unused)")
 	case c.Dev:
 		return nil
 	case strings.HasPrefix(c.KeysURL, "http:"):
 		return errs.Wrap(module, nil, "keys_url is plain HTTP: whoever can change the answer can mint tickets; use https, or pass -dev "+
 			"for a local run").With("keys_url", c.KeysURL)
+	case c.Registry != nil && strings.HasPrefix(c.Registry.URL, "http:"):
+		return errs.Wrap(module, nil, "registry.url is plain HTTP: whoever can change the answer can redirect queries; use https, or pass "+
+			"-dev for a local run").With("url", c.Registry.URL)
 	case c.TLS == nil:
 		return errs.Wrap(module, nil, "no tls section: plain HTTP to clients is for local development only; add \"tls\": "+
 			"{\"cert_file\", \"key_file\"}, or pass -dev for a local run")
 	case plain > 0:
-		return errs.Wrap(module, nil, "%d agent URLs are plain http: the edge → agent hop needs https (with agent_tls.ca_file for a "+
+		return errs.Wrap(module, nil, "%d agent URLs are plain http (or registry.agent_scheme): the edge → agent hop needs https (with agent_tls.ca_file for a "+
 			"private CA) outside local development; pass -dev for a local run", plain)
 	}
 	return nil
@@ -292,7 +348,7 @@ func loadConfig(path string) (*Config, error) {
 
 // openKeys builds the ticket key ring: static (keys_file; nil fetcher) or fetched (keys_url, keys_file as the
 // cache). A failed first fetch is not fatal: every ticket is refused until a key set arrives.
-func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing, *keyfetch.Fetcher, error) {
+func openKeys(ctx context.Context, c *Config, hc *http.Client, log *slog.Logger) (*ticket.KeyRing, *keyfetch.Fetcher, error) {
 	var ring *ticket.KeyRing
 	var f *keyfetch.Fetcher
 	var err error
@@ -300,10 +356,66 @@ func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing
 		ring, err = keyfetch.LoadFile(c.KeysFile)
 	} else {
 		ring, f, err = keyfetch.Open(ctx, keyfetch.Config{URL: c.KeysURL, Cache: c.KeysFile, Every: c.KeysRefresh.Duration,
-			Timeout: c.KeysTimeout.Duration, Log: log, Event: "EDGE"})
+			Timeout: c.KeysTimeout.Duration, Client: hc, Log: log, Event: "EDGE"})
 	}
 	if err != nil {
 		return nil, nil, errs.Wrap(module, err, "cannot load the ticket keys (keys_file)").With("path", c.KeysFile)
 	}
 	return ring, f, nil
+}
+
+// registry opens controld's VM registry (nil without a registry section) and fetches it once: a failed first
+// fetch is not fatal (tickets for unknown VMs answer wrong_owner until a fetch succeeds). hc is the client to
+// controld (control_ca_file).
+func (c *Config) registry(ctx context.Context, hc *http.Client, log *slog.Logger) (*edge.RegistryRoutes, error) {
+	r := c.Registry
+	if r == nil {
+		return nil, nil
+	}
+	tok, err := readToken(r.TokenFile)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := edge.NewRegistryRoutes(edge.RegistryConfig{URL: r.URL, Token: tok, Scheme: r.AgentScheme, Every: r.Refresh.Duration,
+		Timeout: r.Timeout.Duration, Client: hc, Log: log, Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "registry")}})
+	if err != nil {
+		return nil, err
+	}
+	if err := reg.Fetch(ctx); err != nil {
+		log.Warn("cannot fetch the agent registry before serving; retrying every refresh", "event", "EDGE.REGISTRY_FETCH_FAILED",
+			"url", r.URL, "error", err.Error())
+	}
+	return reg, nil
+}
+
+// minToken is the shortest token accepted (controld's minToken).
+const minToken = 16
+
+// controlClient is the one HTTP client to controld (keys_url, registry.url), trusting control_ca_file.
+func (c *Config) controlClient() (*http.Client, error) {
+	hc, err := tlsx.HTTPClient(c.ControlCAFile)
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot load control_ca_file").With("ca_file", c.ControlCAFile)
+	}
+	return hc, nil
+}
+
+// readToken reads a token file: 0600 (others cannot read it), one line, at least 16 characters.
+func readToken(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", errs.Wrap(module, err, "cannot read registry.token_file").With("path", path)
+	}
+	if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+		return "", errs.Wrap(module, nil, "registry.token_file %s has mode %#o; make it 0600 (chmod 600)", path, perm)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", errs.Wrap(module, err, "cannot read registry.token_file").With("path", path)
+	}
+	tok := strings.TrimSpace(string(b))
+	if len(tok) < minToken {
+		return "", errs.Wrap(module, nil, "registry.token_file %s: the token must be at least %d characters", path, minToken)
+	}
+	return tok, nil
 }

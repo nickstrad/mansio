@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
 )
@@ -150,7 +151,7 @@ func TestResolveMintsATicketForTheOwner(t *testing.T) {
 }
 
 func TestResolveAnswers(t *testing.T) {
-	f := newFixture(t, Config{MovingRetry: 3 * time.Second})
+	f := newFixture(t, Config{MovingRetry: 3 * time.Second, ClaimRetry: 20 * time.Millisecond})
 	_, id, _, _ := NewAPIKey(bytes.NewReader(bytes.Repeat([]byte{1}, 64)))
 	revoked, rid, rhash, _ := NewAPIKey(bytes.NewReader(bytes.Repeat([]byte{2}, 64)))
 	f.st.keys[rid] = StoredKey{Tenant: "acme", Principal: "old", Perms: ticket.Read, Hash: rhash, Revoked: true}
@@ -166,25 +167,30 @@ func TestResolveAnswers(t *testing.T) {
 	f.st.set("acme:dropping", Placement{Intent: "dropping", Found: true, VM: "vm-a", Epoch: 2, Moving: true})
 	f.st.set("acme:dropped", Placement{Intent: "dropped"})
 	f.st.set("acme:bare", Placement{Found: true, VM: "vm-b", Epoch: 1}) // no registry row: still served
-	f.st.set("acme:flipped", Placement{Intent: "moving", Found: true, VM: "vm-b", Epoch: 4})
+	f.st.set("acme:flipped", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-b", Epoch: 4})
+	f.st.set("acme:unfenced", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-a", Epoch: 3})
+	f.st.set("acme:placed", Placement{Intent: "creating", Found: true, VM: "vm-a", Epoch: 1})
 	tests := []struct {
 		name, db, key string
 		err           error
+		hint          time.Duration // ErrMoving's
 	}{
-		{"ok", "db", f.key, nil},
-		{"malformed key", "db", "nope", ErrUnauthorized},
-		{"unknown key id", "db", "tsdb_" + id + "_" + f.key[len("tsdb_")+17:], ErrUnauthorized},
-		{"wrong secret", "db", wrongSecret, ErrUnauthorized},
-		{"revoked", "db", revoked, ErrUnauthorized},
-		{"other tenant's key", "db", other, ErrForbidden},
-		{"no such database", "nothing", f.key, ErrNotFound},
-		{"moving", "moving", f.key, ErrMoving},
-		{"creating (no placement row yet)", "creating", f.key, ErrMoving},
-		{"suspended", "suspended", f.key, ErrSuspended},
-		{"dropping", "dropping", f.key, ErrNotFound},
-		{"dropped", "dropped", f.key, ErrNotFound},
-		{"placement without a registry row", "bare", f.key, nil},
-		{"flipped, registry not yet active: route to the new owner", "flipped", f.key, nil},
+		{"ok", "db", f.key, nil, 0},
+		{"malformed key", "db", "nope", ErrUnauthorized, 0},
+		{"unknown key id", "db", "tsdb_" + id + "_" + f.key[len("tsdb_")+17:], ErrUnauthorized, 0},
+		{"wrong secret", "db", wrongSecret, ErrUnauthorized, 0},
+		{"revoked", "db", revoked, ErrUnauthorized, 0},
+		{"other tenant's key", "db", other, ErrForbidden, 0},
+		{"no such database", "nothing", f.key, ErrNotFound, 0},
+		{"moving", "moving", f.key, ErrMoving, 3 * time.Second},
+		{"creating (no placement row yet)", "creating", f.key, ErrMoving, 3 * time.Second},
+		{"suspended", "suspended", f.key, ErrSuspended, 0},
+		{"dropping", "dropping", f.key, ErrNotFound, 0},
+		{"dropped", "dropped", f.key, ErrNotFound, 0},
+		{"placement without a registry row", "bare", f.key, nil, 0},
+		{"flipped, registry not yet active: the claim is pending", "flipped", f.key, ErrMoving, 20 * time.Millisecond},
+		{"placed, registry still creating: the claim is pending", "placed", f.key, ErrMoving, 20 * time.Millisecond},
+		{"moving but not fenced yet: route to the source", "unfenced", f.key, nil, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,7 +200,7 @@ func TestResolveAnswers(t *testing.T) {
 			}
 			if errors.Is(err, ErrMoving) {
 				var h front.RetryHint
-				if !errors.As(err, &h) || h.RetryAfter() != 3*time.Second {
+				if !errors.As(err, &h) || h.RetryAfter() != tc.hint {
 					t.Fatalf("moving without its retry hint: %v", err)
 				}
 			}
@@ -280,6 +286,68 @@ func TestInvalidateSendsTheNextLoadToThePrimary(t *testing.T) {
 	f.l.Invalidate("acme:unknown", 1) // uncached keys leave nothing behind
 	if s := f.l.Stats(); s.Entries != 1 || s.Notifications != 3 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// A move: "moving" from the flip until the registry says active; its notification (InvalidateState) ends the
+// "moving" answers at once, whatever the cached epoch.
+func TestRegistryFlipEndsTheClaimWindow(t *testing.T) {
+	f := newFixture(t, Config{})
+	f.l.Reset()
+	f.resolve(t, "db", 0)
+	f.st.set("acme:db", Placement{Intent: "moving", Target: "vm-b", Found: true, VM: "vm-b", Endpoint: "b", Epoch: 4})
+	f.l.Invalidate("acme:db", 4)
+	if _, err := f.resolve(t, "db", 0); !errors.Is(err, ErrMoving) {
+		t.Fatalf("claim pending: %v", err)
+	}
+	f.st.set("acme:db", Placement{Intent: "active", Found: true, VM: "vm-b", Endpoint: "b", Epoch: 4})
+	if _, err := f.resolve(t, "db", 0); !errors.Is(err, ErrMoving) {
+		t.Fatalf("the claim-pending row was not cached: %v", err)
+	}
+	f.l.InvalidateState("acme:db")
+	if r, err := f.resolve(t, "db", 0); err != nil || r.VM != "vm-b" || r.Epoch != 4 {
+		t.Fatalf("after the registry flip: %+v %v", r, err)
+	}
+	if rep, pri := f.st.counts(); rep != 1 || pri != 2 {
+		t.Fatalf("loads replica %d primary %d, want 1 and 2 (each notified key reads the primary)", rep, pri)
+	}
+	f.l.InvalidateState("acme:unknown")
+	if s := f.l.Stats(); s.Entries != 1 || s.Notifications != 3 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+// Unknown key ids cost a primary read each, so an id not in the key cache is charged to its source first: a
+// garbage flood is cut to the bucket's rate; cached keys from the same source and other sources go on.
+func TestUnknownKeyIDsAreRateLimitedPerSource(t *testing.T) {
+	f := newFixture(t, Config{Limiter: ratelimit.NewSourceLimiter(1, 3, 100)})
+	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: f.key, Source: "evil"}); err != nil {
+		t.Fatal(err) // the good key is now cached (one token spent)
+	}
+	refused := 0
+	for i := range 50 {
+		garbage := fmt.Sprintf("tsdb_%016x_%s", i+1, f.key[len("tsdb_")+17:])
+		_, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: garbage, Source: "evil"})
+		var h front.RetryHint
+		switch {
+		case errors.Is(err, ErrRateLimited) && errors.As(err, &h) && h.RetryAfter() > 0:
+			refused++
+		case !errors.Is(err, ErrUnauthorized):
+			t.Fatalf("garbage %d: %v", i, err)
+		}
+	}
+	if f.st.keyRead != 3 || refused != 48 || f.l.Stats().RateLimited != 48 {
+		t.Fatalf("key reads %d (want 3: the burst), refused %d", f.st.keyRead, refused)
+	}
+	for _, src := range []string{"evil", "good"} { // a cached key from the flooding source; and another source
+		if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: f.key, Source: src}); err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+	}
+	f.clk.add(time.Second) // one token back
+	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: "tsdb_ffffffffffffffff_" + f.key[len("tsdb_")+17:],
+		Source: "evil"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("after refill: %v", err)
 	}
 }
 

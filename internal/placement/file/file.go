@@ -15,7 +15,6 @@ package file
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,13 +25,14 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/ts-db-go/internal/fsx"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 )
 
 const (
 	module    = "placement"
 	rowExt    = ".row"
-	tmpPrefix = ".tmp-"
+	tmpPrefix = fsx.TempPrefix
 	lockName  = ".lock"
 	rowFormat = 1
 )
@@ -122,7 +122,7 @@ func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Plac
 	if err != nil {
 		return errs.Wrap(module, err, "cannot encode placement of %q; nothing changed", key)
 	}
-	if err := writeAtomic(p.path(key), data); err != nil {
+	if err := fsx.WriteAtomic(p.path(key), data, 0o644); err != nil {
 		return errs.Wrap(module, err, "cannot write placement of %q; the old row or the new one is in place, re-read before retrying", key).With("dir", p.dir)
 	}
 	return nil
@@ -206,40 +206,4 @@ func (p *Placement) lock(ctx context.Context) (unlock func(), err error) {
 		case <-time.After(p.poll):
 		}
 	}
-}
-
-// writeAtomic writes data to path so that a crash leaves either the old file or the new one: a fsynced temp
-// file renamed over path, then the directory fsynced.
-func writeAtomic(path string, data []byte) error {
-	var rnd [6]byte
-	_, _ = rand.Read(rnd[:])
-	dir := filepath.Dir(path)
-	tmp := filepath.Join(dir, tmpPrefix+hex.EncodeToString(rnd[:]))
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(data)
-	if werr == nil {
-		werr = f.Sync()
-	}
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr == nil {
-		werr = os.Rename(tmp, path)
-	}
-	if werr != nil {
-		_ = os.Remove(tmp)
-		return werr
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	err = d.Sync()
-	if cerr := d.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }
