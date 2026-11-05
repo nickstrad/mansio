@@ -1,0 +1,7 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  SH[scripts/coldload] -->|1| CL[coldload process]
+  CL -->|2| SW[SeaweedFS :8333]
+  CL -->|3| CACHE[cache dir]
+  CL -->|4| RES[results/coldload]
+  RES -->|5| SQL[report.sql]

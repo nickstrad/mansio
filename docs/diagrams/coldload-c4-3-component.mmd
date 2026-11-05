@@ -1,0 +1,9 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  MAIN[cmd/coldload] -->|1| DOM[coldload]
+  MAIN -->|2| REC[recorder]
+  DOM -->|3| HOST[vactor.Host]
+  HOST -->|4| S3F[s3Fetcher]
+  HOST -->|5| AO[actorOpener]
+  S3F -->|6| OS[objstore]
+  AO -->|7| ACT[actor]
