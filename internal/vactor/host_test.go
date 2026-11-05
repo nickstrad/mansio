@@ -174,7 +174,7 @@ func TestPassivate(t *testing.T) {
 			path := r.h.LocalPath("a")
 			os.WriteFile(path+"-wal", nil, 0o644) // side files SQLite would leave
 
-			r.h.Passivate("a")
+			r.h.Passivate(ctx, "a")
 			if r.h.Active() != 0 {
 				t.Fatalf("Active = %d after Passivate", r.h.Active())
 			}
@@ -198,7 +198,7 @@ func TestPassivate(t *testing.T) {
 
 func TestPassivateInactiveKeyIsNoop(t *testing.T) {
 	r := newRig(t, false)
-	r.h.Passivate("never-active")
+	r.h.Passivate(ctx, "never-active")
 	if r.h.Active() != 0 {
 		t.Fatal("Passivate created an entry")
 	}
@@ -271,7 +271,7 @@ func TestGetRacingPassivateNeverServesDeletedFile(t *testing.T) {
 		})
 		wg.Go(func() {
 			for range 200 {
-				r.h.Passivate("a")
+				r.h.Passivate(ctx, "a")
 			}
 		})
 	}

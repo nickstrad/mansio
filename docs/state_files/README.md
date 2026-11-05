@@ -7,3 +7,4 @@ goals, design decisions, status history and findings. Findings meant to last als
 | File | Workstream | Archived |
 |---|---|---|
 | `STATE-coldload.md` | coldload: SQLite files in SeaweedFS (S3) → virtual actors; fetch/open/warm timings | 2026-11-04 |
+| `STATE-writeback.md` | writeback: warm → cold durability (generations, conditional manifest, write-back, eviction) | 2026-11-05 |

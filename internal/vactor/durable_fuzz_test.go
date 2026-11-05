@@ -1,0 +1,229 @@
+package vactor_test
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
+	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+)
+
+// FuzzDurableHostModel runs a script of operations against a durable-mode Host (fake store and databases)
+// and a plain model, and compares them after every step.
+//
+// Script: pairs (kind, arg) over 4 keys:
+//
+//	kind%10  0 Get k   1 Write k   2 Passivate k   3 Crash + restart   4 Tick   5 WriteBack k
+//	         6 store fault := faults[arg%7] (one at a time)   7 clock += arg seconds
+//	         8 Bump k (another owner raises the stored epoch: k is fenced for us)   9 Discard k
+//
+// Model per key: the published contents (what a fresh activation must see), whether it is warm, its warm
+// contents, whether it has unpublished writes, and whether it is fenced. The check after every step: the
+// store's manifest names exactly the model's published contents (nothing acknowledged and written back is
+// ever lost or replaced by something older), every warm key's local file holds the model's warm contents,
+// cold keys have no local file, and the open-database count matches.
+func FuzzDurableHostModel(f *testing.F) {
+	f.Add([]byte{1, 0, 2, 0, 0, 0})                          // write, passivate, reactivate
+	f.Add([]byte{1, 0, 6, 1, 2, 0, 6, 0, 2, 0, 0, 0})        // upload fails: stays warm; then ok
+	f.Add([]byte{1, 0, 6, 2, 5, 0, 6, 0, 3, 0, 0, 0})        // publish fails (orphan), crash, reactivate
+	f.Add([]byte{1, 0, 5, 0, 1, 0, 3, 0, 0, 0})              // write-back, more writes, crash: last published
+	f.Add([]byte{1, 0, 6, 3, 5, 0, 6, 0, 1, 0, 2, 0, 0, 0})  // lost publish reply
+	f.Add([]byte{1, 0, 1, 1, 1, 0, 4, 0, 7, 40, 4, 0, 0, 1}) // tick: commit trigger, idle eviction
+	f.Add([]byte{1, 0, 8, 0, 2, 0, 5, 0, 9, 0, 0, 0})        // fenced: stale write-back, discard, cold get fails
+	f.Add([]byte{1, 0, 1, 1, 1, 2, 1, 3, 4, 0, 6, 5, 4, 0})  // budget eviction, store down
+	f.Fuzz(func(t *testing.T, script []byte) {
+		faults := []durabletest.Faults{{}, {FailUpload: true}, {FailPublish: true}, {LosePublishReply: true},
+			{FailRead: true}, {Down: true}, {FailFetch: true}}
+		keys := []string{"t/k0", "t/k1", "t/k2", "t/k3"}
+		s, o, clk := durabletest.NewStore(), &vactortest.Opener{}, &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Now: clk.Now, Workers: 2,
+			Policy: vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
+		newHost := func() *vactor.Host {
+			h, err := vactor.NewHost(nil, o, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return h
+		}
+		h := newHost()
+		defer func() { s.SetFaults(durabletest.Faults{}); h.Close() }()
+
+		published, local := map[string]string{}, map[string]string{}
+		warm, dirty, fenced := map[string]bool{}, map[string]bool{}, map[string]bool{}
+		known := map[string]bool{} // the host has seen ErrStale for this warm key
+		fault := durabletest.Faults{}
+		// writeBackFails predicts a write-back of a dirty, unfenced key under the current fault.
+		writeBackFails := func() bool { return fault.FailUpload || fault.FailPublish || fault.Down }
+		activationFails := func(k string) bool {
+			return fenced[k] || fault.FailRead || fault.Down || (fault.FailFetch && published[k] != "")
+		}
+		// wbOutcome checks the result of a write-back of a warm dirty key and reports whether it published.
+		wbOutcome := func(step int, what, k string, err error) bool {
+			switch {
+			case known[k]:
+				if !errors.Is(err, durable.ErrStale) {
+					t.Fatalf("step %d: %s(%s) known stale: %v, want ErrStale", step, what, k, err)
+				}
+			case writeBackFails():
+				if err == nil {
+					t.Fatalf("step %d: %s(%s) succeeded under %+v", step, what, k, fault)
+				}
+			case fenced[k]:
+				if !errors.Is(err, durable.ErrStale) {
+					t.Fatalf("step %d: %s(%s) fenced: %v, want ErrStale", step, what, k, err)
+				}
+				known[k] = true
+			default:
+				if err != nil {
+					t.Fatalf("step %d: %s(%s): %v (fault %+v)", step, what, k, err, fault)
+				}
+				return true
+			}
+			return false
+		}
+		nWarm := func() int {
+			n := 0
+			for _, k := range keys {
+				if warm[k] {
+					n++
+				}
+			}
+			return n
+		}
+
+		for i := 0; i+1 < len(script); i += 2 {
+			step, arg := i/2, script[i+1]
+			key := keys[int(arg)%len(keys)]
+			switch script[i] % 10 {
+			case 0, 1:
+				res, err := h.Get(ctx, key)
+				if warm[key] {
+					if err != nil {
+						t.Fatalf("step %d: Get(%s) of a warm key: %v", step, key, err)
+					}
+				} else if activationFails(key) {
+					if err == nil {
+						t.Fatalf("step %d: Get(%s) succeeded; fenced=%v fault=%+v", step, key, fenced[key], fault)
+					}
+					if fenced[key] && !fault.FailRead && !fault.Down && !errors.Is(err, durable.ErrStale) {
+						t.Fatalf("step %d: Get(%s) of a fenced key: %v, want ErrStale", step, key, err)
+					}
+					break
+				} else {
+					if err != nil {
+						t.Fatalf("step %d: cold Get(%s): %v (fault %+v)", step, key, err, fault)
+					}
+					warm[key], local[key], dirty[key] = true, published[key], false
+				}
+				if script[i]%10 == 1 {
+					v := fmt.Sprintf("s%d", step)
+					if err := res.DB.Query(ctx, vactortest.Put(v)); err != nil {
+						t.Fatalf("step %d: write %s: %v", step, key, err)
+					}
+					local[key], dirty[key] = v, true
+				}
+			case 2:
+				err := h.Passivate(ctx, key)
+				if !warm[key] || !dirty[key] {
+					if err != nil {
+						t.Fatalf("step %d: Passivate(%s) clean/cold: %v", step, key, err)
+					}
+					warm[key] = false
+				} else if wbOutcome(step, "Passivate", key, err) {
+					published[key], warm[key], dirty[key] = local[key], false, false
+				}
+			case 3:
+				vactor.Crash(h)
+				h = newHost()
+				for _, k := range keys {
+					warm[k], dirty[k], known[k] = false, false, false // unpublished writes are lost: allowed, that is the RPO
+				}
+			case 4:
+				rep, err := h.Tick(ctx)
+				if err != nil {
+					t.Fatalf("step %d: Tick: %v", step, err)
+				}
+				for _, ev := range rep.Plan.Passivate {
+					k := ev.Key
+					if !warm[k] || (dirty[k] && known[k]) {
+						t.Fatalf("step %d: Tick passivated %s: warm=%v dirty=%v known stale=%v", step, k, warm[k], dirty[k], known[k])
+					}
+					if !dirty[k] {
+						if rep.Errors[k] != nil {
+							t.Fatalf("step %d: Tick clean passivation of %s: %v", step, k, rep.Errors[k])
+						}
+						warm[k] = false
+					} else if wbOutcome(step, "Tick passivation", k, rep.Errors[k]) {
+						published[k], warm[k], dirty[k] = local[k], false, false
+					}
+				}
+				for _, k := range rep.Plan.WriteBack {
+					if !warm[k] || !dirty[k] || known[k] {
+						t.Fatalf("step %d: Tick wrote back %s: warm=%v dirty=%v known stale=%v", step, k, warm[k], dirty[k], known[k])
+					}
+					if wbOutcome(step, "Tick write-back", k, rep.Errors[k]) {
+						published[k], dirty[k] = local[k], false
+					}
+				}
+			case 5:
+				res, err := h.WriteBack(ctx, key)
+				if !warm[key] || !dirty[key] {
+					if err != nil || res.Wrote {
+						t.Fatalf("step %d: WriteBack(%s) clean/cold = %+v, %v", step, key, res, err)
+					}
+				} else if wbOutcome(step, "WriteBack", key, err) {
+					if !res.Wrote {
+						t.Fatalf("step %d: WriteBack(%s) = %+v without error", step, key, res)
+					}
+					published[key], dirty[key] = local[key], false
+				}
+			case 6:
+				fault = faults[int(arg)%len(faults)]
+				s.SetFaults(fault)
+			case 7:
+				clk.Add(time.Duration(arg) * time.Second)
+			case 8:
+				s.Bump(key, 1)
+				fenced[key] = true
+			case 9:
+				lost := h.Discard(key)
+				if lost != (warm[key] && dirty[key]) {
+					t.Fatalf("step %d: Discard(%s) lost=%v, model warm=%v dirty=%v", step, key, lost, warm[key], dirty[key])
+				}
+				warm[key], dirty[key], known[key] = false, false, false
+			}
+
+			// Compare after every step.
+			for _, k := range keys {
+				m, ok := s.Manifest(k)
+				got := ""
+				if ok && m.Generation > 0 {
+					b, ok := s.Object(m.Object)
+					if !ok {
+						t.Fatalf("step %d: manifest of %s names missing %s", step, k, m.Object)
+					}
+					got = string(b)
+				}
+				if got != published[k] {
+					t.Fatalf("step %d: %s published %q, model %q", step, k, got, published[k])
+				}
+				b, err := os.ReadFile(h.LocalPath(k))
+				if warm[k] && (err != nil || string(b) != local[k]) {
+					t.Fatalf("step %d: warm %s local %q (%v), model %q", step, k, b, err, local[k])
+				}
+				if !warm[k] && !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("step %d: cold %s has a local file (%v)", step, k, err)
+				}
+			}
+			if h.Active() != nWarm() {
+				t.Fatalf("step %d: Active() = %d, model %d", step, h.Active(), nWarm())
+			}
+		}
+	})
+}

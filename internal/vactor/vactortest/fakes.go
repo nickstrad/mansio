@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,13 +103,28 @@ func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, 
 }
 
 // Opener opens fake databases over existing files and counts opens and closes.
+//
+// The fake databases implement vactor.DurableDB: the file's bytes are the database's contents. A query
+// "put:<value>" is a write: it replaces the file's contents with <value> and counts one commit. Snapshot
+// copies the file. Any other query is a read.
 type Opener struct {
 	mu             sync.Mutex
 	opened, closed int
 
-	FailOpen  bool // Open fails with ErrInjected
-	FailQuery bool // every Query on databases from this opener fails with ErrInjected
+	FailOpen     bool // Open fails with ErrInjected
+	FailQuery    bool // every Query on databases from this opener fails with ErrInjected
+	FailSnapshot bool // Snapshot fails with ErrInjected (after writing part of the file)
 }
+
+// SetFailSnapshot sets FailSnapshot under the lock.
+func (o *Opener) SetFailSnapshot(fail bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.FailSnapshot = fail
+}
+
+// Put is the fake write query that stores value.
+func Put(value string) string { return "put:" + value }
 
 // Set changes switches under the lock.
 func (o *Opener) Set(failOpen, failQuery bool) {
@@ -138,12 +154,13 @@ func (o *Opener) Open(path string) (vactor.DB, error) {
 }
 
 type db struct {
-	o      *Opener
-	path   string
-	closed bool
+	o       *Opener
+	path    string
+	closed  bool
+	commits uint64
 }
 
-func (d *db) Query(ctx context.Context, _ string) error {
+func (d *db) Query(ctx context.Context, q string) error {
 	d.o.mu.Lock()
 	defer d.o.mu.Unlock()
 	switch {
@@ -155,7 +172,42 @@ func (d *db) Query(ctx context.Context, _ string) error {
 	if _, err := os.Stat(d.path); err != nil {
 		return fmt.Errorf("vactortest: db file vanished under an open db: %w", err)
 	}
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if v, ok := strings.CutPrefix(q, "put:"); ok {
+		if err := os.WriteFile(d.path, []byte(v), 0o644); err != nil {
+			return err
+		}
+		d.commits++
+	}
+	return nil
+}
+
+func (d *db) Commits() uint64 {
+	d.o.mu.Lock()
+	defer d.o.mu.Unlock()
+	return d.commits
+}
+
+func (d *db) Snapshot(ctx context.Context, path string) (uint64, error) {
+	d.o.mu.Lock()
+	defer d.o.mu.Unlock()
+	if d.closed {
+		return d.commits, errors.New("vactortest: snapshot of closed db")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return d.commits, fmt.Errorf("vactortest: snapshot target %s exists", path)
+	}
+	data, err := os.ReadFile(d.path)
+	if err != nil {
+		return d.commits, err
+	}
+	if d.o.FailSnapshot {
+		os.WriteFile(path, data[:len(data)/2], 0o644)
+		return d.commits, fmt.Errorf("snapshot %s: %w", d.path, ErrInjected)
+	}
+	return d.commits, os.WriteFile(path, data, 0o644)
 }
 
 func (d *db) Close() {
