@@ -117,6 +117,7 @@ type Response struct {
 	Rows         [][]any  `json:"rows,omitempty"`
 	Count        int64    `json:"count"`                    // rows returned (read) or affected (write)
 	Ambiguous    bool     `json:"ambiguous,omitempty"`      // expired write that may have committed
+	Duplicate    bool     `json:"duplicate,omitempty"`      // ok write whose request_id was applied before; count is the original's
 	Message      string   `json:"message,omitempty"`        // fixed per code; bad_request explains the input
 	RetryAfterMS int      `json:"retry_after_ms,omitempty"` // same as the Retry-After header
 	LogID        string   `json:"log_id,omitempty"`         // internal: look it up in the agent's log
@@ -212,7 +213,7 @@ func (s *Server) handle(ctx context.Context, in Input) (out Output) {
 	}
 	assert.That(req.Kind == KindWrite || (reply.Count == int64(len(reply.Rows)) && len(reply.Rows) <= s.cfg.Limits.MaxRows),
 		"Executor broke its contract: count %d, %d rows, max %d", reply.Count, len(reply.Rows), s.cfg.Limits.MaxRows)
-	out.Resp.Columns, out.Resp.Rows, out.Resp.Count = reply.Columns, wireValues(reply.Rows), reply.Count
+	out.Resp.Columns, out.Resp.Rows, out.Resp.Count, out.Resp.Duplicate = reply.Columns, wireValues(reply.Rows), reply.Count, reply.Duplicate
 	return out
 }
 

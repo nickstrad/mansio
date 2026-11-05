@@ -110,7 +110,7 @@ type Wire struct {
 // Spec is the wire contract and its single source in code; TestSpecTable checks every row, and
 // knowledge/front/2026-11-05-wire-contract.md documents it.
 var Spec = map[Code]Wire{
-	OK:            {200, 0, "done"},
+	OK:            {200, 0, "done (duplicate=true: this request_id was applied before; count is the original's)"},
 	Shed:          {503, 1, "nothing ran; retry after Retry-After with backoff and jitter"},
 	Unavailable:   {503, 1, "nothing ran; a dependency is down or recovering: retry after Retry-After with backoff and jitter"},
 	Expired:       {504, 0, "reads and writes without ambiguous=true never ran: retry with a fresh deadline; ambiguous=true: a write may have committed, retry with the same request_id"},
@@ -120,7 +120,7 @@ var Spec = map[Code]Wire{
 	Fenced:        {421, 1, "re-resolve after Retry-After; the database is moving or suspended"},
 	TicketInvalid: {401, 0, "get a new ticket, then retry"},
 	BadRequest:    {400, 0, "fix the request; retrying it unchanged fails again"},
-	Internal:      {500, 0, "report the log_id; a write may or may not have committed"},
+	Internal:      {500, 0, "report the log_id; a write may or may not have committed: retry with the same request_id"},
 }
 
 // Sentinels for outcomes produced by the ports and the pipeline. Adapters translate their own errors into these

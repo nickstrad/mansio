@@ -34,8 +34,9 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 	if err != nil {
 		return Reply{}, err
 	}
+	// The actor applies a write's RequestID at most once per database (CP-2); reads ignore it.
 	r := &actor.Request{SQL: c.SQL, Args: c.Args, Write: c.Kind == KindWrite, StmtTimeout: c.StmtTimeout,
-		Deadline: c.Deadline}
+		Deadline: c.Deadline, RequestID: c.RequestID}
 	if c.Kind == KindRead {
 		r.MaxRows = c.MaxRows
 	}
@@ -56,7 +57,7 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 		return Reply{}, actorError(res.Err, res.TimedOut)
 	}
 	if c.Kind == KindWrite {
-		return Reply{Count: res.Rows}, nil
+		return Reply{Count: res.Rows, Duplicate: res.Duplicate}, nil
 	}
 	return Reply{Columns: res.Columns, Rows: res.Values, Count: res.Rows}, nil
 }

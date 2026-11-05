@@ -243,7 +243,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   `seed_ms_per_db` in report §12 for `ramp` drops; if it drops < 20%, revert and record the null result.
 - **Size:** S.
 
-#### PG-09 — Request-id table in each tenant database (ch 29, 36, 39)
+#### PG-09 — Request-id table in each tenant database (ch 29, 36, 39) — **Done** (d7c921d, CP-2; as built: claim reads `sqlite3_changes()` instead of RETURNING, plus an `applied_ms` index; see knowledge/front/2026-11-05-request-ids.md)
 
 - **Files:** design lands with CP step 2 (`internal/actor` or a new `internal/reqid`).
 - **Change:** DDL and statements in §5.3: `STRICT, WITHOUT ROWID` table keyed by request id; insert with
@@ -441,6 +441,11 @@ create table if not exists _tsdb_requests (
 Per write, inside the write's savepoint (PG-01): `insert into _tsdb_requests (request_id, applied_ms) values (?,
 ?) on conflict (request_id) do nothing returning request_id`; no row returned ⇒ duplicate, `ROLLBACK TO` the
 savepoint and answer from `result`. SQLite supports `RETURNING` since 3.35.
+
+As built (CP-2): the claim drops `returning` and reads the rows affected (same single statement, ~1.7 µs less
+per write through `database/sql`); `create index _tsdb_requests_applied on _tsdb_requests (applied_ms)` keeps
+the retention sweep off a full scan; the table is created lazily in the first batch with an id. Details and
+cost: `knowledge/front/2026-11-05-request-ids.md`.
 
 ## 6. Testing implications
 
