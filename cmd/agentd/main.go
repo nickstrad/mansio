@@ -31,6 +31,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
+	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
@@ -138,7 +139,15 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string)
 		// CP-1 wiring point: one breakerCheck per remote dependency (S3, placement), and a periodic HEAD of an S3
 		// canary object.
 	)
+	reg := metrics.NewRegistry()
+	frontMetrics(reg, srv)
+	actorMetrics(reg, host)
+	lifecycleMetrics(reg, st, ready, time.Now())
+	// CP-1 wiring point: s3Metrics(reg, store.Metrics), breakerMetrics(reg, {"s3": …, "placement": …}) with
+	// breakerLog as each breaker's OnChange, vactorMetrics(reg, vhost, ticks.lastTick) with ticks.report as the
+	// RunMaintenance reporter, ownerEvents as owner.Config.OnChange, reconcileLog for ReconcileUntilDone.
 	mux := http.NewServeMux()
+	mux.Handle(metricsPath, reg.Handler())
 	mux.Handle(front.HealthPath, front.HealthHandler(srv))
 	mux.Handle(front.LivePath, front.LiveHandler(srv))
 	mux.Handle(front.ReadyPath, front.ReadyHandler(srv, ready))
@@ -179,6 +188,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		mux := http.NewServeMux()
 		mux.Handle(front.LivePath, a.lifecycle)
 		mux.Handle(front.ReadyPath, a.lifecycle)
+		mux.Handle(metricsPath, a.lifecycle)
 		mux.Handle("/", handler)
 		handler = mux
 	}

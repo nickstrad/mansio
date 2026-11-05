@@ -12,6 +12,8 @@ Notes:
   and Retry-After, health, shutdown. **Internal, trusted-caller protocol** (raw SQL); `op` is reserved.
 - [2026-11-05 handler executor](2026-11-05-handler-executor.md): what a TypeScript handler executor needs from
   the `Executor` port (transaction scope, synchronous db calls on the actor goroutine, savepoint per handler).
+- [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed
+  Retry-After estimate (RI-11).
 - Raw numbers: [2026-11-05-matrix/](2026-11-05-matrix/) (`matrix.txt`, `micro.txt`, one JSON per run).
 
 ## Findings (newest first)

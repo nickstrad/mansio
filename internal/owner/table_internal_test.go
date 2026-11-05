@@ -23,11 +23,11 @@ func TestAssertionsFire(t *testing.T) {
 		f()
 	}
 	mustPanic("epoch backwards", "epoch went backwards", func() {
-		s := newSlot("k", active5)
+		s := newSlot("k", active5, nil)
 		s.install(s.view.Load(), Local{State: Active, Epoch: 4})
 	})
 	mustPanic("double Done", "went negative", func() {
-		s := newSlot("k", active5)
+		s := newSlot("k", active5, nil)
 		s.inflight.Add(1)
 		p := Permit{s}
 		p.Done()

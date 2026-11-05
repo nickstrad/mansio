@@ -53,7 +53,7 @@ Integers above 2^53 lose precision in JavaScript clients (same rule as ts-db's n
 | code | HTTP | Retry-After | from | client should |
 |---|---|---|---|---|
 | `ok` | 200 | — | | done |
-| `shed` | 503 | 1 | admission queue full, actor mailbox full, SQLITE_BUSY/LOCKED, agent draining, actor closed | nothing ran; retry after Retry-After with backoff + jitter |
+| `shed` | 503 | 1, or the VM queue's drain estimate when admission sheds ([metrics](2026-11-05-metrics.md)) | admission queue full, actor mailbox full, SQLITE_BUSY/LOCKED, agent draining, actor closed | nothing ran; retry after Retry-After with backoff + jitter |
 | `expired` | 504 | — | deadline passed in the admission queue or the actor's queue; or no reply by deadline + grace | not ambiguous: never ran, retry with a fresh deadline; `ambiguous: true`: a write may have committed, retry with the same `request_id` |
 | `stmt_timeout` | 422 | — | statement timeout interrupted SQLite | nothing changed; don't retry unchanged |
 | `aborted` | 409 | — | a batch-mate write timed out, the batch rolled back | nothing changed; retry at once |

@@ -135,3 +135,34 @@ func TestReconcileUntilDone(t *testing.T) {
 		t.Fatalf("cancelled loop: %v", err)
 	}
 }
+
+// OnChange sees every state transition (for the agent's OWNER.* logs and counters), but not a generation-only
+// update and not the states Open loads.
+func TestOnChangeSeesTransitions(t *testing.T) {
+	w := newWorld(t, "a", "b")
+	var mu sync.Mutex
+	var seen []string
+	w.procs["a"].cfgMod = func(c *owner.Config) {
+		c.OnChange = func(key string, from, to owner.Local) {
+			mu.Lock()
+			seen = append(seen, fmt.Sprintf("%s:%s>%s", key, from.State, to.State))
+			mu.Unlock()
+		}
+	}
+	a := w.start("a")
+	w.place("k", "a") // Absent → Active
+	_, err := a.Publish(ctx, "k", 1, func(context.Context) (owner.Generation, error) { return 9, nil })
+	must(t, err)     // generation only: no callback
+	a = w.start("a") // restart: loaded Closed, no callback
+	w.pl.Create("k", owner.Place{Owner: "b", Epoch: 2, State: owner.PlaceActive})
+	must(t, a.Reconcile(ctx, "k")) // Closed → Fenced (superseded)
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"k:absent>active", "k:closed>fenced"}
+	if fmt.Sprint(seen) != fmt.Sprint(want) {
+		t.Fatalf("seen %v, want %v", seen, want)
+	}
+	if !a.State("k").Superseded {
+		t.Fatal("not superseded")
+	}
+}

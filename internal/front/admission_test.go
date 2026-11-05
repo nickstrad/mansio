@@ -44,7 +44,7 @@ func TestAdmissionConcurrentCapsHold(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if s := a.Stats(); s != (AdmissionStats{}) {
+	if s := a.Stats(); !s.Idle() {
 		t.Fatalf("state left: %+v", s)
 	}
 	if ok.Load()+shedN.Load()+expired.Load() != 200 || ok.Load() == 0 || shedN.Load() == 0 {
@@ -68,7 +68,7 @@ func TestAdmissionWaiterExpires(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 	rel()
-	if s := a.Stats(); s != (AdmissionStats{}) {
+	if s := a.Stats(); !s.Idle() {
 		t.Fatalf("%+v", s)
 	}
 }
@@ -93,7 +93,7 @@ func TestAdmissionGrantRacingCancelReturnsTheSlot(t *testing.T) {
 		go cancel()
 		rel()
 		<-done
-		if s := a.Stats(); s != (AdmissionStats{}) {
+		if s := a.Stats(); !s.Idle() {
 			t.Fatalf("slot leaked: %+v", s)
 		}
 	}

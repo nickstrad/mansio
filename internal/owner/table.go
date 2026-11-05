@@ -19,6 +19,11 @@ type Config struct {
 	WriteBack WriteBack
 	// StampRetries bounds how often Claim re-reads the manifest when its Stamp loses a race. Default 3.
 	StampRetries int
+	// OnChange, if set, is called after a key's state, epoch or superseded flag changes (not on generation-only
+	// updates, nor for the states Open loads), on the goroutine that made the change. It must be fast and must
+	// not call into the Table. The agent logs and counts transitions with it (OWNER.SUPERSEDED etc.; Release It
+	// O3); the table itself does not log.
+	OnChange func(key string, from, to Local)
 }
 
 // Ack is a fence acknowledgement: the key admits nothing at Epoch any more, and Gen, published at Epoch, holds
@@ -66,6 +71,7 @@ type slot struct {
 	inflight atomic.Int64
 	life     chan struct{} // lifecycle lock (cap 1): Claim, Fence, Reconcile, Forget, durable supersede
 	pub      chan struct{} // publish lock (cap 1): at most one publish per key at a time
+	onChange func(key string, from, to Local)
 
 	// Guarded by life: the final write-back of a fence succeeded at finalEpoch but FENCED is not yet durable.
 	finalOK    bool
@@ -73,8 +79,8 @@ type slot struct {
 	finalGen   Generation
 }
 
-func newSlot(key string, l Local) *slot {
-	s := &slot{key: key, life: make(chan struct{}, 1), pub: make(chan struct{}, 1)}
+func newSlot(key string, l Local, onChange func(string, Local, Local)) *slot {
+	s := &slot{key: key, life: make(chan struct{}, 1), pub: make(chan struct{}, 1), onChange: onChange}
 	v := &view{l: l}
 	if l.State == Fencing {
 		v.drain = &drainSig{ch: make(chan struct{})}
@@ -121,7 +127,7 @@ func Open(ctx context.Context, cfg Config) (*Table, error) {
 		if r.State == Fenced {
 			l = Local{State: Fenced, Epoch: r.Epoch, Gen: r.Gen, Superseded: r.Superseded}
 		}
-		if _, dup := t.slots.LoadOrStore(r.Key, newSlot(r.Key, l)); dup {
+		if _, dup := t.slots.LoadOrStore(r.Key, newSlot(r.Key, l, cfg.OnChange)); dup {
 			return nil, errs.Wrap(module, ErrInvalid, "cannot open ownership table: two records for %q; nothing admitted", r.Key)
 		}
 	}
@@ -140,7 +146,7 @@ func (t *Table) slotFor(key string) *slot {
 	if s := t.lookup(key); s != nil {
 		return s
 	}
-	v, _ := t.slots.LoadOrStore(key, newSlot(key, Local{}))
+	v, _ := t.slots.LoadOrStore(key, newSlot(key, Local{}, t.cfg.OnChange))
 	return v.(*slot)
 }
 
@@ -231,7 +237,13 @@ func (s *slot) install(old *view, next Local) bool {
 	case next.State == Fencing:
 		nv.drain = &drainSig{ch: make(chan struct{})}
 	}
-	return s.view.CompareAndSwap(old, nv)
+	if !s.view.CompareAndSwap(old, nv) {
+		return false
+	}
+	if s.onChange != nil && (old.l.State != next.State || old.l.Epoch != next.Epoch || old.l.Superseded != next.Superseded) {
+		s.onChange(s.key, old.l, next)
+	}
+	return true
 }
 
 // apply runs Step on the current state and installs the result, retrying if a concurrent gen update or

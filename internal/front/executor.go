@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -132,6 +133,33 @@ func (h *StaticHost) Lookup(_ context.Context, db string) (*actor.Actor, error) 
 		return nil, ErrUnknownDB
 	}
 	return a, nil
+}
+
+// QueueStats are the actors' queue depths at one instant (Release It O1: per queue, its depth).
+type QueueStats struct {
+	Actors   int
+	Total    int // requests queued across actors
+	Max, P99 int // deepest queue, and the 99th percentile across actors
+}
+
+// QueueStats scans every actor's queue length (O(actors); for a scrape, not a hot path).
+func (h *StaticHost) QueueStats() QueueStats {
+	h.mu.RLock()
+	depths := make([]int, 0, len(h.actors))
+	for _, a := range h.actors {
+		depths = append(depths, a.QueueLen())
+	}
+	h.mu.RUnlock()
+	st := QueueStats{Actors: len(depths)}
+	if len(depths) == 0 {
+		return st
+	}
+	slices.Sort(depths)
+	for _, d := range depths {
+		st.Total += d
+	}
+	st.Max, st.P99 = depths[len(depths)-1], depths[(len(depths)-1)*99/100]
+	return st
 }
 
 // Close closes every actor (queued requests get actor.ErrClosed → shed). Later Lookups are shed.

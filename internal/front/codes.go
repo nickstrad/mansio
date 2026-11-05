@@ -41,6 +41,47 @@ const (
 // Codes lists every wire code in spec order.
 var Codes = []Code{OK, Shed, Unavailable, Expired, StmtTimeout, Aborted, WrongOwner, Fenced, TicketInvalid, BadRequest, Internal}
 
+const numCodes = 11
+
+// codeIndex is each code's position in Codes.
+var codeIndex = func() map[Code]int {
+	m := make(map[Code]int, len(Codes))
+	for i, c := range Codes {
+		m[c] = i
+	}
+	return m
+}()
+
+// Outcome classes per integration point (Release It guide O1): the same six for every dependency, so
+// dashboards and alerts compare them.
+const (
+	ClassOK        = "ok"
+	ClassAppError  = "app_error" // the dependency answered no: bad input, not owned, statement rejected or too slow
+	ClassTimeout   = "timeout"   // no answer before the deadline; nothing changed
+	ClassRefused   = "refused"   // not accepted (shed, unavailable); nothing ran
+	Class5xx       = "5xx"       // a bug or an unexpected failure
+	ClassAmbiguous = "ambiguous" // no answer before the deadline, and a write may have committed
+)
+
+// OutcomeClass maps a wire code to its outcome class. ambiguous marks an expired write that may have
+// committed.
+func OutcomeClass(c Code, ambiguous bool) string {
+	switch c {
+	case OK:
+		return ClassOK
+	case Shed, Unavailable:
+		return ClassRefused
+	case Expired:
+		if ambiguous {
+			return ClassAmbiguous
+		}
+		return ClassTimeout
+	case Internal:
+		return Class5xx
+	}
+	return ClassAppError
+}
+
 // Wire is how a code goes on the wire.
 type Wire struct {
 	Status     int    // HTTP status

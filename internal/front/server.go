@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
 )
@@ -72,10 +74,15 @@ type Server struct {
 	exec     Executor
 	clock    Clock
 
-	mu       sync.Mutex
-	draining bool
-	inFlight int
-	idle     chan struct{} // closed when draining and inFlight reaches 0
+	mu         sync.Mutex
+	draining   bool
+	inFlight   int
+	inFlightHW int           // highest inFlight since NewServer
+	idle       chan struct{} // closed when draining and inFlight reaches 0
+
+	// Outcomes by code (and ambiguity) and latency of every pipeline answer (Release It O1).
+	outcomes [numCodes][2]atomic.Int64
+	latency  *metrics.LatencyHistogram
 }
 
 // NewServer wires the pipeline. clock may be nil (time.Now).
@@ -84,8 +91,10 @@ func NewServer(cfg Config, tickets TicketVerifier, admitter Admitter, exec Execu
 		clock = time.Now
 	}
 	cfg = cfg.WithDefaults()
-	return &Server{cfg: cfg, tickets: tickets, admitter: admitter, adm: NewAdmission(cfg.Admission), exec: exec,
-		clock: clock, idle: make(chan struct{})}
+	adm := NewAdmission(cfg.Admission)
+	adm.now = clock
+	return &Server{cfg: cfg, tickets: tickets, admitter: admitter, adm: adm, exec: exec,
+		clock: clock, idle: make(chan struct{}), latency: metrics.NewLatency(nil)}
 }
 
 // Config returns the effective configuration.
@@ -137,7 +146,20 @@ type Output struct {
 //
 //	post: out.Resp.Code == Classify(out.Err) unless a panic was recovered (then Internal)
 //	post: every Admitter release and admission slot taken is released before Handle returns
-func (s *Server) Handle(ctx context.Context, in Input) (out Output) {
+//	post: the answer is counted in Stats (by code, and its latency)
+func (s *Server) Handle(ctx context.Context, in Input) Output {
+	t0 := time.Now()
+	out := s.handle(ctx, in)
+	s.latency.Observe(time.Since(t0))
+	amb := 0
+	if out.Resp.Ambiguous {
+		amb = 1
+	}
+	s.outcomes[codeIndex[out.Resp.Code]][amb].Add(1)
+	return out
+}
+
+func (s *Server) handle(ctx context.Context, in Input) (out Output) {
 	if !s.enter() {
 		return s.answer(Request{}, nil, ErrDraining)
 	}
@@ -224,6 +246,7 @@ func (s *Server) enter() bool {
 		return false
 	}
 	s.inFlight++
+	s.inFlightHW = max(s.inFlightHW, s.inFlight)
 	return true
 }
 
@@ -262,4 +285,31 @@ func (s *Server) InFlight() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.inFlight
+}
+
+// ServerStats are the pipeline's counters since NewServer (Release It O1). Every request is counted once it is
+// answered; Handle is bounded by the request deadline plus the executor's grace, so a hung request shows in the
+// latency histogram at its deadline, not never.
+type ServerStats struct {
+	Outcomes          map[Code]int64 // answers by wire code
+	Ambiguous         int64          // of the expired answers, writes that may have committed
+	InFlight          int
+	InFlightHighWater int
+	LatencyBounds     []time.Duration
+	LatencyCounts     []uint64 // per bound, plus one past the last
+	LatencySum        time.Duration
+}
+
+// Stats returns a snapshot.
+func (s *Server) Stats() ServerStats {
+	st := ServerStats{Outcomes: make(map[Code]int64, len(Codes))}
+	for i, c := range Codes {
+		st.Outcomes[c] = s.outcomes[i][0].Load() + s.outcomes[i][1].Load()
+		st.Ambiguous += s.outcomes[i][1].Load()
+	}
+	st.LatencyBounds, st.LatencyCounts, st.LatencySum = s.latency.Snapshot()
+	s.mu.Lock()
+	st.InFlight, st.InFlightHighWater = s.inFlight, s.inFlightHW
+	s.mu.Unlock()
+	return st
 }
