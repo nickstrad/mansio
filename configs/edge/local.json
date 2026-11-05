@@ -1,0 +1,12 @@
+{
+  "listen": "127.0.0.1:7443",
+  "health_listen": "127.0.0.1:7444",
+  "keys_file": "../../results/front/keys/keys.json",
+  "agents": {"vm-local": "http://127.0.0.1:7070"},
+  "rate_limit": {"verifies_per_second": 20, "burst": 50, "max_sources": 100000},
+  "agent_breaker": {"min_calls": 20, "failure_rate": 0.5, "cool_down": "5s"},
+  "default_timeout": "2s",
+  "max_timeout": "30s",
+  "drain_timeout": "10s",
+  "log_file": "../../results/edge/edge.log"
+}
