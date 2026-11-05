@@ -18,6 +18,8 @@ Notes:
   the lifecycle endpoints (Claim, Fence, Forget, Health), the secrets file, and the CP-1 gate results.
 - [2026-11-05 agentd admin controls](2026-11-05-agentd-admin-controls.md) (CP-4, RI-16): `admin_listen` (loopback
   only), breaker trip/reset, fetch limit, drain, passivate, log level; `cmd/agentctl`; gate results.
+- [2026-11-05 locator follow-ups](2026-11-05-locator-followups.md): `moving` until a new owner's claim lands (0005
+  NOTIFY), controld TLS, unknown-key rate limiting, edge routes from controld's registry, `fsx`/`logx` helpers.
 - [2026-11-05 edge](2026-11-05-edge.md) (CP-7): the stateless edge (`internal/edge`, `cmd/edge`): ticket filter
   (cache, per-source rate limit on misses, bounded verifies), routing on the vm claim, per-agent bulkhead and
   breaker, TLS on both hops with a private CA; gate results and overhead numbers.
