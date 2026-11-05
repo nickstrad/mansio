@@ -164,3 +164,23 @@ func TestRoutesLoaderPanic(t *testing.T) {
 	}()
 	c.get(context.Background(), "d", 0)
 }
+
+// The primary's answer ends a min_epoch requirement even when its epoch is lower: a new owner answers
+// wrong_owner at the current epoch until its claim lands, and asking for epoch + 1 forever would turn every
+// lookup into a primary read.
+func TestRoutesPrimaryAnswerEndsMinEpoch(t *testing.T) {
+	c, _, loads, _ := newTestRoutes(t, 10)
+	c.load = func(_ context.Context, db string, _ uint64) (Route, error) {
+		loads.Add(1)
+		return Route{DB: db, Epoch: 1, TTL: 10 * time.Second}, nil // the primary stays at epoch 1
+	}
+	ctx := context.Background()
+	c.get(ctx, "d", 0)
+	c.drop("d", 1, 2)
+	if r, _, _ := c.get(ctx, "d", 0); r.Epoch != 1 || loads.Load() != 2 {
+		t.Fatalf("%+v after %d loads", r, loads.Load())
+	}
+	if _, hit, _ := c.get(ctx, "d", 0); !hit || loads.Load() != 2 {
+		t.Fatalf("hit %v, %d loads: the min_epoch requirement outlived the primary's answer", hit, loads.Load())
+	}
+}

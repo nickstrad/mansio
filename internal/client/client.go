@@ -309,11 +309,10 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 	c.budget.First()
 
 	var (
-		minEpoch uint64
-		body     []byte
-		prev     time.Duration // the previous wait
-		retries  int           // same-route retries and resolve retries (policy attempts)
-		last     *Error
+		body    []byte
+		prev    time.Duration // the previous wait
+		retries int           // same-route retries and resolve retries (policy attempts)
+		last    *Error
 	)
 	fail := func(e *Error) (Result, error) {
 		return res, errs.Wrap(module, e, "%s %s/%s ended %s after %d attempts and %d re-resolves", req.Kind, c.cfg.Tenant, req.DB,
@@ -322,7 +321,7 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 	for {
 		// 1. The route.
 		t0 := time.Now()
-		r, hit, err := c.routes.get(ctx, req.DB, minEpoch)
+		r, hit, err := c.routes.get(ctx, req.DB, 0) // a reroute's min_epoch lives in the cache (drop)
 		if h := c.cfg.Hooks.Resolve; h != nil {
 			h(ResolveEvent{DB: req.DB, Hit: hit, Wait: time.Since(t0), Err: err})
 		}
@@ -374,7 +373,6 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 			}
 			if st == stepReroute {
 				c.routes.drop(req.DB, r.Epoch, minEpochAfter(a, r.Epoch))
-				minEpoch = max(minEpoch, minEpochAfter(a, r.Epoch))
 			}
 		}
 

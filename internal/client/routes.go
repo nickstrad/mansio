@@ -102,8 +102,9 @@ func (c *routes) get(ctx context.Context, db string, minEpoch uint64) (r Route, 
 	}
 }
 
-// drop forgets db's route if it is still the one at epoch (a newer one fetched meanwhile stays), and requires
-// the next route to have epoch >= minEpoch.
+// drop forgets db's route if it is still the one at epoch (a newer one fetched meanwhile stays), and makes the
+// next load ask for epoch >= minEpoch (min_epoch: the locator then reads the primary). The primary's answer
+// ends the requirement even if its epoch is lower.
 func (c *routes) drop(db string, epoch, minEpoch uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -172,7 +173,15 @@ func (c *routes) finish(db string, f *flight) {
 	if s.f == f {
 		s.f = nil
 	}
-	if f.err != nil || f.p != nil || s.r != nil && s.r.Epoch > f.r.Epoch {
+	if f.err != nil || f.p != nil {
+		return
+	}
+	if f.minEpoch > 0 && f.minEpoch >= s.minEpoch {
+		// The locator read the primary for this load: its epoch is the truth, even below what we asked for (a
+		// new owner answers wrong_owner at the current epoch until its claim lands). Stop requiring more.
+		s.minEpoch = 0
+	}
+	if s.r != nil && s.r.Epoch > f.r.Epoch {
 		return
 	}
 	r := f.r
