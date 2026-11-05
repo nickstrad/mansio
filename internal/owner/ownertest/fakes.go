@@ -41,8 +41,8 @@ func (m *MemStore) Put(ctx context.Context, r owner.Record) error {
 	if m.FailPut {
 		return ErrDown
 	}
-	if !owner.ValidKey(r.Key) || (r.State != owner.Active && r.State != owner.Fenced) || r.Epoch == 0 {
-		return fmt.Errorf("%w: %+v", owner.ErrInvalid, r)
+	if err := r.Validate(); err != nil {
+		return err
 	}
 	m.recs[r.Key] = r
 	m.Puts++
@@ -198,8 +198,8 @@ func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Plac
 	return nil
 }
 
-// manifest is one stored manifest: contract 1's fields plus the contents of the generation it names (the
-// fake keeps snapshots as lists of write ids).
+// manifest is one stored manifest (contract 1's generation and epoch) plus a version that stands in for the
+// S3 ETag. Generation contents (lists of write ids) live in Objects.gens.
 type manifest struct {
 	gen     owner.Generation
 	epoch   owner.Epoch
@@ -286,7 +286,7 @@ func (o *Objects) Publish(key string, readVersion uint64, gen owner.Generation, 
 }
 
 // Disk is one process's local database copies: key → contents (write ids). It survives a process crash
-// (it is the disk); Wipe models losing the VM.
+// (it is the disk).
 type Disk struct {
 	mu  sync.Mutex
 	dbs map[string][]string
@@ -310,12 +310,6 @@ func (d *Disk) Set(key string, contents []string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.dbs[key] = slices.Clone(contents)
-}
-
-func (d *Disk) Wipe() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.dbs = map[string][]string{}
 }
 
 // WriteBack is one process's owner.WriteBack: it publishes its Disk's copy into Objects under contract 1.

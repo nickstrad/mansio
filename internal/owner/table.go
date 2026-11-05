@@ -114,7 +114,7 @@ func Open(ctx context.Context, cfg Config) (*Table, error) {
 	}
 	t := &Table{cfg: cfg}
 	for _, r := range recs {
-		if err := checkRecord(r); err != nil {
+		if err := r.Validate(); err != nil {
 			return nil, errs.Wrap(module, err, "cannot open ownership table: bad record for %q; nothing admitted", r.Key)
 		}
 		l := Local{State: Closed, Epoch: r.Epoch, Gen: r.Gen}
@@ -221,8 +221,9 @@ func (t *Table) Do(key string, epoch Epoch, fn func() error) error {
 //
 //	pre: next follows from old.l by Step
 func (s *slot) install(old *view, next Local) bool {
-	assert.That(next.Epoch >= old.l.Epoch || next.State == Absent,
-		"owner: %q epoch went backwards: %s → %s", s.key, old.l, next)
+	if next.Epoch < old.l.Epoch && next.State != Absent { // guarded: the arguments would allocate
+		assert.That(false, "owner: %q epoch went backwards: %s → %s", s.key, old.l, next)
+	}
 	nv := &view{l: next}
 	switch {
 	case next.State == Fencing && old.drain != nil:
@@ -242,7 +243,7 @@ func (s *slot) apply(ev Event) (Local, error) {
 		if err != nil {
 			return old.l, err
 		}
-		if next == old.l && (next.State != Fencing || old.drain != nil) {
+		if next == old.l { // a Fencing view always carries its drain signal already
 			return next, nil
 		}
 		if s.install(old, next) {

@@ -3,6 +3,7 @@ package owner
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 const module = "owner"
@@ -117,6 +118,22 @@ type Record struct {
 	Epoch      Epoch
 	Gen        Generation
 	Superseded bool // only with Fenced
+}
+
+// Validate checks a record at the edge of a store: a valid key, only Active or Fenced, epoch ≥ 1, and
+// Superseded only with Fenced. Errors match ErrInvalid.
+func (r Record) Validate() error {
+	switch {
+	case !ValidKey(r.Key):
+		return fmt.Errorf("%w: key must be 1..%d bytes", ErrInvalid, MaxKeyLen)
+	case r.State != Active && r.State != Fenced:
+		return fmt.Errorf("%w: only active and fenced are stored, got %s", ErrInvalid, r.State)
+	case r.Epoch == 0:
+		return fmt.Errorf("%w: epoch 0", ErrInvalid)
+	case r.Superseded && r.State != Fenced:
+		return fmt.Errorf("%w: superseded is only stored with fenced", ErrInvalid)
+	}
+	return nil
 }
 
 // LocalStore keeps Records on local disk (FileStore) or in memory (ownertest.MemStore).

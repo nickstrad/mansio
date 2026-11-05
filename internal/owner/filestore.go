@@ -1,6 +1,7 @@
 package owner
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -56,7 +57,7 @@ func (s *FileStore) path(key string) string {
 
 // Put implements LocalStore.
 func (s *FileStore) Put(ctx context.Context, r Record) error {
-	if err := checkRecord(r); err != nil {
+	if err := r.Validate(); err != nil {
 		return errs.Wrap(module, err, "cannot store ownership of %q; nothing changed", r.Key)
 	}
 	data, err := json.Marshal(fileRecord{V: recFormat, Key: r.Key, State: r.State.String(), Epoch: uint64(r.Epoch), Gen: uint64(r.Gen), Sup: r.Superseded})
@@ -120,7 +121,7 @@ func readRecord(path string) (Record, error) {
 		return Record{}, err
 	}
 	var fr fileRecord
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&fr); err != nil {
 		return Record{}, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -137,22 +138,7 @@ func readRecord(path string) (Record, error) {
 	default:
 		return Record{}, fmt.Errorf("%w: state %q", ErrInvalid, fr.State)
 	}
-	return r, checkRecord(r)
-}
-
-// checkRecord validates a record at the edge of the store.
-func checkRecord(r Record) error {
-	switch {
-	case !ValidKey(r.Key):
-		return fmt.Errorf("%w: key must be 1..%d bytes", ErrInvalid, MaxKeyLen)
-	case r.State != Active && r.State != Fenced:
-		return fmt.Errorf("%w: only active and fenced are stored, got %s", ErrInvalid, r.State)
-	case r.Epoch == 0:
-		return fmt.Errorf("%w: epoch 0", ErrInvalid)
-	case r.Superseded && r.State != Fenced:
-		return fmt.Errorf("%w: superseded is only stored with fenced", ErrInvalid)
-	}
-	return nil
+	return r, r.Validate()
 }
 
 func writeAtomic(path string, data []byte) error {
