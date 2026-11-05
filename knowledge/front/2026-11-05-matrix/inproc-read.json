@@ -1,0 +1,20 @@
+{
+  "mode": "inproc",
+  "dbs": 16,
+  "conc": 64,
+  "write_frac": 0,
+  "duration": "10s",
+  "requests": 3311455,
+  "codes": {
+    "ok": 3311455
+  },
+  "ok_per_sec": 331145.5,
+  "p50_us": 134.25,
+  "p90_us": 441.125,
+  "p99_us": 832.833,
+  "p999_us": 1208.875,
+  "max_us": 2431.291,
+  "go": "go1.26.4",
+  "cpus": 18,
+  "started_utc": "2026-11-05T16:41:13Z"
+}

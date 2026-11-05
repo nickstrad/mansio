@@ -1,0 +1,8 @@
+inproc conc=64 write=0.00 dbs=16: 3311455 req, 331146 ok/s, p50 134 µs, p99 833 µs, p99.9 1209 µs, codes map[ok:3311455]
+pipeline conc=64 write=0.00 dbs=16: 3093503 req, 309350 ok/s, p50 136 µs, p99 936 µs, p99.9 1418 µs, codes map[ok:3093503]
+http/h1 conc=64 write=0.00 dbs=16: 464262 req, 46426 ok/s, p50 1152 µs, p99 4592 µs, p99.9 6063 µs, codes map[ok:464262]
+http/h2c conc=64 write=0.00 dbs=16: 329539 req, 32954 ok/s, p50 1934 µs, p99 2512 µs, p99.9 2835 µs, codes map[ok:329539]
+inproc conc=64 write=1.00 dbs=16: 810687 req, 81069 ok/s, p50 234 µs, p99 9192 µs, p99.9 14084 µs, codes map[ok:810687]
+pipeline conc=64 write=1.00 dbs=16: 651424 req, 65142 ok/s, p50 246 µs, p99 13101 µs, p99.9 18171 µs, codes map[ok:651424]
+http/h1 conc=64 write=1.00 dbs=16: 307411 req, 30741 ok/s, p50 1041 µs, p99 20300 µs, p99.9 29350 µs, codes map[ok:307411]
+http/h2c conc=64 write=1.00 dbs=16: 192279 req, 19228 ok/s, p50 3058 µs, p99 12798 µs, p99.9 21202 µs, codes map[ok:192279]

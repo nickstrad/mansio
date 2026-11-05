@@ -127,3 +127,37 @@ sqlbench-cover:
 
 sqlbench-run:
 	scripts/run.sh configs/$(CONFIG).json
+
+# ---------------------------------------------------------------------------------------------------------
+# front (owner: front agent): tickets, admission and the agent's network front. State: docs/state_files/STATE-front.md
+#
+#   make front-test                      vet + tests, -race and -tags noassert
+#   make front-e2e                       build agentd + frontbench and run them together (-tags e2e)
+#   make front-check                     gofmt + front-test + front-e2e
+#   make front-fuzz                      every front fuzz target for FUZZTIME each, under the bench lock
+#   make front-bench                     the frontbench matrix recorded in knowledge/front, under the bench lock
+
+FRONT_PKGS := ./internal/ticket/... ./internal/front/... ./cmd/agentd ./cmd/frontbench
+FRONT_DIRS := internal/ticket internal/front cmd/agentd cmd/frontbench
+FRONT_FUZZ := internal/ticket:FuzzVerify internal/front:FuzzDecodeRequest internal/front:FuzzLimiterModel
+
+.PHONY: front-test front-e2e front-check front-fuzz front-bench
+
+front-test:
+	go vet $(FRONT_PKGS)
+	go test -race -count=1 $(FRONT_PKGS)
+	go test -count=1 -tags noassert $(FRONT_PKGS)
+
+front-e2e:
+	go test -count=1 -tags e2e ./cmd/frontbench
+
+front-check:
+	@test -z "$$(gofmt -l $(FRONT_DIRS))" || (echo "needs gofmt:"; gofmt -l $(FRONT_DIRS); exit 1)
+	$(MAKE) front-test front-e2e
+
+front-fuzz:
+	LOCK_WHO=front scripts/lock.sh results/.bench-lock sh -c 'set -e; for t in $(FRONT_FUZZ); do \
+		go test -run="^$$" -fuzz="^$${t#*:}$$" -fuzztime=$(FUZZTIME) ./$${t%%:*}; done'
+
+front-bench:
+	LOCK_WHO=front scripts/lock.sh results/.bench-lock scripts/front/bench.sh
