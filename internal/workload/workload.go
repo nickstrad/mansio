@@ -187,11 +187,11 @@ func newTablePlan(s *schema.Schema, t *schema.Table) tablePlan {
 	}
 	for _, g := range groups {
 		if len(nums) == 0 {
-			p.aggregate = append(p.aggregate, fmt.Sprintf("SELECT %s, COUNT(*) FROM %s GROUP BY %s ORDER BY 2 DESC LIMIT 20", g.Name, n, g.Name))
+			p.aggregate = append(p.aggregate, fmt.Sprintf("SELECT %s, COUNT(*) AS n FROM %s GROUP BY %s ORDER BY n DESC LIMIT 20", g.Name, n, g.Name))
 		}
 		for _, v := range nums {
 			p.aggregate = append(p.aggregate, fmt.Sprintf(
-				"SELECT %s, COUNT(*), AVG(%s), MAX(%s) FROM %s GROUP BY %s ORDER BY 2 DESC LIMIT 20", g.Name, v.Name, v.Name, n, g.Name))
+				"SELECT %s, COUNT(*) AS n, AVG(%s), MAX(%s) FROM %s GROUP BY %s ORDER BY n DESC LIMIT 20", g.Name, v.Name, v.Name, n, g.Name))
 		}
 	}
 	if len(p.aggregate) == 0 {

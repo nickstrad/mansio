@@ -74,3 +74,21 @@ func TestActorOpenerServesQueries(t *testing.T) {
 		t.Fatal("bad query succeeded")
 	}
 }
+
+// PG-07: the template is built at its own path even when the directory name holds URI characters.
+func TestBuildTemplateInADirectoryWithURICharacters(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a#b?c")
+	path, _, err := buildTemplate(dir, coldload.SizeClass{Name: "small", Bytes: 16 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != filepath.Join(dir, "small.sqlite") {
+		t.Fatalf("path = %s", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("template not at its own path: %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(dir)); len(entries) != 1 {
+		t.Fatalf("stray files next to the directory: %v", entries)
+	}
+}
