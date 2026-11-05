@@ -18,11 +18,21 @@ Notes:
   the lifecycle endpoints (Claim, Fence, Forget, Health), the secrets file, and the CP-1 gate results.
 - [2026-11-05 agentd admin controls](2026-11-05-agentd-admin-controls.md) (CP-4, RI-16): `admin_listen` (loopback
   only), breaker trip/reset, fetch limit, drain, passivate, log level; `cmd/agentctl`; gate results.
+- [2026-11-05 edge](2026-11-05-edge.md) (CP-7): the stateless edge (`internal/edge`, `cmd/edge`): ticket filter
+  (cache, per-source rate limit on misses, bounded verifies), routing on the vm claim, per-agent bulkhead and
+  breaker, TLS on both hops with a private CA; gate results and overhead numbers.
 - [2026-11-05 metrics](2026-11-05-metrics.md): `/metrics` catalog, outcome classes, message codes, the shed
   Retry-After estimate (RI-11).
 - Raw numbers: [2026-11-05-matrix/](2026-11-05-matrix/) (`matrix.txt`, `micro.txt`, one JSON per run).
 
 ## Findings (newest first)
+
+### 2026-11-05 (CP-7): the edge adds one loopback round trip; a forged-ticket flood costs its own source
+
+[Edge note](2026-11-05-edge.md): at conc 4 the edge adds ~70 µs p50 (plain) and ~110–135 µs (TLS h2); on one
+shared 18-core host it costs ~35–40 % of peak throughput (a second HTTP server on the same cores). A forged-ticket
+flood from the same IP as valid traffic: 297,818 forged requests, 180 verified, valid traffic kept 91 % and all
+`ok`. Ticket cache hit 32 ns, full verify 26 µs.
 
 ### 2026-11-05 (CP-8): admission does not need sharding by tenant
 

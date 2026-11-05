@@ -15,6 +15,7 @@ this guide adds failure-below-the-interface tests (§H).
 | Postgres placement | `internal/placement/pg` (`owner.Placement`) | no (Claim, Reconcile, Move) | owner / Mover |
 | Inbound HTTP | `internal/front`, `cmd/agentd` | yes | the client |
 | Client → locator / agent | CP step 6, `internal/retry` | yes | client, once |
+| Edge → agent | `internal/edge`, `cmd/edge` (CP-7) | yes | the client (the edge never retries) |
 | Actor mailbox / read pool | `internal/actor` | yes | none (shed) |
 | Local disk (fsync, cache dir) | `owner.FileStore`, vactor cache | yes (commit) | none |
 
@@ -226,6 +227,18 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
   16 KiB, `MaxBody` 1 MiB.
 - Admission caps DB/tenant/VM. Health and lifecycle on the lifecycle listener; runtime controls on their own
   loopback-only `admin_listen` (RI-16), never behind queries.
+
+**Edge → agent** (`internal/edge`, `cmd/edge`)
+- Inbound as agentd's sheet (read header 5 s, body 5 s, write deadline = request deadline + 2 × grace, 16 KiB
+  headers, 1 MiB body read before an agent slot is taken). TLS to clients; h2 + h1.
+- Ticket filter before any agent work: cache hit free; a miss costs one token of a per-source bucket (20/s,
+  burst 50) and one of 2 × GOMAXPROCS verify slots; empty or full → `shed` at once.
+- To agents: one transport, dial 2 s, TLS handshake 3 s, private CA; upstream ctx = request deadline + grace;
+  `X-Timeout-Ms` forwarded shrunk. No retries.
+- Per agent: bulkhead 4096 in flight (shed), breaker on transport failures only (RI §P thresholds); agent
+  answers, 5xx included, are relayed unchanged. Not sent → `unavailable`; sent, no answer → `expired` +
+  ambiguous.
+- `/livez`, `/readyz` (draining only), `/metrics` on `health_listen`; drain within `drain_timeout`, one budget.
 
 **Client** (CP step 6)
 - Per-request deadline sent as `X-Timeout-Ms`. `http.Client` with dial and response-header timeouts.
