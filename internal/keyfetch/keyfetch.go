@@ -30,6 +30,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 const module = "keyfetch"
@@ -42,7 +43,8 @@ type Config struct {
 	URL            string        // the issuer's key set (required)
 	Cache          string        // a ticket.PublicKeyFile kept up to date; "" = none
 	Every, Timeout time.Duration // fetch period; one fetch's bound (< Every)
-	Client         *http.Client  // default: a fresh client (the system roots)
+	Client         *http.Client  // default: a client trusting CAFile
+	CAFile         string        // PEM CA bundle that signs the issuer's certificate (a private CA); "" = system roots
 	Log            *slog.Logger
 	Event          string // log event prefix, e.g. AGENT → AGENT.KEYS_UPDATED
 }
@@ -61,7 +63,11 @@ type Fetcher struct {
 // not fatal (the caller serves, and every ticket is refused until a key set arrives); an unreadable cache is.
 func Open(ctx context.Context, cfg Config) (*ticket.KeyRing, *Fetcher, error) {
 	if cfg.Client == nil {
-		cfg.Client = &http.Client{}
+		c, err := tlsx.HTTPClient(cfg.CAFile)
+		if err != nil {
+			return nil, nil, errs.Wrap(module, err, "cannot load the CA file for the keys url").With("ca_file", cfg.CAFile)
+		}
+		cfg.Client = c
 	}
 	f := &Fetcher{cfg: cfg, ring: ticket.NewKeyRing(nil)}
 	if cfg.Cache != "" {

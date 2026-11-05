@@ -1,5 +1,5 @@
 // Package tlsx loads the TLS material the services share: a server certificate (agentd's query listener, the
-// edge) and a private CA bundle (the edge → agent hop, frontbench). An adapter: it reads files; callers wrap
+// edge, controld's API) and a private CA bundle (the edge → agent hop, clients of controld, frontbench). An adapter: it reads files; callers wrap
 // its errors in their own module (errs.Wrap), so it has no error module of its own.
 package tlsx
 
@@ -7,8 +7,31 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net/http"
 	"os"
 )
+
+// Files is a server certificate and its key (PEM): the "tls" section of agentd's, the edge's and controld's
+// configs.
+type Files struct {
+	CertFile string `json:"cert_file"`
+	KeyFile  string `json:"key_file"`
+}
+
+// HTTPClient is an HTTP client trusting only caFile's CAs, or the system roots when caFile is "". Callers bound
+// each request with its ctx.
+func HTTPClient(caFile string) (*http.Client, error) {
+	if caFile == "" {
+		return &http.Client{}, nil
+	}
+	cfg, err := ClientConfig(caFile)
+	if err != nil {
+		return nil, err
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = cfg
+	return &http.Client{Transport: tr}, nil
+}
 
 // ServerConfig loads a PEM certificate and key: TLS 1.2 or later, h2 and http/1.1 by ALPN.
 func ServerConfig(certFile, keyFile string) (*tls.Config, error) {

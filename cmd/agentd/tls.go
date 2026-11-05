@@ -11,10 +11,7 @@ import (
 // TLSFiles is the query listener's server certificate and key (PEM). With it the listener speaks HTTPS, h2 and
 // http/1.1 by ALPN (protocols then does not apply): the edge → agent hop (control-plane plan CP-7), where the
 // edge checks the certificate against the operator's private CA (its agent_tls.ca_file).
-type TLSFiles struct {
-	CertFile string `json:"cert_file"`
-	KeyFile  string `json:"key_file"`
-}
+type TLSFiles = tlsx.Files
 
 // queryTLS loads the query listener's TLS config; nil without a tls section.
 func (c *Config) queryTLS() (*tls.Config, error) {

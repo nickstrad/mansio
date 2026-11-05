@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,6 +31,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // daemon is a running controld: the authority, the controller and one client per agent.
@@ -61,7 +63,7 @@ func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) 
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "controld config (JSON)")
 	addrFile := fs.String("addr-file", "", "write the API listener's address here once serving")
-	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false)")
+	dev := fs.Bool("dev", false, "local development: allow plain-HTTP S3 (s3.secure false) and a listener without tls")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
@@ -182,6 +184,14 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stder
 	hs := &http.Server{Handler: d.routes(reg), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: d.cfg.APITimeout.Duration + 5*time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10,
 		ErrorLog: slog.NewLogLogger(d.log.Handler(), slog.LevelWarn)}
+	if d.cfg.TLS != nil {
+		tc, err := tlsx.ServerConfig(d.cfg.TLS.CertFile, d.cfg.TLS.KeyFile)
+		if err != nil {
+			ln.Close()
+			return rep.report(errs.Wrap(module, err, "cannot load the tls certificate").With("cert_file", d.cfg.TLS.CertFile))
+		}
+		ln = tls.NewListener(ln, tc)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- hs.Serve(ln) }()
 	if addrFile != "" {
@@ -190,7 +200,7 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep reporter, stder
 			return rep.report(errs.Wrap(module, err, "cannot write addr-file").With("path", addrFile))
 		}
 	}
-	d.log.Info("serving", "event", "CONTROLD.SERVING", "addr", ln.Addr().String(), "agents", len(d.agents))
+	d.log.Info("serving", "event", "CONTROLD.SERVING", "addr", ln.Addr().String(), "agents", len(d.agents), "tls", d.cfg.TLS != nil)
 	fmt.Fprintf(stderr, "controld: serving on %s\n", ln.Addr())
 	bctx, stop := context.WithCancel(context.Background())
 	var bg sync.WaitGroup

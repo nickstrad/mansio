@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -98,6 +100,25 @@ func TestKeyFetcher(t *testing.T) {
 	}
 }
 
+// keys_url over HTTPS from controld with a private CA (control_ca_file); without the CA the fetch fails.
+func TestKeyFetcherTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(&keyServer{keys: []tickettest.Issuer{tickettest.NewIssuer("k1")}})
+	defer srv.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600)
+	cfg := &Config{KeysURL: srv.URL + "/v1/keys", ControlCAFile: ca}
+	cfg.KeysRefresh.Duration, cfg.KeysTimeout.Duration = time.Minute, time.Second
+	ring, kf, err := openKeys(context.Background(), cfg, quietLog())
+	if err != nil || !slices.Equal(kids(ring), []string{"k1"}) || kf.Failing() {
+		t.Fatalf("with the CA: %v %v", kids(ring), err)
+	}
+	cfg.ControlCAFile = ""
+	ring, kf, err = openKeys(context.Background(), cfg, quietLog())
+	if err != nil || ring.Len() != 0 || !kf.Failing() {
+		t.Fatalf("without the CA: %v failing %v %v", kids(ring), kf.Failing(), err)
+	}
+}
+
 func TestKeysConfig(t *testing.T) {
 	base := `"vm":"vm-a","db_dir":"d"`
 	for _, tc := range []struct{ name, body, problem string }{
@@ -105,6 +126,8 @@ func TestKeysConfig(t *testing.T) {
 		{"url only", `{` + base + `,"keys_url":"https://c/v1/keys"}`, ""},
 		{"not a url", `{` + base + `,"keys_url":"c:7080"}`, "http(s) URL"},
 		{"timeout = refresh (off point)", `{` + base + `,"keys_url":"https://c/v1/keys","keys_refresh":"3s","keys_timeout":"3s"}`, "keys_timeout shorter"},
+		{"control CA with https", `{` + base + `,"keys_url":"https://c/v1/keys","control_ca_file":"ca.pem"}`, ""},
+		{"control CA with plain http", `{` + base + `,"keys_url":"http://c/v1/keys","control_ca_file":"ca.pem"}`, "control_ca_file needs an https keys_url"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseConfig(strings.NewReader(tc.body), "/etc")

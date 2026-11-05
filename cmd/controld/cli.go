@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // command is one admin call: its flags and the request they make.
@@ -100,9 +102,10 @@ func runCommand(ctx context.Context, name string, args []string, stdout, stderr 
 	addr := fs.String("addr", "http://127.0.0.1:7080", "controld API URL")
 	secrets := fs.String("secrets", "", "controld secrets file (for admin_token)")
 	timeout := fs.Duration("timeout", 3*time.Minute, "call deadline")
+	ca := fs.String("ca", "", "PEM CA bundle that signs controld's certificate (an https -addr with a private CA)")
 	req := cmd.build(fs)
 	usage := func() int {
-		fmt.Fprintf(stderr, "usage: controld %s -addr URL -secrets FILE %s\n", name, cmd.usage)
+		fmt.Fprintf(stderr, "usage: controld %s -addr URL -secrets FILE [-ca FILE] %s\n", name, cmd.usage)
 		return exitUsage
 	}
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || *secrets == "" {
@@ -115,6 +118,11 @@ func runCommand(ctx context.Context, name string, args []string, stdout, stderr 
 	sec, err := loadSecrets(*secrets)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
+		return exitError
+	}
+	hc, err := tlsx.HTTPClient(*ca)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: cannot load -ca %s: %v\n", *ca, err)
 		return exitError
 	}
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
@@ -130,7 +138,7 @@ func runCommand(ctx context.Context, name string, args []string, stdout, stderr 
 		return exitUsage
 	}
 	r.Header.Set("Authorization", "Bearer "+sec.AdminToken)
-	res, err := http.DefaultClient.Do(r)
+	res, err := hc.Do(r)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: no answer from %s: %v\n", *addr, err)
 		return exitError

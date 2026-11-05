@@ -14,6 +14,7 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 func TestConfig(t *testing.T) {
@@ -34,6 +35,7 @@ func TestConfig(t *testing.T) {
 		{"per key below agent timeout", `{` + base + `,"agents":[` + agent + `],"per_key_timeout":"1s","agent_timeout":"2s"}`, "at least agent_timeout"},
 		{"CA file without secure", `{` + base + `,"agents":[` + agent + `],"s3":{"endpoint":"e:1","bucket":"b","ca_file":"ca.pem"}}`, "ca_file needs secure"},
 		{"unknown field", `{` + base + `,"agents":[` + agent + `],"x":1}`, "unknown field"},
+		{"tls without key", `{` + base + `,"agents":[` + agent + `],"tls":{"cert_file":"c.pem"}}`, "cert_file and key_file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := parseConfig(strings.NewReader(tc.body), "/etc")
@@ -50,15 +52,19 @@ func TestConfig(t *testing.T) {
 	}
 }
 
-// OS-11: plain-HTTP S3 needs -dev; HTTPS does not.
+// OS-11: plain-HTTP S3 needs -dev; HTTPS does not. A listener without tls needs -dev too.
 func TestTLSRefusal(t *testing.T) {
 	for _, tc := range []struct {
-		secure, dev, ok bool
-	}{{false, false, false}, {false, true, true}, {true, false, true}, {true, true, true}} {
+		secure, tls, dev, ok bool
+	}{{false, true, false, false}, {false, true, true, true}, {true, true, false, true}, {true, true, true, true},
+		{true, false, false, false}, {true, false, true, true}, {false, false, true, true}} {
 		c := &Config{Dev: tc.dev}
 		c.S3.Secure = tc.secure
+		if tc.tls {
+			c.TLS = &tlsx.Files{CertFile: "c", KeyFile: "k"}
+		}
 		if err := c.checkDev(); (err == nil) != tc.ok {
-			t.Errorf("secure %v dev %v: %v", tc.secure, tc.dev, err)
+			t.Errorf("secure %v tls %v dev %v: %v", tc.secure, tc.tls, tc.dev, err)
 		}
 	}
 	dir := t.TempDir()

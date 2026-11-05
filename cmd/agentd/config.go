@@ -65,13 +65,16 @@ type Config struct {
 	// Ticket public keys: keys_file (a ticket.PublicKeyFile; static, for dev and benches), or keys_url (the
 	// issuer's GET /v1/keys on controld, fetched every keys_refresh; CP-5). With keys_url, keys_file is
 	// optional and caches the last fetched set, so a restart while controld is down still verifies tickets.
-	KeysFile     string        `json:"keys_file"`
-	KeysURL      string        `json:"keys_url"`
-	KeysRefresh  load.Duration `json:"keys_refresh"` // default 30 s; controld's ticket_keys.activate must be at least twice this
-	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
-	ClockSkew    load.Duration `json:"clock_skew"`
-	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
-	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	KeysFile string `json:"keys_file"`
+	KeysURL  string `json:"keys_url"`
+	// ControlCAFile is the PEM CA bundle that signs controld's certificate (an https keys_url with a private
+	// CA); default the system roots.
+	ControlCAFile string        `json:"control_ca_file"`
+	KeysRefresh   load.Duration `json:"keys_refresh"` // default 30 s; controld's ticket_keys.activate must be at least twice this
+	KeysTimeout   load.Duration `json:"keys_timeout"` // one fetch; default 3 s
+	ClockSkew     load.Duration `json:"clock_skew"`
+	MaxTicketTTL  load.Duration `json:"max_ticket_ttl"`
+	TicketCache   int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 
 	// Static mode's admitter: every served database is owned at default_epoch unless epochs overrides it.
 	DefaultEpoch uint64            `json:"default_epoch"`
@@ -206,6 +209,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 		if c.KeysRefresh.Duration <= 0 || c.KeysTimeout.Duration <= 0 || c.KeysTimeout.Duration >= c.KeysRefresh.Duration {
 			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
 		}
+	}
+	if c.ControlCAFile != "" && !strings.HasPrefix(c.KeysURL, "https:") {
+		bad("control_ca_file needs an https keys_url (it would be unused)")
 	}
 	if c.Listen == "" {
 		bad("listen is required")

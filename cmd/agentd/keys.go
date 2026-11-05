@@ -18,7 +18,7 @@ func openKeys(ctx context.Context, cfg *Config, log *slog.Logger) (*ticket.KeyRi
 		return ring, nil, err
 	}
 	ring, f, err := keyfetch.Open(ctx, keyfetch.Config{URL: cfg.KeysURL, Cache: cfg.KeysFile, Every: cfg.KeysRefresh.Duration,
-		Timeout: cfg.KeysTimeout.Duration, Log: log, Event: "AGENT"})
+		Timeout: cfg.KeysTimeout.Duration, CAFile: cfg.ControlCAFile, Log: log, Event: "AGENT"})
 	if err != nil {
 		return nil, nil, errs.Wrap(module, err, "cannot load the cached ticket keys (keys_file)").With("path", cfg.KeysFile)
 	}

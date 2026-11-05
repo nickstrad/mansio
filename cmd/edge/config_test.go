@@ -40,6 +40,10 @@ func TestParseConfigProblems(t *testing.T) {
 			t.Errorf("missing %q in:\n%v", want, err)
 		}
 	}
+	if _, err := parseConfig(strings.NewReader(`{"keys_url":"http://c/v1/keys","control_ca_file":"ca.pem","agents":{"a":"https://a:1"}}`), "."); err == nil ||
+		!strings.Contains(err.Error(), "control_ca_file needs an https keys_url") {
+		t.Errorf("control_ca_file with a plain keys_url: %v", err)
+	}
 	if _, err := parseConfig(strings.NewReader(`{"surprise":1}`), "."); err == nil {
 		t.Error("unknown field accepted")
 	}

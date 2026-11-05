@@ -15,13 +15,17 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/load"
 	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/ts-db-go/internal/tlsx"
 )
 
 // Config is controld's JSON config. Defaults are applied before decoding; unknown fields are errors;
 // relative paths are relative to the config file's directory.
 type Config struct {
-	Listen      string `json:"listen"`       // the control API and /livez, /readyz, /metrics; default 127.0.0.1:7080
-	SecretsFile string `json:"secrets_file"` // 0600: pg_dsn, control_token, admin_token, s3 keys (required)
+	Listen string `json:"listen"` // the control API and /livez, /readyz, /metrics; default 127.0.0.1:7080
+	// TLS is the listener's certificate: HTTPS (h2 + h1) for the admin API, POST /v1/resolve (API keys and
+	// tickets cross it) and GET /v1/keys (whoever can change its answer can mint tickets). Required unless -dev.
+	TLS         *tlsx.Files `json:"tls"`
+	SecretsFile string      `json:"secrets_file"` // 0600: pg_dsn, control_token, admin_token, s3 keys (required)
 
 	PG struct {
 		Schema   string `json:"schema"`    // search_path ("" = server default); tests use one schema each
@@ -40,7 +44,7 @@ type Config struct {
 		CAFile string `json:"ca_file"` // PEM bundle of a private CA; needs secure
 	} `json:"s3"`
 
-	// Dev is the -dev flag, not a file field: allows plain-HTTP S3 for a local run.
+	// Dev is the -dev flag, not a file field: allows plain-HTTP S3 and a plain-HTTP listener for a local run.
 	Dev bool `json:"-"`
 
 	// Agents is the VM registry's source: every agent controld may place databases on. Registered at start
@@ -136,6 +140,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.S3.Endpoint == "" || c.S3.Bucket == "" {
 		bad("s3: endpoint and bucket are required (drop deletes the database's objects)")
 	}
+	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
+		bad("tls: cert_file and key_file are both required")
+	}
 	if c.S3.CAFile != "" && !c.S3.Secure {
 		bad("s3: ca_file needs secure: true")
 	}
@@ -209,7 +216,11 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	for _, p := range []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile, &c.TicketKeys.Dir} {
+	paths := []*string{&c.SecretsFile, &c.LogFile, &c.S3.CAFile, &c.TicketKeys.Dir}
+	if c.TLS != nil {
+		paths = append(paths, &c.TLS.CertFile, &c.TLS.KeyFile)
+	}
+	for _, p := range paths {
 		if *p != "" && !filepath.IsAbs(*p) {
 			*p = filepath.Join(dir, *p)
 		}
@@ -230,12 +241,18 @@ func loadConfig(path string) (*Config, error) {
 	return c, nil
 }
 
-// checkDev refuses plain-HTTP S3 unless -dev is given: the gc identity's keys would cross the network in
-// the clear (object-storage guide S1, S2; OS-11).
+// checkDev refuses, unless -dev is given, plain-HTTP S3 (the gc identity's keys would cross the network in the
+// clear; object-storage guide S1, S2; OS-11) and a plain-HTTP listener (admin tokens and API keys in the clear,
+// and whoever answers GET /v1/keys in its place can mint tickets).
 func (c *Config) checkDev() error {
-	if !c.S3.Secure && !c.Dev {
+	switch {
+	case c.Dev:
+	case !c.S3.Secure:
 		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+
 			"(and \"ca_file\" for a private CA) in the s3 section, or pass -dev for a local run").With("endpoint", c.S3.Endpoint)
+	case c.TLS == nil:
+		return errs.Wrap(module, nil, "no tls section: the API (admin tokens, api keys, ticket keys) in plain HTTP is for local "+
+			"development only; add \"tls\": {\"cert_file\", \"key_file\"}, or pass -dev for a local run").With("listen", c.Listen)
 	}
 	return nil
 }

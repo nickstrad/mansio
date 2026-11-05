@@ -34,13 +34,16 @@ type Config struct {
 
 	// Ticket public keys, as agentd: keys_file (static), or keys_url (controld's GET /v1/keys, fetched every
 	// keys_refresh by internal/keyfetch; keys_file is then the cache). Plain-HTTP keys_url needs -dev.
-	KeysFile     string        `json:"keys_file"`
-	KeysURL      string        `json:"keys_url"`
-	KeysRefresh  load.Duration `json:"keys_refresh"` // default 30 s
-	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
-	ClockSkew    load.Duration `json:"clock_skew"`
-	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
-	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	KeysFile string `json:"keys_file"`
+	KeysURL  string `json:"keys_url"`
+	// ControlCAFile is the PEM CA bundle that signs controld's certificate (an https keys_url with a private
+	// CA); default the system roots.
+	ControlCAFile string        `json:"control_ca_file"`
+	KeysRefresh   load.Duration `json:"keys_refresh"` // default 30 s
+	KeysTimeout   load.Duration `json:"keys_timeout"` // one fetch; default 3 s
+	ClockSkew     load.Duration `json:"clock_skew"`
+	MaxTicketTTL  load.Duration `json:"max_ticket_ttl"`
+	TicketCache   int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 	// RateLimit charges each source (client IP, IPv6 /64) one token per ticket the edge must verify.
 	RateLimit   RateLimit `json:"rate_limit"`
 	VerifySlots int       `json:"verify_slots"` // full verifies at once; 0 = 2 × GOMAXPROCS
@@ -73,10 +76,7 @@ type Config struct {
 }
 
 // TLSFiles is a server certificate and its key (PEM).
-type TLSFiles struct {
-	CertFile string `json:"cert_file"`
-	KeyFile  string `json:"key_file"`
-}
+type TLSFiles = tlsx.Files
 
 // AgentTLS is how the edge checks agents' certificates.
 type AgentTLS struct {
@@ -145,6 +145,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
 		}
 	}
+	if c.ControlCAFile != "" && !strings.HasPrefix(c.KeysURL, "https:") {
+		bad("control_ca_file needs an https keys_url (it would be unused)")
+	}
 	if len(c.Agents) == 0 {
 		bad("agents: at least one vm → URL")
 	}
@@ -189,7 +192,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
 	}
-	paths := []*string{&c.KeysFile, &c.LogFile, &c.AgentTLS.CAFile}
+	paths := []*string{&c.ControlCAFile, &c.KeysFile, &c.LogFile, &c.AgentTLS.CAFile}
 	if c.TLS != nil {
 		paths = append(paths, &c.TLS.CertFile, &c.TLS.KeyFile)
 	}
@@ -300,7 +303,7 @@ func openKeys(ctx context.Context, c *Config, log *slog.Logger) (*ticket.KeyRing
 		ring, err = keyfetch.LoadFile(c.KeysFile)
 	} else {
 		ring, f, err = keyfetch.Open(ctx, keyfetch.Config{URL: c.KeysURL, Cache: c.KeysFile, Every: c.KeysRefresh.Duration,
-			Timeout: c.KeysTimeout.Duration, Log: log, Event: "EDGE"})
+			Timeout: c.KeysTimeout.Duration, CAFile: c.ControlCAFile, Log: log, Event: "EDGE"})
 	}
 	if err != nil {
 		return nil, nil, errs.Wrap(module, err, "cannot load the ticket keys (keys_file)").With("path", c.KeysFile)

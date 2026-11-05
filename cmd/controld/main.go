@@ -4,8 +4,10 @@
 // their lifecycle endpoints, each with a deadline and its own breaker, and finishes stuck flows from table
 // scans (internal/control).
 //
-//	controld -config controld.json [-addr-file path] [-dev]   serve (-dev: plain-HTTP S3 allowed)
-//	controld <command> -addr URL -secrets file [flags]         one admin call (prints the JSON answer)
+//	controld -config controld.json [-addr-file path] [-dev]   serve (-dev: plain-HTTP S3 and listener allowed)
+//	controld <command> -addr URL -secrets file [-ca file] ...  one admin call (prints the JSON answer)
+//
+// The listener speaks HTTPS with a tls section (cert_file, key_file); without one it is refused unless -dev.
 //
 // Commands: create -tenant T -name N | get -db K | move -db K [-to VM] | suspend -db K | resume -db K [-to VM]
 // | drop -db K | attest-dead -vm VM -by WHO | restore -vm VM | vms | create-key -tenant T -principal P [-perms P]
