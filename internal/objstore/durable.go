@@ -59,7 +59,7 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 	name := d.root + durable.ManifestObject(key)
 	var b []byte
 	var etag string
-	err := d.s.retryIdempotent(ctx, "get_manifest", func(ctx context.Context) error {
+	err := d.s.retryIdempotent(ctx, OpGetManifest, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
 		body, info, _, err := d.s.core.GetObject(a.ctx, d.s.bucket, name, minio.GetObjectOptions{})
 		if err != nil {
@@ -76,6 +76,7 @@ func (d *Durable) ReadManifest(ctx context.Context, key string) (durable.Manifes
 		}
 		return durable.Manifest{}, durable.NoVersion, wrap(err, "cannot read manifest %s; nothing changed, safe to retry", name)
 	}
+	d.s.moved(OpGetManifest, int64(len(b)))
 	m, err := durable.Decode(key, b)
 	if err != nil {
 		return durable.Manifest{}, durable.NoVersion, wrap(err, "manifest %s is unreadable", name)
@@ -99,7 +100,7 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 	opts := minio.PutObjectOptions{ContentType: "application/vnd.sqlite3", DisableMultipart: true,
 		UserMetadata: map[string]string{"sha256": dg.SHA256}}
 	opts.SetMatchETagExcept("*") // create-only
-	err = d.s.sendOnce(ctx, "put_gen", func(ctx context.Context) error {
+	err = d.s.sendOnce(ctx, OpPutGen, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.transferTime(dg.Size))
 		_, err := d.s.c.PutObject(a.ctx, d.s.bucket, name, a.watch(f, dg.Size, d.s.cfg.StallTimeout), dg.Size, opts)
 		return a.end(err)
@@ -110,8 +111,9 @@ func (d *Durable) PutGeneration(ctx context.Context, key string, gen uint64, pat
 		}
 		return wrap(err, "cannot upload %s; no manifest names it, safe to retry with a new generation", name)
 	}
+	d.s.moved(OpPutGen, dg.Size)
 	var st minio.ObjectInfo
-	err = d.s.retryIdempotent(ctx, "head", func(ctx context.Context) error {
+	err = d.s.retryIdempotent(ctx, OpHead, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
 		var err error
 		st, err = d.s.c.StatObject(a.ctx, d.s.bucket, name, minio.StatObjectOptions{})
@@ -131,7 +133,7 @@ func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path 
 	name := d.root + m.Object
 	t0 := time.Now()
 	var st durable.Fetched
-	err := d.s.retryIdempotent(ctx, "fetch", func(ctx context.Context) error {
+	err := d.s.retryIdempotent(ctx, OpFetch, name, func(ctx context.Context) error {
 		var err error
 		st, err = d.fetch(ctx, name, m, path)
 		return err
@@ -143,6 +145,7 @@ func (d *Durable) FetchGeneration(ctx context.Context, m durable.Manifest, path 
 		return st, wrap(err, "cannot download generation %s; nothing cached", name)
 	}
 	st.Total = time.Since(t0)
+	d.s.moved(OpFetch, st.Bytes)
 	return st, nil
 }
 
@@ -197,7 +200,7 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		opts.SetMatchETag(string(prev))
 	}
 	var info minio.UploadInfo
-	err = d.s.sendOnce(ctx, "publish", func(ctx context.Context) error {
+	err = d.s.sendOnce(ctx, OpPublish, name, func(ctx context.Context) error {
 		a := d.s.begin(ctx, d.s.cfg.OpTimeout)
 		var err error
 		info, err = d.s.c.PutObject(a.ctx, d.s.bucket, name, bytes.NewReader(b), int64(len(b)), opts)
@@ -209,6 +212,7 @@ func (d *Durable) PublishManifest(ctx context.Context, m durable.Manifest, prev 
 		}
 		return durable.NoVersion, wrap(err, "publish of %s failed; it may or may not have applied, re-read before retrying", name)
 	}
+	d.s.moved(OpPublish, int64(len(b)))
 	if info.ETag == "" {
 		return durable.NoVersion, errs.Wrap(module, nil, "published %s but got no ETag; re-read before retrying", name)
 	}

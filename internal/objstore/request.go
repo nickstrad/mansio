@@ -33,7 +33,7 @@ var idempotentRetry = func() retry.Policy {
 //
 //	pre:  fn is idempotent: running it twice has the effect of running it once
 //	post: the error returned is fn's last error
-func (s *Store) retryIdempotent(ctx context.Context, op string, fn func(context.Context) error) error {
+func (s *Store) retryIdempotent(ctx context.Context, op, name string, fn func(context.Context) error) error {
 	var rng *rand.Rand
 	var prev time.Duration
 	for n := 1; ; n++ {
@@ -41,7 +41,7 @@ func (s *Store) retryIdempotent(ctx context.Context, op string, fn func(context.
 		err := fn(ctx)
 		kind := Classify(err)
 		if err == nil || kind != Transient || n == idempotentRetry.MaxAttempts {
-			s.observe(op, kind, time.Since(t0), false, err)
+			s.observe(op, name, kind, time.Since(t0), false, err)
 			return err
 		}
 		if rng == nil {
@@ -49,10 +49,10 @@ func (s *Store) retryIdempotent(ctx context.Context, op string, fn func(context.
 		}
 		d := idempotentRetry.Delay(rng, n+1, prev)
 		if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= d {
-			s.observe(op, kind, time.Since(t0), false, err)
+			s.observe(op, name, kind, time.Since(t0), false, err)
 			return err
 		}
-		s.observe(op, kind, time.Since(t0), true, err)
+		s.observe(op, name, kind, time.Since(t0), true, err)
 		t := time.NewTimer(d)
 		select {
 		case <-t.C:
@@ -65,10 +65,10 @@ func (s *Store) retryIdempotent(ctx context.Context, op string, fn func(context.
 }
 
 // sendOnce runs a non-idempotent request (a PUT) exactly once.
-func (s *Store) sendOnce(ctx context.Context, op string, fn func(context.Context) error) error {
+func (s *Store) sendOnce(ctx context.Context, op, name string, fn func(context.Context) error) error {
 	t0 := time.Now()
 	err := fn(ctx)
-	s.observe(op, Classify(err), time.Since(t0), false, err)
+	s.observe(op, name, Classify(err), time.Since(t0), false, err)
 	return err
 }
 

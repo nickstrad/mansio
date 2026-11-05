@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -49,6 +50,8 @@ type Config struct {
 	StallTimeout time.Duration
 	// MinThroughput (bytes/s) sizes a transfer's deadline: OpTimeout + size/MinThroughput. Default 32 MiB/s.
 	MinThroughput int64
+	// Logger gets one WARN line per retried request (S3.REQUEST_RETRIED). Default: discard.
+	Logger *slog.Logger
 }
 
 // normalize fills the defaults.
@@ -68,15 +71,20 @@ func (c *Config) normalize() {
 	if c.MinThroughput <= 0 {
 		c.MinThroughput = 32 << 20
 	}
+	if c.Logger == nil {
+		c.Logger = discardLogger()
+	}
 }
 
 // Store is safe for concurrent use.
 type Store struct {
-	c      *minio.Client
-	core   minio.Core
-	bucket string
-	cfg    Config
-	bufs   chan []byte // free list of copy buffers; survives GC, unlike sync.Pool
+	c       *minio.Client
+	core    minio.Core
+	bucket  string
+	cfg     Config
+	log     *slog.Logger
+	metrics metrics
+	bufs    chan []byte // free list of copy buffers; survives GC, unlike sync.Pool
 }
 
 const (
@@ -107,7 +115,8 @@ func New(cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot create S3 client for %s", cfg.Endpoint)
 	}
-	return &Store{c: c, core: minio.Core{Client: c}, bucket: cfg.Bucket, cfg: cfg, bufs: make(chan []byte, keptBufs)}, nil
+	return &Store{c: c, core: minio.Core{Client: c}, bucket: cfg.Bucket, cfg: cfg, log: cfg.Logger,
+		metrics: newMetrics(), bufs: make(chan []byte, keptBufs)}, nil
 }
 
 // wrap is errs.Wrap for this module, tagged with err's Classify kind.
@@ -122,7 +131,7 @@ func wrap(err error, format string, args ...any) *errs.Error {
 // EnsureBucket creates the bucket if it does not exist.
 func (s *Store) EnsureBucket(ctx context.Context) error {
 	var ok bool
-	err := s.retryIdempotent(ctx, "bucket", func(ctx context.Context) error {
+	err := s.retryIdempotent(ctx, OpBucket, s.bucket, func(ctx context.Context) error {
 		a := s.begin(ctx, s.cfg.OpTimeout)
 		var err error
 		ok, err = s.c.BucketExists(a.ctx, s.bucket)
@@ -134,7 +143,7 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 	if ok {
 		return nil
 	}
-	err = s.sendOnce(ctx, "bucket", func(ctx context.Context) error {
+	err = s.sendOnce(ctx, OpBucket, s.bucket, func(ctx context.Context) error {
 		a := s.begin(ctx, s.cfg.OpTimeout)
 		return a.end(s.c.MakeBucket(a.ctx, s.bucket, minio.MakeBucketOptions{}))
 	})
@@ -151,7 +160,7 @@ func (s *Store) PutFile(ctx context.Context, key, path string) (int64, error) {
 		return 0, wrap(err, "cannot upload %s as %s; nothing uploaded", path, key)
 	}
 	var info minio.UploadInfo
-	err = s.sendOnce(ctx, "put", func(ctx context.Context) error {
+	err = s.sendOnce(ctx, OpPut, key, func(ctx context.Context) error {
 		a := s.begin(ctx, s.transferTime(fi.Size()))
 		var err error
 		info, err = s.c.FPutObject(a.ctx, s.bucket, key, path, minio.PutObjectOptions{
@@ -163,6 +172,7 @@ func (s *Store) PutFile(ctx context.Context, key, path string) (int64, error) {
 	if err != nil {
 		return 0, wrap(err, "cannot upload %s as %s; safe to retry", path, key)
 	}
+	s.moved(OpPut, info.Size)
 	return info.Size, nil
 }
 
@@ -183,7 +193,7 @@ type FetchStats struct {
 func (s *Store) GetToFile(ctx context.Context, key, path string) (FetchStats, error) {
 	t0 := time.Now()
 	var st FetchStats
-	err := s.retryIdempotent(ctx, "get", func(ctx context.Context) error {
+	err := s.retryIdempotent(ctx, OpGet, key, func(ctx context.Context) error {
 		var err error
 		st, err = s.getToFile(ctx, key, path)
 		return err
@@ -195,6 +205,7 @@ func (s *Store) GetToFile(ctx context.Context, key, path string) (FetchStats, er
 		return st, wrap(err, "cannot download %s to %s; nothing kept, safe to retry", key, path).With("bucket", s.bucket)
 	}
 	st.Total = time.Since(t0)
+	s.moved(OpGet, st.Bytes)
 	return st, nil
 }
 
@@ -295,7 +306,7 @@ func (s *Store) putBuf(b []byte) {
 // Transient failure restarts the listing.
 func (s *Store) List(ctx context.Context, prefix string) (map[string]int64, error) {
 	var out map[string]int64
-	err := s.retryIdempotent(ctx, "list", func(ctx context.Context) error {
+	err := s.retryIdempotent(ctx, OpList, prefix, func(ctx context.Context) error {
 		out = make(map[string]int64)
 		a := s.begin(ctx, s.cfg.OpTimeout)
 		for o := range s.c.ListObjects(a.ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
@@ -319,7 +330,7 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	err = s.retryIdempotent(ctx, "delete", func(ctx context.Context) error {
+	err = s.retryIdempotent(ctx, OpDelete, prefix, func(ctx context.Context) error {
 		a := s.begin(ctx, s.cfg.OpTimeout*time.Duration(1+len(have)/1000)) // one request per 1000 keys
 		objs := make(chan minio.ObjectInfo, len(have))                     // buffered to the count: the feeder never blocks
 		for k := range have {
@@ -346,6 +357,3 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 	}
 	return len(have), nil
 }
-
-// observe records one finished attempt of op (metrics come with OS-08).
-func (s *Store) observe(op string, kind Kind, d time.Duration, retried bool, err error) {}
