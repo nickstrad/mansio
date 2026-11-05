@@ -243,7 +243,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   `seed_ms_per_db` in report §12 for `ramp` drops; if it drops < 20%, revert and record the null result.
 - **Size:** S.
 
-#### PG-09 — Request-id table in each tenant database (ch 29, 36, 39) — **Done** (CP-2, branch cp/cp2; as built: claim reads `sqlite3_changes()` instead of RETURNING, plus an `applied_ms` index; see knowledge/front/2026-11-05-request-ids.md)
+#### PG-09 — Request-id table in each tenant database (ch 29, 36, 39) — **Done** (d7c921d, CP-2; as built: claim reads `sqlite3_changes()` instead of RETURNING, plus an `applied_ms` index; see knowledge/front/2026-11-05-request-ids.md)
 
 - **Files:** design lands with CP step 2 (`internal/actor` or a new `internal/reqid`).
 - **Change:** DDL and statements in §5.3: `STRICT, WITHOUT ROWID` table keyed by request id; insert with
