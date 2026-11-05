@@ -78,6 +78,11 @@ func TestWriteBackStampConditions(t *testing.T) {
 }
 
 func TestPlacementCAS(t *testing.T) {
+	ownertest.RunPlacementSuite(t, func(*testing.T) owner.Placement { return ownertest.NewPlacement() })
+}
+
+// The fake's fault switches (Stale, LoseReply, Down) behave as documented.
+func TestPlacementSwitches(t *testing.T) {
 	ctx := context.Background()
 	p := ownertest.NewPlacement()
 	a1 := owner.Place{Owner: "a", Epoch: 1, State: owner.PlaceActive}
