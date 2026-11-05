@@ -34,7 +34,7 @@ func TestRegistryNamesMatchTheDomains(t *testing.T) {
 }
 
 // The registries: create is idempotent and makes the tenant's first database its default; state changes are
-// CAS; pending lists creates and drops; moving carries the intent; heartbeats and attestations update the VM
+// CAS; pending lists creates, moves and drops; moving carries the intent; heartbeats and attestations update the VM
 // row; owned-by pages by key; dropping the placement row takes its moves rows along.
 func TestRegistries(t *testing.T) {
 	p, _ := newPlacement(t, nil)
@@ -70,7 +70,7 @@ func TestRegistries(t *testing.T) {
 		t.Fatalf("target outside moving: %v", err)
 	}
 	must(t, p.SetDatabaseState(ctx, "acme:main", "active", "moving", "vm-b"))
-	if pending, _ := p.Pending(ctx, 0, 10); len(pending) != 1 || pending[0].Key != "acme:logs" {
+	if pending, _ := p.Pending(ctx, 0, 10); len(pending) != 2 || pending[0].Key != "acme:logs" || pending[1].Key != "acme:main" {
 		t.Fatalf("Pending after create = %+v", pending)
 	}
 	if pending, _ := p.Pending(ctx, time.Hour, 10); len(pending) != 0 {

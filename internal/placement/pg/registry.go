@@ -169,8 +169,8 @@ func (p *Placement) SetDatabaseState(ctx context.Context, key, from, to, target 
 	})
 }
 
-// Pending returns up to limit databases in "creating" or "dropping" for longer than olderThan, oldest first
-// (pending.sql): unfinished creates and drops to resume.
+// Pending returns up to limit databases in "creating", "moving" or "dropping" for longer than olderThan,
+// oldest first (pending.sql): unfinished flows to resume.
 func (p *Placement) Pending(ctx context.Context, olderThan time.Duration, limit int) ([]Database, error) {
 	return list(p, ctx, "list pending creates and drops", q.pending, scanDatabase, olderThan, limit)
 }

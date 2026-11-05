@@ -41,8 +41,8 @@ create table databases (
 create index databases_tenant on databases (tenant_id);
 -- FK on target_vm; few rows are moving.
 create index databases_target_vm on databases (target_vm) where target_vm is not null;
--- The lifecycle controller resumes unfinished creates and drops from this (a table scan, never NOTIFY).
-create index databases_pending on databases (updated_at) where state in ('creating', 'dropping');
+-- The lifecycle controller resumes unfinished creates, moves and drops from this (a table scan, never NOTIFY).
+create index databases_pending on databases (updated_at) where state in ('creating', 'moving', 'dropping');
 -- At most one default database per tenant among the live ones.
 create unique index databases_one_default on databases (tenant_id) where is_default and state <> 'dropped';
 
