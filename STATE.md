@@ -1,10 +1,29 @@
 # mansio — project state
 
+## 2026-11-06 — cache-dividend topic proposals (docs only)
+
+- Goal/spec: Nick's brief "propose cache-dividend video topics from the mansio repo": survey the repo and
+  write ranked feature-explainer proposals for the cache-dividend series (short narrated videos that discuss a
+  repo's code and design and never run it).
+- Status: `docs/cache-dividend-topics.md` written on branch `docs/cd-topics` (worktree
+  `/root/Software/mansio-work/cd-topics`); 12 ranked topics, each with evidence citations, the house-format
+  angle, what the viewer sees, and an implemented-vs-design-stage caveat; top 3 named at the end. Docs-only:
+  nothing under `core/`, `sdk/`, `server/`, `tests/` or `pages/` changed.
+- Awaiting: **Nick's picks** (which topics, in what order). Landing the branch is the coordinator's job.
+- Note for the next reader: the brief described multi-node scale-out as proposal-stage; the survey found the
+  Go multi-node path implemented and exercised (IR-5a `9dc62fc`, DST-2/3 `339f6aa`, e2e `scale_out`), while
+  the `pages/` lanes/planes datasets remain proposals and the S3 write-back is paused (`7cf4ba6`). The doc
+  says so per topic.
+- Resume: `git log -1 -- docs/cache-dividend-topics.md` for the SHA; edit the doc in place for revisions and
+  keep `deno fmt --check docs/cache-dividend-topics.md` green.
+
 ## 2026-11-06 — Pages rename repair (ts-db → mansio)
 
 - Goal/spec: fulfill Nick's “fix the mansio GitHub Pages deploy after the ts-db → mansio rename” brief;
   workflow: `.github/workflows/pages.yml`; acceptance: unchanged source checks and passing Pages build.
-- Status: rename repair landed on main (merge 5ea8b27, fix commit 0a2424d, Opus review PASS WITH NITS); Pages run 42248090392 (on eb46a36) concluded success; https://nickstrad.github.io/mansio/ verified live (HTTP 200).
+- Status: rename repair landed on main (merge 5ea8b27, fix commit 0a2424d, Opus review PASS WITH NITS); Pages
+  run 42248090392 (on eb46a36) concluded success; https://nickstrad.github.io/mansio/ verified live (HTTP
+  200).
 - Context: repository renamed `nickstrad/ts-db` → `nickstrad/mansio`; vm-1 checkout moved
   `/root/Software/ts-db` → `/root/Software/mansio`; origin is `git@github.com:nickstrad/mansio.git`.
 - Done: reproduced run 42233396362's failure at base `de7d7594c33e7b9b816df0b050a1ff43505282d8`: 6 failed /
