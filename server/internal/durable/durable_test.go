@@ -218,12 +218,18 @@ func TestStamp(t *testing.T) {
 	if got, _ := s.Manifest("k"); got.Epoch != 4 || got.Generation != seeded.Generation || got.SHA256 != seeded.SHA256 {
 		t.Fatalf("stored after stamp %+v", got)
 	}
-	if again, v3, err := durable.Stamp(ctx, s, "k", 4, seeded.Generation, t0); err != nil || v3 != v2 || again.Epoch != 4 {
-		t.Fatalf("re-stamp at the same epoch must be a no-op: %+v %q %v", again, v3, err)
+	// A re-stamp at the same epoch is a new version (Seal + 1): a publish conditional on the version before it,
+	// such as one a crashed incarnation still has in flight, fails (the restart's reopen relies on it).
+	again, v3, err := durable.Stamp(ctx, s, "k", 4, seeded.Generation, t0)
+	if err != nil || v3 == v2 || again.Epoch != 4 || again.Seal != m.Seal+1 || again.Generation != seeded.Generation {
+		t.Fatalf("re-stamp at the same epoch = %+v %q %v; want a new version, seal %d", again, v3, err, m.Seal+1)
+	}
+	if _, err := s.PublishManifest(ctx, durable.NextManifest("k", 2, 4, dg, t0), v2); !errors.Is(err, durable.ErrStale) {
+		t.Fatalf("publish conditional on the version before a same-epoch stamp: %v, want ErrStale", err)
 	}
 	// A publish at the old epoch now fails: the point of Stamp.
 	low := durable.NextManifest("k", 2, 1, dg, t0)
-	if _, err := s.PublishManifest(ctx, low, v2); !errors.Is(err, durable.ErrStale) {
+	if _, err := s.PublishManifest(ctx, low, v3); !errors.Is(err, durable.ErrStale) {
 		t.Fatalf("publish at a lower epoch after a stamp: %v", err)
 	}
 	if _, _, err := durable.Stamp(ctx, s, "k", 3, seeded.Generation, t0); !errors.Is(err, durable.ErrStale) {

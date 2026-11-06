@@ -79,6 +79,11 @@ type Manifest struct {
 	SHA256     string    `json:"sha256"`        // lower-case hex; "" for generation 0
 	MD5        string    `json:"md5,omitempty"` // lower-case hex, when the writer computed it (Content-MD5)
 	WrittenAt  time.Time `json:"written_at"`
+	// Seal counts the stamps of this generation (Stamp raises it every time). It makes every stamp change the
+	// manifest's bytes and so its version, even at the stored epoch: (Epoch, Generation, Seal) only rises
+	// (guide W3). A restarted owner stamps on reopen, so every publish its crashed incarnation still had in
+	// flight, conditional on an older version, fails. 0 for a new generation.
+	Seal uint64 `json:"seal,omitempty"`
 }
 
 // Digest is what a snapshot file holds. Writers compute SHA256 and MD5 in one pass over the file; the MD5
@@ -264,8 +269,8 @@ func lowerHex(s string, n int) bool {
 
 // Same reports whether two manifests describe the same publish (WrittenAt aside).
 func (m Manifest) Same(o Manifest) bool {
-	return m.Key == o.Key && m.Generation == o.Generation && m.Epoch == o.Epoch && m.Object == o.Object &&
-		m.Size == o.Size && m.SHA256 == o.SHA256
+	return m.Key == o.Key && m.Generation == o.Generation && m.Epoch == o.Epoch && m.Seal == o.Seal &&
+		m.Object == o.Object && m.Size == o.Size && m.SHA256 == o.SHA256
 }
 
 // Digest is the snapshot m's generation holds.
@@ -324,7 +329,8 @@ func CheckStamp(stored *Manifest, key string, epoch, gen uint64) error {
 	return nil
 }
 
-// Stamped is the manifest a stamp publishes: cur (nil: a new generation-0 manifest) at epoch.
+// Stamped is the manifest a stamp publishes: cur (nil: a new generation-0 manifest) at epoch, its Seal one
+// higher, so the stamp is a new version even at the stored epoch.
 //
 //	pre: CheckStamp(cur, key, epoch, gen) == nil
 func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
@@ -333,12 +339,13 @@ func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
 		next = *cur
 	}
 	next.Epoch, next.WrittenAt = epoch, now.UTC()
+	next.Seal++
 	return next
 }
 
 // Stamp re-publishes key's manifest at epoch, keeping generation gen (see CheckStamp). With no manifest and
-// gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Stamping at
-// the stored epoch again is a no-op that returns the stored manifest.
+// gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Every stamp is a
+// new version, at the stored epoch too (Seal): a publish conditional on any earlier version fails after it.
 //
 // A failed publish is ambiguous (a lost reply, or a 412 that a re-send of our own applied PUT caused), so
 // Stamp re-reads before it reports failure (object-storage guide R3): if the stored manifest is the one it
@@ -355,9 +362,6 @@ func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time
 	}
 	if err := CheckStamp(cur, key, epoch, gen); err != nil {
 		return Manifest{}, NoVersion, err
-	}
-	if cur != nil && cur.Epoch == epoch {
-		return stored, v, nil
 	}
 	next := Stamped(cur, key, epoch, now)
 	nv, err := s.PublishManifest(ctx, next, v)

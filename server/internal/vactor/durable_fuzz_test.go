@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,6 +28,12 @@ import (
 //	         10 Stamp k at our epoch + 1 (we stay the owner; skipped once k is fenced)
 //	kind >= 242 (outside the %11 range, so older corpus entries keep their meaning):
 //	         GC: the orphan sweeper (durable.Sweep, K = 2, a grace of 1 ns) over every key
+//	kind 230..241: WriteBack k whose publish gets no reply but stays in flight (durabletest LandLate, arg+1 s);
+//	         it lands on a later clock step if the manifest has not moved
+//
+// Crash + restart restarts like agentd: the new host starts empty, then every key we own is re-stamped at our
+// epoch before it serves (owner.Reconcile's reopen stamp), so a publish the crashed host still had in flight
+// must never land afterwards.
 //
 // Model per key: the published contents (what a fresh activation must see), whether it is warm, its warm
 // contents, whether it has unpublished writes, whether it is fenced, and our epoch. Lost replies
@@ -48,6 +56,8 @@ func FuzzDurableHostModel(f *testing.F) {
 	f.Add([]byte{1, 0, 1, 1, 1, 2, 1, 3, 4, 0, 6, 5, 4, 0})                                       // budget eviction, store down
 	f.Add([]byte{1, 0, 6, 7, 10, 0, 6, 0, 1, 0, 5, 0})                                            // warm stamp, reply lost as 412, write back
 	f.Add([]byte{6, 7, 10, 1, 6, 0, 1, 1, 2, 1, 0, 1})                                            // cold stamp, reply lost as 412, activate, write
+	f.Add([]byte{1, 0, 230, 0, 7, 4, 2, 0, 0, 0})                                                 // publish in flight lands late
+	f.Add([]byte{1, 0, 5, 0, 1, 0, 230, 0, 3, 0, 7, 4, 0, 0, 1, 0, 5, 0})                         // in flight, crash, restamp: zombie refused
 	f.Add([]byte{1, 0, 6, 8, 5, 0, 6, 0, 2, 0, 0, 0})                                             // lost upload reply: adopted by hash
 	f.Add([]byte{1, 0, 6, 3, 5, 0, 6, 4, 10, 0, 6, 0, 5, 0})                                      // ambiguous publish, stamp with failing read
 	f.Add([]byte{1, 0, 6, 2, 5, 0, 6, 0, 1, 0, 5, 0, 242, 0, 3, 0, 0, 0})                         // orphan, publish, GC, crash, reactivate
@@ -58,6 +68,7 @@ func FuzzDurableHostModel(f *testing.F) {
 		keys := []string{"t/k0", "t/k1", "t/k2", "t/k3"}
 		s, o, clk := durabletest.NewStore(), &vactortest.Opener{}, newClock()
 		var server atomic.Int64 // the store's clock: strictly increasing, one second per write
+		s.UseClock(clk)         // in-flight publishes land on the clock
 		s.SetClock(func() time.Time { return time.Unix(0, server.Add(int64(time.Second))) })
 		gc := durable.GCPolicy{Keep: 2, Grace: time.Nanosecond}
 		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Clock: clk, Workers: 2,
@@ -82,11 +93,30 @@ func FuzzDurableHostModel(f *testing.F) {
 		// it settles them by a re-read before it sends more, and fails if that re-read fails.
 		pend := map[string]int{}
 		own := map[string]uint64{} // our ownership epoch per key
+		// inflight: contents of this key's publishes still in flight (LandLate); one may land on a clock step.
+		inflight := map[string][]string{}
+		// landed: one of them landed unseen, so the host's next publish gets 412 and needs a re-read to adopt it.
+		landed := map[string]bool{}
+		// tags: the LandTag of each in-flight publish, parallel to inflight. The host forgets in-flight publishes
+		// when it settles maxPending of them by a re-read that shows none applied (settlePending); the model
+		// assumes those never land (dropped), an open finding: knowledge/fencing/2026-11-06-reopen-restamp.md.
+		tags := map[string][]uint64{}
+		var dropMu sync.Mutex
+		dropped := map[uint64]bool{}
+		s.SetLandIf(func(tag uint64) bool { dropMu.Lock(); defer dropMu.Unlock(); return !dropped[tag] })
+		forget := func(k string) {
+			dropMu.Lock()
+			for _, g := range tags[k] {
+				dropped[g] = true
+			}
+			dropMu.Unlock()
+			inflight[k], tags[k] = nil, nil
+		}
 		fault := durabletest.Faults{}
 		settled := func(k string) bool { return pend[k] < vactor.MaxPending || !fault.FailRead && !fault.Down }
 		// writeBackFails predicts a write-back of a dirty, unfenced key under the current fault.
 		writeBackFails := func(k string) bool {
-			return fault.FailUpload || fault.FailPublish || fault.Down || !settled(k)
+			return fault.FailUpload || fault.FailPublish || fault.Down || !settled(k) || landed[k] && fault.FailRead
 		}
 		activationFails := func(k string) bool {
 			return fenced[k] || fault.FailRead || fault.Down || (fault.FailFetch && published[k] != "")
@@ -94,9 +124,10 @@ func FuzzDurableHostModel(f *testing.F) {
 		// wbOutcome checks the result of a write-back of a warm dirty key and reports whether it published.
 		wbOutcome := func(step int, what, k string, err error) bool {
 			if pend[k] >= vactor.MaxPending && settled(k) && !fault.FailUpload {
-				pend[k] = 0 // the host re-read first: nothing of ours applied (durabletest has no late publish here)
+				pend[k] = 0 // the host re-read first: nothing of ours applied, and it forgets them
+				forget(k)
 			}
-			if fault.FailPublish && !fenced[k] && !known[k] {
+			if (fault.FailPublish || landed[k] && fault.FailRead && !fault.FailUpload && !fault.Down) && !fenced[k] && !known[k] {
 				defer func() { pend[k]++ }() // published nothing, re-read showed our version: kept pending
 			}
 			switch {
@@ -123,7 +154,7 @@ func FuzzDurableHostModel(f *testing.F) {
 				if err != nil {
 					t.Fatalf("step %d: %s(%s): %v (fault %+v)", step, what, k, err, fault)
 				}
-				pend[k] = 0
+				pend[k], inflight[k], tags[k], landed[k] = 0, nil, nil, false // the manifest moved: an in-flight publish cannot land now
 				return true
 			}
 			return false
@@ -142,7 +173,26 @@ func FuzzDurableHostModel(f *testing.F) {
 			step, arg := i/2, script[i+1]
 			key := keys[int(arg)%len(keys)]
 			switch k := script[i] % 11; {
+			case script[i] >= 230 && script[i] < 242:
+				if fault != (durabletest.Faults{}) || !warm[key] || !dirty[key] || fenced[key] || known[key] {
+					break
+				}
+				if pend[key] >= vactor.MaxPending {
+					pend[key] = 0 // settled by a re-read first
+					forget(key)
+				}
+				s.SetFaults(durabletest.Faults{LandLate: (time.Duration(arg) + 1) * time.Second, LandTag: uint64(step) + 1})
+				_, err := h.WriteBack(ctx, key)
+				s.SetFaults(fault)
+				if err == nil || errors.Is(err, durable.ErrStale) {
+					t.Fatalf("step %d: WriteBack(%s) with its publish in flight: %v, want an unknown outcome", step, key, err)
+				}
+				pend[key]++
+				inflight[key], tags[key] = append(inflight[key], local[key]), append(tags[key], uint64(step)+1)
 			case script[i] >= 242:
+				if len(inflight[keys[0]])+len(inflight[keys[1]])+len(inflight[keys[2]])+len(inflight[keys[3]]) > 0 {
+					break // a publish in flight protects its upload (the sweeper's grace window, longer than 1 ns)
+				}
 				for _, gk := range keys {
 					_, err := durable.Sweep(ctx, s, gk, time.Unix(0, server.Load()).Add(time.Hour), gc, false)
 					if err != nil && fault == (durabletest.Faults{}) {
@@ -195,9 +245,21 @@ func FuzzDurableHostModel(f *testing.F) {
 			case k == 3:
 				vactor.Crash(h)
 				h = newHost()
+				s.SetFaults(durabletest.Faults{}) // the restart's reconcile retries until its stamps succeed
 				for _, k := range keys {
-					warm[k], dirty[k], known[k] = false, false, false // unpublished writes are lost: allowed, that is the RPO
+					warm[k], dirty[k], known[k], pend[k], inflight[k], tags[k], landed[k] = false, false, false, 0, nil, nil, false // unpublished writes are lost: the RPO
+					if fenced[k] {
+						continue // reconcile supersedes it: no stamp
+					}
+					var gen uint64
+					if m, ok := s.Manifest(k); ok {
+						gen = m.Generation
+					}
+					if _, err := h.Stamp(ctx, k, own[k], gen); err != nil {
+						t.Fatalf("step %d: reopen stamp of %s: %v", step, k, err)
+					}
 				}
+				s.SetFaults(fault)
 			case k == 4:
 				rep, err := h.Tick(ctx)
 				if err != nil {
@@ -242,9 +304,14 @@ func FuzzDurableHostModel(f *testing.F) {
 				s.SetFaults(fault)
 			case k == 7:
 				clk.Add(time.Duration(arg) * time.Second)
+				for _, k := range keys { // a publish still in flight may have landed: it holds one of these
+					if got := publishedOf(t, s, k); got != published[k] && slices.Contains(inflight[k], got) {
+						published[k], inflight[k], tags[k], landed[k] = got, nil, nil, true
+					}
+				}
 			case k == 8:
 				s.Bump(key, own[key]+1)
-				fenced[key] = true
+				fenced[key], inflight[key], tags[key], landed[key] = true, nil, nil, false
 			case k == 9:
 				lost := h.Discard(key)
 				if lost != (warm[key] && dirty[key]) {
@@ -332,4 +399,17 @@ func checkSwept(t *testing.T, step int, s *durabletest.Store, key string, keep i
 	if _, ok := s.Object(m.Object); m.Generation > 0 && !ok {
 		t.Fatalf("step %d: GC deleted %s's current generation %s", step, key, m.Object)
 	}
+}
+
+// publishedOf is what key's manifest names now ("" for none or generation 0).
+func publishedOf(t *testing.T, s *durabletest.Store, key string) string {
+	m, ok := s.Manifest(key)
+	if !ok || m.Generation == 0 {
+		return ""
+	}
+	b, ok := s.Object(m.Object)
+	if !ok {
+		t.Fatalf("manifest of %s names missing %s", key, m.Object)
+	}
+	return string(b)
 }

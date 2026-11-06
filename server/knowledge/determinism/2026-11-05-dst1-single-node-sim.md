@@ -159,16 +159,20 @@ Evidence after them: 1,000 seeds clean (151 s), `TestSameSeedSameTrace -count=3`
   **operator passivations** too (`Mix.Passivate`).
 - **RPO health per database**: a failed call or lost/late reply on one database no longer excuses another's
   loss; storms, the breaker and stalls (the tick writes databases back in turn) stay global.
-- **Restore judged at the restart**, not the crash: a late publish of the dead process that lands before the
-  restart is what the restart starts from.
-- **Finding, not fixed — zombie publishes after a restart** (`Config.Zombies`, `MANSIO_SIM_ZOMBIES=1`; 2
+- **Restore judged at each key's reopen stamp** (since 2026-11-06; before: at the restart), not the crash: a
+  late publish of the dead process that lands before the restarted process's stamp *applied* (any reply; the
+  sim spots it as a manifest it sent, unique by `Seal`) is what the restart starts from; none lands after.
+  Durable marks (no-op passivations) of a key still closed are ignored.
+- **Finding, fixed 2026-11-06 — zombie publishes after a restart** (was `Config.Zombies`; 2
   of 500 seeds, e.g. 180, 232): a publish the crashed process sent can still land *after* the restarted
   process read the manifest. The restart reopens at the **same epoch** and does not re-stamp the manifest,
   so the old PUT's condition still holds; the new process's next publish gets 412, its re-read shows a
   manifest that is none of its own, so it goes stale (`passivate -> stale`; a tick write-back makes the
   owner fence the key superseded) and its newer acknowledged writes cannot be published. Fix belongs in
   owner/agentd startup: re-stamp the manifest on reopen (a new version fails every earlier in-flight
-  publish) or reopen at a new epoch. Off by default until then.
+  publish) or reopen at a new epoch. Fixed by the re-stamp
+  ([../fencing/2026-11-06-reopen-restamp.md](../fencing/2026-11-06-reopen-restamp.md)); zombies are on by
+  default now (`Config.NoZombies` turns them off).
 
 ## How to run and replay
 
@@ -177,7 +181,7 @@ go test ./internal/sim                                   # 8 seeds (3 under -rac
 MANSIO_SIM_SEEDS=500 go test ./internal/sim -run TestSeeds   # more seeds (MANSIO_SIM_FIRST=n to start elsewhere)
 MANSIO_SIM_SEED=192 MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestSeeds -v   # replay one, print its trace
 MANSIO_SIM_SHRINK=192 go test ./internal/sim -run TestShrink -v                   # cut duration, faults, dbs
-MANSIO_SIM_ZOMBIES=1 MANSIO_SIM_KEEPGOING=1 ...                                    # dead processes' late PUTs; run past the first violation
+MANSIO_SIM_KEEPGOING=1 ...                                                         # run past the first violation
 ```
 
 A failure prints the seed's knobs, the violations, the last 40 trace lines and the replay command. A trace
@@ -212,6 +216,6 @@ preconditions) belong in the workload's own `Observe`/answer checks or in the `F
   (a registered SQL function) would cover `stmt_timeout` and `expired, ambiguous`.
 - **No epoch changes**: one owner at epoch 1 (moves, bumps, fences are DST-2).
 - **Per-call faults only on `durabletest`**: no torn uploads that HEAD reports whole; late landing for
-  publishes only (not generation uploads); zombies after a restart off by default (finding above).
+  publishes only (not generation uploads); zombies after a restart land by default.
 - Wall-clock-only code in the bubble (database/sql, SQLite busy handler) is deterministic only because the
   bubble's clock is; outside synctest the harness is not deterministic.

@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +99,11 @@ type world struct {
 	incs  int
 	stats Stats
 
-	crashedAt time.Time // the last crash; restored judges it when the next process starts
+	crashedAt time.Time // the last crash
+	// unjudged: per key, the crash (the earliest, if the key never reopened in between) whose restore is judged
+	// when a restarted process first publishes the key: its reopen stamp, before which nothing is admitted and
+	// after which no publish of a dead process can land. Guarded by mu.
+	unjudged map[string]time.Time
 
 	stopClients context.CancelFunc
 	clients     sync.WaitGroup
@@ -287,31 +292,79 @@ func (w *world) crash() {
 	}
 }
 
-// restored judges the crash at w.crashedAt against what a restart starts from now: each manifest's generation
-// (a late publish of the dead process may have landed since the crash).
+// restored judges, at the end of the run, every crash not judged yet against each manifest's generation now.
 func (w *world) restored() {
-	now := w.clk.Now()
+	w.mu.Lock()
+	w.markUnjudged()
+	unjudged := w.unjudged
+	w.unjudged = nil
+	w.mu.Unlock()
 	for _, k := range w.keys {
-		m, ok := w.store.Manifest(k)
-		var marks []string
-		var err error
-		if ok {
-			marks, err = w.marks(m)
-		}
-		if err != nil {
-			w.model.mu.Lock()
-			w.model.violate(now, k, "the manifest's generation %d cannot be read at the restart: %v", m.Generation, err)
-			w.model.mu.Unlock()
-			continue
-		}
-		w.model.restore(w.crashedAt, k, marks)
+		m, _ := w.store.Manifest(k)
+		w.judge(unjudged[k], k, m)
 	}
+}
+
+// markUnjudged records w.crashedAt as every key's crash to judge, unless an earlier one still waits.
+// pre: w.mu held
+func (w *world) markUnjudged() {
+	if w.unjudged == nil {
+		w.unjudged = map[string]time.Time{}
+	}
+	for _, k := range w.keys {
+		if _, ok := w.unjudged[k]; !ok {
+			w.unjudged[k] = w.crashedAt
+		}
+	}
+}
+
+// reopened is asked after a live process's manifest read or publish of key, with the manifests it sent: if the
+// store holds one of them (unique: every stamp raises Seal), that publish applied, with any reply. The first
+// one of key after a restart is its reopen stamp (owner.Reconcile), before which nothing is admitted: it is
+// what the restarted process starts from. A dead process's publish that landed after the crash but before it
+// is part of that start; one that lands after it is refused. It reports whether one of sent applied.
+func (w *world) reopened(key string, sent []durable.Manifest) bool {
+	cur, ok := w.store.Manifest(key)
+	if !ok || !slices.ContainsFunc(sent, cur.Same) {
+		return false
+	}
+	w.mu.Lock()
+	at, ok := w.unjudged[key]
+	delete(w.unjudged, key)
+	w.mu.Unlock()
+	if ok {
+		w.judge(at, key, cur)
+	}
+	return true
+}
+
+// durable records that key's acknowledged writes up to from are published, unless key's restore is not judged
+// yet: then key is still closed, and a passivation or write-back that succeeded published nothing.
+func (w *world) durable(key string, from time.Time) {
+	w.mu.Lock()
+	_, unjudged := w.unjudged[key]
+	w.mu.Unlock()
+	if !unjudged {
+		w.model.durable(key, from)
+	}
+}
+
+// judge judges the crash at `at` against m's generation (none: generation 0).
+func (w *world) judge(at time.Time, key string, m durable.Manifest) {
+	marks, err := w.marks(m)
+	if err != nil {
+		w.model.mu.Lock()
+		w.model.violate(w.clk.Now(), key, "the generation %d a restart starts from cannot be read: %v", m.Generation, err)
+		w.model.mu.Unlock()
+		return
+	}
+	w.model.restore(at, key, marks)
 }
 
 // restart starts the next incarnation from the owner directory and the store.
 func (w *world) restart() {
-	w.restored()
 	w.mu.Lock()
+	w.markUnjudged() // judged at each key's reopen stamp (reopened)
 	w.incs++
 	n := w.incs
 	w.mu.Unlock()
@@ -414,12 +467,12 @@ func (w *world) incarnation() uint64 {
 }
 
 // lands decides whether a late publish of incarnation tag still lands: always while it lives; after its crash
-// only with Config.Zombies (a dead process's in-flight PUT that S3 completes anyway).
+// too unless Config.NoZombies (a dead process's in-flight PUT that S3 completes anyway).
 func (w *world) lands(tag uint64) bool {
 	if a := w.current(); a != nil && uint64(a.n) == tag {
 		return true
 	}
-	if w.s.Zombies {
+	if !w.s.NoZombies {
 		w.tr.add("sim", "a dead process's publish lands")
 		return true
 	}
@@ -474,7 +527,7 @@ func (w *world) passivate(key string) {
 		return
 	}
 	if err == nil {
-		w.model.durable(key, start)
+		w.durable(key, start)
 	}
 	w.tr.add("c/"+key, "passivate -> %s", errClass(err))
 }

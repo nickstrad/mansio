@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("87\xef7\xef7\xef7\xef7\xef7\xef7\xef7\xef7\xef7(8000000000000")

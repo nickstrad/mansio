@@ -765,3 +765,12 @@ Branch `ir/04b-durability`. Details: `docs/knowledge/ir/2026-11-06-ir-4b-durabil
 - **sqlitedsn:** `ReadOnly(path, immutable, pragmas...)` (`mode=ro`, `immutable=1`).
 - e2e: `tests/e2e/platform/durable.ts` (`startDurableAgent`, `dbtool`, `s3Store`), separate from
   `startGoAgent`; `e2e-linux.sh go` starts SeaweedFS and builds dbtool.
+## 2026-11-06 00:13 — dst-1: restart zombie publishes fixed (fix/restart-zombie)
+
+- **owner:** `Reconcile` re-stamps every `EvReopen` key at its own epoch before opening it (stamp fails ⇒ stays
+  closed, retry). No epoch bump, no placement write.
+- **durable:** `Manifest.Seal` (json `seal`, omitempty) rises on every stamp; `Stamp` at the stored epoch is no
+  longer a no-op: always a new version. `Same` compares `Seal`. `WriteBack.Stamp` implementations must keep this.
+- **sim:** `Config.Zombies` replaced by `Config.NoZombies` (zombies land by default); env `MANSIO_SIM_ZOMBIES`
+  removed. Seeds 180/232 pass.
+- Note: `knowledge/fencing/2026-11-06-reopen-restamp.md`.

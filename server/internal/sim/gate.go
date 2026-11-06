@@ -3,7 +3,9 @@ package sim
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/nickstrad/mansio/server/internal/durable"
@@ -30,6 +32,31 @@ type gatedStore struct {
 	s    durable.Store
 	tr   *trace
 	keys []string // to name the database a generation object belongs to
+	// applied, if set, is asked after each manifest read or publish while the process lives, with the
+	// manifests this process sent for the key; true forgets them.
+	applied func(key string, sent []durable.Manifest) bool
+	sent    *sentLog
+}
+
+// sentLog is what an incarnation published, per key, until applied says it is done with it.
+type sentLog struct {
+	mu sync.Mutex
+	m  map[string][]durable.Manifest
+}
+
+// check asks applied about key. pre: the process is alive.
+func (s gatedStore) check(key string) {
+	if s.applied == nil {
+		return
+	}
+	s.sent.mu.Lock()
+	sent := slices.Clone(s.sent.m[key])
+	s.sent.mu.Unlock()
+	if len(sent) > 0 && s.applied(key, sent) {
+		s.sent.mu.Lock()
+		delete(s.sent.m, key)
+		s.sent.mu.Unlock()
+	}
 }
 
 var _ durable.Store = gatedStore{}
@@ -47,6 +74,9 @@ func (s gatedStore) do(key, op string, fn func() error) error {
 
 func (s gatedStore) ReadManifest(ctx context.Context, key string) (m durable.Manifest, v durable.Version, err error) {
 	err = s.do(key, "manifest.read", func() error { m, v, err = s.s.ReadManifest(ctx, key); return err })
+	if s.g.alive() {
+		s.check(key)
+	}
 	return m, v, err
 }
 
@@ -71,7 +101,15 @@ func (s gatedStore) FetchGeneration(ctx context.Context, m durable.Manifest, pat
 }
 
 func (s gatedStore) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (v durable.Version, err error) {
+	if s.applied != nil {
+		s.sent.mu.Lock()
+		s.sent.m[m.Key] = append(s.sent.m[m.Key], m)
+		s.sent.mu.Unlock()
+	}
 	err = s.do(m.Key, "manifest.publish", func() error { v, err = s.s.PublishManifest(ctx, m, prev); return err })
+	if s.g.alive() {
+		s.check(m.Key)
+	}
 	return v, err
 }
 

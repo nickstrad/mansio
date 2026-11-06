@@ -542,8 +542,9 @@ func (t *Table) fencedResult(ctx context.Context, s *slot, l Local) (Ack, error)
 	return Ack{Key: s.key, Epoch: l.Epoch, Gen: l.Gen}, nil
 }
 
-// Reconcile settles a key loaded as Closed with the authority (reconcile table) and storage: reopen it, keep
-// it stopped for a move in progress, or fence it. If either cannot be read, the key stays Closed.
+// Reconcile settles a key loaded as Closed with the authority (reconcile table) and storage: reopen it (after
+// re-stamping the manifest at the local epoch), keep it stopped for a move in progress, or fence it. If either
+// cannot be read, or the reopen stamp fails, the key stays Closed.
 // Keys in any other state are left alone.
 //
 //	post: err != nil ⇒ the key admits nothing
@@ -581,6 +582,16 @@ func (t *Table) Reconcile(ctx context.Context, key string) error {
 			return errs.Wrap(module, fmt.Errorf("%w: %w", ErrUnavailable, err), "cannot reconcile %q: manifest unreadable; stays closed, safe to retry", key)
 		case m.Epoch > l.Epoch:
 			ev = Event{Kind: EvSupersede}
+		}
+	}
+	if ev.Kind == EvReopen {
+		// Re-stamp at our own epoch before admitting anything: the stamp is a new manifest version, so every
+		// publish the crashed incarnation still has in flight (conditional on an older version) fails, and one
+		// that landed already is the generation we start from. Without it such a publish could land after we
+		// read the manifest, and our next publish would take it for another writer's (DST-1, zombie
+		// publishes). Conditional and fenced like any stamp: a higher stored epoch refuses it.
+		if _, err := t.stamp(ctx, key, Place{Owner: t.cfg.Self, Epoch: l.Epoch, Gen: l.Gen, State: PlaceActive}); err != nil {
+			return errs.Wrap(module, err, "cannot reconcile %q: the reopen stamp failed; stays closed, safe to retry", key)
 		}
 	}
 	if ev.Kind == EvSupersede {
