@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
@@ -26,7 +27,10 @@ type Fetcher struct {
 	calls   map[string]int
 
 	Down  bool          // every Fetch fails with ErrInjected
-	Delay time.Duration // each Fetch sleeps this long first (or until ctx ends)
+	Delay time.Duration // each Fetch sleeps this long first (or until ctx ends), on Clock
+	// Clock is the time Delay waits on and timings read (nil: real time). Set it before the first Fetch; a
+	// simulation passes its manual clock so a slow fetch ends in simulated time.
+	Clock det.Clock
 	// Hold, if set, makes each Fetch wait for a receive from it (or until ctx ends) before answering: a fetch
 	// stays in flight until the test lets it go.
 	Hold chan struct{}
@@ -69,12 +73,12 @@ func (f *Fetcher) TotalCalls() int {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, error) {
-	t0 := time.Now()
 	f.mu.Lock()
 	f.calls[key]++
 	data, ok := f.objects[key]
-	down, delay, hold := f.Down, f.Delay, f.Hold
+	down, delay, hold, clk := f.Down, f.Delay, f.Hold, det.Or(f.Clock)
 	f.mu.Unlock()
+	t0 := clk.Now()
 	if hold != nil {
 		select {
 		case <-hold:
@@ -84,10 +88,8 @@ func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, 
 	}
 
 	if delay > 0 {
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			return vactor.Fetched{}, ctx.Err()
+		if err := det.Sleep(ctx, clk, delay); err != nil {
+			return vactor.Fetched{}, err
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -99,7 +101,7 @@ func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, 
 	if !ok {
 		return vactor.Fetched{}, fmt.Errorf("fetch %s: %w", key, vactor.ErrNotFound)
 	}
-	ttfb := time.Since(t0)
+	ttfb := det.Since(clk, t0)
 	tmp := path + ".part"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		os.Remove(tmp)
@@ -109,7 +111,7 @@ func (f *Fetcher) Fetch(ctx context.Context, key, path string) (vactor.Fetched, 
 		os.Remove(tmp)
 		return vactor.Fetched{}, err
 	}
-	return vactor.Fetched{Bytes: int64(len(data)), TTFB: ttfb, Total: time.Since(t0)}, nil
+	return vactor.Fetched{Bytes: int64(len(data)), TTFB: ttfb, Total: det.Since(clk, t0)}, nil
 }
 
 // Opener opens fake databases over existing files and counts opens and closes.
