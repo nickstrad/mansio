@@ -76,6 +76,15 @@ etc. The event loop: run every runnable goroutine to quiescence (or step them ex
 - `cmd/` wiring: controld's ticket-key generation (`cmd/controld/signing.go`, `crypto/rand`) and rotation
   timer, agentd's startup reconcile loop (`cmd/agentd/startup.go`, global PCG seed) and probes. DST-2 must lift
   the controld issuer loop into a package (rotation itself, `keys.rotate(now)`, already takes `now`).
+- Not linted and on real time: `durabletest` (the fake store DST-1 will use: `Faults.Delay`/`Hang`,
+  `time.Now` stamps) and `placement/file` (poll loop). Lint them, or give them a `det.Clock`, before DST-1 relies
+  on them.
+- Map iteration order is randomized by the runtime and not covered by the lint: any decision that ranges over a
+  map (plans, sweeps, reports) must sort keys first to replay from a seed.
+- `dettest.Clock` fixes (2026-11-05 review): Advance never moves time back (re-entrant or concurrent calls),
+  tickers coalesce big jumps, contexts derived from an ended clock context propagate asynchronously (no
+  deadlock in the context package), an ended parent wins over a past deadline; the lint also rejects dot/blank
+  imports of covered packages and versioned uuid paths.
 - Adapters kept on real time: `placement/pg` (has its own `Config.Now`), `placement/file` (poll), `objstore`
   retry jitter, `control/agenthttp`. DST-2 uses a placement fake, not these.
 

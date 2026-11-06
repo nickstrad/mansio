@@ -39,6 +39,10 @@ func (c *Clock) Now() time.Time {
 }
 
 // Advance moves the clock forward by d, firing every timer due by then. pre: d >= 0
+//
+// Time never moves backwards: a callback that advances the clock further (re-entrant Advance) or another
+// goroutine's Advance may leave it past this call's target. Concurrent calls are not additive: each leaves the
+// clock at or after its own target.
 func (c *Clock) Advance(d time.Duration) {
 	c.mu.Lock()
 	target := c.now.Add(d)
@@ -46,7 +50,9 @@ func (c *Clock) Advance(d time.Duration) {
 	for {
 		c.mu.Lock()
 		if len(c.timers) == 0 || c.timers[0].when.After(target) {
-			c.now = target
+			if target.After(c.now) {
+				c.now = target
+			}
 			c.mu.Unlock()
 			return
 		}
@@ -55,7 +61,12 @@ func (c *Clock) Advance(d time.Duration) {
 			c.now = t.when
 		}
 		if t.period > 0 {
+			// Coalesce like time.Ticker: ticks nobody could receive during one jump are dropped, so the next
+			// is the last period multiple at or before target (or the next one after it).
 			t.when = t.when.Add(t.period)
+			if !t.when.After(target) {
+				t.when = t.when.Add(target.Sub(t.when) / t.period * t.period)
+			}
 			c.push(t)
 		}
 		now, f := c.now, t.f
@@ -145,6 +156,10 @@ func (c *Clock) WithDeadlineCause(parent context.Context, t time.Time, cause err
 	inner, cancelInner := context.WithCancelCause(context.WithoutCancel(parent))
 	d := &deadlineCtx{inner: inner, cancelInner: cancelInner, deadline: t, done: make(chan struct{})}
 	cancel := func() { d.end(context.Canceled, context.Canceled) }
+	if err := parent.Err(); err != nil { // an ended parent wins, as in the context package
+		d.end(err, context.Cause(parent))
+		return d, cancel
+	}
 	if !t.After(c.Now()) {
 		d.end(context.DeadlineExceeded, cause)
 		return d, cancel
@@ -152,7 +167,7 @@ func (c *Clock) WithDeadlineCause(parent context.Context, t time.Time, cause err
 	if parent.Done() != nil {
 		var stop func() bool
 		if p, ok := parent.(*deadlineCtx); ok {
-			stop = p.AfterFunc(func() { d.end(p.Err(), context.Cause(p)) })
+			stop = p.afterFunc(func() { d.end(p.Err(), context.Cause(p)) }, false)
 		} else {
 			stop = context.AfterFunc(parent, func() { d.end(parent.Err(), context.Cause(parent)) })
 		}
@@ -187,13 +202,22 @@ func (d *deadlineCtx) Err() error {
 	return d.err
 }
 
-// AfterFunc runs f once d ends (at once if it has); stop unregisters f. The context package calls it to
-// propagate d's end to derived contexts.
-func (d *deadlineCtx) AfterFunc(f func()) (stop func() bool) {
+// AfterFunc runs f once d ends (in its own goroutine if d has ended already); stop unregisters f. The context
+// package calls it, holding the derived context's lock, to propagate d's end to derived contexts: f must not
+// run on the caller's goroutine then, or it would deadlock on that lock.
+func (d *deadlineCtx) AfterFunc(f func()) (stop func() bool) { return d.afterFunc(f, true) }
+
+// afterFunc is AfterFunc; with async false an already-ended d runs f on the caller's goroutine (for callers
+// that hold no lock f takes).
+func (d *deadlineCtx) afterFunc(f func(), async bool) (stop func() bool) {
 	d.mu.Lock()
 	if d.err != nil {
 		d.mu.Unlock()
-		f()
+		if async {
+			go f()
+		} else {
+			f()
+		}
 		return func() bool { return false }
 	}
 	p := &f

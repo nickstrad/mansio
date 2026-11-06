@@ -35,6 +35,10 @@ func (c *clock) Add(d time.Duration) { c.Advance(d) }
 
 // shifted is the system clock moved forward by Add: real timers, deadlines and timings, plus jumps past a
 // backoff or an idle age. For tests whose stores or networks take real time.
+//
+// Its contexts' deadlines are real (unshifted) instants, so ctx.Deadline() is not comparable with its Now().
+// That is harmless here: vactor and its fakes never compare a ctx deadline with the clock; they only wait on
+// ctx.Done(), which fires after the right duration.
 type shifted struct {
 	det.Clock
 	off atomic.Int64

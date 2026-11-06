@@ -40,6 +40,28 @@ var allowed = map[string]string{
 	"front/http.go: time.Now": "net.Conn read/write deadlines are wall-clock instants (the HTTP adapter half of front)",
 }
 
+// sensitive reports whether an import path is one the rules cover (so it may not be dot- or blank-imported,
+// which would hide its uses from the selector check).
+func sensitive(path string) bool {
+	switch path {
+	case "time", "context", "math/rand", "math/rand/v2", "crypto/rand":
+		return true
+	}
+	return isUUID(path)
+}
+
+// isUUID matches any uuid package, versioned or not (github.com/google/uuid, github.com/gofrs/uuid/v5).
+func isUUID(path string) bool { return pkgBase(path) == "uuid" }
+
+// pkgBase is the import path's last element, skipping a major-version suffix (/v2, /v5).
+func pkgBase(path string) string {
+	base := filepath.Base(path)
+	if len(base) > 1 && base[0] == 'v' && strings.Trim(base[1:], "0123456789") == "" {
+		base = filepath.Base(filepath.Dir(path))
+	}
+	return base
+}
+
 // banned reports whether a use of name from the package imported as path is banned, and why.
 func banned(path, name string) (string, bool) {
 	switch {
@@ -61,7 +83,7 @@ func banned(path, name string) (string, bool) {
 		return "global random generator: use det.Rand", true
 	case path == "crypto/rand":
 		return "entropy: use det.Rand or det.IDGen", true
-	case strings.HasSuffix(path, "/uuid"):
+	case isUUID(path):
 		return "generated ids: use det.IDGen", true
 	}
 	return "", false
@@ -119,18 +141,20 @@ func bannedUses(t *testing.T, file string) []use {
 		t.Fatalf("parse %s: %v", file, err)
 	}
 	imports := map[string]string{} // local name → import path
+	var out []use
 	for _, im := range f.Imports {
 		path, _ := strconv.Unquote(im.Path.Value)
-		name := filepath.Base(path)
-		if path == "math/rand/v2" {
-			name = "rand"
-		}
+		name := pkgBase(path)
 		if im.Name != nil {
 			name = im.Name.Name
 		}
+		if (name == "." || name == "_") && sensitive(path) {
+			out = append(out, use{sel: name + ` "` + path + `"`, why: "dot or blank import hides uses from this check",
+				line: fset.Position(im.Pos()).Line})
+			continue
+		}
 		imports[name] = path
 	}
-	var out []use
 	ast.Inspect(f, func(n ast.Node) bool {
 		sel, ok := n.(*ast.SelectorExpr)
 		if !ok {
@@ -163,6 +187,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	uuid5 "github.com/gofrs/uuid/v5"
+	. "time"
+	_ "crypto/rand"
 )
 
 func f(ctx context.Context) {
@@ -174,6 +201,8 @@ func f(ctx context.Context) {
 	_ = rand.New(rand.NewPCG(1, 2)) // allowed: explicit source
 	_, _ = crand.Read(nil)
 	_ = uuid.New()
+	_ = uuid5.Must(uuid5.NewV7())
+	_ = Now()
 	var d time.Duration = time.Second // allowed: not a clock read
 	_ = d
 }
@@ -186,7 +215,7 @@ func f(ctx context.Context) {
 	for _, u := range bannedUses(t, file) {
 		got = append(got, u.sel)
 	}
-	want := []string{"time.Now", "time.Since", "time.After", "context.WithTimeout", "rand.IntN", "crand.Read", "uuid.New"}
+	want := []string{`. "time"`, `_ "crypto/rand"`, "time.Now", "time.Since", "time.After", "context.WithTimeout", "rand.IntN", "crand.Read", "uuid.New", "uuid5.Must", "uuid5.NewV7"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("found %v, want %v", got, want)
 	}

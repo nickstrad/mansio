@@ -3,6 +3,8 @@ package dettest_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,5 +171,113 @@ func TestDeadlineContext(t *testing.T) {
 	defer cancel3()
 	if !errors.Is(past.Err(), context.DeadlineExceeded) {
 		t.Fatalf("past deadline err %v", past.Err())
+	}
+}
+
+// A callback that advances the clock further leaves it there: the outer Advance never moves time back.
+func TestReentrantAdvanceNeverMovesBack(t *testing.T) {
+	clk := dettest.NewClock(t0)
+	clk.AfterFunc(time.Second, func() { clk.Advance(10 * time.Second) })
+	clk.Advance(2 * time.Second)
+	if got := clk.Now(); !got.Equal(t0.Add(11 * time.Second)) {
+		t.Fatalf("Now = %v, want t0+11s", got.Sub(t0))
+	}
+}
+
+// Concurrent Advance calls: time only moves forward, every due timer fires, and the clock ends at or past the
+// furthest target.
+func TestConcurrentAdvanceIsMonotonic(t *testing.T) {
+	clk := dettest.NewClock(t0)
+	const n = 200
+	var fired sync.WaitGroup
+	fired.Add(n)
+	for i := range n {
+		clk.AfterFunc(time.Duration(i)*time.Millisecond, fired.Done)
+	}
+	var wg sync.WaitGroup
+	var back atomic.Bool
+	for range 4 {
+		wg.Go(func() {
+			prev := clk.Now()
+			for range 100 {
+				clk.Advance(time.Millisecond)
+				if now := clk.Now(); now.Before(prev) {
+					back.Store(true)
+				} else {
+					prev = now
+				}
+			}
+		})
+	}
+	wg.Wait()
+	fired.Wait()
+	if back.Load() || clk.Now().Before(t0.Add(100*time.Millisecond)) || clk.Pending() != 0 {
+		t.Fatalf("back %v, now t0+%v, pending %d", back.Load(), clk.Now().Sub(t0), clk.Pending())
+	}
+}
+
+// A big jump with a fast ticker costs one tick, not one per period (coalesced like time.Ticker).
+func TestTickerCoalescesBigJumps(t *testing.T) {
+	clk := dettest.NewClock(t0)
+	tk := clk.NewTicker(time.Millisecond)
+	start := time.Now()
+	clk.Advance(24*time.Hour + 500*time.Microsecond)
+	if el := time.Since(start); el > time.Second {
+		t.Fatalf("Advance(24h) with a 1 ms ticker took %v", el)
+	}
+	if v, ok := fired(tk.C()); !ok || !v.Equal(t0.Add(time.Millisecond)) {
+		t.Fatalf("first tick %v %v: want t0+1ms (later ones in the jump dropped)", v, ok)
+	}
+	if next, _ := clk.Next(); !next.Equal(t0.Add(24*time.Hour + time.Millisecond)) {
+		t.Fatalf("next tick at t0+%v, want t0+24h+1ms", next.Sub(t0))
+	}
+	clk.Advance(time.Millisecond)
+	if v, ok := fired(tk.C()); !ok || !v.Equal(t0.Add(24*time.Hour+time.Millisecond)) {
+		t.Fatalf("tick after the jump: %v %v", v, ok)
+	}
+}
+
+// A context derived with the context package from an already-ended clock context, racing with Advance, does
+// not deadlock (the context package calls AfterFunc holding the child's lock) and gets the deadline error.
+func TestDerivedContextRacingWithAdvance(t *testing.T) {
+	for range 200 {
+		clk := dettest.NewClock(t0)
+		ctx, cancel := det.WithTimeout(context.Background(), clk, time.Millisecond)
+		go clk.Advance(time.Millisecond)
+		child, cancelChild := context.WithCancel(ctx)
+		select {
+		case <-child.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("derived context never ended: deadlock in AfterFunc")
+		}
+		if !errors.Is(child.Err(), context.DeadlineExceeded) {
+			t.Fatalf("child err %v", child.Err())
+		}
+		cancelChild()
+		cancel()
+	}
+	// Derived after the end: AfterFunc runs the propagation asynchronously.
+	clk := dettest.NewClock(t0)
+	ctx, cancel := det.WithTimeout(context.Background(), clk, time.Millisecond)
+	defer cancel()
+	clk.Advance(time.Millisecond)
+	child, cancelChild := context.WithCancel(ctx)
+	defer cancelChild()
+	<-child.Done()
+	if !errors.Is(child.Err(), context.DeadlineExceeded) {
+		t.Fatalf("late child err %v", child.Err())
+	}
+}
+
+// A past deadline under an ended parent reports the parent's error and cause, as the context package does.
+func TestEndedParentWinsOverPastDeadline(t *testing.T) {
+	clk := dettest.NewClock(t0)
+	why := errors.New("parent gone")
+	parent, cancelParent := context.WithCancelCause(context.Background())
+	cancelParent(why)
+	ctx, cancel := det.WithDeadline(parent, clk, t0.Add(-time.Second))
+	defer cancel()
+	if !errors.Is(ctx.Err(), context.Canceled) || context.Cause(ctx) != why {
+		t.Fatalf("err %v cause %v", ctx.Err(), context.Cause(ctx))
 	}
 }
