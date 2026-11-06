@@ -557,6 +557,8 @@ export function makeStorageTest(
     };
 
     const service: StorageService = {
+      // The in-memory double has no IR executor; `/v1/ops` is tested against real SQLite.
+      ir: () => Effect.dieMessage("StorageTest does not run IR requests"),
       mutation: (definition: AnyDefinition, args: unknown) =>
         definition.kind !== "mutation" ? Effect.die(new Error("Expected a mutation")) : exclusive(
           transaction((tx) => {

@@ -10,6 +10,7 @@
  * ```text
  * GET  /health                                       handlers.health
  * POST /apps/:appId/(query|mutation)/:name           handlers.invoke      name: [A-Za-z][A-Za-z0-9_]*
+ * POST /apps/:appId/v1/ops                           handlers.ops         IR protocol v1 (IR-3 shim)
  * POST /admin/backup/:appId                          handlers.backup
  * POST /admin/logs/ingest                            handlers.ingestLogs
  * POST /admin/logs/analysis/:name                    handlers.analysis    name: [A-Za-z][A-Za-z0-9_-]*
@@ -53,6 +54,7 @@ import {
   toHttpStatus,
 } from "../../core/errors.ts";
 import { fromPlatformError, httpEvent, type Level } from "../../core/events.ts";
+import { MAX_BODY_BYTES } from "../../core/ir/types.ts";
 import { Config, EventSink, IdGen } from "../services.ts";
 import { withAuthDatabase } from "../auth/service.ts";
 import * as handlers from "./handlers.ts";
@@ -66,6 +68,7 @@ export const TRACE_HEADER = "x-trace-id";
 
 const TRACE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const APP_ROUTE = /^\/apps\/([^/]+)\/(query|mutation)\/([A-Za-z][A-Za-z0-9_]*)$/;
+const OPS_ROUTE = /^\/apps\/([^/]+)\/v1\/ops$/;
 const BACKUP_ROUTE = /^\/admin\/backup\/([^/]+)$/;
 const ANALYSIS_ROUTE = /^\/admin\/logs\/analysis\/([A-Za-z][A-Za-z0-9_-]*)$/;
 
@@ -102,6 +105,16 @@ export function matchRoute(method: string, path: string): Option.Option<Route> {
     return Option.none();
   }
   if (method !== "POST") return Option.none();
+  const ops = path.match(OPS_ROUTE);
+  if (ops) {
+    const appId = ops[1];
+    return Option.some({
+      handlerKind: "mutation",
+      name: "v1.ops",
+      appId,
+      run: (context) => handlers.ops(context, appId),
+    });
+  }
   const app = path.match(APP_ROUTE);
   if (app) {
     const [, appId, kind, name] = app;
@@ -143,19 +156,19 @@ export function matchRoute(method: string, path: string): Option.Option<Route> {
 // ===========================================================================
 
 /**
- * Reads `request`'s body under `limit` bytes and parses it as JSON. An absent or empty body is `{}`.
- * Crossing the cap cancels the stream (the rest is never read) and fails `RequestTooLarge`;
- * malformed JSON fails `SchemaError`. `counted` is told every byte read, for the `http` event.
+ * Reads `request`'s body under `limit` bytes. An absent body is empty. Crossing the cap cancels the
+ * stream (the rest is never read) and fails `RequestTooLarge`. `counted` is told every byte read, for
+ * the `http` event.
  */
-export function readJsonBody(
+export function readBodyBytes(
   request: Request,
   limit: number,
   counted: (bytes: number) => void,
-): Effect.Effect<unknown, RequestTooLarge | SchemaError> {
+): Effect.Effect<Uint8Array, RequestTooLarge> {
   return Effect.gen(function* () {
     const body = request.body;
-    if (!body) return {};
-    const bytes = yield* Effect.acquireUseRelease(
+    if (!body) return new Uint8Array();
+    return yield* Effect.acquireUseRelease(
       Effect.sync(() => body.getReader()),
       (reader) =>
         Effect.gen(function* () {
@@ -182,13 +195,33 @@ export function readJsonBody(
         }),
       (reader) => Effect.sync(() => reader.releaseLock()),
     );
-    const text = new TextDecoder().decode(bytes);
+  });
+}
+
+/**
+ * Parses a body as JSON: `readBodyBytes`, then malformed JSON fails `SchemaError`. An absent or empty
+ * body is `{}`.
+ */
+export function parseJsonBody<E>(
+  bytes: Effect.Effect<Uint8Array, E>,
+): Effect.Effect<unknown, E | SchemaError> {
+  return Effect.gen(function* () {
+    const text = new TextDecoder().decode(yield* bytes);
     if (text.trim() === "") return {};
     return yield* Effect.try({
       try: (): unknown => JSON.parse(text),
       catch: () => new SchemaError({ reason: "type-mismatch", path: "body", expected: "JSON" }),
     });
   });
+}
+
+/** `readBodyBytes` then `parseJsonBody`. */
+export function readJsonBody(
+  request: Request,
+  limit: number,
+  counted: (bytes: number) => void,
+): Effect.Effect<unknown, RequestTooLarge | SchemaError> {
+  return parseJsonBody(readBodyBytes(request, limit, counted));
 }
 
 // ===========================================================================
@@ -252,6 +285,9 @@ interface Outcome {
   readonly body: unknown;
   readonly error?: AnyError;
   readonly defect?: Cause.Cause<never>;
+  /** A `RawReply`'s error tag and extra headers. */
+  readonly tag?: string;
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 function levelOf(status: number): Level {
@@ -333,10 +369,13 @@ export function handle(request: Request): Effect.Effect<Response, never, RouterR
       }));
       return response;
     }
-    const body = yield* Effect.cached(
-      readJsonBody(request, config.server.maxRequestBytes, (n) => void (bytesIn += n)),
-    );
-    const context: RequestContext = { headers: request.headers, body };
+    // The ops route reads at most the IR body cap, whatever the HTTP surface allows (spec §3).
+    const limit = Option.getOrUndefined(route)?.name === "v1.ops"
+      ? MAX_BODY_BYTES
+      : config.server.maxRequestBytes;
+    const bytes = yield* Effect.cached(readBodyBytes(request, limit, (n) => void (bytesIn += n)));
+    const body = yield* Effect.cached(parseJsonBody(bytes));
+    const context: RequestContext = { headers: request.headers, body, bytes };
 
     const run: Handler = Option.match(route, {
       onNone: () => Effect.fail(new RouteNotFound({ method: request.method, path })),
@@ -344,7 +383,11 @@ export function handle(request: Request): Effect.Effect<Response, never, RouterR
     });
 
     const outcome: Outcome = yield* run.pipe(
-      Effect.map((result): Outcome => ({ status: 200, body: { result } })),
+      Effect.map((result): Outcome =>
+        result instanceof handlers.RawReply
+          ? { status: result.status, body: result.body, tag: result.tag, headers: result.headers }
+          : { status: 200, body: { result } }
+      ),
       Effect.catchAll((error) => {
         const status = toHttpStatus(error);
         return Effect.succeed<Outcome>({
@@ -371,6 +414,8 @@ export function handle(request: Request): Effect.Effect<Response, never, RouterR
       ? fromPlatformError(outcome.error)
       : outcome.defect
       ? { errorTag: "Defect", errorDetail: { message: Cause.pretty(outcome.defect).split("\n")[0] } }
+      : outcome.tag
+      ? { errorTag: outcome.tag, errorDetail: (outcome.body as { error?: unknown }).error }
       : undefined;
     yield* (yield* EventSink).emit(httpEvent({
       eventId: yield* (yield* IdGen).next,
@@ -394,7 +439,7 @@ export function handle(request: Request): Effect.Effect<Response, never, RouterR
 
     return new Response(text, {
       status: outcome.status,
-      headers: { "content-type": "application/json", [TRACE_HEADER]: traceId },
+      headers: { "content-type": "application/json", [TRACE_HEADER]: traceId, ...outcome.headers },
     });
   });
 }

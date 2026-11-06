@@ -11,8 +11,11 @@
  * per request: every `_creationTime` and the request-id row's `applied_ms` share that reading) and
  * `IdGen` (drawn once per insert without a client id, in op order). Nothing else is random or timed.
  *
- * Statements run on the binding's blocking path and emit no events: the reference executor has no
- * deadline, queue or event sink. Integrating those is `Storage`'s job when IR-3 wires this in.
+ * The rules are `runRequest`, which runs one request on any `IrConnection` inside a transaction the
+ * caller opened. Two connections exist: `openIrDatabase`'s own (the vector oracle: statements on the
+ * binding's blocking path, no events, no deadline or queue), and the Deno writer's (`platform/sqlite.ts`
+ * `Storage.ir`, the `/v1/ops` shim of IR-3), whose statements go through the writer queue, emit `sql`/`tx`
+ * events and run unbounded selects under the statement deadline.
  */
 import { Clock, Effect, type Scope } from "effect";
 import { NotFoundError, SchemaDriftError, type SchemaError, StorageError } from "../../core/errors.ts";
@@ -63,6 +66,153 @@ export function sha256Fingerprint(text: string): Effect.Effect<string> {
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
     return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
   });
+}
+
+/**
+ * What `runRequest` needs from a connection, inside a transaction its caller opened. `select` compiles,
+ * checks the text storage contract of filter values, runs and decodes; `write` runs one compiled write;
+ * `requests` runs a statement on `_mansio_requests` (the duplicate lookup and the record).
+ */
+export interface IrConnection {
+  readonly select: (plan: SelectPlan) => Effect.Effect<unknown, IrCause>;
+  readonly write: (
+    kind: "insert" | "update" | "delete",
+    table: string,
+    sql: SQL,
+  ) => Effect.Effect<void, IrCause>;
+  readonly requests: (sql: RequestSql) => Effect.Effect<readonly Row[], StorageError>;
+}
+
+/** A statement on `_mansio_requests`: its binds include the result blob, which `SQL` does not carry. */
+export type RequestSql = {
+  readonly text: string;
+  readonly values: readonly (string | number | Uint8Array)[];
+};
+
+/**
+ * Runs `request` on `connection` (spec §6–§7), already inside its transaction and after the fingerprint
+ * check: a query's operations, or a mutation answered from `_mansio_requests` when its id was applied,
+ * otherwise run and recorded. `now` is the request's one clock reading. Every failure is an `IrFailure`
+ * (with `op` when it belongs to one operation); the caller rolls back on any of them.
+ */
+export function runRequest(
+  schema: Schema,
+  connection: IrConnection,
+  request: Request,
+  now: number,
+): Effect.Effect<Response, IrFailure, IdGen> {
+  /** The current document, or `null`. */
+  const load = (table: string, id: string) =>
+    Effect.map(
+      connection.select({
+        kind: "select",
+        table,
+        filters: [{ field: "_id", op: "eq", value: id }],
+        limit: 1,
+      }),
+      (rows) => (rows as Doc[])[0] ?? null,
+    );
+
+  /** One operation; `ids[i]` is insert `i`'s `_id`. */
+  const step = (op: Op, ids: (string | undefined)[]): Effect.Effect<unknown, IrCause, IdGen> =>
+    Effect.gen(function* () {
+      const table = yield* tableFor(schema, op.table);
+      switch (op.op) {
+        case "select":
+          return yield* connection.select({
+            kind: "select",
+            table: op.table,
+            filters: op.filters.map((f) => ({ ...f, value: resolve(f.value, ids) })),
+            limit: op.limit,
+            ...(op.order ? { order: op.order } : {}),
+            ...(op.aggregate ? { aggregate: op.aggregate } : {}),
+          });
+        case "get":
+          return yield* load(op.table, resolveId(op.id, ids));
+        case "insert": {
+          const value = yield* body(table, resolve(op.value, ids), false);
+          if (op.id !== undefined && (yield* load(op.table, op.id)) !== null) {
+            return yield* new PreconditionConflict({
+              table: op.table,
+              id: op.id,
+              check: "exists",
+              expected: false,
+              actual: true,
+            });
+          }
+          const id = op.id ?? (yield* (yield* IdGen).next);
+          yield* connection.write(
+            "insert",
+            op.table,
+            yield* compileInsert(schema, op.table, value, { _id: id, _creationTime: now }),
+          );
+          return id;
+        }
+        case "patch":
+        case "delete":
+        case "assert": {
+          const id = resolveId(op.id, ids);
+          const patch = op.op === "patch" ? yield* body(table, resolve(op.value, ids), true) : undefined;
+          const doc = yield* load(op.table, id);
+          if (op.expect) {
+            yield* checkExpect(table, op.table, id, resolve(op.expect, ids) as typeof op.expect, doc);
+          }
+          if (op.op === "assert") return null;
+          if (op.op === "delete") {
+            if (doc !== null) {
+              yield* connection.write("delete", op.table, yield* compileDelete(schema, op.table, id));
+            }
+            return { deleted: doc !== null };
+          }
+          if (doc === null) return yield* new NotFoundError({ table: op.table, id });
+          const current = Object.fromEntries(Object.keys(table.fields).map((key) => [key, doc[key]]));
+          yield* connection.write(
+            "update",
+            op.table,
+            yield* compileReplace(schema, op.table, id, { ...current, ...patch }),
+          );
+          return { _version: doc._version + 1 };
+        }
+      }
+    });
+
+  const ops = Effect.gen(function* () {
+    const ids: (string | undefined)[] = [];
+    const result: unknown[] = [];
+    for (const [i, op] of request.ops.entries()) {
+      const value = yield* Effect.mapError(step(op, ids), (cause) => new IrFailure({ cause, op: i }));
+      ids.push(op.op === "insert" ? value as string : undefined);
+      result.push(value);
+    }
+    return result;
+  });
+
+  /** A mutation: answered from `_mansio_requests` when its id was applied, otherwise run and recorded. */
+  const mutation = (requestId: string) =>
+    Effect.gen(function* () {
+      const [prior] = yield* connection.requests({
+        text: "select result from _mansio_requests where request_id = ?",
+        values: [requestId],
+      });
+      if (prior) return { result: yield* decodeOutcome(prior.result), duplicate: true as const };
+      const result = yield* ops;
+      const outcome = new Uint8Array([OUTCOME_IR, ...new TextEncoder().encode(canonical(result))]);
+      yield* connection.requests({
+        text: "insert into _mansio_requests (request_id, applied_ms, result) values (?, ?, ?)",
+        values: [requestId, now, outcome],
+      });
+      return { result };
+    });
+
+  return Effect.gen(function* () {
+    // Decode guarantees this; a request built any other way is a caller bug, not a client error.
+    if (request.kind === "query" && request.ops.some((op) => !READ_OPS.includes(op.op))) {
+      return yield* Effect.dieMessage("IR executor: a query holds a non-read operation");
+    }
+    if (request.kind === "query") return { result: yield* ops };
+    // Decode guarantees a mutation carries its request id.
+    return yield* mutation(request.requestId!);
+  }).pipe(Effect.mapError((e) => e instanceof IrFailure ? e : new IrFailure({ cause: e })));
 }
 
 /**
@@ -131,128 +281,32 @@ export function openIrDatabase(
       }),
     );
 
-    /** The current document, or `null`. */
-    const load = (table: string, id: string) =>
-      Effect.gen(function* () {
-        const plan: SelectPlan = {
-          kind: "select",
-          table,
-          filters: [{ field: "_id", op: "eq", value: id }],
-          limit: 1,
-        };
-        const rows = yield* all(yield* compileSelect(schema, plan, "sqlite"), table);
-        return ((yield* decode(schema, plan, rows)) as Doc[])[0] ?? null;
-      });
-
-    /** One operation; `ids[i]` is insert `i`'s `_id`, `now` the request's clock reading. */
-    const step = (op: Op, ids: (string | undefined)[], now: number): Effect.Effect<unknown, IrCause, IdGen> =>
-      Effect.gen(function* () {
-        const table = yield* tableFor(schema, op.table);
-        switch (op.op) {
-          case "select": {
-            const plan: SelectPlan = {
-              kind: "select",
-              table: op.table,
-              filters: op.filters.map((f) => ({ ...f, value: resolve(f.value, ids) })),
-              limit: op.limit,
-              ...(op.order ? { order: op.order } : {}),
-              ...(op.aggregate ? { aggregate: op.aggregate } : {}),
-            };
-            const sql = yield* compileSelect(schema, plan, "sqlite");
-            for (const filter of plan.filters) yield* storable(filter.value, filter.field);
-            return yield* decode(schema, plan, yield* all(sql, op.table));
-          }
-          case "get":
-            return yield* load(op.table, resolveId(op.id, ids));
-          case "insert": {
-            const value = yield* body(table, resolve(op.value, ids), false);
-            if (op.id !== undefined && (yield* load(op.table, op.id)) !== null) {
-              return yield* new PreconditionConflict({
-                table: op.table,
-                id: op.id,
-                check: "exists",
-                expected: false,
-                actual: true,
-              });
-            }
-            const id = op.id ?? (yield* (yield* IdGen).next);
-            yield* run(
-              "insert",
-              yield* compileInsert(schema, op.table, value, { _id: id, _creationTime: now }),
-              op.table,
-            );
-            return id;
-          }
-          case "patch":
-          case "delete":
-          case "assert": {
-            const id = resolveId(op.id, ids);
-            const patch = op.op === "patch" ? yield* body(table, resolve(op.value, ids), true) : undefined;
-            const doc = yield* load(op.table, id);
-            if (op.expect) {
-              yield* checkExpect(table, op.table, id, resolve(op.expect, ids) as typeof op.expect, doc);
-            }
-            if (op.op === "assert") return null;
-            if (op.op === "delete") {
-              if (doc !== null) yield* run("delete", yield* compileDelete(schema, op.table, id), op.table);
-              return { deleted: doc !== null };
-            }
-            if (doc === null) return yield* new NotFoundError({ table: op.table, id });
-            const current = Object.fromEntries(Object.keys(table.fields).map((key) => [key, doc[key]]));
-            yield* run(
-              "update",
-              yield* compileReplace(schema, op.table, id, { ...current, ...patch }),
-              op.table,
-            );
-            return { _version: doc._version + 1 };
-          }
-        }
-      });
-
-    const ops = (request: Request, now: number) =>
-      Effect.gen(function* () {
-        const ids: (string | undefined)[] = [];
-        const result: unknown[] = [];
-        for (const [i, op] of request.ops.entries()) {
-          const value = yield* Effect.mapError(
-            step(op, ids, now),
-            (cause) => new IrFailure({ cause, op: i }),
-          );
-          ids.push(op.op === "insert" ? value as string : undefined);
-          result.push(value);
-        }
-        return result;
-      });
-
-    /** A mutation: answered from `_mansio_requests` when its id was applied, otherwise run and recorded. */
-    const mutation = (request: Request, requestId: string, now: number) =>
-      Effect.gen(function* () {
-        const [prior] = yield* all({
-          text: "select result from _mansio_requests where request_id = ?",
-          values: [requestId],
-        });
-        if (prior) return { result: yield* decodeOutcome(prior.result), duplicate: true as const };
-        const result = yield* ops(request, now);
-        const outcome = new Uint8Array([OUTCOME_IR, ...new TextEncoder().encode(canonical(result))]);
-        yield* attempt("insert", "_mansio_requests", () =>
-          prepareCached(db, "insert into _mansio_requests (request_id, applied_ms, result) values (?, ?, ?)")
-            .run([requestId, now, outcome]));
-        return { result };
-      });
+    const connection: IrConnection = {
+      select: (plan) =>
+        Effect.gen(function* () {
+          const sql = yield* compileSelect(schema, plan, "sqlite");
+          for (const filter of plan.filters) yield* storable(filter.value, filter.field);
+          return yield* decode(schema, plan, yield* all(sql, plan.table));
+        }),
+      write: (kind, table, sql) => Effect.asVoid(run(kind, sql, table)),
+      requests: (sql) => {
+        const statement = sql as unknown as SQL; // the blob bind is a BindValue the binding takes
+        return sql.text.startsWith("insert")
+          ? Effect.as(run("insert", statement, "_mansio_requests"), [])
+          : all(statement, "_mansio_requests");
+      },
+    };
 
     const execute = (request: Request): Effect.Effect<Response, IrFailure, IdGen> =>
       Effect.gen(function* () {
         if (request.schema !== fingerprint) {
-          return yield* new FingerprintMismatch({ expected: fingerprint, actual: request.schema });
+          return yield* new IrFailure({
+            cause: new FingerprintMismatch({ expected: fingerprint, actual: request.schema }),
+          });
         }
         const now = yield* Clock.currentTimeMillis;
-        // Decode guarantees this; a request built any other way is a caller bug, not a client error.
-        if (request.kind === "query" && request.ops.some((op) => !READ_OPS.includes(op.op))) {
-          return yield* Effect.dieMessage("IR executor: a query holds a non-read operation");
-        }
-        if (request.kind === "query") return { result: yield* transaction("BEGIN", ops(request, now)) };
-        // Decode guarantees a mutation carries its request id.
-        return yield* transaction("BEGIN IMMEDIATE", mutation(request, request.requestId!, now));
+        const begin = request.kind === "query" ? "BEGIN" : "BEGIN IMMEDIATE";
+        return yield* transaction(begin, runRequest(schema, connection, request, now));
       }).pipe(Effect.mapError((e) => e instanceof IrFailure ? e : new IrFailure({ cause: e })));
 
     return { fingerprint, execute };
