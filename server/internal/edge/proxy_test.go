@@ -437,3 +437,50 @@ func TestNewValidates(t *testing.T) {
 		}
 	}
 }
+
+// IR-5: POST /v1/ops takes the same pipeline to the same agent path, with the trace and handler headers; the
+// edge's own answers there are in the document protocol's envelope ({"error": {"tag", ...}}), which the SDK
+// reads.
+func TestOpsPathForwardedWithItsEnvelope(t *testing.T) {
+	a := newFakeAgent(t, "a", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Trace-Id", r.Header.Get("X-Trace-Id"))
+		io.WriteString(w, `{"result":[]}`)
+	})
+	f := newFixture(t, StaticRoutes{"vm-a": a.URL, "vm-down": "http://127.0.0.1:1"}, nil)
+	send := func(token string) (int, http.Header, map[string]any) {
+		req := httptest.NewRequest(http.MethodPost, front.OpsPath, strings.NewReader(`{"v":1}`))
+		req.RemoteAddr = "192.0.2.9:5555"
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Trace-Id", "trace-1")
+		req.Header.Set(front.HandlerHeader, "makeMove")
+		w := httptest.NewRecorder()
+		f.e.ServeHTTP(w, req)
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatalf("answer is not JSON: %q", w.Body.String())
+		}
+		return w.Code, w.Result().Header, out
+	}
+	code, h, out := send(f.is.mint(t, "vm-a", "db-1", time.Now(), time.Minute))
+	r := a.last.Load()
+	if code != 200 || r.URL.Path != front.OpsPath || r.Header.Get("X-Trace-Id") != "trace-1" || r.Header.Get(front.HandlerHeader) != "makeMove" ||
+		h.Get("X-Trace-Id") != "trace-1" || out["result"] == nil {
+		t.Fatalf("forwarded: %d %v %v; agent saw %s %v", code, out, h, r.URL.Path, r.Header)
+	}
+	for name, tc := range map[string]struct {
+		token  string
+		status int
+		tag    string
+	}{
+		"bad ticket": {"garbage", 401, "ticket_invalid"},
+		"unknown vm": {f.is.mint(t, "vm-x", "db-1", time.Now(), time.Minute), 421, "wrong_owner"},
+		"agent down": {f.is.mint(t, "vm-down", "db-1", time.Now(), time.Minute), 503, "unavailable"},
+	} {
+		code, _, out := send(tc.token)
+		e, _ := out["error"].(map[string]any)
+		if code != tc.status || e == nil || e["tag"] != tc.tag {
+			t.Errorf("%s: %d %v, want %d with tag %s", name, code, out, tc.status, tc.tag)
+		}
+	}
+}

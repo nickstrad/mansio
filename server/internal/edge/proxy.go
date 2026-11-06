@@ -62,7 +62,8 @@ type Config struct {
 	Clock det.Clock    // deadlines, breaker time, latency; default det.System()
 }
 
-// Edge is the proxy: an http.Handler for POST /v1/query.
+// Edge is the proxy: an http.Handler for POST /v1/query and POST /v1/ops (the document protocol, IR-5): the
+// same pipeline for both, the path kept upstream; the edge's own answers take each path's wire format.
 type Edge struct {
 	cfg    Config
 	verify chan struct{} // verify slots
@@ -76,9 +77,9 @@ type Edge struct {
 }
 
 type upstream struct {
-	base, url string
-	b         *breaker.Breaker
-	slots     chan struct{}
+	base  string // the agent's base URL; the request's path is appended
+	b     *breaker.Breaker
+	slots chan struct{}
 }
 
 // counters are the edge's request stats; all atomics (the request path takes no lock for them).
@@ -125,7 +126,7 @@ func (e *Edge) Draining() bool { return e.draining.Load() }
 // InFlight is the number of requests being handled.
 func (e *Edge) InFlight() int64 { return e.st.inFlight.Load() }
 
-// ServeHTTP handles one request: every path except POST /v1/query is answered here.
+// ServeHTTP handles one request: every path except POST /v1/query and /v1/ops is answered here.
 func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := e.cfg.Clock.Now()
 	n := e.st.inFlight.Add(1)
@@ -146,6 +147,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rc.SetReadDeadline(start.Add(e.cfg.BodyReadTimeout)) // errors: the writer cannot (a test recorder)
 	rc.SetWriteDeadline(start.Add(e.cfg.BodyReadTimeout + e.cfg.Grace))
 	if a, ok := e.handle(w, r, rc, start); !ok {
+		a.ops = r.URL.Path == front.OpsPath
 		e.answer(w, a)
 	}
 }
@@ -158,12 +160,13 @@ type answer struct {
 	msg       string
 	ambiguous bool
 	logID     string
+	ops       bool // answer in the document protocol's envelope ({"error": {"tag", "message"[, "fields"]}})
 }
 
 // handle runs the pipeline. ok means the agent's answer was relayed; otherwise a is the edge's own answer.
 func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseController, start time.Time) (a answer, ok bool) {
 	switch {
-	case r.URL.Path != front.QueryPath:
+	case r.URL.Path != front.QueryPath && r.URL.Path != front.OpsPath:
 		return answer{code: front.BadRequest, status: http.StatusNotFound, msg: "unknown path"}, false
 	case r.Method != http.MethodPost:
 		w.Header().Set("Allow", http.MethodPost)
@@ -254,11 +257,17 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 	defer cancel()
 	var wrote atomic.Bool
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) }})
-	out, err := http.NewRequestWithContext(ctx, http.MethodPost, up.url, bytes.NewReader(body))
+	url := up.base + r.URL.Path // QueryPath or OpsPath (handle checked)
+	out, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil { // the URL was validated; checked before asserting so the request path does not box arguments
-		assert.That(false, "edge: cannot build the agent request for %q: %v", up.url, err)
+		assert.That(false, "edge: cannot build the agent request for %q: %v", url, err)
 	}
 	out.Header.Set("Authorization", r.Header.Get("Authorization"))
+	for _, k := range forwardHeaders {
+		if v := r.Header.Get(k); v != "" {
+			out.Header.Set(k, v)
+		}
+	}
 	out.Header.Set("Content-Type", "application/json")
 	out.Header.Set(front.TimeoutHeader, strconv.FormatInt(max(int64((left+time.Millisecond-1)/time.Millisecond), 1), 10))
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
@@ -298,13 +307,18 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 // copyBufs are relay buffers: the h2 ResponseWriter has no ReadFrom, so io.Copy would allocate 32 KiB per answer.
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 
+// forwardHeaders are the client request headers the edge passes on besides Authorization and its own
+// X-Timeout-Ms: the document protocol's trace id and handler name (event log, IR-4c).
+var forwardHeaders = []string{"X-Trace-Id", front.HandlerHeader}
+
 // relayHeaders are the agent response headers the edge passes on (an allowlist: nothing else of the agent's
 // leaks to clients).
-var relayHeaders = []string{"Content-Type", "Retry-After", "Www-Authenticate", "Cache-Control"}
+var relayHeaders = []string{"Content-Type", "Retry-After", "Www-Authenticate", "Cache-Control", "X-Trace-Id"}
 
 // upstream returns vm's agent, creating its breaker and bulkhead on first use or when its address changed.
 func (e *Edge) upstream(vm string) (*upstream, bool) {
 	base, ok := e.cfg.Resolver.Agent(vm)
+	base = strings.TrimSuffix(base, "/")
 	e.mu.RLock()
 	u := e.ups[vm]
 	e.mu.RUnlock()
@@ -326,8 +340,7 @@ func (e *Edge) upstream(vm string) (*upstream, bool) {
 	}
 	b, err := breaker.New(bc)
 	assert.That(err == nil, "edge: breaker config was normalized in New: %v", err)
-	u = &upstream{base: base, url: strings.TrimSuffix(base, "/") + front.QueryPath, b: b,
-		slots: make(chan struct{}, e.cfg.AgentInFlight)}
+	u = &upstream{base: base, b: b, slots: make(chan struct{}, e.cfg.AgentInFlight)}
 	e.ups[vm] = u
 	return u, true
 }
@@ -365,7 +378,16 @@ func (e *Edge) answer(w http.ResponseWriter, a answer) {
 	if msg == "" {
 		msg = defaultMessage[a.code]
 	}
-	b, _ := json.Marshal(front.Response{Code: a.code, Message: msg, Ambiguous: a.ambiguous, RetryAfterMS: retry * 1000, LogID: a.logID})
+	var b []byte
+	if a.ops { // the document protocol's envelope for mansio's codes (front opsAnswer: the lowercase tag)
+		body := map[string]any{"tag": string(a.code), "message": msg}
+		if a.ambiguous {
+			body["fields"] = map[string]bool{"ambiguous": true}
+		}
+		b, _ = json.Marshal(map[string]any{"error": body})
+	} else {
+		b, _ = json.Marshal(front.Response{Code: a.code, Message: msg, Ambiguous: a.ambiguous, RetryAfterMS: retry * 1000, LogID: a.logID})
+	}
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	if retry > 0 {
