@@ -2,8 +2,10 @@ package pg
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -142,6 +144,42 @@ func TestRegistries(t *testing.T) {
 		}
 		if l.VM == "vm-c" && (l.ActiveDBs != 3 || l.HeartbeatAge > 5) {
 			t.Fatalf("Load for vm-c = %+v", l)
+		}
+	}
+}
+
+// Concurrent first creates for a new tenant all race for its default database: every create succeeds (the
+// losers of databases_one_default are re-run), exactly one database is the default. The TestGate flake (IR-5).
+func TestConcurrentFirstCreatesOfATenant(t *testing.T) {
+	p, _ := newPlacement(t, nil)
+	for round := range 5 {
+		tenant := fmt.Sprintf("race%d", round)
+		var wg sync.WaitGroup
+		errc := make(chan error, 16)
+		defaults := make(chan bool, 16)
+		for i := range 16 {
+			wg.Go(func() {
+				d, err := p.CreateDatabase(ctx, tenant, fmt.Sprintf("db%02d", i))
+				errc <- err
+				defaults <- d.Default
+			})
+		}
+		wg.Wait()
+		close(errc)
+		close(defaults)
+		for err := range errc {
+			if err != nil {
+				t.Fatalf("round %d: %v", round, err)
+			}
+		}
+		n := 0
+		for d := range defaults {
+			if d {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("round %d: %d defaults", round, n)
 		}
 	}
 }

@@ -105,8 +105,9 @@ func scanDatabase(row pgx.CollectableRow) (Database, error) {
 
 // CreateDatabase registers tenant:name in state "creating" (creating the tenant if new) and returns its row;
 // an existing row comes back unchanged, so a retried create resumes.
-// Invalid names match owner.ErrInvalid (nothing sent). Two first creates racing for one tenant's default may
-// fail ErrInvariant; a retry is safe.
+// Invalid names match owner.ErrInvalid (nothing sent). Two first creates racing for one tenant's default both
+// compute is_default = true; the loser hits databases_one_default after the winner commits, and is run again
+// here (its statement changed nothing; the second run sees the winner's default), at most defaultRetries times.
 func (p *Placement) CreateDatabase(ctx context.Context, tenant, name string) (Database, error) {
 	key := tenant + ":" + name
 	if !ValidTenant(tenant) || !ValidName(name) {
@@ -115,15 +116,22 @@ func (p *Placement) CreateDatabase(ctx context.Context, tenant, name string) (Da
 	}
 	var d Database
 	err := p.call(ctx, "register database", key, retryWrite, func(ctx context.Context) error {
-		rows, err := p.pool.Query(ctx, q.createDatabase, key, tenant, name)
-		if err != nil {
-			return err
+		for attempt := 0; ; attempt++ {
+			rows, err := p.pool.Query(ctx, q.createDatabase, key, tenant, name)
+			if err == nil {
+				d, err = pgx.CollectExactlyOneRow(rows, scanDatabase)
+			}
+			if !uniqueOn(err, "databases_one_default") || attempt == defaultRetries {
+				return err
+			}
 		}
-		d, err = pgx.CollectExactlyOneRow(rows, scanDatabase)
-		return err
 	})
 	return d, err
 }
+
+// defaultRetries bounds CreateDatabase's re-runs after losing the race for a tenant's default database (one
+// re-run settles it: the winner has committed; more only under a stream of concurrent first creates).
+const defaultRetries = 3
 
 // The registry's name domains (0002_registry.sql); TestRegistryNamesMatchTheDomains keeps them in step.
 const (
