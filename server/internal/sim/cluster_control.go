@@ -337,8 +337,9 @@ func (l lifecycleClient) Claim(ctx context.Context, key string) (owner.Local, er
 func (l lifecycleClient) Fence(ctx context.Context, key string) (owner.Ack, error) {
 	start := l.w.clk.Now()
 	v, err := l.call(ctx, "fence", key, func(c context.Context, a *cinc) (any, error) {
+		already := a.tab.State(key).State == owner.Fenced // a repeated Ack: no write-back ran now
 		ack, err := a.life.Fence(c, key)
-		if err == nil && a.g.alive() {
+		if err == nil && !already && a.g.alive() {
 			l.w.model.durable(key, start) // a fence acknowledges every admitted write as published
 		}
 		return ack, err
