@@ -470,7 +470,6 @@ func (w *cworld) createDB(name string) {
 	w.mu.Lock()
 	db.ready = true
 	w.mu.Unlock()
-	w.model.ready(key)
 	for i := range w.s.Clients {
 		c := newClient(w, db, i)
 		w.workers.Go(func() { c.run(w.bg) })
@@ -483,7 +482,7 @@ func (w *cworld) setup(ctx context.Context, db *cdb) bool {
 	c := newClient(w, db, 99)
 	rid := "setup-" + db.name
 	for {
-		a := c.send(ctx, true, rid, setupOps(db, rid))
+		a := c.send(ctx, true, rid, setupOps(rid))
 		if ctx.Err() != nil {
 			return false
 		}

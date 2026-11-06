@@ -55,9 +55,6 @@ func ShrinkCluster(cfg ClusterConfig, res ClusterResult, run func(ClusterConfig)
 				i += n
 			}
 		}
-		if n == 1 {
-			break
-		}
 	}
 	offs := []struct {
 		name string

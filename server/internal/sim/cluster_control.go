@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -164,13 +165,7 @@ func (r *registry) Load(_ context.Context, limit int) ([]control.VMLoad, error) 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []control.VMLoad
-	for _, vm := range slices.Sorted(func(yield func(string) bool) {
-		for k := range r.vms {
-			if !yield(k) {
-				return
-			}
-		}
-	}) {
+	for _, vm := range slices.Sorted(maps.Keys(r.vms)) {
 		if r.vms[vm].Dead {
 			continue
 		}

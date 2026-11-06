@@ -49,7 +49,7 @@ func logOp(rid string) map[string]any {
 	return map[string]any{"op": "insert", "table": "log", "value": map[string]any{"rid": rid}}
 }
 
-func setupOps(_ *cdb, rid string) []map[string]any {
+func setupOps(rid string) []map[string]any {
 	var ops []map[string]any
 	for i := range nRegs {
 		ops = append(ops, map[string]any{"op": "insert", "table": "registers", "id": regID(i), "value": map[string]any{"value": 0}})
@@ -83,12 +83,11 @@ func newClient(w *cworld, db *cdb, i int) *cclient {
 	return &cclient{w: w, db: db, i: i, r: stream(w.s.Seed, name), name: name}
 }
 
-// answer is a mutation's or query's final outcome as the client sees it.
+// canswer is a mutation's or query's final outcome as the client sees it.
 type canswer struct {
 	result  []json.RawMessage
 	tag     string // "" when ok
-	dup     bool
-	unknown bool // a mutation that may have applied (some attempt had no answer, or an ambiguous one)
+	unknown bool   // a mutation that may have applied (some attempt had no answer, or an ambiguous one)
 }
 
 func (a canswer) ok() bool { return a.tag == "" && !a.unknown && a.result != nil }
@@ -204,7 +203,7 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 			w.tr.add(c.name, "%s try %d -> ok%s at %s e%d", what, attempt, flag(out.Duplicate, " dup"), rt.vm, rt.epoch)
 			w.answered("ok")
 			judge(okTag(out.Duplicate))
-			return canswer{result: out.Result, dup: out.Duplicate}
+			return canswer{result: out.Result}
 		}
 		tag := out.Error.Tag
 		amb, _ := out.Error.Fields["ambiguous"].(bool)
@@ -270,7 +269,7 @@ func (w *cworld) answered(tag string) {
 func (c *cclient) run(ctx context.Context) {
 	w := c.w
 	for {
-		if det.Sleep(ctx, w.clk, time.Duration(c.r.ExpFloat64()*float64(w.s.think))) != nil {
+		if det.Sleep(ctx, w.clk, exp(c.r, w.s.think)) != nil {
 			return
 		}
 		c.n++

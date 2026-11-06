@@ -1,9 +1,9 @@
 package sim
 
 import (
+	"cmp"
 	"fmt"
-	"os"
-	"path/filepath"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -46,13 +46,15 @@ type cmark struct {
 	dup, everMaybe bool
 }
 
+// unsure: no answer to the mark's request proves it did not run.
+func (e *cmark) unsure() bool { return e.dup || e.everMaybe }
+
 // loss is a crash that lost a committed write (committed at commitAt), with what was durable then.
 type loss struct{ commitAt, tc, durableBefore time.Time }
 
 type cdbModel struct {
 	key           string
 	marks         map[string]*cmark
-	ready         bool
 	regOps        []linearize.Op[regIn, regOut]
 	bankOps       []linearize.Op[bankIn, bankOut]
 	crashes       []int64   // the owner's kills (ns since the start): segment boundaries
@@ -60,7 +62,6 @@ type cdbModel struct {
 	hasUnjudged   bool
 	durableBefore time.Time
 	gen, epoch    uint64
-	seal          uint64
 	genMarks      []string
 	epochOwner    map[uint64]string
 	lastEpoch     uint64
@@ -75,9 +76,14 @@ type cmodel struct {
 	lostOK  int
 	checked int
 	reused  int // (account, version) pairs read with two balances
+
+	objMu    sync.Mutex          // guards objMarks; not held with mu
+	objMarks map[string][]string // object name → its marks (read)
 }
 
-func newCModel(w *cworld) *cmodel { return &cmodel{w: w, dbs: map[string]*cdbModel{}} }
+func newCModel(w *cworld) *cmodel {
+	return &cmodel{w: w, dbs: map[string]*cdbModel{}, objMarks: map[string][]string{}}
+}
 
 func (m *cmodel) addDB(key string) {
 	m.mu.Lock()
@@ -89,10 +95,11 @@ func (m *cmodel) addDB(key string) {
 
 func (m *cmodel) db(key string) *cdbModel { return m.dbs[key] } // pre: m.mu held
 
-func (m *cmodel) ready(key string) {
+// keys lists the databases, sorted.
+func (m *cmodel) keys() []string {
 	m.mu.Lock()
-	m.db(key).ready = true
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	return slices.Sorted(maps.Keys(m.dbs))
 }
 
 // violate records a violation. pre: m.mu held
@@ -152,8 +159,7 @@ func (m *cmodel) duplicated(key, rid string) {
 func (m *cmodel) uncertain(key, rid string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	e := m.mark(key, rid)
-	return e.dup || e.everMaybe
+	return m.mark(key, rid).unsure()
 }
 
 // retryable tags: the attempt did nothing, the client tries again.
@@ -171,7 +177,7 @@ func (m *cmodel) answer(key, rid, tag string) {
 	e := m.mark(key, rid)
 	now := m.w.clk.Now()
 	raise := func(to status) {
-		if (e.dup || e.everMaybe) && to == none {
+		if e.unsure() && to == none {
 			to = maybe
 		}
 		e.everMaybe = e.everMaybe || to == maybe
@@ -196,7 +202,7 @@ func (m *cmodel) answer(key, rid, tag string) {
 	case tag == "ok":
 		ack()
 	case tag == "ok-dup":
-		if e.st != acked && !e.dup && !e.everMaybe {
+		if e.st != acked && !e.unsure() {
 			m.violate(key, "mutation %s answered duplicate, but no earlier attempt can have applied (status %s)", rid, e.st)
 		}
 		ack()
@@ -206,7 +212,7 @@ func (m *cmodel) answer(key, rid, tag string) {
 		raise(none)
 	default: // a definite failure: the request ran its checks and changed nothing
 		raise(none)
-		if !e.dup && !e.everMaybe {
+		if !e.unsure() {
 			e.final = tag
 		}
 	}
@@ -272,21 +278,19 @@ func (m *cmodel) published(key, rid string) bool {
 	return slices.Contains(m.db(key).genMarks, rid)
 }
 
-// read lists the marks in generation man names (none for generation 0).
+// read lists the marks in generation man names (none for generation 0). Objects never change, so each is
+// read once; callers get their own copy.
 func (m *cmodel) read(man durable.Manifest) ([]string, error) {
-	if man.Generation == 0 {
-		return nil, nil
+	m.objMu.Lock()
+	defer m.objMu.Unlock()
+	if marks, ok := m.objMarks[man.Object]; ok && man.Generation != 0 {
+		return slices.Clone(marks), nil
 	}
-	data, ok := m.w.store.Object(man.Object)
-	if !ok {
-		return nil, fmt.Errorf("object %s is missing", man.Object)
+	marks, err := oracleMarks(m.w.store, m.w.s.Dir, man, observeLog)
+	if err == nil && man.Generation != 0 {
+		m.objMarks[man.Object] = marks
 	}
-	path := filepath.Join(m.w.s.Dir, "oracle.db")
-	defer os.Remove(path)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return nil, err
-	}
-	return observeLog(path)
+	return slices.Clone(marks), err
 }
 
 // checkMarks checks a database file's marks. pre: m.mu held
@@ -314,13 +318,7 @@ func (m *cmodel) checkMarks(d *cdbModel, marks []string, what string) map[string
 // checkGenerations looks at every database's manifest (at quiescence): generations and epochs only rise, and
 // each new generation extends the one before.
 func (m *cmodel) checkGenerations() {
-	m.mu.Lock()
-	keys := make([]string, 0, len(m.dbs))
-	for k := range m.dbs {
-		keys = append(keys, k)
-	}
-	m.mu.Unlock()
-	slices.Sort(keys)
+	keys := m.keys()
 	for _, k := range keys {
 		man, ok := m.w.store.Manifest(k)
 		if !ok {
@@ -430,13 +428,7 @@ func (m *cmodel) judgeLoss(d *cdbModel, rid string, e *cmark, tc, durableBefore 
 // final judges every database at the end as a crash would (its manifest now), then checks the histories.
 func (m *cmodel) final() {
 	m.checkGenerations()
-	m.mu.Lock()
-	keys := make([]string, 0, len(m.dbs))
-	for k := range m.dbs {
-		keys = append(keys, k)
-	}
-	m.mu.Unlock()
-	slices.Sort(keys)
+	keys := m.keys()
 	end := m.w.clk.Now()
 	for _, k := range keys {
 		man, _ := m.w.store.Manifest(k)
@@ -579,22 +571,12 @@ func sortOps[I, O any](ops []linearize.Op[I, O], show func(linearize.Op[I, O]) s
 	slices.SortStableFunc(ops, func(a, b linearize.Op[I, O]) int {
 		switch {
 		case a.Call != b.Call:
-			return compareInt(a.Call, b.Call)
+			return cmp.Compare(a.Call, b.Call)
 		case a.Return != b.Return:
-			return compareInt(a.Return, b.Return)
+			return cmp.Compare(a.Return, b.Return)
 		}
 		return strings.Compare(show(a), show(b))
 	})
-}
-
-func compareInt(a, b int64) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 func showReg(o linearize.Op[regIn, regOut]) string {
