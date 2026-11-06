@@ -36,6 +36,18 @@
 // (IR-2b's docexec behind /v1/ops) implements the same four methods. See knowledge/determinism/ for the
 // fidelity limits and how to replay a seed.
 //
+// The cluster simulation (DST-2, RunCluster) runs the same loop over several agents (each wired through
+// internal/agentglue with /v1/ops on), controld's real Controller, Locator and ticket issuer (ticket.Rotate over
+// tickettest.MemKeys), the real edge, a linearizable placement fake and an in-memory registry, and simulated SDK
+// clients (several per database) running register and bank-transfer IR workloads; every call between nodes
+// crosses a simulated network (cluster_net.go: seeded delay, loss, duplication, partitions). The nemesis
+// creates and moves databases, kills and restarts agents, attests dead VMs and restores their databases,
+// partitions nodes, drops the locator's cache, takes Postgres and S3 away. The checker (cluster_model.go)
+// adds split brain (one VM per epoch, epochs rising in commit order), loss across a graceful move, loss at a
+// kill -9 beyond the RPO, and per-database linearizability (internal/linearize). Requests reaching an actor
+// pass a door (doors, cluster_agent.go) that the loop opens one per step, so requests woken together reach
+// the actor in arrival order.
+//
 // Run must be called inside a synctest bubble (synctest.Test). Error module: "sim" (it returns violations, not
 // wrapped errors).
 package sim
