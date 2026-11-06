@@ -29,7 +29,8 @@ type backupAnswer struct {
 //
 //	post: err == nil ⇒ the answer's generation holds every write acknowledged before the call
 func (d *durableAgent) backup(ctx context.Context, key string) (backupAnswer, error) {
-	if l := d.tab.State(key); l.State != owner.Active {
+	l := d.tab.State(key)
+	if l.State != owner.Active {
 		return backupAnswer{}, &controlError{"wrong_owner", http.StatusConflict,
 			fmt.Sprintf("%s is %s here, not active; back it up on its owner", key, l.State)}
 	}
@@ -41,6 +42,12 @@ func (d *durableAgent) backup(ctx context.Context, key string) (backupAnswer, er
 	if err != nil {
 		return backupAnswer{}, classifyBackup(errs.Wrap(module, err, "backup of %s: the write-back finished but the manifest read failed; "+
 			"nothing lost, safe to call again", key))
+	}
+	if m.Epoch != uint64(l.Epoch) {
+		// A clean entry's write-back does nothing, so a superseded owner learns it only here: the stored
+		// manifest is another epoch's, not this owner's backup.
+		return backupAnswer{}, classifyBackup(errs.Wrap(module, durable.ErrStale, "backup of %s: the manifest is at epoch %d, this owner at %d",
+			key, m.Epoch, l.Epoch))
 	}
 	if m.Generation < res.Generation {
 		// The manifest never goes back (CheckPublish); an older one means the store broke its contract.

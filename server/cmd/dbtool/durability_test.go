@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -321,4 +324,98 @@ func TestDurabilityUsage(t *testing.T) {
 	schema := filepath.Join(t.TempDir(), "v1.json")
 	os.WriteFile(schema, []byte(ttSchema), 0o644)
 	r.mustRun(exitOK, "import", "-tenant", "acme", "-app", "last", "-schema", schema, docFile(t, ttSchema, 1))
+}
+
+// raceStore runs an injected step after a store call succeeds: another writer acting between import's
+// read and its write.
+type raceStore struct {
+	durable.GCStore
+	afterPut     func()
+	afterPublish func()
+}
+
+func (s raceStore) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
+	err := s.GCStore.PutGeneration(ctx, m, path)
+	if err == nil && s.afterPut != nil {
+		s.afterPut()
+	}
+	return err
+}
+
+func (s raceStore) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
+	v, err := s.GCStore.PublishManifest(ctx, m, prev)
+	if err == nil && s.afterPublish != nil {
+		s.afterPublish()
+	}
+	return v, err
+}
+
+// Import's failure paths: an orphan generation 1 from another file, another writer's manifest between the
+// read and the publish, and a placement row written meanwhile (adopted when a claim serves the import,
+// refused otherwise).
+func TestImportRaces(t *testing.T) {
+	r := fakeRig(t)
+	schema := filepath.Join(t.TempDir(), "v1.json")
+	os.WriteFile(schema, []byte(ttSchema), 0o644)
+	var out bytes.Buffer
+	tl := func(s durable.GCStore) *tool {
+		out.Reset()
+		return &tool{s: s, out: &out, now: time.Now, tmp: t.TempDir(), gc: durable.DefaultGCPolicy}
+	}
+	placement := filepath.Join(t.TempDir(), "placement")
+	pl, _ := file.Open(placement)
+	args := func(app string) importArgs {
+		return importArgs{file: docFile(t, ttSchema, 1), tenant: "acme", app: app, schema: schema, placementDir: placement, vm: "vm-1"}
+	}
+
+	// An orphan generation 1 holding other bytes.
+	other := docFile(t, ttSchema, 2)
+	data, _ := os.ReadFile(other)
+	if err := r.d.PutGeneration(ctx, durable.NextManifest("acme:orphan", 1, 1, durabletest.DigestOf(data), time.Now()), other); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl(r.d).importFile(ctx, args("orphan")); err == nil || !strings.Contains(err.Error(), "from another import") {
+		t.Fatalf("orphan: %v", err)
+	}
+
+	// Another writer publishes between the read and the publish: refused, nothing of ours named.
+	foreign := durable.NextManifest("acme:raced", 1, 1, durable.Digest{Size: 1, SHA256: strings.Repeat("a", 64)}, time.Now())
+	raced := raceStore{GCStore: r.d, afterPut: func() {
+		if _, err := r.d.PublishManifest(ctx, foreign, durable.NoVersion); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	if err := tl(raced).importFile(ctx, args("raced")); err == nil || !strings.Contains(err.Error(), "another writer published first") {
+		t.Fatalf("publish race: %v", err)
+	}
+	if m, _, _ := r.d.ReadManifest(ctx, "acme:raced"); !m.Same(foreign) {
+		t.Fatalf("the other writer's manifest was replaced: %+v", m)
+	}
+	if _, err := pl.Get(ctx, "acme:raced"); !errors.Is(err, owner.ErrNotFound) {
+		t.Fatalf("a placement row was written after a lost publish: %v", err)
+	}
+
+	// A create stand-in places the key after the publish: its claim adopts the import.
+	created := owner.Place{Owner: "vm-1", Epoch: 1, State: owner.PlaceActive}
+	placeAfter := func(key string, p owner.Place) raceStore {
+		return raceStore{GCStore: r.d, afterPublish: func() {
+			if err := pl.CAS(ctx, key, owner.Place{}, p); err != nil {
+				t.Fatal(err)
+			}
+		}}
+	}
+	if err := tl(placeAfter("acme:adopted", created)).importFile(ctx, args("adopted")); err != nil {
+		t.Fatalf("row created meanwhile: %v", err)
+	}
+	var got imported
+	decodeLine(t, out.String(), &got)
+	if !got.Adopted || *got.Placement != (placementRow{Owner: "vm-1", Epoch: 1}) {
+		t.Fatalf("adopted: %+v", got)
+	}
+	// A row a claim cannot serve the import under: refused, without advising a rerun.
+	moved := owner.Place{Owner: "vm-2", Epoch: 3, Gen: 7, State: owner.PlaceActive}
+	err := tl(placeAfter("acme:moved", moved)).importFile(ctx, args("moved"))
+	if err == nil || !strings.Contains(err.Error(), "placed meanwhile") || strings.Contains(err.Error(), "rerun") {
+		t.Fatalf("row placed meanwhile: %v", err)
+	}
 }

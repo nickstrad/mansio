@@ -48,8 +48,11 @@ the same file resumes:
 The control plane's claim then serves the key (`Stamp` keeps generation 1). `VACUUM INTO` of an unchanged file
 is byte-deterministic (checked), which is what makes a rerun after an interrupted upload resume rather than
 refuse. Without `-placement-dir` steps 1–3 and the S3 half of step 4 run: controld's create (Postgres) writes
-its row at generation 0 and the owner's claim adopts the manifest (`m.Gen >= p.Gen`). That path is reasoned
-from `owner.Table.claim`, not tested.
+its row at generation 0 and the owner's claim adopts the manifest (`m.Gen >= p.Gen`).
+`TestClaimAdoptsAnImportedGeneration` (`internal/owner`) pins that claim; the controld flow end to end is
+IR-5's. A row written meanwhile (between import's check and its CAS) that a claim can adopt (Active, epoch >=
+1, gen <= 1) is reported as `adopted`; any other is refused. An orphan generation 1 from another file's
+interrupted import is refused for good: gc skips a key with no manifest, so it must be removed by hand.
 
 agentd durable mode now also accepts `schemas_dir` (at most one of `schemas_dir`, `schemas_url`), so a
 single-node agent creates new databases without controld. `sqlitedsn.ReadOnly(path, immutable)` builds the

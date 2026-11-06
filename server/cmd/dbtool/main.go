@@ -9,7 +9,10 @@
 //	dbtool [flags] restore [-gen G] [-object NAME] <key> <new file>
 //	dbtool [flags] import <file> -tenant T -app A -schema F [-placement-dir D -vm V]
 //
-// restore and import (replace-platform plan phase 4) print one JSON line.
+// restore and import (replace-platform plan phase 4) print one JSON line. import without -placement-dir writes
+// only object storage: with controld, register the app's schema (PUT /v1/apps/{app}/schema) and create the
+// database (POST /v1/apps/{app}/databases) after the import; the owner's claim adopts generation 1. That
+// multi-node path is IR-5's to exercise end to end.
 // Credentials come from the environment (DBTOOL_S3_ACCESS_KEY, DBTOOL_S3_SECRET_KEY), never from flags or
 // files. Results go to stdout; a JSON log (UTC, log IDs) goes to stderr. Exit codes: 0 ok, 1 expected failure
 // (message + log ID; e.g. verify found corruption), 2 usage, 70 bug, 130 interrupted.
@@ -57,7 +60,8 @@ commands:
   restore [-gen G] [-object NAME] <key> <new file>
                        write the current generation (or generation G, e.g. a backup's) to a new local file
   import <file> -tenant T -app A -schema F [-placement-dir D -vm V]
-                       make an existing SQLite file (e.g. Deno-written) the first generation of tenant:app
+                       make an existing SQLite file (e.g. Deno-written) the first generation of tenant:app;
+                       without -placement-dir, run controld's create afterwards (its claim adopts the import)
 environment: DBTOOL_S3_ACCESS_KEY, DBTOOL_S3_SECRET_KEY (required)
 flags:`
 

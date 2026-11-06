@@ -58,6 +58,7 @@ type imported struct {
 	Manifest    durable.Manifest `json:"manifest"`
 	Placement   *placementRow    `json:"placement"` // null without -placement-dir
 	Resumed     bool             `json:"resumed"`   // an earlier import of the same bytes had already done some steps
+	Adopted     bool             `json:"adopted"`   // the key was placed meanwhile (e.g. a create); its owner's claim adopts the import
 }
 
 type placementRow struct {
@@ -131,12 +132,17 @@ func (t *tool) importFile(ctx context.Context, a importArgs) error {
 		return err
 	}
 	if pl != nil {
-		resumed, err := createRow(ctx, pl, key, row)
-		if err != nil {
+		got, resumed, err := createRow(ctx, pl, key, row)
+		switch {
+		case errors.Is(err, owner.ErrConflict):
+			return errs.Wrap(module, err, "imported %s as generation 1, but the key was placed meanwhile as %+v, which a claim cannot "+
+				"adopt it from; run dbtool inspect %s before acting", key, got, key)
+		case err != nil:
 			return errs.Wrap(module, err, "imported %s as generation 1, but the placement row is not written; rerun the same import to finish", key)
 		}
 		out.Resumed = out.Resumed || resumed
-		out.Placement = &placementRow{Owner: row.Owner, Epoch: uint64(row.Epoch), Gen: uint64(row.Gen)}
+		out.Adopted = got != row
+		out.Placement = &placementRow{Owner: got.Owner, Epoch: uint64(got.Epoch), Gen: uint64(got.Gen)}
 	}
 	return t.printJSON(out)
 }
@@ -158,6 +164,12 @@ func (t *tool) publishImport(ctx context.Context, key, snap string, d durable.Di
 	if err := t.s.PutGeneration(ctx, m, snap); err != nil {
 		// Ambiguous or already there: the object's recorded digest says whether it holds these bytes (R3).
 		info, serr := t.s.StatGeneration(ctx, m.Object)
+		if errors.Is(err, durable.ErrExists) && serr == nil && !info.Holds(d) {
+			// An interrupted import of another file left it; a rerun can never replace it (create-only, I1).
+			return m, false, errs.Wrap(module, err, "cannot import %s: it already has a generation 1 object from another import (sha256 %s), "+
+				"named by no manifest; run dbtool inspect %s, then rerun with that file or delete the object (gc skips a key "+
+				"without a manifest); nothing published", key, info.SHA256, key)
+		}
 		if serr != nil || !info.Holds(d) {
 			return m, false, errs.Wrap(module, err, "cannot import %s: upload of %s failed; no manifest names it, safe to retry", key, m.Object)
 		}
@@ -174,16 +186,31 @@ func (t *tool) publishImport(ctx context.Context, key, snap string, d durable.Di
 	return m, resumed, nil
 }
 
-// createRow writes key's placement row if there is none (a CAS from "no row"); resumed means it was already
-// the row.
-func createRow(ctx context.Context, pl *file.Placement, key string, row owner.Place) (resumed bool, err error) {
+// createRow writes key's placement row if there is none (a CAS from "no row") and returns the row in place:
+// row, or one written meanwhile that the owner's claim adopts generation 1 under (Active at epoch >= 1,
+// generation <= 1, e.g. a create stand-in's ACTIVE(vm, 1, 0)). resumed: row was already in place. Any other
+// row is ErrConflict.
+func createRow(ctx context.Context, pl *file.Placement, key string, row owner.Place) (got owner.Place, resumed bool, err error) {
 	err = pl.CAS(ctx, key, owner.Place{}, row)
-	if errors.Is(err, owner.ErrConflict) {
-		if cur, gerr := pl.Get(ctx, key); gerr == nil && cur == row {
-			return true, nil
-		}
+	if !errors.Is(err, owner.ErrConflict) {
+		return row, false, err
 	}
-	return false, err
+	cur, gerr := pl.Get(ctx, key)
+	switch {
+	case gerr != nil:
+		return cur, false, gerr
+	case cur == row:
+		return row, true, nil
+	case adopts(cur):
+		return cur, false, nil
+	}
+	return cur, false, err
+}
+
+// adopts reports whether the owner's claim of a key placed as p serves an imported generation 1 at epoch 1:
+// the manifest is not behind the row (owner.Table.claim) and its epoch not above the row's.
+func adopts(p owner.Place) bool {
+	return p.State == owner.PlaceActive && p.Epoch >= importEpoch && p.Gen <= 1
 }
 
 // snapshotFile writes a consistent standalone copy of the database at src to dst (VACUUM INTO, from a

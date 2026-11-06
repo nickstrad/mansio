@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
@@ -10,7 +11,10 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
 // Backup (IR-4b): a warm, dirty key is written back and keeps serving; the answer is the manifest now stored
@@ -102,4 +106,35 @@ func TestDurableOpsWithSchemasDir(t *testing.T) {
 	if code, body := post(b, read); code != http.StatusOK || body != `{"result":[1]}`+"\n" {
 		t.Fatalf("cold read: %d %q", code, body)
 	}
+}
+
+// A backup answers only this owner's manifest: once a higher epoch stamped it (this agent superseded with a
+// clean warm copy, so the write-back has nothing to upload), it is 409 fenced. An S3 failure is 503.
+func TestAdminBackupRefusals(t *testing.T) {
+	r := newDurableRig(t, adminExtra)
+	a := r.start(t)
+	a.claim(t, "db-1")
+	a.claim(t, "db-2")
+	writeRows(t, a, "db-1", 1, 0, 1)
+	writeRows(t, a, "db-2", 1, 0, 1)
+	a.mustAdmin(t, "/admin/backup?key=db-1") // clean from here on
+
+	st, err := objstore.New(objstore.Config{Endpoint: r.endpoint, AccessKey: r.access, SecretKey: r.secret, Bucket: r.bucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := r.manifest(t, "db-1")
+	if _, _, err := durable.Stamp(context.Background(), objstore.NewDurable(st, r.prefix), "db-1", 2, m.Generation, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := adminCall(t, a.admin, "/admin/backup?key=db-1"); code != http.StatusConflict || out["code"] != "fenced" {
+		t.Fatalf("backup after a higher epoch stamped: %d %v", code, out)
+	}
+
+	r.fake.Inject(s3test.Fault{Mode: s3test.Status, Status: http.StatusServiceUnavailable})
+	code, out := adminCall(t, a.admin, "/admin/backup?key=db-2")
+	if code != http.StatusServiceUnavailable || out["code"] != "unavailable" {
+		t.Fatalf("backup with S3 down: %d %v", code, out)
+	}
+	r.fake.Heal()
 }
