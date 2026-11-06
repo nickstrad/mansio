@@ -36,6 +36,8 @@ func TestDurableConfig(t *testing.T) {
 		{"schema registry with the control CA", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://c","control_ca_file":"ca.pem"`, ""},
 		{"schema registry not a url", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"controld:7443"`, "schemas_url"},
 		{"schema cache 0 (off point)", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://c","schema_cache":0`, "schema_cache"},
+		{"local schema registry", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_dir":"schemas"`, ""},
+		{"two schema registries", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_dir":"schemas","schemas_url":"https://c"`, "at most one schema registry"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := parseConfig(strings.NewReader(base+tc.fields+`}`), "/")

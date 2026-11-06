@@ -271,7 +271,7 @@ func TestAdminStaticMode(t *testing.T) {
 	defer func() { cancel(); <-done }()
 	admin := adminAddr(addrFile)
 	for path, want := range map[string]int{"/admin/loglevel?level=debug": 200, "/admin/breaker/s3:trip": 404,
-		"/admin/fetch:limit?n=2": 404, "/admin/passivate?key=db-1": 404, "/admin/drain": 200} {
+		"/admin/fetch:limit?n=2": 404, "/admin/passivate?key=db-1": 404, "/admin/backup?key=db-1": 404, "/admin/drain": 200} {
 		if code, out := adminCall(t, admin, path); code != want {
 			t.Errorf("%s: %d %v, want %d", path, code, out, want)
 		}

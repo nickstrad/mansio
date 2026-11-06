@@ -53,6 +53,7 @@ func TestCommandsHitTheirEndpoints(t *testing.T) {
 		{[]string{"fetch-limit", "1"}, "/admin/fetch:limit?n=1"}, // on point: the least limit
 		{[]string{"drain"}, "/admin/drain"},
 		{[]string{"passivate", "db 1"}, "/admin/passivate?key=db+1"},
+		{[]string{"backup", "acme:ttt"}, "/admin/backup?key=acme%3Attt"},
 		{[]string{"loglevel", "debug"}, "/admin/loglevel?level=debug"},
 	} {
 		f := newFake(t, 200, `{"code":"ok","x":1}`+"\n", 0)
@@ -95,7 +96,7 @@ func TestFailuresAndUsage(t *testing.T) {
 	unused := newFake(t, 200, `{"code":"ok"}`, 0)
 	for _, args := range [][]string{
 		{}, {"nope"}, {"breaker", "s3"}, {"breaker", "s3", "open"}, {"fetch-limit", "0"}, {"fetch-limit", "x"},
-		{"drain", "now"}, {"passivate"}, {"loglevel"}, {"-timeout", "0s", "drain"}, {"-bogus"},
+		{"drain", "now"}, {"passivate"}, {"backup"}, {"loglevel"}, {"-timeout", "0s", "drain"}, {"-bogus"},
 	} {
 		if code, _, _ := run(context.Background(), append([]string{"-addr", unused.addr()}, args...)...); code != exitUsage {
 			t.Errorf("%v: exit %d, want %d", args, code, exitUsage)

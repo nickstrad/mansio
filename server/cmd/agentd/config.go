@@ -75,8 +75,9 @@ type Config struct {
 	// with the control token; internal/schemareg, IR-2). Durable mode only; "" = no registry client. An https URL
 	// with a private CA uses control_ca_file.
 	SchemasURL string `json:"schemas_url"`
-	// SchemasDir is static mode's schema registry (single-node dev and tests, no controld): <app>/<name>.json
-	// files, each one schema in fingerprint form (JSON.stringify of the defineSchema value), read at start.
+	// SchemasDir is a local schema registry (single-node dev and tests, no controld): <app>/<name>.json files,
+	// each one schema in fingerprint form (JSON.stringify of the defineSchema value), read at start. Static mode,
+	// or durable mode without schemas_url (IR-4b).
 	SchemasDir     string        `json:"schemas_dir"`
 	SchemasTimeout load.Duration `json:"schemas_timeout"` // one fetch; default 3 s
 	SchemaCache    int           `json:"schema_cache"`    // schemas cached (by app and fingerprint); default 1024
@@ -233,8 +234,8 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 			bad("schemas_timeout and schema_cache must be > 0")
 		}
 	}
-	if c.SchemasDir != "" && c.Durable() {
-		bad("schemas_dir is static mode's registry; durable mode fetches schemas from schemas_url")
+	if c.SchemasDir != "" && c.SchemasURL != "" {
+		bad("give at most one schema registry: schemas_dir (local files) or schemas_url (controld)")
 	}
 	if c.Listen == "" {
 		bad("listen is required")
