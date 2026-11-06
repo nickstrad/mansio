@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -624,6 +625,26 @@ func TestTickEvictsIdleAndOverBudget(t *testing.T) {
 	r.clk.Add(time.Minute)
 	if rep, _ = r.h.Tick(ctx); len(rep.Plan.Passivate) != 2 || r.h.Active() != 0 {
 		t.Fatalf("idle plan %+v, active %d", rep.Plan, r.h.Active())
+	}
+}
+
+// A tick's plan does not depend on map order (DST: a run must replay from its seed): idle passivations come
+// in key order. With 8 keys a random order is sorted by chance once in 40320 runs.
+func TestTickPlansIdleKeysInKeyOrder(t *testing.T) {
+	r := newDurable(t, func(o *vactor.Options) { o.Policy = vactor.Policy{IdleAfter: time.Minute} })
+	keys := []string{"t/h", "t/c", "t/f", "t/a", "t/g", "t/b", "t/e", "t/d"}
+	for _, k := range keys {
+		r.put(k, k)
+	}
+	r.clk.Add(time.Minute)
+	rep, _ := r.h.Tick(ctx)
+	var got []string
+	for _, ev := range rep.Plan.Passivate {
+		got = append(got, ev.Key)
+	}
+	want := slices.Sorted(slices.Values(keys))
+	if !slices.Equal(got, want) {
+		t.Fatalf("idle passivations %v, want key order %v", got, want)
 	}
 }
 

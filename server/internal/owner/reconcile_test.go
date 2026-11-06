@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -97,6 +98,33 @@ func TestReconcileAllBoundsConcurrency(t *testing.T) {
 		if rep.Tried != len(keys) || rep.Failed != 0 || cp.peak.Load() != int64(workers) {
 			t.Fatalf("workers %d: report %+v, peak %d", workers, rep, cp.peak.Load())
 		}
+	}
+}
+
+// orderPlacement records the keys Get was called for, in order.
+type orderPlacement struct {
+	owner.Placement
+	mu   sync.Mutex
+	keys []string
+}
+
+func (o *orderPlacement) Get(ctx context.Context, key string) (owner.Place, error) {
+	o.mu.Lock()
+	o.keys = append(o.keys, key)
+	o.mu.Unlock()
+	return o.Placement.Get(ctx, key)
+}
+
+// A round reconciles keys in key order, not map order (DST: a run must replay from its seed; with one worker
+// the order decides which keys an outage or a breaker trip hits). 16 keys sorted by chance: ~1 in 2e13.
+func TestReconcileAllGoesInKeyOrder(t *testing.T) {
+	w, keys := restarted(t, 16)
+	op := &orderPlacement{Placement: w.pl}
+	w.procs["a"].pl.Placement = op
+	_, err := w.tab("a").ReconcileAll(ctx, owner.ReconcileOptions{Workers: 1})
+	must(t, err)
+	if !slices.Equal(op.keys, keys) {
+		t.Fatalf("reconciled %v, want key order %v", op.keys, keys)
 	}
 }
 

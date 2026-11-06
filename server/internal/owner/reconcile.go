@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/det"
@@ -65,6 +66,7 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 			keys = append(keys, k)
 		}
 	}
+	slices.Sort(keys) // not map order: with few workers the order decides which keys an outage hits (DST replay)
 	var first error
 	failed := 0
 	for _, err := range parallel.ForEach(ctx, len(keys), o.Workers, func(ctx context.Context, i int) error {

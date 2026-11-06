@@ -46,7 +46,6 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		h.mu.Unlock()
 		return TickReport{}, errs.Wrap(module, ErrClosed, "cannot run maintenance")
 	}
-	var ready []*entry
 	var keys []string
 	for k, e := range h.entries {
 		if e.gone != nil {
@@ -55,10 +54,15 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		select {
 		case <-e.done:
 			if e.db != nil || e.stranded {
-				ready, keys = append(ready, e), append(keys, k)
+				keys = append(keys, k)
 			}
 		default:
 		}
+	}
+	slices.Sort(keys) // the plan must not depend on map order: a simulation replays a tick from its seed
+	ready := make([]*entry, len(keys))
+	for i, k := range keys {
+		ready[i] = h.entries[k]
 	}
 	h.mu.Unlock()
 
