@@ -97,3 +97,19 @@ type Host interface {
 	// Lookup returns db's started actor, or an error wrapping ErrUnknownDB.
 	Lookup(ctx context.Context, db string) (*actor.Actor, error)
 }
+
+// Credentials is the single-node auth port for /v1/ops (replace-platform plan §4.4; ADR 0012): a bearer that is
+// not a ticket (an app token, a tenant API key, a session) is checked here. The tenant comes from the
+// credential; the request body's db.tenant is ignored.
+type Credentials interface {
+	// Authenticate returns the tenant and a log subject for token used with app.
+	//
+	//	post: err == nil ⇒ tenant != ""
+	//	post: err != nil ⇒ an *AuthError, errors.Is(err, ErrUnavailable), or ctx's error; anything else is internal
+	Authenticate(ctx context.Context, token, app string) (tenant, sub string, err error)
+}
+
+// AuthError is a refused credential (wire tag AuthError, 401). Reason is "missing", "malformed" or "mismatch".
+type AuthError struct{ Reason string }
+
+func (e *AuthError) Error() string { return "front: credential refused (" + e.Reason + ")" }

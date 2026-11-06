@@ -14,6 +14,7 @@ const (
 	TagStorage         = "StorageError"
 	TagDefect          = "Defect"
 	TagStmtDeadline    = "StatementDeadlineError"
+	TagAuth            = "AuthError" // a credential (app token, API key, session) missing or wrong: 401
 	ReasonTypeMismatch = "type-mismatch"
 	ReasonNotAnObject  = "not-an-object"
 	ReasonUnknownField = "unknown-field"
@@ -79,6 +80,8 @@ func (e *Error) Status() int {
 		return 404
 	case TagConflict, TagSchemaDrift:
 		return 409
+	case TagAuth:
+		return 401
 	case TagTooLarge:
 		return 413
 	case TagStmtDeadline:

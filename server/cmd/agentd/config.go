@@ -37,6 +37,11 @@ type Config struct {
 	// default_epoch (or epochs[db]). No ownership table, no write-back.
 	DBDir string   `json:"db_dir"` // directory of <db>.db files (required in static mode)
 	DBs   []string `json:"dbs"`    // serve only these; default every *.db in db_dir
+	// CreateDBs creates a database not found at start (an empty <db>.db) on its first request admitted at
+	// default_epoch; db_dir may then start empty (tenancy.go).
+	CreateDBs bool `json:"create_dbs"`
+	// Tenancy accepts credentials besides tickets and serves the tenancy admin and sign-in API (tenancy.go).
+	Tenancy *TenancyConfig `json:"tenancy"`
 
 	// Durable mode (an s3 section): databases live in S3 (internal/durable layout v2) behind a virtual-actor
 	// host, ownership is the owner table, and the control plane calls the lifecycle endpoints (control.go).
@@ -208,6 +213,12 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	} else if c.DBDir == "" {
 		bad("db_dir is required (or an s3 section for durable mode)")
 	}
+	if c.Tenancy != nil {
+		checkTenancy(&c, bad)
+	}
+	if c.CreateDBs && c.Durable() {
+		bad("create_dbs is static mode only")
+	}
 	if c.KeysFile == "" && c.KeysURL == "" {
 		bad("keys_file or keys_url is required (the ticket public keys)")
 	}
@@ -308,6 +319,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	case "debug", "info", "warn":
 	default:
 		bad("log_level %q: want debug, info or warn", c.LogLevel)
+	}
+	if c.Tenancy != nil && c.Tenancy.SecretsFile != "" && !filepath.IsAbs(c.Tenancy.SecretsFile) {
+		c.Tenancy.SecretsFile = filepath.Join(dir, c.Tenancy.SecretsFile)
 	}
 	paths := []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir, &c.SchemasDir}
 	if c.S3 != nil {

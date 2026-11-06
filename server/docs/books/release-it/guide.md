@@ -19,6 +19,8 @@ this guide adds failure-below-the-interface tests (§H).
 | Locator → Postgres (resolve reads, LISTEN) | `internal/control/locator`, `placement/pg` `Locate`, `Listen` | yes (cache miss) | none (client re-resolves) |
 | Agent → issuer key set | `cmd/agentd/keys.go` (`keys_url`) | no (background) | the fetch loop (next period) |
 | Agent → schema registry | `internal/schemareg` `Client` (agentd `schemas_url`, IR-2) | yes (a database's first request per schema) | none (the caller answers unavailable) |
+| Agent → tenancy store (credentials, IR-4a) | `internal/tenancy` over `placement/pg` `Tenancy()` (agentd `tenancy`) | yes (credential cache miss, 1 s TTL) | none (the caller answers unavailable; the SDK retries) |
+| Tenancy HTTP (admin, sign-in) | `internal/tenancy/tenancyhttp` | no (admin) / yes (sign-in) | the client; sign-in rate-limited per source, scrypt in a 4-slot bulkhead |
 | Actor mailbox / read pool | `internal/actor` | yes | none (shed) |
 | Local disk (fsync, cache dir) | `owner.FileStore`, vactor cache | yes (commit) | none |
 
@@ -224,6 +226,15 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 - `MaxConnIdleTime` < the smallest NAT/LB idle timeout (ch4 §4.1 "5 a.m. problem").
 - Primary reads only for the port. A connection error never maps to `ErrConflict`/`ErrNotFound`. Breaker per
   pool.
+
+**Tenancy** (agentd single node, IR-4a; ADR 0012)
+- Same pool settings as placement (its own pool: `MaxConns` 8, breaker "tenancy" on `/admin/breakers`). The
+  schema migrates in the background; readiness check `tenancy` fails until it has.
+- Credentials cached 1 s (allowed and refused; never a store failure); a local admin change clears the cache.
+  A store outage on `/v1/ops` is `unavailable` 503 + Retry-After, never `AuthError`.
+- Admin and sign-in calls: deadline 10 s, 16 at once (more refused 503 at once), body 4 KiB. Sign-in/up: 1 per
+  second per source, burst 10 (429 + Retry-After). scrypt (32 MiB each) in 4 slots, waited for until the deadline.
+- `controld import-mansio`: one transaction, `statement_timeout` 50 s inside it, 60 s overall per side.
 
 **Locator** (controld, CP-5)
 - `POST /v1/resolve`: own bulkhead (`locator.concurrency` 256, refused 503 when full, never queued behind admin

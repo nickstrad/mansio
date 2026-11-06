@@ -58,10 +58,17 @@ type OpsConfig struct {
 	IDs det.IDGen
 	// SchemaCache bounds the decoded schemas kept (docexec.NewSchemas); default 256.
 	SchemaCache int
+	// Credentials, if set, accepts bearers that are not tickets (Credentials). Such a request reaches the
+	// database credential-tenant ':' db.app at CredentialEpoch with read and write permission (single node:
+	// static mode's default_epoch).
+	Credentials     Credentials
+	CredentialEpoch uint64
 }
 
 // ops is the enabled protocol's state.
 type ops struct {
+	creds   Credentials
+	epoch   uint64
 	schemas SchemaSource
 	ids     det.IDGen
 	cache   *docexec.Schemas
@@ -75,7 +82,8 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 	if cfg.IDs == nil {
 		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
 	}
-	s.ops = &ops{schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
+	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0, "front: credentials need an epoch")
+	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
 }
 
 // OpsEnabled reports whether EnableOps was called.
@@ -124,14 +132,13 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 			out.Stack = p.Stack
 		}
 	}()
-	if in.Ticket == "" {
+	if in.Ticket == "" && s.ops.creds == nil {
 		return opsAnswer(nil, nil, Reply{}, ticket.ErrMalformed)
 	}
 	req, e := ir.DecodeBody(in.Body)
 	if e != nil {
 		return opsAnswer(nil, nil, Reply{}, &docexec.Failure{Err: e})
 	}
-	db := req.DB.Tenant + ":" + req.DB.App // the placement key (ADR 0011)
 	kind := KindRead
 	if req.Kind == ir.Mutation {
 		kind = KindWrite
@@ -141,10 +148,11 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
 	defer cancel()
 
-	claims, err := s.tickets.Verify(in.Ticket, now, ticket.Want{DB: db, Perm: kind.Perm()})
+	claims, err := s.verifyOps(ctx, in.Ticket, req, kind, now)
 	if err != nil {
 		return opsAnswer(req, nil, Reply{}, err)
 	}
+	db := claims.DBID // the placement key tenant ':' app (ADR 0011), from the ticket or the credential
 	release, err := s.admitter.Admit(db, claims.Epoch)
 	if err != nil {
 		return opsAnswer(req, &claims, Reply{}, err)
@@ -178,6 +186,27 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 		}
 	}
 	return opsAnswer(req, &claims, reply, err)
+}
+
+// verifyOps authorizes a /v1/ops request: a ticket for db.tenant ':' db.app, or (with Credentials) a credential,
+// whose tenant replaces db.tenant. A bearer that is not ticket-shaped at all goes to Credentials; a ticket that
+// fails verification stays ticket_invalid.
+func (s *Server) verifyOps(ctx context.Context, token string, req *ir.Request, kind Kind, now time.Time) (ticket.Claims, error) {
+	if token != "" {
+		claims, err := s.tickets.Verify(token, now, ticket.Want{DB: req.DB.Tenant + ":" + req.DB.App, Perm: kind.Perm()})
+		if err == nil || s.ops.creds == nil || !(errors.Is(err, ticket.ErrMalformed) || errors.Is(err, ticket.ErrVersion)) {
+			return claims, err
+		}
+	}
+	tenant, sub, err := s.ops.creds.Authenticate(ctx, token, req.DB.App)
+	if err != nil {
+		return ticket.Claims{}, err
+	}
+	db := tenant + ":" + req.DB.App
+	if e := CheckDBID(db); e != nil {
+		return ticket.Claims{}, fmt.Errorf("front: the credentials port answered tenant %q, which makes no valid database id (%v)", tenant, e) // its bug: internal
+	}
+	return ticket.Claims{TID: tenant, DBID: db, Epoch: s.ops.epoch, Sub: sub, Perms: ticket.Read | ticket.Write}, nil
 }
 
 // initDB creates a new database's tables from the registered schema req names (docexec.Init). Another
@@ -277,6 +306,14 @@ func opsError(req *ir.Request, err error) (*ir.Error, Code) {
 	}
 	var bad *BadRequestError
 	var p *panicx.Panic
+	var auth *AuthError
+	if errors.As(err, &auth) {
+		app := ""
+		if req != nil {
+			app = req.DB.App
+		}
+		return ir.NewError(ir.TagAuth, "scope", "app", "appId", app, "reason", auth.Reason), TicketInvalid
+	}
 	switch code := Classify(err); {
 	case errors.Is(err, ErrStmtTimeout):
 		return withOp(ir.NewError(ir.TagStmtDeadline)), StmtTimeout

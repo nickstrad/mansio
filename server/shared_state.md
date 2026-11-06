@@ -749,3 +749,22 @@ Branch `ir/03-sdk`. Details: `docs/knowledge/ir/2026-11-05-ir-3-sdk.md` (repo ro
 - For IR-4: the e2e scenarios `auth`, `tenant_isolation`, `admin_lifecycle`, `backup_restore`, `log_analysis` are
   skipped on Go (`{ go: "<reason>" }` in each scenario's `test(...)`); port them by removing the option and giving
   `startGoAgent` the needed config.
+
+## 2026-11-06 — ir-4a: tenancy + auth on Go (API additions)
+
+Branch `ir/04a-auth`. Details: `docs/knowledge/ir/2026-11-06-ir-4a-tenancy-auth.md`, ADR 0012 (repo root).
+
+- **New packages:** `internal/tenancy` (domain: `Service.Authenticate`, admin ops, `SignUp`/`SignIn`, Better Auth
+  scrypt), `internal/tenancy/tenancyhttp` (`Mount(mux, svc, cfg)`: `/admin/` gate, `/admin/tenants…`,
+  `/admin/users/link`, `/api/auth/sign-{up,in}/email`), `internal/tenancy/tenancytest` (`Fake`, `RunStoreSuite`).
+- **placement/pg:** migration `0007_tenancy.sql` (tenants slug/name/status; `api_keys.legacy`, `name`, key_id check
+  now 16 hex or uuid-if-legacy; `auth_users`, `auth_passwords`, `auth_sessions`, `memberships`). `p.Tenancy()`
+  (a `tenancy.Store`), `ReadMansio` + `p.ImportMansio`. `isAnswer` also treats tenancy's NotFound/Conflict/
+  Deactivated as answers.
+- **front:** `OpsConfig.Credentials` (`front.Credentials` port) + `CredentialEpoch`; `front.AuthError`; ir
+  `TagAuth` ("AuthError", 401). Non-ticket bearers on `/v1/ops` → the port; the credential's tenant replaces
+  `db.tenant`.
+- **agentd:** `tenancy` section (static mode only), `create_dbs` (static: unknown `<tenant>:<app>` created on
+  first admitted request at `default_epoch`; db_dir may start empty), readiness check `tenancy`, breaker
+  `tenancy`, `agent.queryRoutes`. Reporter knows module `tenancy`.
+- **controld:** `controld import-mansio -secrets F [-schema S] [-from-schema public] [-from-dsn-env V] [-dry-run]`.
