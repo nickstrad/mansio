@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 var pol = ticket.RotationPolicy{Rotate: 24 * time.Hour, Activate: 5 * time.Minute, Overlap: 15 * time.Minute}
@@ -132,5 +133,33 @@ func TestSignerSetRefusesInconsistentRings(t *testing.T) {
 	}
 	if _, err := verifier(ticket.NewKeyRing(iss.Keys())).Verify(tok, t0, want); err != nil || s.KID() != "k1" {
 		t.Fatalf("%v %s", err, s.KID())
+	}
+}
+
+// Rotate over a key store: bootstrap signs with the first key at once; a new key is published before it signs;
+// the old key is removed only after the overlap; a failed delete keeps the ring installed and is retried.
+func TestRotateOverAKeyStore(t *testing.T) {
+	t0 := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	p := ticket.RotationPolicy{Rotate: time.Hour, Activate: time.Minute, Overlap: 10 * time.Minute}
+	failRemove := false
+	ks := &tickettest.MemKeys{Seed: 1, Fail: func(op string) bool { return op == "remove" && failRemove }}
+	var s ticket.Signer
+	rotate := func(at time.Duration) (string, []string, error) { return ticket.Rotate(ks, &s, p, t0.Add(at)) }
+	if created, _, err := rotate(0); err != nil || created != "k1" || s.KID() != "k1" {
+		t.Fatalf("bootstrap: created %q signer %q err %v", created, s.KID(), err)
+	}
+	if created, _, _ := rotate(time.Hour); created != "k2" || s.KID() != "k1" || len(s.Public().Keys) != 2 {
+		t.Fatalf("rotation: created %q, signer %q, published %d; want k2 published, k1 still signing", created, s.KID(), len(s.Public().Keys))
+	}
+	if _, removed, _ := rotate(time.Hour + time.Minute); s.KID() != "k2" || len(removed) != 0 {
+		t.Fatalf("activation: signer %q removed %v", s.KID(), removed)
+	}
+	failRemove = true
+	if _, _, err := rotate(time.Hour + 11*time.Minute); err == nil || s.KID() != "k2" || len(s.Public().Keys) != 1 {
+		t.Fatalf("failed delete: err %v signer %q published %d; want the error, k2 alone published", err, s.KID(), len(s.Public().Keys))
+	}
+	failRemove = false
+	if _, removed, err := rotate(time.Hour + 12*time.Minute); err != nil || !slices.Equal(removed, []string{"k1"}) {
+		t.Fatalf("retried delete: removed %v err %v", removed, err)
 	}
 }
