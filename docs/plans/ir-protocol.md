@@ -203,9 +203,18 @@ a seed, with simulated time, network and faults. Any failure then replays exactl
    - no acknowledged write is lost across a move;
    - each database's history is **linearizable**, checked with a Porcupine-style checker over the client-side
      history of IR requests and results.
+
+   Status (2026-11-06, `dst/2-cluster`): built, `internal/sim` `RunCluster`; real agentd path (via
+   `internal/agentglue`), controller, locator, issuer rotation and edge over a placement fake, `durabletest` and a
+   simulated network; register and bank IR workloads; kill -9 losses judged against a parameterized RPO
+   (§9 still open). Note: `server/knowledge/determinism/2026-11-06-dst2-dst3-cluster-sim.md`.
 4. **DST-3, swarm.** Run many seeds nightly with fault probabilities varied per run (swarm testing), shrink
    failures to a minimal seed and op script, and commit them as regression vectors. Later option: run the real
    binaries under a deterministic hypervisor (e.g. Antithesis) to cover code that DST can't reach.
+
+   Status (2026-11-06): built: `ClusterConfig.Swarm`, `ShrinkCluster` (op scripts, delta debugging), vectors in
+   `server/internal/sim/testdata/cluster`, `server/scripts/sim-swarm.sh` (`make sim-swarm`, `deno task
+   sim:swarm`). No CI runs it yet.
 
 Real SQLite stays in the sim (modernc is pure Go and deterministic for a given op order). Crash points are
 modeled at fsync boundaries: the sim snapshots the file on each fsync and restores the last snapshot on a

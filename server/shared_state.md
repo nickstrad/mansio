@@ -856,3 +856,25 @@ Branch `ir/05a-multinode`. Details: `docs/knowledge/ir/2026-11-06-ir-5a-multinod
 - Finding: kill -9 + restart loses acknowledged writes inside the write-back window (by design, RPO).
 - Known flake (pre-existing): `TestGate` under full-package load can get 500 on concurrent first creates of a
   new tenant (`databases_one_default`, ErrInvariant; create_database.sql says retrying is safe).
+
+## 2026-11-06 — dst-2: DST-2 cluster sim + DST-3 swarm (API changes)
+
+Branch `dst/2-cluster`. Details: `knowledge/determinism/2026-11-06-dst2-dst3-cluster-sim.md`.
+
+- **New package `internal/agentglue`**: `cmd/agentd/glue.go` + `unavailable.go` moved here, exported
+  (`WriteBack`, `ActivationCheck(clk, tab)`, `PublishGuard`, `Lifecycle{Tab, Host}` (Claim/Fence/Forget; Fence
+  discards the warm copy), `Admitter`, `Executor{Host, Grace, Canary, Order}`, `ActivationError`, `AsUnavailable`,
+  `UnavailableCauses`, `DepAdmitter`, `DepExecutor`). agentd and `internal/sim` both wire it: **change the glue
+  there, not in cmd/agentd**. `Executor.Order` is a sim-only seam (nil in agentd). In the det lint.
+- **ticket (additive):** `KeyStore` port + `ticket.Rotate(store, signer, policy, now)` (controld's rotation; its
+  `keyDir` is a `KeyStore` now). `tickettest.MemKeys` (seeded in-memory key store with injectable failures).
+- **sim:** `RunCluster(ClusterConfig, io.Writer) ClusterResult` (DST-2), `ShrinkCluster`, `Vector`/`ReadVector`/
+  `WriteVector` (testdata/cluster), `sim.IR` workload and `sim.Agent.Ops()` (the DST-1 IR hook).
+  Tests: `TestClusterSeeds`, `TestClusterSameSeedSameTrace`, `TestClusterVectors`, `TestClusterShrink`,
+  `TestIRSeeds`. Env: `MANSIO_SIM_SWARM=1`, `MANSIO_SIM_SAVE=1` (plus DST-1's).
+- **Nightly:** `server/scripts/sim-swarm.sh [seeds] [first]` = `make sim-swarm SEEDS=N` = `deno task sim:swarm`.
+- **owner (behaviour change):** `Table.Publish` now also runs for a key `Fencing` at its own epoch (a fence that
+  failed and waits for its retry) until the fence's write-back has published; before, write-backs stopped and
+  a kill -9 could lose acknowledged writes beyond the RPO.
+- **Open finding (needs a decision):** `_version` repeats after a kill -9 rollback, so a stale `expect` can pass
+  against a different document (`internal/sim/testdata/open/version-reuse-after-rollback.json`).
