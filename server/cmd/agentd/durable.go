@@ -132,6 +132,12 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		breakers:   d.breakers(), // the admin endpoints' breakers, by name: "s3", and "placement" with Postgres
 		host:       d.host,
 		backup:     d.backup,
+		credentialPlace: func() func(context.Context, string) (uint64, uint64, error) {
+			if cfg.Tenancy == nil {
+				return nil
+			}
+			return (&claimingPlace{d: d}).place
+		}(),
 	}, nil
 }
 
