@@ -153,3 +153,29 @@ func TestClusterVectors(t *testing.T) {
 		})
 	}
 }
+
+// TestClusterOpenFindings (MANSIO_SIM_OPEN=1) replays the shrunk reproducers of findings not fixed yet
+// (testdata/open, each with its why): each must still fail; once one passes, its fix landed: move it to
+// testdata/cluster.
+func TestClusterOpenFindings(t *testing.T) {
+	if os.Getenv("MANSIO_SIM_OPEN") == "" {
+		t.Skip("set MANSIO_SIM_OPEN=1 to replay the open findings (testdata/open)")
+	}
+	paths, _ := filepath.Glob("testdata/open/*.json")
+	for _, path := range paths {
+		v, err := sim.ReadVector(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(v.Name, func(t *testing.T) {
+			res := runCluster(t, v.Config)
+			if !clusterFailed(res) {
+				t.Errorf("%s passes now: move it to testdata/cluster (and update its why)", path)
+				return
+			}
+			for _, x := range res.Violations {
+				t.Logf("still open: %s", x)
+			}
+		})
+	}
+}

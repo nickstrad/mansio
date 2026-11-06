@@ -1,0 +1,78 @@
+{
+  "name": "version-reuse-after-rollback",
+  "why": "OPEN (not fixed; plan \u00a79 kill -9 decision). A kill -9 of the owner rolls the database back to its last published generation (inside the RPO), so document _version numbers are issued again for different contents. A bank transfer computed before the crash (read at versions v, patch absolute balances with expect {version: v}) that is still in flight or retried with its request id after the restart passes its expect against the new, different document at the same version and writes stale balances: the bank no longer sums to 400 (398 here). Loss inside the RPO becomes silent corruption, not just loss. Shrunk from swarm seed 2761 to three kill/restart pairs of vm2.",
+  "config": {
+    "Seed": 2761,
+    "Duration": 242000000000,
+    "VMs": 4,
+    "DBs": 2,
+    "Clients": 3,
+    "Policy": {
+      "WriteBackEvery": 10000000000,
+      "WriteBackCommits": 0,
+      "IdleAfter": 0,
+      "MaxActive": 0,
+      "MaxBytes": 0
+    },
+    "Tick": 1000000000,
+    "Faults": {
+      "Drop": 0.011181235078907737,
+      "Duplicate": 0,
+      "Spike": 0.02720916790713045,
+      "SpikeMax": 2000000000,
+      "Stall": 0,
+      "StallMax": 5000000000,
+      "FailCall": 0,
+      "LoseReply": 0,
+      "PartitionEvery": 0,
+      "PartitionMax": 0,
+      "KillEvery": 55919115079,
+      "RestartMax": 1000000000,
+      "AttestDead": 0,
+      "MoveEvery": 0,
+      "CreateEvery": 0,
+      "RotateEvery": 60000000000,
+      "CacheLossEvery": 0,
+      "StormEvery": 0,
+      "StormMax": 5000000000,
+      "PGDownEvery": 0,
+      "PGDownMax": 0,
+      "Notify": 0
+    },
+    "RPO": 12000000000,
+    "Swarm": false,
+    "Scripted": true,
+    "Script": [
+      {
+        "at": 82595819969,
+        "kind": "kill",
+        "node": "vm2"
+      },
+      {
+        "at": 84593646636,
+        "kind": "restart",
+        "node": "vm2"
+      },
+      {
+        "at": 205189051907,
+        "kind": "kill",
+        "node": "vm2"
+      },
+      {
+        "at": 207053622785,
+        "kind": "restart",
+        "node": "vm2"
+      },
+      {
+        "at": 235322915645,
+        "kind": "kill",
+        "node": "vm2"
+      },
+      {
+        "at": 236933527823,
+        "kind": "restart",
+        "node": "vm2"
+      }
+    ]
+  }
+}

@@ -64,6 +64,7 @@ type cdbModel struct {
 	genMarks      []string
 	epochOwner    map[uint64]string
 	lastEpoch     uint64
+	seenVersion   map[[2]int64]int64 // (account, _version) → the balance a read saw
 }
 
 type cmodel struct {
@@ -73,6 +74,7 @@ type cmodel struct {
 	found   []Violation
 	lostOK  int
 	checked int
+	reused  int // (account, version) pairs read with two balances
 }
 
 func newCModel(w *cworld) *cmodel { return &cmodel{w: w, dbs: map[string]*cdbModel{}} }
@@ -552,6 +554,23 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 	defer m.mu.Unlock()
 	d := m.dbs[key]
 	d.bankOps = append(d.bankOps, op)
+	if op.Input.transfer {
+		return
+	}
+	// Version reuse (informational): after a kill -9 rolls a database back, _version numbers are issued again
+	// for different contents, so an expect computed before the crash can pass against another document.
+	if d.seenVersion == nil {
+		d.seenVersion = map[[2]int64]int64{}
+	}
+	for i, a := range op.Input.accounts {
+		k := [2]int64{int64(a), op.Output.versions[i]}
+		if b, ok := d.seenVersion[k]; ok && b != op.Output.balances[i] {
+			m.reused++
+			m.w.tr.add("check", "%s account %d version %d read with balance %d, earlier %d (version reused after a rollback)",
+				key, a, k[1], op.Output.balances[i], b)
+		}
+		d.seenVersion[k] = op.Output.balances[i]
+	}
 }
 
 // sortOps orders a history by call, return and input, so its order does not depend on which goroutine
