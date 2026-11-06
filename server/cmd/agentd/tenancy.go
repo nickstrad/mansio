@@ -10,6 +10,8 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,6 +45,9 @@ type TenancyConfig struct {
 	// default 1 s. SessionTTL is a new session's lifetime; default 7 days.
 	CacheTTL   load.Duration `json:"cache_ttl"`
 	SessionTTL load.Duration `json:"session_ttl"`
+	// Apps are the apps credentials may reach (api-key and session modes); default the apps in schemas_dir.
+	// Off mode: app_tokens' apps.
+	Apps []string `json:"apps"`
 }
 
 // TenancySecrets is the tenancy secrets file.
@@ -66,6 +71,14 @@ func checkTenancy(c *Config, bad func(string, ...any)) {
 	}
 	if t.CacheTTL.Duration < 0 || t.SessionTTL.Duration < 0 {
 		bad("tenancy: cache_ttl and session_ttl must be >= 0")
+	}
+	if t.Mode != "off" && len(t.Apps) == 0 && c.SchemasDir == "" {
+		bad("tenancy: give apps (or schemas_dir): the apps credentials may reach")
+	}
+	for _, a := range t.Apps {
+		if !pg.ValidName(a) {
+			bad("tenancy.apps: %q is not an app name", a)
+		}
 	}
 }
 
@@ -120,8 +133,19 @@ type tenancyPart struct {
 }
 
 // newTenancy opens the tenancy store (if the mode needs one) and the service.
-func newTenancy(cfg *Config, log *slog.Logger) (*tenancyPart, error) {
+func newTenancy(cfg *Config, log *slog.Logger, schemas front.SchemaSource) (*tenancyPart, error) {
 	mode, _ := tenancy.ParseMode(cfg.Tenancy.Mode)
+	apps := cfg.Tenancy.Apps
+	if dir, ok := schemas.(dirSchemas); ok && len(apps) == 0 {
+		for k := range dir {
+			if !slices.Contains(apps, k[0]) {
+				apps = append(apps, k[0])
+			}
+		}
+	}
+	if mode != tenancy.Off && len(apps) == 0 {
+		return nil, errs.Wrap(module, nil, "tenancy: schemas_dir %s registers no app and tenancy.apps is empty: credentials could reach nothing", cfg.SchemasDir)
+	}
 	sec, err := loadTenancySecrets(cfg.Tenancy.SecretsFile, mode)
 	if err != nil {
 		return nil, err
@@ -144,7 +168,7 @@ func newTenancy(cfg *Config, log *slog.Logger) (*tenancyPart, error) {
 		}
 		part.background = append(part.background, func(ctx context.Context) { migrate(ctx, p, &migrated, log) })
 	}
-	svc, err := tenancy.New(store, tenancy.Config{Mode: mode, AppTokens: sec.AppTokens, CacheTTL: cfg.Tenancy.CacheTTL.Duration,
+	svc, err := tenancy.New(store, tenancy.Config{Mode: mode, Apps: apps, AppTokens: sec.AppTokens, CacheTTL: cfg.Tenancy.CacheTTL.Duration,
 		SessionTTL: cfg.Tenancy.SessionTTL.Duration})
 	if err != nil {
 		part.close()
@@ -201,11 +225,31 @@ func (c credentials) Authenticate(ctx context.Context, token, app string) (strin
 // creatingHost is static mode with create_dbs: a database not served yet is created (an empty file in db_dir)
 // and opened on its first admitted request; the first request then creates its tables (front initDB).
 // Creations are serialized (one at a time per agent: they are rare and fast), never under the host's lock.
+//
+// Creation is capped (Release It S, B6): at most max_dbs databases on the agent and max_dbs_per_tenant per
+// tenant (the part of the id before ':'), counting those found at start. Past a cap the request fails
+// QuotaExceeded (429) and nothing is created.
 type creatingHost struct {
 	*front.StaticHost
-	cfg  *Config
-	mu   sync.Mutex
-	next int // the next actor id
+	cfg       *Config
+	mu        sync.Mutex
+	next      int            // the next actor id
+	total     int            // databases served (found at start + created)
+	perTenant map[string]int // the same, by tenant
+}
+
+func newCreatingHost(host *front.StaticHost, cfg *Config, dbs []string) *creatingHost {
+	h := &creatingHost{StaticHost: host, cfg: cfg, next: len(dbs), total: len(dbs), perTenant: map[string]int{}}
+	for _, db := range dbs {
+		h.perTenant[tenantOf(db)]++
+	}
+	return h
+}
+
+// tenantOf is a database id's tenant: the part before ':' (ADR 0011), or the whole id.
+func tenantOf(db string) string {
+	t, _, _ := strings.Cut(db, ":")
+	return t
 }
 
 func (h *creatingHost) Lookup(ctx context.Context, db string) (*actor.Actor, error) {
@@ -217,6 +261,13 @@ func (h *creatingHost) Lookup(ctx context.Context, db string) (*actor.Actor, err
 	defer h.mu.Unlock()
 	if a, err := h.StaticHost.Lookup(ctx, db); !errors.Is(err, front.ErrUnknownDB) {
 		return a, err // created meanwhile
+	}
+	tenant := tenantOf(db)
+	switch {
+	case h.total >= h.cfg.MaxDBs:
+		return nil, &front.QuotaError{Scope: "agent", Limit: h.cfg.MaxDBs}
+	case h.perTenant[tenant] >= h.cfg.MaxDBsPerTenant:
+		return nil, &front.QuotaError{Scope: "tenant", Limit: h.cfg.MaxDBsPerTenant}
 	}
 	path := dbPath(h.cfg, db)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
@@ -233,6 +284,8 @@ func (h *creatingHost) Lookup(ctx context.Context, db string) (*actor.Actor, err
 		a.Close()
 		return nil, fmt.Errorf("%w: host closed", front.ErrShed)
 	}
+	h.total++
+	h.perTenant[tenant]++
 	return a, nil
 }
 

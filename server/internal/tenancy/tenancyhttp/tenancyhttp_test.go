@@ -20,7 +20,7 @@ const admin = "admin-token-0123456789"
 func rig(t *testing.T, mode tenancy.Mode, mod func(*tenancyhttp.Config)) (*httptest.Server, *tenancytest.Fake) {
 	t.Helper()
 	f := tenancytest.NewFake()
-	cfg := tenancy.Config{Mode: mode}
+	cfg := tenancy.Config{Mode: mode, Apps: []string{"app"}}
 	if mode == tenancy.Off {
 		cfg.AppTokens = map[string]string{"app": "0123456789abcdef"}
 	}

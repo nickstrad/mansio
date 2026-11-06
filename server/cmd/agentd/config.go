@@ -40,6 +40,10 @@ type Config struct {
 	// CreateDBs creates a database not found at start (an empty <db>.db) on its first request admitted at
 	// default_epoch; db_dir may then start empty (tenancy.go).
 	CreateDBs bool `json:"create_dbs"`
+	// The creation caps (create_dbs): databases on this agent and per tenant, counting those found at start;
+	// default 10 000 and 100. Past one a request is QuotaExceeded (429).
+	MaxDBs          int `json:"max_dbs"`
+	MaxDBsPerTenant int `json:"max_dbs_per_tenant"`
 	// Tenancy accepts credentials besides tickets and serves the tenancy admin and sign-in API (tenancy.go).
 	Tenancy *TenancyConfig `json:"tenancy"`
 
@@ -182,6 +186,7 @@ func defaults() Config {
 	d := func(v time.Duration) load.Duration { return load.Duration{Duration: v} }
 	return Config{
 		Listen: "127.0.0.1:7070", Protocols: []string{"h1", "h2c"},
+		MaxDBs: 10_000, MaxDBsPerTenant: 100,
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
 		KeysRefresh: d(30 * time.Second), KeysTimeout: d(3 * time.Second), SchemasTimeout: d(3 * time.Second), SchemaCache: 1024,
 		Limits:         front.Limits{}.WithDefaults(),
@@ -219,6 +224,12 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.CreateDBs && c.Durable() {
 		bad("create_dbs is static mode only")
+	}
+	if c.CreateDBs && c.SchemasDir == "" {
+		bad("create_dbs needs schemas_dir: a database is only created for a registered schema")
+	}
+	if c.MaxDBs < 1 || c.MaxDBsPerTenant < 1 || c.MaxDBsPerTenant > c.MaxDBs {
+		bad("max_dbs and max_dbs_per_tenant must be >= 1, max_dbs_per_tenant <= max_dbs")
 	}
 	if c.KeysFile == "" && c.KeysURL == "" {
 		bad("keys_file or keys_url is required (the ticket public keys)")

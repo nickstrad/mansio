@@ -35,6 +35,8 @@ func (s *Service) Authenticate(ctx context.Context, token, app string) (Principa
 		return Principal{}, &AuthError{Reason: ReasonMalformed}
 	case s.cfg.Mode == Off:
 		return s.appToken(token, app)
+	case !s.apps[app]:
+		return Principal{}, &AuthError{Reason: ReasonMismatch} // not an app this agent serves: no lookup, no cache
 	}
 	now := s.cfg.Clock.Now()
 	h := sha256.Sum256([]byte(token))
@@ -45,11 +47,13 @@ func (s *Service) Authenticate(ctx context.Context, token, app string) (Principa
 	if hit && now.Before(c.expires) {
 		return c.p, c.err
 	}
-	p, err := s.verify(ctx, token, h, now)
+	p, looked, err := s.verify(ctx, token, h, now)
 	if err != nil && !errors.Is(err, ErrUnauthenticated) {
 		return Principal{}, err // the store's failure: never cached
 	}
-	s.remember(h, gen, cached{p: p, err: err, expires: now.Add(s.cfg.CacheTTL)})
+	if looked { // a refusal decided by the credential's shape alone costs nothing to repeat: not cached
+		s.remember(h, gen, cached{p: p, err: err, expires: now.Add(s.cfg.CacheTTL)})
+	}
 	return p, err
 }
 
@@ -65,8 +69,8 @@ func (s *Service) appToken(token, app string) (Principal, error) {
 	return Principal{Tenant: s.cfg.OffTenant, Sub: "app:" + app}, nil
 }
 
-// verify asks the store who token (SHA-256 h) is.
-func (s *Service) verify(ctx context.Context, token string, h [32]byte, now time.Time) (Principal, error) {
+// verify asks the store who token (SHA-256 h) is; looked reports whether it did (else the shape decided).
+func (s *Service) verify(ctx context.Context, token string, h [32]byte, now time.Time) (p Principal, looked bool, err error) {
 	mismatch := &AuthError{Reason: ReasonMismatch}
 	if strings.HasPrefix(token, keyPrefix) {
 		var k StoredKey
@@ -80,29 +84,29 @@ func (s *Service) verify(ctx context.Context, token string, h [32]byte, now time
 			k, err = s.store.KeyByLegacyHash(ctx, h)
 			want, sub = h, "key:legacy"
 		} else {
-			return Principal{}, mismatch
+			return Principal{}, false, mismatch
 		}
 		switch {
 		case errors.Is(err, ErrNotFound):
-			return Principal{}, mismatch
+			return Principal{}, true, mismatch
 		case err != nil:
-			return Principal{}, storeError(err, "cannot check an api key")
+			return Principal{}, true, storeError(err, "cannot check an api key")
 		case subtle.ConstantTimeCompare(k.Hash[:], want[:]) != 1 || k.Revoked || !k.TenantActive:
-			return Principal{}, mismatch
+			return Principal{}, true, mismatch
 		}
-		return Principal{Tenant: k.Tenant, Sub: sub}, nil
+		return Principal{Tenant: k.Tenant, Sub: sub}, true, nil
 	}
 	if s.cfg.Mode != Sessions {
-		return Principal{}, mismatch
+		return Principal{}, false, mismatch
 	}
 	tenant, err := s.store.SessionTenant(ctx, h, now)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return Principal{}, mismatch
+		return Principal{}, true, mismatch
 	case err != nil:
-		return Principal{}, storeError(err, "cannot check a session")
+		return Principal{}, true, storeError(err, "cannot check a session")
 	}
-	return Principal{Tenant: tenant, Sub: "session"}, nil
+	return Principal{Tenant: tenant, Sub: "session"}, true, nil
 }
 
 // keyPrefix starts every API key, new or legacy.
@@ -120,6 +124,9 @@ func legacyKey(key string) bool {
 	return err == nil && len(b) == 32
 }
 
+// evictBatch is how many entries a full cache drops per insert (amortized: the cache is not scanned).
+const evictBatch = 8
+
 // remember caches an answer unless the cache was cleared since gen was read (the answer may predate a revoke).
 func (s *Service) remember(h [32]byte, gen uint64, c cached) {
 	s.mu.Lock()
@@ -128,17 +135,14 @@ func (s *Service) remember(h [32]byte, gen uint64, c cached) {
 		return
 	}
 	if len(s.cache) >= s.cfg.CacheMax {
-		now := s.cfg.Clock.Now()
-		for k, v := range s.cache { // drop the expired; if none, one arbitrary entry
-			if !now.Before(v.expires) {
-				delete(s.cache, k)
-			}
-		}
+		// Random eviction in bounded work: map iteration starts at a random entry; drop a few from there.
+		n := 0
 		for k := range s.cache {
-			if len(s.cache) < s.cfg.CacheMax {
+			if n == evictBatch {
 				break
 			}
 			delete(s.cache, k)
+			n++
 		}
 	}
 	s.cache[h] = c

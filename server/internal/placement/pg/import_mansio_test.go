@@ -84,7 +84,7 @@ func TestImportMansio(t *testing.T) {
 	}
 
 	// What was imported works through the Go auth: the legacy key, the password, the session.
-	svc, err := tenancy.New(p.Tenancy(), tenancy.Config{Mode: tenancy.Sessions})
+	svc, err := tenancy.New(p.Tenancy(), tenancy.Config{Mode: tenancy.Sessions, Apps: []string{"app"}})
 	if err != nil {
 		t.Fatal(err)
 	}

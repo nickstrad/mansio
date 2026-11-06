@@ -212,7 +212,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
 	ten := &tenancyPart{ready: func(context.Context) error { return nil }, close: func() {}}
 	if cfg.Tenancy != nil {
-		if ten, err = newTenancy(cfg, log); err != nil {
+		if ten, err = newTenancy(cfg, log, be.schemas); err != nil {
 			canaryHost.Close() // static mode: the backend's host
 			cleanCanary()
 			return nil, err
@@ -261,7 +261,7 @@ func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHo
 	var lookup front.Host = host
 	if cfg.CreateDBs {
 		admitter = creatingAdmitter{Admitter: admitter, table: table, epoch: cfg.DefaultEpoch}
-		lookup = &creatingHost{StaticHost: host, cfg: cfg, next: len(dbs)}
+		lookup = newCreatingHost(host, cfg, dbs)
 	}
 	return &backend{
 		admitter: admitter,

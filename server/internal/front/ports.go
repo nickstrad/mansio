@@ -113,3 +113,14 @@ type Credentials interface {
 type AuthError struct{ Reason string }
 
 func (e *AuthError) Error() string { return "front: credential refused (" + e.Reason + ")" }
+
+// QuotaError: the request would create a database past a cap (wire tag QuotaExceeded, 429; not retried).
+// Scope is "agent" or "tenant"; Limit the cap.
+type QuotaError struct {
+	Scope string
+	Limit int
+}
+
+func (e *QuotaError) Error() string {
+	return fmt.Sprintf("front: no new database: the %s already has its cap of %d", e.Scope, e.Limit)
+}

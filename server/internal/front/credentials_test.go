@@ -98,3 +98,37 @@ func TestOpsCredentials(t *testing.T) {
 		t.Fatalf("asked about %v", c.apps)
 	}
 }
+
+// quotaExec refuses every call with a creation quota.
+type quotaExec struct{}
+
+func (quotaExec) Exec(context.Context, front.Call) (front.Reply, error) {
+	return front.Reply{}, &front.QuotaError{Scope: "tenant", Limit: 100}
+}
+
+// A credential request naming an unregistered schema is refused before admission (nothing is created); a
+// creation cap is QuotaExceeded 429 with its scope and limit.
+func TestOpsCredentialsSchemaAndQuota(t *testing.T) {
+	c := &creds{tenants: map[string]string{"key-a": "acme"}}
+	r := newCredsRig(t, c)
+	r.schemas.add("notes", notesSchema)
+	get := `[{"op":"get","table":"notes","id":"s1"}]`
+	if got := r.post(t, "key-a", request("acme", "other", "query", "", notesFP, get), nil); got.status != 409 || got.tag() != "SchemaDriftError" {
+		t.Fatalf("unregistered for the app: %d %s", got.status, got.raw)
+	}
+	if n, _, _ := r.adm.Counts(); n != 0 {
+		t.Fatalf("%d admissions for a refused request", n)
+	}
+	v := ticket.Verifier{Keys: ticket.NewKeyRing(r.iss.Keys()), VM: vm, Skew: 5 * time.Second, MaxTTL: time.Hour}
+	s := front.NewServer(front.Config{}, v, creatingAdmit{}, quotaExec{}, nil)
+	s.EnableOps(front.OpsConfig{Schemas: r.schemas, Credentials: c, CredentialEpoch: 1})
+	out := s.HandleOps(context.Background(), front.Input{Ticket: "key-a", Body: request("acme", "notes", "query", "", notesFP, get)})
+	if out.Status != 429 || out.Tag != "QuotaExceeded" || !strings.Contains(string(out.Body), `"scope":"tenant"`) || !strings.Contains(string(out.Body), `"limit":100`) {
+		t.Fatalf("quota: %d %s", out.Status, out.Body)
+	}
+}
+
+// creatingAdmit admits everything.
+type creatingAdmit struct{}
+
+func (creatingAdmit) Admit(string, uint64) (func(), error) { return func() {}, nil }

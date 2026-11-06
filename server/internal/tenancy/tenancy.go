@@ -151,6 +151,9 @@ type Config struct {
 	// AppTokens are off mode's credentials, by app (each at least 16 bytes).
 	AppTokens map[string]string
 	OffTenant string // off mode's tenant; default "default"
+	// Apps are the apps a credential may be used for (api-key and session modes; off mode: AppTokens' keys).
+	// Any other app is refused (mismatch) before the database is looked up or created. Required.
+	Apps []string
 	// CacheTTL bounds how long a credential's answer is reused (and how long another process may still
 	// accept a revoked key); default 1 s. CacheMax bounds the entries; default 10 000.
 	CacheTTL time.Duration
@@ -168,7 +171,8 @@ type Config struct {
 type Service struct {
 	store Store
 	cfg   Config
-	hash  chan struct{} // the password-hash bulkhead
+	apps  map[string]bool // Config.Apps
+	hash  chan struct{}   // the password-hash bulkhead
 
 	mu    sync.Mutex
 	cache map[[32]byte]cached // by SHA-256 of the credential
@@ -217,6 +221,9 @@ func New(store Store, cfg Config) (*Service, error) {
 			problems = append(problems, fmt.Sprintf("app %q: token shorter than %d bytes", app, minToken))
 		}
 	}
+	if cfg.Mode != Off && len(cfg.Apps) == 0 {
+		problems = append(problems, "api-key and session modes need the apps credentials may reach")
+	}
 	if cfg.Mode != Off && store == nil {
 		problems = append(problems, "api-key and session modes need a store")
 	}
@@ -226,7 +233,11 @@ func New(store Store, cfg Config) (*Service, error) {
 	if len(problems) > 0 {
 		return nil, errs.Wrap(module, ErrInvalid, "invalid tenancy config: %s", strings.Join(problems, "; "))
 	}
-	return &Service{store: store, cfg: cfg, hash: make(chan struct{}, cfg.HashSlots), cache: map[[32]byte]cached{}}, nil
+	apps := map[string]bool{}
+	for _, a := range cfg.Apps {
+		apps[a] = true
+	}
+	return &Service{store: store, cfg: cfg, apps: apps, hash: make(chan struct{}, cfg.HashSlots), cache: map[[32]byte]cached{}}, nil
 }
 
 // Mode is the configured mode.

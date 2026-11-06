@@ -26,7 +26,7 @@ func newService(t *testing.T, mode tenancy.Mode, mod func(*tenancy.Config)) (*te
 	t.Helper()
 	f := tenancytest.NewFake()
 	clock := dettest.NewClock(time.Unix(1_800_000_000, 0))
-	cfg := tenancy.Config{Mode: mode, Clock: clock, CacheTTL: time.Second}
+	cfg := tenancy.Config{Mode: mode, Clock: clock, CacheTTL: time.Second, Apps: []string{"a", "app", "any-app"}}
 	if mod != nil {
 		mod(&cfg)
 	}
@@ -53,8 +53,9 @@ func TestConfigRefusals(t *testing.T) {
 		"short app token":     {Mode: tenancy.Off, AppTokens: map[string]string{"app": "short"}},
 		"api-key, no store":   {Mode: tenancy.APIKeys},
 		"unknown mode":        {Mode: 9},
-		"session ttl too low": {Mode: tenancy.Sessions, SessionTTL: time.Second},
-		"negative cache ttl":  {Mode: tenancy.APIKeys, CacheTTL: -1},
+		"session ttl too low": {Mode: tenancy.Sessions, SessionTTL: time.Second, Apps: []string{"a"}},
+		"negative cache ttl":  {Mode: tenancy.APIKeys, CacheTTL: -1, Apps: []string{"a"}},
+		"no apps":             {Mode: tenancy.APIKeys},
 	} {
 		var store tenancy.Store = f
 		if name == "api-key, no store" {
@@ -327,5 +328,25 @@ func TestHashSlotsBoundTheWait(t *testing.T) {
 	defer cancel()
 	if _, _, err := s.SignUp(cctx, "C", "c@example.test", "long enough"); !errors.Is(err, tenancy.ErrUnavailable) {
 		t.Fatalf("err = %v, want unavailable once every slot is busy past the deadline", err)
+	}
+}
+
+// A credential is refused for an app the agent does not serve, and a refusal decided by the credential's
+// shape is neither looked up nor cached.
+func TestAppsAllowlistAndShapeRefusals(t *testing.T) {
+	s, f, _ := newService(t, tenancy.APIKeys, nil)
+	_, key, err := s.CreateTenant(ctx, "Acme", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.Calls
+	if got := reason(t, func() error { _, err := s.Authenticate(ctx, key.Plaintext, "not-served"); return err }()); got != tenancy.ReasonMismatch {
+		t.Fatalf("unserved app: %s", got)
+	}
+	for range 3 {
+		reason(t, func() error { _, err := s.Authenticate(ctx, "garbage-bearer-token", "a"); return err }())
+	}
+	if f.Calls != before || tenancy.CacheLen(s) != 0 {
+		t.Fatalf("%d store calls, %d cached, want none", f.Calls-before, tenancy.CacheLen(s))
 	}
 }

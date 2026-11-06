@@ -202,6 +202,13 @@ func (s *Server) verifyOps(ctx context.Context, token string, req *ir.Request, k
 	if err != nil {
 		return ticket.Claims{}, err
 	}
+	// A credential request may only name a registered schema, checked before anything is admitted or created
+	// (with create_dbs a database's file and actor would otherwise exist before its schema is looked up).
+	if s.ops.schemas != nil {
+		if _, err := s.ops.schemas.Schema(ctx, req.DB.App, req.Schema); err != nil {
+			return ticket.Claims{}, schemaError(ctx, req, err)
+		}
+	}
 	db := tenant + ":" + req.DB.App
 	if e := CheckDBID(db); e != nil {
 		return ticket.Claims{}, fmt.Errorf("front: the credentials port answered tenant %q, which makes no valid database id (%v)", tenant, e) // its bug: internal
@@ -216,16 +223,8 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 		return &docexec.Failure{Err: unregistered(req.Schema)}
 	}
 	text, err := s.ops.schemas.Schema(ctx, req.DB.App, req.Schema)
-	switch {
-	case errors.Is(err, ErrSchemaUnknown):
-		return &docexec.Failure{Err: unregistered(req.Schema)}
-	case errors.Is(err, ErrUnavailable):
-		return err
-	case err != nil && (ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)):
-		// The request's deadline passed (or the client left) while waiting for the registry: nothing ran.
-		return fmt.Errorf("%w: waiting for the schema registry: %w", ErrExpired, err)
-	case err != nil:
-		return err
+	if err != nil {
+		return schemaError(ctx, req, err)
 	}
 	schema, e := s.ops.cache.Get(text)
 	if e != nil || schema.Fingerprint != req.Schema {
@@ -237,6 +236,21 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 	if _, err = run(c); errors.Is(err, ErrNoReply) {
 		// Only the idempotent creation may have committed; the request itself never ran: not ambiguous.
 		return fmt.Errorf("%w: creating the database got no reply in time (%v); the request did not run", ErrExpired, err)
+	}
+	return err
+}
+
+// schemaError classifies a SchemaSource failure: an unregistered schema is drift, the rest unavailable, expired or
+// passed on.
+func schemaError(ctx context.Context, req *ir.Request, err error) error {
+	switch {
+	case errors.Is(err, ErrSchemaUnknown):
+		return &docexec.Failure{Err: unregistered(req.Schema)}
+	case errors.Is(err, ErrUnavailable):
+		return err
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		// The request's deadline passed (or the client left) while waiting for the registry: nothing ran.
+		return fmt.Errorf("%w: waiting for the schema registry: %w", ErrExpired, err)
 	}
 	return err
 }
@@ -306,6 +320,10 @@ func opsError(req *ir.Request, err error) (*ir.Error, Code) {
 	}
 	var bad *BadRequestError
 	var p *panicx.Panic
+	var quota *QuotaError
+	if errors.As(err, &quota) {
+		return ir.NewError(ir.TagQuota, "scope", quota.Scope, "limit", float64(quota.Limit)), BadRequest
+	}
 	var auth *AuthError
 	if errors.As(err, &auth) {
 		app := ""
