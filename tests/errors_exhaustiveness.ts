@@ -121,7 +121,7 @@ type _TagsAreExactly = Expect<Equals<E.PlatformError["_tag"], FrozenPlatformTags
 type _NeverServedTags = Expect<
   Equals<
     E.StartupError["_tag"] | E.CliError["_tag"] | E.ClientError["_tag"],
-    "ConfigError" | "SchemaDriftError" | "RestoreError" | "RemoteError"
+    "ConfigError" | "SchemaDriftError" | "RestoreError" | "RemoteError" | "Unavailable"
   >
 >;
 type _StartupIsNotServed = Expect<Equals<Extends<E.StartupError, E.PlatformError>, false>>;

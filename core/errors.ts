@@ -437,12 +437,41 @@ export class ConfigError extends Data.TaggedError("ConfigError")<{
   readonly detail?: string;
 }> {}
 
-/** `sdk/client.ts` received a non-2xx response. Raised in the *caller's* process; never served. */
+/**
+ * A call through `sdk/client.ts` ended with a definite, tagged failure. Raised in the *caller's*
+ * process; never served. Since IR-3 the tag is decided either by the server (a non-2xx `/v1/ops`
+ * answer) or by the handler, which now runs in the caller's process: a handler failure such as
+ * `makeMove`'s `ConflictError`, or a `SchemaError` from argument parsing, is reported with the status
+ * the server would have answered (`toHttpStatus`), so callers see the same `status`/`remoteTag` on
+ * every backend. `cause` holds the handler's own error object for a local failure.
+ */
 export class RemoteError extends Data.TaggedError("RemoteError")<{
   readonly status: number;
-  /** The `error.tag` the server reported, when it reported one. */
+  /** The `error.tag` the server reported (or the handler's failure tag), when there is one. */
   readonly remoteTag?: string;
   readonly message: string;
+  /** The index of the operation the server blamed (`/v1/ops` `error.op`). */
+  readonly op?: number;
+  /** The structured payload of a 4xx answer (`/v1/ops` `error.fields`). */
+  readonly fields?: Readonly<Record<string, unknown>>;
+  /** The handler's own failure, when the tag was decided in this process. */
+  readonly cause?: unknown;
+}> {}
+
+/**
+ * A call through `sdk/client.ts` got no definite answer (IR-3): the server never answered, kept
+ * answering a retryable code (`shed`, `unavailable`, `aborted`, `expired`, `wrong_owner`, `fenced`)
+ * until the retry policy, the retry budget or the call's deadline ran out, or the locator could not
+ * route it. `code` is the last code seen (`transport` for no answer, `deadline` for the call's own
+ * deadline, `resolve:<code>` for a locator answer). `mayHaveApplied` is true for a mutation whose
+ * commit may have landed (no answer, or an ambiguous `expired`): repeating the call re-runs the
+ * handler under a new request id, so callers that need exactly-once must check before repeating.
+ */
+export class Unavailable extends Data.TaggedError("Unavailable")<{
+  readonly code: string;
+  readonly message: string;
+  readonly status?: number;
+  readonly mayHaveApplied: boolean;
 }> {}
 
 // ---------------------------------------------------------------------------
@@ -532,7 +561,7 @@ export type StartupError = ConfigError | SchemaDriftError;
 export type CliError = RestoreError;
 
 /** Raised inside an SDK consumer's process by `sdk/client.ts`. */
-export type ClientError = RemoteError;
+export type ClientError = RemoteError | Unavailable;
 
 /** Every error this repo defines. Useful for `core/events.ts`'s `error_tag` column. */
 export type AnyError = PlatformError | StartupError | CliError | ClientError;

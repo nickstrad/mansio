@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { Effect, Either } from "effect";
 import type { RemoteError } from "../../core/errors.ts";
-import { createClient } from "../../sdk/client.ts";
+import { createLegacyClient } from "../../sdk/client.ts";
 import type { functions } from "../../app/functions.ts";
 
 const repoRoot = new URL("../../", import.meta.url);
@@ -135,7 +135,7 @@ test("end to end: caller traces through the SDK, server and reader child", { tim
     }
     assert.ok(ready, "server never became ready");
 
-    const client = createClient<typeof functions>(base, APP.id, APP.token);
+    const client = createLegacyClient<typeof functions>(base, APP.id, APP.token);
     const run = <A>(effect: Effect.Effect<A, RemoteError>) => Effect.runPromise(Effect.either(effect));
     const explicit = `e2e-explicit-${crypto.randomUUID()}`;
     const rollback = `e2e-rollback-${crypto.randomUUID()}`;
