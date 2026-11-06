@@ -119,12 +119,26 @@ type Config struct {
 	ReadyInterval  load.Duration `json:"ready_interval"`  // default 1 s
 	ReadyTimeout   load.Duration `json:"ready_timeout"`   // default 500 ms
 
+	// EventLog writes mansio's event log (events.go, internal/eventlog) for the offline TS ingest and analysis
+	// catalog; nil = none.
+	EventLog *EventLogConfig `json:"event_log"`
+
 	LogFile  string `json:"log_file"`  // JSON log; default stderr
 	LogLevel string `json:"log_level"` // debug | info (default) | warn; POST /admin/loglevel changes it at run time
 
 	// Dev is the -dev flag, not a file field: local development, where plain-HTTP S3 and the claim's create
 	// stand-in are allowed (object-storage guide S2; control.go).
 	Dev bool `json:"-"`
+}
+
+// EventLogConfig is the event log: <dir>/server/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl, read by
+// `deno task logs:ingest` with LOG_DIR=<dir> (docs/observability.md).
+type EventLogConfig struct {
+	Dir          string `json:"dir"`            // LOG_DIR (required)
+	Level        string `json:"level"`          // debug | info (default) | warn | error
+	TraceSQL     bool   `json:"trace_sql"`      // a sql record per statement (TRACE_SQL); failed statements always
+	Buffer       int    `json:"buffer"`         // queued records before drops; default 8192
+	MaxFileBytes int64  `json:"max_file_bytes"` // roll size; default 64 MiB (LOG_MAX_FILE_BYTES)
 }
 
 // S3Config is where durable mode keeps databases. The keys come from the secrets file.
@@ -336,6 +350,10 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 		c.Tenancy.SecretsFile = filepath.Join(dir, c.Tenancy.SecretsFile)
 	}
 	paths := []*string{&c.DBDir, &c.KeysFile, &c.LogFile, &c.SecretsFile, &c.CacheDir, &c.OwnerDir, &c.PlacementDir, &c.SchemasDir}
+	if e := c.EventLog; e != nil {
+		checkEventLog(e, bad)
+		paths = append(paths, &e.Dir)
+	}
 	if c.S3 != nil {
 		paths = append(paths, &c.S3.CAFile)
 	}

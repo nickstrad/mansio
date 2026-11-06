@@ -111,6 +111,7 @@ type Input struct {
 	MalformedAuth bool
 	Body          []byte        // at most Limits.MaxBody + 1 bytes (the transport stops reading there)
 	Timeout       time.Duration // client's deadline, relative; 0 = DefaultTimeout
+	Trace         *OpsTrace     // /v1/ops: collect the request's trace (opstrace.go); nil = off
 }
 
 // Response is the JSON body of every answer.

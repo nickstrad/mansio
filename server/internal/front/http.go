@@ -167,13 +167,16 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 	}()
 	rc := http.NewResponseController(w)
 	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.BodyReadTimeout + h.s.cfg.WriteGrace)) // early refusals
+	auth := r.Header.Get("Authorization")
+	in := Input{Ticket: bearer(auth), MalformedAuth: auth != "" && bearer(auth) == ""}
+	if observe := h.s.ops.observer; observe != nil {
+		w = h.observeOps(w, r, &in, observe)
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, &BadRequestError{Msg: "use POST", Status: http.StatusMethodNotAllowed}))
 		return
 	}
-	auth := r.Header.Get("Authorization")
-	in := Input{Ticket: bearer(auth), MalformedAuth: auth != "" && bearer(auth) == ""}
 	if v := r.Header.Get(TimeoutHeader); v != "" {
 		ms, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || ms <= 0 || ms > int64(time.Hour/time.Millisecond) {
@@ -184,6 +187,9 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 		in.Timeout = time.Duration(ms) * time.Millisecond
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, ir.MaxBodyBytes+1))
+	if ow, ok := w.(*observedWriter); ok {
+		ow.ev.BytesIn = len(body)
+	}
 	if err != nil {
 		bad := &BadRequestError{Msg: "a body that can be read"}
 		if errors.Is(err, os.ErrDeadlineExceeded) {
@@ -195,6 +201,41 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 	in.Body = body
 	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.timeout(in.Timeout) + h.s.cfg.WriteGrace))
 	h.writeOps(w, r, h.s.HandleOps(r.Context(), in))
+}
+
+// observeOps starts observing one /v1/ops request (opstrace.go): it settles the trace id (echoed in
+// X-Trace-Id), attaches a trace to in, and returns the writer to answer through, which hands the event to
+// observe once the answer is written.
+func (h *httpHandler) observeOps(w http.ResponseWriter, r *http.Request, in *Input, observe OpsObserver) http.ResponseWriter {
+	trace := r.Header.Get(TraceHeader)
+	if !validToken(trace) {
+		trace = h.s.ops.ids.NewID()
+		r.Header.Set(TraceHeader, trace) // the operational log's lines for this request carry it too
+	}
+	w.Header().Set(TraceHeader, trace)
+	name := r.Header.Get(HandlerHeader)
+	if !validToken(name) {
+		name = OpsName
+	}
+	in.Trace = &OpsTrace{}
+	return &observedWriter{ResponseWriter: w, observe: observe, trace: in.Trace, clock: h.s.clock.Now,
+		ev: OpsEvent{Start: h.s.clock.Now(), Method: r.Method, Path: r.URL.Path, TraceID: trace, Handler: name}}
+}
+
+// observedWriter is the ResponseWriter of an observed request; writeOps calls done once the answer is out.
+type observedWriter struct {
+	http.ResponseWriter
+	observe OpsObserver
+	trace   *OpsTrace
+	clock   func() time.Time
+	ev      OpsEvent
+}
+
+func (o *observedWriter) Unwrap() http.ResponseWriter { return o.ResponseWriter } // for ResponseController
+
+func (o *observedWriter) done(out OpsOutput, bytesOut int) {
+	o.ev.Duration, o.ev.Out, o.ev.BytesOut, o.ev.Ops = o.clock().Sub(o.ev.Start), out, bytesOut, o.trace.Snapshot()
+	o.observe(o.ev)
 }
 
 // writeOps logs out as write does (internal errors once, with a log ID, also sent in the X-Log-Id header so
@@ -243,6 +284,9 @@ func (h *httpHandler) writeOps(w http.ResponseWriter, r *http.Request, out OpsOu
 	}
 	w.WriteHeader(out.Status)
 	w.Write(append(out.Body, '\n')) // a write error means the client left; nothing to do
+	if ow, ok := w.(*observedWriter); ok {
+		ow.done(out, len(out.Body)+1)
+	}
 }
 
 // bearer extracts the token from "Bearer <token>"; anything else is "" (ticket_invalid; with credentials, an

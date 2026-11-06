@@ -247,6 +247,43 @@ deno task logs:sweep [--dry-run]      # ingest, seal torn tails, then retention
 - Parameters shared by most queries: `since` (inclusive) and `until` (exclusive), ISO-8601 timestamps (UTC
   when no offset is given); `appId`; `limit`.
 
+## The Go backend (agentd)
+
+agentd writes the same event log (IR-4c, `server/internal/eventlog`): the same envelope, kinds, key order and
+redaction as `core/events.ts` (its tests compare lines byte for byte with `toJsonLine`), under
+`<event_log.dir>/server/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl` with role `server`. DuckDB stays out of Go
+(ADR 0004): ingest and analysis are the offline CLI above, run with `LOG_DIR` set to `event_log.dir`. There is
+no `/admin/logs/*` on agentd.
+
+```json
+"event_log": { "dir": "/var/log/mansio", "level": "info", "trace_sql": false }
+```
+
+```sh
+LOG_DIR=/var/log/mansio EVENTLOG_DUCKDB=/var/lib/mansio/eventlog.duckdb deno task logs:ingest
+LOG_DIR=/var/log/mansio EVENTLOG_DUCKDB=/var/lib/mansio/eventlog.duckdb deno task logs:query trace --param traceId=…
+```
+
+Per `/v1/ops` request, under the request's trace id (`X-Trace-Id` if it is a valid token, else a generated
+one; echoed on the response):
+
+| Kind      | When                      | Notes                                                                                  |
+| --------- | ------------------------- | -------------------------------------------------------------------------------------- |
+| `http`    | every answer              | `name` is the SDK's `X-Mansio-Handler` (else `v1.ops`); `handlerKind` the request kind |
+| `handler` | the body decoded          | the pipeline's time: the server's half of one SDK handler run (one read or the commit) |
+| `tx`      | the transaction ran       | `commit`, `rollback` (an error answer) or `interrupted` (statement timeout, deadline)  |
+| `sql`     | `trace_sql`, or a failure | `engine`/`dialect` `sqlite`, `path` null, bind values never                            |
+
+Plus `lifecycle` `startup` and `shutdown`, and the queue record `queue: "events", event: "dropped"` when the
+emitter's bounded queue was full: `Emit` never blocks a request; a drop is counted
+(`mansio_eventlog_records_total{result="dropped"}`) and reported before the next batch. Differences from the
+Deno server: the SDK runs handlers in the client, so an app error (`makeMove`'s `ConflictError`, a
+`RuleError`) never reaches agentd and is not in its log; there is one `handler` record per request, not per
+handler run; no `reader` role (agentd has no reader process); a backup is one `backup` record
+(`publish-latest`, emitter `backups`) per durable-mode `POST /admin/backup`, with no per-phase records. The
+`errorDetail` of a failed request is the error body the client received (the cause stays in agentd's
+operational log, with its log id).
+
 ## Named queries
 
 The catalog lives in `platform/analysis/catalog.ts` as a plain record of `{ sql, params, description }`. It is

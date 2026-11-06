@@ -1,11 +1,15 @@
 // Shared k6 helpers for calling the document-db HTTP API.
-// Route: POST /apps/:app/:kind/:name, kind in {query, mutation}. See platform/server.ts.
+// BACKEND=deno (default): POST /apps/:app/:kind/:name, kind in {query, mutation} (platform/server.ts).
+// BACKEND=go: agentd's POST /v1/ops, the handlers sent as the SDK sends them (./ir.js; tickets and the schema
+// fingerprint from READ_TICKET, WRITE_TICKET, SCHEMA_FINGERPRINT).
 import http from "k6/http";
+import { irCall } from "./ir.js";
 
 // Treat any non-200 API response as a failure (k6 counts it in http_req_failed).
 // Set here so every script importing these helpers inherits the 200-only callback.
 http.setResponseCallback(http.expectedStatuses(200));
 
+export const BACKEND = __ENV.BACKEND ?? "deno";
 export const BASE_URL = __ENV.BASE_URL ?? "http://127.0.0.1:8000";
 export const APP_ID = __ENV.APP_ID ?? "tic-tac-toe";
 export const TOKEN = __ENV.TOKEN ?? "dev-only";
@@ -17,6 +21,9 @@ function traceId() {
 }
 
 function call(kind, name, args) {
+  if (BACKEND === "go") {
+    return irCall({ base: BASE_URL, app: APP_ID, traceId: traceId(), runId: RUN_ID }, name, args);
+  }
   const url = `${BASE_URL}/apps/${encodeURIComponent(APP_ID)}/${kind}/${name}`;
   const res = http.post(url, JSON.stringify(args), {
     headers: {

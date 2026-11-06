@@ -299,6 +299,7 @@ Deno.test("sdk: a lost reply is retried with the same body and answered as a dup
   for (const h of seen.headers) {
     assert.equal(h.get("authorization"), "Bearer t0");
     assert.ok(Number(h.get("x-timeout-ms")) >= 1);
+    assert.equal(h.get("x-mansio-handler"), "createGame", "the event log's handler name");
   }
 });
 

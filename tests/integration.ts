@@ -30,13 +30,18 @@
  * read from a `deno eval` subprocess (`duckdbRows`), so this process never loads `@duckdb/node-api`
  * beside anything that could load `node:sqlite` (ADR 0001).
  *
- * The scratch-server and DuckDB helpers are exported for `tests/e2e/observability_test.ts`; the
- * checks themselves run only when this module is the entry point.
+ * The scratch-server, scratch-agent (`startScratchAgent`: agentd with an event log, IR-4c) and DuckDB helpers
+ * are exported for `tests/e2e/observability_test.ts`; the checks themselves run only when this module is the
+ * entry point.
  */
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { Effect, Exit, Layer, type Scope } from "effect";
 import { createLegacyClient } from "../sdk/client.ts";
+import { schema } from "../app/schema.ts";
+import { withStorage } from "../sdk/schema.ts";
+import { schemaFingerprint } from "../sdk/fingerprint.ts";
+import * as ticket from "../sdk/ticket.ts";
 import type { functions } from "../app/functions.ts";
 import type { ResultOf } from "../sdk/functions.ts";
 import { sha256 } from "../platform/object_store.ts";
@@ -153,6 +158,128 @@ function stopChild(child: Deno.ChildProcess): Effect.Effect<Deno.CommandStatus> 
       child.kill("SIGTERM");
     } catch { /* already exited */ }
     return await child.status;
+  });
+}
+
+// ===========================================================================
+// Scratch Go agent (IR-4c)
+// ===========================================================================
+
+export interface ScratchAgent {
+  readonly base: string;
+  /** `event_log.dir`: agentd's JSONL event log (role `server`), the CLI's `LOG_DIR`. */
+  readonly logDir: string;
+  /** Where `ingest` puts the DuckDB event log (`EVENTLOG_DUCKDB`). */
+  readonly eventLogPath: string;
+  /** Tickets for `local:tic-tac-toe` (columns layout), valid ~50 minutes, and its schema fingerprint. */
+  readonly readTicket: string;
+  readonly writeTicket: string;
+  readonly fingerprint: string;
+  /** `deno run scripts/logs.ts ingest` over `logDir` (the offline ingest a Go deployment runs). */
+  readonly ingest: Effect.Effect<{ code: number; stdout: string; stderr: string }>;
+  /** SIGTERM, then the exit status. */
+  readonly stop: Effect.Effect<Deno.CommandStatus>;
+}
+
+/**
+ * Starts `cmd/agentd` in static mode with an event log over scratch directories under `root`: one empty
+ * `local:tic-tac-toe.db`, its schema in the columns layout (the first request creates the tables), a fresh
+ * ticket issuer. The binary is `AGENTD_BIN`, else built from `server/` into `root`. `eventLevel` is
+ * `event_log.level` (`error` drops every request record: the negative control).
+ */
+export function startScratchAgent(
+  root: string,
+  options: { readonly eventLevel?: "debug" | "info" | "warn" | "error" } = {},
+): Effect.Effect<ScratchAgent, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const app = "tic-tac-toe";
+    const stored = withStorage(schema, "columns");
+    const setup = yield* Effect.promise(async () => {
+      for (const sub of ["dbs", "keys", "logs", `schemas/${app}`]) {
+        await Deno.mkdir(resolve(root, sub), { recursive: true });
+      }
+      await Deno.writeFile(resolve(root, "dbs", `local:${app}.db`), new Uint8Array());
+      await Deno.writeTextFile(resolve(root, "schemas", app, "v1.json"), JSON.stringify(stored));
+      const issuer = await ticket.generateIssuer();
+      await Deno.writeTextFile(resolve(root, "keys", "keys.json"), issuer.keysFile);
+      await Deno.writeTextFile(
+        resolve(root, "agentd.json"),
+        JSON.stringify({
+          listen: "127.0.0.1:0",
+          vm: "vm-local",
+          db_dir: resolve(root, "dbs"),
+          keys_file: resolve(root, "keys", "keys.json"),
+          schemas_dir: resolve(root, "schemas"),
+          max_ticket_ttl: "1h",
+          log_file: resolve(root, "logs", "agentd.log"),
+          event_log: { dir: resolve(root, "logs"), level: options.eventLevel ?? "info" },
+        }),
+      );
+      let bin = Deno.env.get("AGENTD_BIN");
+      if (!bin) {
+        bin = resolve(root, "agentd");
+        const built = await new Deno.Command("go", {
+          args: ["build", "-o", bin, "./cmd/agentd"],
+          cwd: resolve("server"),
+          stdout: "inherit",
+          stderr: "inherit",
+        }).output();
+        assert.ok(built.success, "go build ./cmd/agentd failed");
+      }
+      const iat = Math.floor(Date.now() / 1000) - 1;
+      const mint = (perms: number) =>
+        ticket.mintTicket(issuer.key, {
+          kid: issuer.kid,
+          tid: "local",
+          dbid: `local:${app}`,
+          vm: "vm-local",
+          epoch: 1,
+          sub: "k6",
+          perms,
+          iat,
+          exp: iat + 3000,
+        });
+      return {
+        bin,
+        readTicket: await mint(ticket.PERM_READ),
+        writeTicket: await mint(ticket.PERM_WRITE),
+        fingerprint: await schemaFingerprint(stored),
+      };
+    });
+    const addrFile = resolve(root, "agentd.addr");
+    const child = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        new Deno.Command(setup.bin, {
+          args: ["-config", resolve(root, "agentd.json"), "-addr-file", addrFile],
+          stdout: "null",
+          stderr: "inherit",
+        }).spawn()
+      ),
+      (child) => stopChild(child),
+    );
+    let exited = false;
+    void child.status.then(() => void (exited = true));
+    let base = "";
+    for (let attempt = 0; attempt < 600 && !base; attempt++) {
+      assert.ok(!exited, "agentd exited before serving");
+      const line = yield* Effect.promise(() => Deno.readTextFile(addrFile).catch(() => ""));
+      if (line.includes("\n")) base = `http://${line.split("\n")[0].trim()}`;
+      else yield* Effect.sleep("50 millis");
+    }
+    assert.ok(base, "agentd never wrote its address");
+    const logDir = resolve(root, "logs");
+    const eventLogPath = resolve(root, "eventlog", "eventlog.duckdb");
+    const ingest = Effect.promise(async () => {
+      const out = await new Deno.Command(Deno.execPath(), {
+        args: ["run", "-A", "scripts/logs.ts", "ingest"],
+        env: { LOG_DIR: logDir, EVENTLOG_DUCKDB: eventLogPath, DATA_DIR: resolve(root, "data") },
+        stdout: "piped",
+        stderr: "piped",
+      }).output();
+      const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+      return { code: out.code, stdout: decode(out.stdout), stderr: decode(out.stderr) };
+    });
+    return { ...setup, base, logDir, eventLogPath, ingest, stop: stopChild(child) };
   });
 }
 
