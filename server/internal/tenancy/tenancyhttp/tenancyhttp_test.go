@@ -88,6 +88,18 @@ func TestAdminGate(t *testing.T) {
 			}
 		}
 	}
+	for h, want := range map[string]int{"Basic " + admin: 401, "bearer " + admin: 200, "Bearer": 401} {
+		req, _ := http.NewRequest("GET", srv.URL+"/admin/tenants", nil)
+		req.Header.Set("Authorization", h)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("Authorization %q: %d, want %d", h, res.StatusCode, want)
+		}
+	}
 	if r := call(t, srv, "POST", "/admin/logs/ingest", admin, nil); r.status != 404 {
 		t.Errorf("unknown admin path with the right token: %d", r.status)
 	}

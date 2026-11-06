@@ -29,6 +29,8 @@ admin API and sign-in, and how do the Deno platform's Postgres rows move over? B
 }
 ```
 
+`create_dbs` needs `schemas_dir` (only registered apps and schemas create a database); caps `max_dbs` and
+`max_dbs_per_tenant` answer `QuotaExceeded` 429. `tenancy.apps` defaults to the apps in `schemas_dir`.
 `tenancy.json` (0600): `{"admin_token", "app_tokens": {app: token}, "pg_dsn"}`. Give the DSN an explicit
 `sslmode` (pgx's default `prefer` adds a fallback config, which the placement adapter refuses). The schema
 (`search_path`) must exist; agentd migrates it in the background and `/readyz` waits for that.

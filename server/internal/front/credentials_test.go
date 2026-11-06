@@ -87,6 +87,15 @@ func TestOpsCredentials(t *testing.T) {
 			t.Errorf("%s: no WWW-Authenticate", tc.name)
 		}
 	}
+	for _, h := range []string{"Basic abc", "Bearer"} {
+		got := r.post(t, "", request("acme", "notes", "query", "", notesFP, get), map[string]string{"Authorization": h})
+		if got.status != 401 || got.field("reason") != "malformed" {
+			t.Errorf("Authorization %q: %d %s", h, got.status, got.raw)
+		}
+	}
+	if got := r.post(t, "", request("acme", "notes", "query", "", notesFP, get), map[string]string{"Authorization": "bearer key-a"}); got.status != 200 {
+		t.Errorf("a lowercase scheme: %d %s", got.status, got.raw)
+	}
 	if got := r.post(t, "key-bad", request("acme", "notes", "query", "", notesFP, get), nil); got.status != 500 {
 		t.Errorf("a tenant that makes no database id: %d %s (a broken port: internal)", got.status, got.raw)
 	}

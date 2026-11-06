@@ -148,7 +148,7 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
 	defer cancel()
 
-	claims, err := s.verifyOps(ctx, in.Ticket, req, kind, now)
+	claims, err := s.verifyOps(ctx, in, req, kind, now)
 	if err != nil {
 		return opsAnswer(req, nil, Reply{}, err)
 	}
@@ -191,7 +191,11 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 // verifyOps authorizes a /v1/ops request: a ticket for db.tenant ':' db.app, or (with Credentials) a credential,
 // whose tenant replaces db.tenant. A bearer that is not ticket-shaped at all goes to Credentials; a ticket that
 // fails verification stays ticket_invalid.
-func (s *Server) verifyOps(ctx context.Context, token string, req *ir.Request, kind Kind, now time.Time) (ticket.Claims, error) {
+func (s *Server) verifyOps(ctx context.Context, in Input, req *ir.Request, kind Kind, now time.Time) (ticket.Claims, error) {
+	token := in.Ticket
+	if token == "" && in.MalformedAuth && s.ops.creds != nil {
+		return ticket.Claims{}, &AuthError{Reason: "malformed"}
+	}
 	if token != "" {
 		claims, err := s.tickets.Verify(token, now, ticket.Want{DB: req.DB.Tenant + ":" + req.DB.App, Perm: kind.Perm()})
 		if err == nil || s.ops.creds == nil || !(errors.Is(err, ticket.ErrMalformed) || errors.Is(err, ticket.ErrVersion)) {

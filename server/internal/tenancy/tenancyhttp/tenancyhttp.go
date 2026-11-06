@@ -32,7 +32,7 @@ import (
 type Config struct {
 	AdminToken  string        // required, at least 16 bytes
 	Timeout     time.Duration // one call; default 10 s (a sign-in waits for a hash slot)
-	Concurrency int           // calls at once; default 16
+	Concurrency int           // admin calls at once, and sign-in/up calls at once (separate slots); default 16 each
 	// SignInRate and SignInBurst bound sign-ins and sign-ups per source (client IP, IPv6 /64); default 1/s,
 	// burst 10.
 	SignInRate, SignInBurst float64
@@ -43,10 +43,11 @@ type Config struct {
 const maxBody = 4 << 10
 
 type routes struct {
-	svc     *tenancy.Service
-	cfg     Config
-	sem     chan struct{}
-	limiter *ratelimit.SourceLimiter
+	svc      *tenancy.Service
+	cfg      Config
+	adminSem chan struct{} // admin calls; sign-in/up have their own slots (authSem), so neither starves the other
+	authSem  chan struct{}
+	limiter  *ratelimit.SourceLimiter
 }
 
 // Mount registers "/admin/" and, in session mode, "/api/auth/" on mux. Without a store (off mode) the admin
@@ -67,7 +68,7 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 	case cfg.Log == nil || cfg.Timeout < 0 || cfg.Concurrency < 1 || cfg.SignInRate < 0 || cfg.SignInBurst < 1:
 		return errs.Wrap("tenancy", tenancy.ErrInvalid, "tenancyhttp: log required; timeout >= 0, concurrency >= 1, sign-in burst >= 1")
 	}
-	rt := &routes{svc: svc, cfg: cfg, sem: make(chan struct{}, cfg.Concurrency),
+	rt := &routes{svc: svc, cfg: cfg, adminSem: make(chan struct{}, cfg.Concurrency), authSem: make(chan struct{}, cfg.Concurrency),
 		limiter: ratelimit.NewSourceLimiter(cfg.SignInRate, cfg.SignInBurst, 100_000)}
 	admin := http.NewServeMux()
 	if svc.Mode() != tenancy.Off {
@@ -103,13 +104,14 @@ func (rt *routes) gate(next http.Handler) http.Handler {
 
 // bearer reads "Bearer <token>": the token, or why there is none.
 func bearer(h string) (string, string) {
-	switch tok, ok := strings.CutPrefix(h, "Bearer "); {
+	const p = "Bearer " // the scheme is case-insensitive, as on /v1/ops (front.bearer)
+	switch {
 	case h == "":
 		return "", tenancy.ReasonMissing
-	case !ok || tok == "":
+	case len(h) <= len(p) || !strings.EqualFold(h[:len(p)], p) || strings.TrimSpace(h[len(p):]) == "":
 		return "", tenancy.ReasonMalformed
 	default:
-		return tok, ""
+		return strings.TrimSpace(h[len(p):]), ""
 	}
 }
 
@@ -198,10 +200,10 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
-// enter takes a call slot, or reports false (all taken: refuse, never queue).
-func (rt *routes) enter() bool {
+// enter takes a slot of sem, or reports false (all taken: refuse, never queue).
+func enter(sem chan struct{}) bool {
 	select {
-	case rt.sem <- struct{}{}:
+	case sem <- struct{}{}:
 		return true
 	default:
 		return false
@@ -212,12 +214,12 @@ func (rt *routes) enter() bool {
 // ErrNotFound.
 func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !rt.enter() {
+		if !enter(rt.adminSem) {
 			w.Header().Set("Retry-After", "1")
 			adminError(w, http.StatusServiceUnavailable, "shed", "too many admin calls at once; retry")
 			return
 		}
-		defer func() { <-rt.sem }()
+		defer func() { <-rt.adminSem }()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		out, err := fn(ctx, r)
@@ -317,12 +319,12 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 			authError(w, http.StatusTooManyRequests, "TOO_MANY_REQUESTS", "Too many requests. Please try again later.")
 			return
 		}
-		if !rt.enter() {
+		if !enter(rt.authSem) {
 			w.Header().Set("Retry-After", "1")
 			authError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "Too many requests at once; retry.")
 			return
 		}
-		defer func() { <-rt.sem }()
+		defer func() { <-rt.authSem }()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		var b authBody

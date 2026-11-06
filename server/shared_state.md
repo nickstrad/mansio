@@ -792,3 +792,17 @@ Branch `ir/04a-auth`. Details: `docs/knowledge/ir/2026-11-06-ir-4a-tenancy-auth.
   first admitted request at `default_epoch`; db_dir may start empty), readiness check `tenancy`, breaker
   `tenancy`, `agent.queryRoutes`. Reporter knows module `tenancy`.
 - **controld:** `controld import-mansio -secrets F [-schema S] [-from-schema public] [-from-dsn-env V] [-dry-run]`.
+
+## 2026-11-06 — ir-4a: security review fixes (API changes)
+
+Branch `ir/04a-auth`.
+
+- **agentd:** `create_dbs` needs `schemas_dir`; new `max_dbs` (10 000) and `max_dbs_per_tenant` (100) caps →
+  `front.QuotaError` / wire `QuotaExceeded` 429 (`ir.TagQuota`, spec §8 row). `tenancy.apps` (default: the
+  apps in `schemas_dir`); `tenancy.Config.Apps` is required in api-key and session modes.
+- **front:** a credential request must name a registered schema (checked before admission). `Input.MalformedAuth`:
+  a non-Bearer Authorization header is `AuthError` reason `malformed` with credentials.
+- **placement/pg:** `ImportCounts` gained `TenantsDeactivated`, `KeysRevoked`, `PasswordsChanged`; `api_key.sql`
+  reads a deactivated tenant's keys as revoked. TODO(IR-5): `create_api_key.sql` still inserts for a deactivated
+  tenant; the locator does not yet accept legacy keys or sessions.
+- **tenancy:** `tenancy.HashPassword` (tools, tests).

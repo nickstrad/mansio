@@ -232,7 +232,10 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
   schema migrates in the background; readiness check `tenancy` fails until it has.
 - Credentials cached 1 s (allowed and refused; never a store failure); a local admin change clears the cache.
   A store outage on `/v1/ops` is `unavailable` 503 + Retry-After, never `AuthError`.
-- Admin and sign-in calls: deadline 10 s, 16 at once (more refused 503 at once), body 4 KiB. Sign-in/up: 1 per
+- `create_dbs` caps (S, B6): `max_dbs` 10 000, `max_dbs_per_tenant` 100 (QuotaExceeded 429); only registered
+  apps and schemas create anything. Shape-only refusals are not cached; a full cache evicts 8 random entries.
+- Admin and sign-in calls: deadline 10 s, 16 admin and 16 sign-in/up at once (separate slots; more refused 503
+  at once), body 4 KiB. Sign-in/up: 1 per
   second per source, burst 10 (429 + Retry-After). scrypt (32 MiB each) in 4 slots, waited for until the deadline.
 - `controld import-mansio`: one transaction, `statement_timeout` 50 s inside it, 60 s overall per side.
 

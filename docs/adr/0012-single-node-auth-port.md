@@ -35,9 +35,9 @@
    `POST /admin/users/link` for `scripts/auth.ts users link`), and `/api/auth/sign-up/email`,
    `/api/auth/sign-in/email` answer Better Auth's `{token, user}` / `{code, message}`. On a single node they
    are served by agentd's query listener; every `/admin/` path checks the admin token before routing.
-7. **Migration** is `controld import-mansio [-dry-run]`: reads the Deno tables (read-only session), writes
-   every table in one statement in one transaction, skips rows already present (re-runs are safe), moves only
-   unexpired sessions and only `credential` accounts.
+7. **Migration** is `controld import-mansio [-dry-run]`: reads the Deno tables in one read-only snapshot,
+   writes every table in one statement in one transaction, adds what is new and carries one-way changes on a
+   re-run (below), moves only unexpired sessions and only `credential` accounts.
 
 ## Why
 
@@ -49,6 +49,23 @@
   and no password reset.
 
 ## Consequences
+
+- **Accepted risks (Better Auth parity):** sign-up answers `USER_ALREADY_EXISTS` (422) for a registered email,
+  so it reveals which emails have accounts; sign-in and sign-up are rate-limited per source (client IP, IPv6
+  /64), not per account, so a distributed guesser is slowed only by scrypt and the 4 hash slots.
+- **What a credential can create:** only apps in `tenancy.apps` (default: the apps in `schemas_dir`) and only
+  for a registered schema, checked before anything is admitted; `create_dbs` needs `schemas_dir` and is capped
+  by `max_dbs` (10 000) and `max_dbs_per_tenant` (100), counting databases found at start. Past a cap:
+  `QuotaExceeded` 429 (`fields.scope`, `fields.limit`), nothing created.
+- **Readiness:** the agent is not ready until the tenancy schema has migrated once, so a Postgres that is down
+  at start keeps it not ready (ticket traffic is still served meanwhile). A Postgres outage after that never
+  fails readiness (the `tenancy` breaker and metrics show it); credential requests answer `unavailable` 503.
+- **Body before credential:** agentd reads and decodes the body (at most 64 KiB) before checking a credential,
+  because the app is in the body; the Deno shim checks first (its app is in the path). Kept: the body is
+  bounded and decoding does no I/O.
+- **Import re-runs** carry only one-way changes: deactivations (also revoking the tenant's new-format keys
+  here), key revocations and changed password hashes. They never reactivate, unrevoke or delete: a membership,
+  session or user removed at the source stays here until removed by hand.
 
 - Revocation is seen at once by the process that made it (local changes clear the credential cache) and within
   `cache_ttl` (1 s) by any other process sharing the store.
