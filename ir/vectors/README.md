@@ -25,10 +25,13 @@ by decision.
 | `validation.json`                | 39      | table fields + body (insert = full, patch = partial) → validated body or error            |
 | `schema.json`                    | 21      | registered schema JSON → fingerprint text and `sha256:` fingerprint, or declaration error |
 | `compile.json`                   | 70      | schema + plan / write / DDL → SQLite SQL text and binds, or compile error (both layouts)  |
-| `execute.json`                   | 122     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
+| `execute.json`                   | 130     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
 | `generated/compile-corpus.jsonl` | 2000    | fast-check schemas + plans → SQL or error, for differential testing                       |
 
-`execute.json` holds 61 scenarios, each once per storage layout (`[columns]`, `[json]` in the name).
+`execute.json` holds 65 scenarios, each once per storage layout (`[columns]`, `[json]` in the name). The four
+`sdk: …` scenarios (IR-3) are SDK-generated: the requests are what `sdk/client.ts` sends for the sample app's
+handlers (`recordSdk` in the generator), on the app's own schema; their results and final rows are
+hand-written.
 
 ## Common shape
 
