@@ -6152,15 +6152,15 @@
       "id": "src-lanes",
       "title": "Preserved scale-out dataset",
       "path": "pages/public/architectures/mansio-lanes-proposal.json",
-      "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/public/architectures/tsdb-lanes-proposal.json"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/public/architectures/mansio-lanes-proposal.json"
     },
     {
       "id": "src-lanes-inventory",
       "title": "Scale-out decisions P1–P17",
       "path": "pages/content/mansio-lanes-proposal/inventory.md",
-      "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/content/tsdb-lanes-proposal/inventory.md"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/content/mansio-lanes-proposal/inventory.md"
     },
     {
       "id": "src-router",

@@ -10346,15 +10346,15 @@
       "id": "src-lanes",
       "title": "Preserved scale-out dataset",
       "path": "pages/public/architectures/mansio-lanes-proposal.json",
-      "revision": "3d25004d43406519571ce51ad534ec0e92a54d7e",
-      "url": "https://github.com/nickstrad/mansio/blob/3d25004d43406519571ce51ad534ec0e92a54d7e/pages/public/architectures/tsdb-lanes-proposal.json"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/public/architectures/mansio-lanes-proposal.json"
     },
     {
       "id": "src-lanes-inventory",
       "title": "Scale-out decisions P1–P17",
       "path": "pages/content/mansio-lanes-proposal/inventory.md",
-      "revision": "3d25004d43406519571ce51ad534ec0e92a54d7e",
-      "url": "https://github.com/nickstrad/mansio/blob/3d25004d43406519571ce51ad534ec0e92a54d7e/pages/content/tsdb-lanes-proposal/inventory.md"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/content/mansio-lanes-proposal/inventory.md"
     },
     {
       "id": "src-router",
@@ -10409,15 +10409,15 @@
       "id": "src-planes",
       "title": "Base dataset this revision patches (DP-01, landed eb5df16)",
       "path": "pages/public/architectures/mansio-planes-proposal.json",
-      "revision": "3d25004d43406519571ce51ad534ec0e92a54d7e",
-      "url": "https://github.com/nickstrad/mansio/blob/3d25004d43406519571ce51ad534ec0e92a54d7e/pages/public/architectures/tsdb-planes-proposal.json"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/public/architectures/mansio-planes-proposal.json"
     },
     {
       "id": "src-planes-inventory",
       "title": "DP-01 decisions A1–A4, DP1–DP13 and repair dispositions",
       "path": "pages/content/mansio-planes-proposal/inventory.md",
-      "revision": "3d25004d43406519571ce51ad534ec0e92a54d7e",
-      "url": "https://github.com/nickstrad/mansio/blob/3d25004d43406519571ce51ad534ec0e92a54d7e/pages/content/tsdb-planes-proposal/inventory.md"
+      "revision": "d8e29b678d4b60e16658d892bed4ade2c8deb86f",
+      "url": "https://github.com/nickstrad/mansio/blob/d8e29b678d4b60e16658d892bed4ade2c8deb86f/pages/content/mansio-planes-proposal/inventory.md"
     },
     {
       "id": "src-rereview",
