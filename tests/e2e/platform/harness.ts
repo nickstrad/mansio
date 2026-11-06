@@ -4,12 +4,28 @@ import { kill } from "node:process";
 import { resolve } from "node:path";
 import { Effect, Either, Exit, type Scope } from "effect";
 import { OPTIONS } from "../../../platform/config.ts";
-import { createClient, createTenantClient } from "../../../sdk/client.ts";
-import type { functions } from "../../../app/functions.ts";
+import { createClient, createLegacyClient } from "../../../sdk/client.ts";
+import { functions } from "../../../app/functions.ts";
+import { schema } from "../../../app/schema.ts";
+import { withStorage } from "../../../sdk/schema.ts";
+import { generateIssuer, mintTicket, PERM_READ, PERM_WRITE } from "../../../sdk/ticket.ts";
 import type { ClientError } from "../../../core/errors.ts";
 import { names, players, titled } from "./seed.ts";
 export { assert, Effect, players };
 export const apps = ["tic-tac-toe", "tic-tac-toe-json"] as const;
+/** The storage layout each app is configured with (`platform/config.ts`). */
+export const layoutOf = (app: string) => app === "tic-tac-toe-json" ? "json" as const : "columns" as const;
+/**
+ * Which backend the scenarios run against: `deno` (the platform server; app handlers through the SDK's
+ * `/v1/ops` shim) or `go` (agentd in single-node static mode). `BACKEND=go deno task e2e`.
+ */
+export const backend: "deno" | "go" = (() => {
+  const value = Deno.env.get("BACKEND") ?? "deno";
+  assert.ok(value === "deno" || value === "go", `BACKEND must be deno or go, got ${value}`);
+  return value;
+})();
+/** The tenant SDK clients name. The Deno shim ignores it (credentials decide); agentd serves `local:<app>`. */
+export const TENANT = "local";
 export const keep = Deno.env.get("E2E_KEEP") === "1";
 export const root = () => {
   const value = Deno.env.get("E2E_ROOT");
@@ -80,6 +96,7 @@ export function processResource(args: string[], env: Record<string, string>, opt
   inherit?: boolean;
   trackRoot?: string;
   preserve?: boolean;
+  cwd?: string;
 } = {}) {
   return Effect.uninterruptible(Effect.gen(function* () {
     const child = yield* Effect.acquireRelease(
@@ -87,6 +104,7 @@ export function processResource(args: string[], env: Record<string, string>, opt
         new Deno.Command("setsid", {
           args: [options.command ?? Deno.execPath(), ...args],
           env,
+          ...(options.cwd ? { cwd: options.cwd } : {}),
           clearEnv: true,
           stdin: "null",
           stdout: options.inherit ? "inherit" : "piped",
@@ -117,10 +135,11 @@ export async function command(
   env = cleanEnv(),
   timeout = 60_000,
   signal: AbortSignal = abort.signal,
+  cwd?: string,
 ) {
   const pending = Effect.runPromise(
     Effect.scoped(Effect.gen(function* () {
-      const child = yield* processResource(args, env, { command });
+      const child = yield* processResource(args, env, { command, cwd });
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const out = yield* Effect.promise(() =>
@@ -265,10 +284,171 @@ export function startServer(dir: string, databaseUrl: string, extra: Record<stri
     };
   });
 }
-export type Server = Effect.Effect.Success<ReturnType<typeof startServer>>;
+/** Where a Go agent is: the built `agentd` (`AGENTD_BIN`, else `go build` into the run's root once). */
+let agentd: Promise<string> | undefined;
+function agentdBinary(): Promise<string> {
+  return agentd ??= (async () => {
+    const given = Deno.env.get("AGENTD_BIN");
+    if (given) return given;
+    const out = `${root()}/agentd`;
+    const built = await command(
+      "go",
+      ["build", "-o", out, "./cmd/agentd"],
+      {
+        ...cleanEnv(),
+        ...Object.fromEntries(
+          ["GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS"].flatMap((k) => {
+            const v = Deno.env.get(k);
+            return v === undefined ? [] : [[k, v]];
+          }),
+        ),
+      },
+      300_000,
+      undefined,
+      "server",
+    );
+    assert.equal(built.code, 0, `go build agentd: ${built.stderr}`);
+    return out;
+  })();
+}
+
+/**
+ * agentd in single-node static mode for both apps (IR-3): a fresh Ed25519 issuer (`keys_file`), an empty
+ * `local:<app>.db` per app in `db_dir` (static mode serves only files it finds at start), and each app's
+ * schema in its layout under `schemas_dir/<app>/v1.json`, so the first request creates the tables. Tickets
+ * are minted per request kind by `mint`. `extra` is merged into the agent config.
+ */
+export function startGoAgent(dir: string, extra: Record<string, unknown> = {}) {
+  return Effect.gen(function* () {
+    const bin = yield* Effect.promise(agentdBinary);
+    const issuer = yield* Effect.promise(async () => {
+      for (const sub of ["dbs", "keys", "logs"]) await Deno.mkdir(`${dir}/${sub}`, { recursive: true });
+      for (const app of apps) {
+        await Deno.writeFile(`${dir}/dbs/${TENANT}:${app}.db`, new Uint8Array());
+        await Deno.mkdir(`${dir}/schemas/${app}`, { recursive: true });
+        await Deno.writeTextFile(
+          `${dir}/schemas/${app}/v1.json`,
+          JSON.stringify(withStorage(schema, layoutOf(app))),
+        );
+      }
+      const issuer = await generateIssuer();
+      await Deno.writeTextFile(`${dir}/keys/keys.json`, issuer.keysFile);
+      await Deno.writeTextFile(
+        `${dir}/agentd.json`,
+        JSON.stringify({
+          listen: "127.0.0.1:0",
+          vm: "vm-local",
+          db_dir: `${dir}/dbs`,
+          keys_file: `${dir}/keys/keys.json`,
+          schemas_dir: `${dir}/schemas`,
+          clock_skew: "5s",
+          max_ticket_ttl: "1h",
+          default_timeout: "5s",
+          max_timeout: "30s",
+          drain_timeout: "2s",
+          shutdown_budget: "10s",
+          log_file: `${dir}/logs/agentd.log`,
+          ...extra,
+        }),
+      );
+      return issuer;
+    });
+    const addrFile = `${dir}/agentd.addr`;
+    const child = yield* processResource(
+      ["-config", `${dir}/agentd.json`, "-addr-file", addrFile],
+      cleanEnv(),
+      {
+        command: bin,
+        trackRoot: root(),
+        preserve: true,
+      },
+    );
+    const output = child.output();
+    let exited = false;
+    void child.status.then(() => void (exited = true));
+    yield* Effect.addFinalizer((exit) =>
+      Effect.promise(async () => {
+        if (keep) return;
+        await stopGroup(child.pid);
+        const out = await output;
+        if (Exit.isFailure(exit)) {
+          const log = await Deno.readTextFile(`${dir}/logs/agentd.log`).catch(() => "");
+          console.error(
+            `agentd diagnostics: ${new TextDecoder().decode(out.stderr).slice(-2000)}${log.slice(-4000)}`,
+          );
+        }
+      })
+    );
+    const deadline = Date.now() + 30_000;
+    let base = "";
+    while (!base) {
+      if (exited) {
+        const out = yield* Effect.promise(() => output);
+        throw new Error(`agentd exited ${out.code}: ${new TextDecoder().decode(out.stderr)}`);
+      }
+      const line = yield* Effect.promise(() => Deno.readTextFile(addrFile).catch(() => ""));
+      if (line.includes("\n")) base = `http://${line.split("\n")[0].trim()}`;
+      else {
+        assert.ok(Date.now() < deadline, "agentd start timeout");
+        yield* Effect.sleep("50 millis");
+      }
+    }
+    /** A ticket for `app`'s database: read for a query, write for a mutation (write does not imply read). */
+    const mint = (app: string, kind: "query" | "mutation") => {
+      const iat = Math.floor(Date.now() / 1000) - 1;
+      return mintTicket(issuer.key, {
+        kid: issuer.kid,
+        tid: TENANT,
+        dbid: `${TENANT}:${app}`,
+        vm: "vm-local",
+        epoch: 1,
+        sub: "e2e",
+        perms: kind === "query" ? PERM_READ : PERM_WRITE,
+        iat,
+        exp: iat + 600,
+      });
+    };
+    return { backend: "go" as const, base, dir, env: {} as Record<string, string>, mint };
+  });
+}
+
+export type DenoServer = Effect.Effect.Success<ReturnType<typeof startServer>>;
+export type GoAgent = Effect.Effect.Success<ReturnType<typeof startGoAgent>>;
+export type Server = DenoServer | GoAgent;
+
+/**
+ * The backend this run targets (`BACKEND`): the Deno server (`databaseUrl` and `extra` are its options)
+ * or a Go agent (both ignored; tenancy modes are IR-4's).
+ */
+export function startBackend(dir: string, databaseUrl: string, extra: Record<string, string> = {}) {
+  return backend === "go" ? startGoAgent(dir) : startServer(dir, databaseUrl, extra);
+}
+
 export type Client = ReturnType<typeof createClient<typeof functions>>;
+/**
+ * An IR-3 SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. On Deno
+ * the bearer is the app token (TENANCY=off) or `token` (an API key or session); on Go a minted ticket.
+ */
 export function client(server: Server, app: string = apps[0], token?: string): Client {
-  return (token ? createTenantClient : createClient)<typeof functions>(
+  const common = {
+    functions,
+    schema: withStorage(schema, layoutOf(app)),
+    tenant: TENANT,
+    app,
+    timeoutMs: 15_000,
+  };
+  if ("mint" in server) {
+    return createClient({ ...common, endpoint: server.base, token: (kind) => server.mint(app, kind) });
+  }
+  return createClient({
+    ...common,
+    endpoint: `${server.base}/apps/${encodeURIComponent(app)}`,
+    token: token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"],
+  });
+}
+/** The pre-IR client (handlers run on the Deno server), for the scenarios IR-4 ports. */
+export function legacyClient(server: DenoServer, app: string = apps[0], token?: string): Client {
+  return createLegacyClient<typeof functions>(
     server.base,
     app,
     token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"],
@@ -347,12 +527,24 @@ export async function play(c: Client, cells: readonly number[], suffix = "") {
 }
 const abort = new AbortController();
 let signals = false;
-export function test(name: string, body: () => Effect.Effect<void, unknown, Scope.Scope>) {
+/**
+ * One scenario. `options.go` names why a scenario does not run against the Go backend yet (it is then
+ * ignored, with the reason in its title, when `BACKEND=go`).
+ */
+export function test(
+  name: string,
+  body: () => Effect.Effect<void, unknown, Scope.Scope>,
+  options: { go?: string } = {},
+) {
   if (!signals) {
     for (const signal of ["SIGINT", "SIGTERM"] as const) Deno.addSignalListener(signal, () => abort.abort());
     signals = true;
   }
-  Deno.test(titled(name), async () => {
+  const skip = backend === "go" ? options.go : undefined;
+  Deno.test({
+    name: skip ? `${titled(name)} [skipped on go: ${skip}]` : titled(name),
+    ignore: skip !== undefined,
+  }, async () => {
     abort.signal.throwIfAborted();
     await Effect.runPromise(Effect.scoped(body()), { signal: abort.signal });
   });
