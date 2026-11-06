@@ -276,4 +276,13 @@ Still open:
 
 - leases, and the WAL degraded mode (from mansio-server);
 - the durability promise: today `synchronous=FULL`, versus mansio-server's write-back RPO;
+- **OPEN DECISION (for the user; IR-5a measured it, nothing decided): acknowledged writes lost to kill -9.** A
+  durable agent killed with kill -9 and restarted serves each database from its last published generation, so
+  writes acknowledged inside the write-back window are lost (the RPO; `server/knowledge/writeback`, DST-1's
+  RPO rule). Measured in the IR-5a Jepsen-style run (`server/cmd/controld/jepsen_test.go`, write-back every
+  200 ms, about 400 register writes/s): about 170 ms of acknowledged writes lost in one crash; in a 2.5-minute
+  run, 5 crashes of the register database's owner lost an estimated 40, 12, 14, 35 and 0 acknowledged register
+  writes (with S3 paused before a crash, the window grows by the pause). Options: accept the RPO (and document
+  it to app developers), shorten the window, acknowledge only after a publish, or WAL shipping. The Jepsen
+  checker currently accepts the loss (it checks each database's history per crash-free segment of its owner);
 - whether `find` reads inside mutations should be guarded by default once v1.1 exists.

@@ -357,7 +357,8 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 	return 0, 0, asUnavailable(err)
 }
 
-// create writes db's placement row ACTIVE(self, 1, 0) within the caps.
+// create writes db's placement row ACTIVE(self, 1, 0) within the caps. The caps count the keys this agent's
+// owner table knows: single node only (placement_dir), where every database is this agent's.
 //
 //	pre: p.mu held
 func (p *claimingPlace) create(ctx context.Context, db string) error {

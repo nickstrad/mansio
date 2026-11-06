@@ -38,8 +38,8 @@ in session mode) over the same schema. Off mode (app tokens) is refused on contr
 Create on first use: `locator.ErrCreatable` now carries the credential's tenant in the route; `resolveApp`
 checks `locator.max_dbs_per_tenant` (100) and `locator.max_dbs` (10 000) over live registry rows
 (`count_databases.sql`) → 429 `quota_exceeded`, then the registered-schema check, then `Controller.Create`.
-The cap check is not atomic with the create (concurrent first uses may pass it by up to
-`locator.concurrency` × controld instances); explicit creates are not capped. `tenancy.apps`, when set, limits every credential's
+The cap check is not atomic with the create (concurrent first uses may pass it by up to `locator.concurrency`
+× controld instances); explicit creates are not capped. `tenancy.apps`, when set, limits every credential's
 app resolves (404).
 
 ## Create and move for (tenant, app)
@@ -83,12 +83,16 @@ history and the bank's history linearizable (`internal/linearize`), every full b
 **Finding: kill -9 rolls back acknowledged writes by design.** A restarted agent serves each database from its
 last published generation, so writes acknowledged inside the write-back window are lost (the RPO; DST-1's RPO
 rule, `knowledge/writeback`). The first unsegmented runs caught exactly that (a register read 6954 after 6999
-was acknowledged and read; ~170 ms of writes, the 200 ms window). The checker therefore splits each history at
-the crash times: within a segment it must be linearizable; the first segment starts from the setup state,
-later ones from an unknown state; operations in flight across a crash are dropped (reads) or optional
-(writes). The run logs a per-crash estimate of acknowledged register writes lost. Conservation is checked
-across crashes (a rollback is to a consistent generation). Short runs (40–45 s, 2–3 crashes each):
-linearizable per segment, conserved.
+was acknowledged and read; ~170 ms of writes, the 200 ms window). The checker therefore splits each database's
+history at the crashes of the agent that owned it then (read from the authority just before each kill): within
+a segment it must be linearizable; the first segment starts from the setup state; a later one starts unknown,
+but its first value of each register (or (balance, version) of each account) must be the setup's or one
+written by an operation called before the crash — a restart rolls back to an earlier state, never to a value
+nobody wrote. Operations in flight across a crash are dropped (reads) or optional (writes). The run logs a
+per-crash estimate of acknowledged register writes lost. Conservation is checked across crashes (a rollback is
+to a consistent generation). Runs: 40–45 s, 2 min and 2.5 min (7 kills, 5 per database's owner; lost per owner
+crash ≈ 40, 12, 14, 35, 0): linearizable per segment, conserved; the stronger start-state rule caught nothing
+new. How long the RPO may be is an open decision (`docs/plans/ir-protocol.md` §9).
 
 ## Traps
 

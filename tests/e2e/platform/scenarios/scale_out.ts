@@ -162,9 +162,10 @@ test("scale_out", () =>
       // re-resolve). Until then the edge answers unavailable, nothing ran: a definite failure, retried here.
       const deadline = Date.now() + 15_000;
       for (let i = 0; !ledger.acked.has(`restored-${i - 1}`); i++) {
+        // Every iteration (an in-doubt answer adds no failure): a write that never lands must not hang the run.
+        assert.ok(Date.now() < deadline, `no write after the restore: ${ledger.failed.at(-1) ?? "in doubt"}`);
         await write(c, ledger, `restored-${i}`);
         if (ledger.failed.length > 0) {
-          assert.ok(Date.now() < deadline, `no write after the restore: ${ledger.failed.at(-1)}`);
           ledger.failed.pop();
           await delay(200);
         }

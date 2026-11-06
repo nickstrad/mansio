@@ -128,10 +128,12 @@ type jepsenWorld struct {
 	regOps  []linearize.Op[regIn, regOut]
 	bankOps []linearize.Op[bankIn, bankOut]
 	sums    []int64 // every full read's total
-	// crashes are the kill -9 times. A restarted agent serves each database from its last published
+	// crashes are, per app, the kill -9 times of the agent that owned its database then (read from the
+	// authority just before the kill). A restarted agent serves each database from its last published
 	// generation: acknowledged writes inside the write-back window (the RPO) may be lost (by design:
 	// knowledge/writeback, DST-1's RPO rule), so each database's history is checked per crash-free segment.
-	crashes []int64
+	crashes map[string][]int64
+	kills   int
 	faults  []string
 	stats   map[string]int
 }
@@ -144,7 +146,7 @@ type jRoute struct {
 
 func newJepsenWorld(t *testing.T, seed uint64) *jepsenWorld {
 	c := newCluster(t)
-	w := &jepsenWorld{t: t, c: c, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), proxies: map[string]*faultnet.Proxy{},
+	w := &jepsenWorld{t: t, c: c, crashes: map[string][]int64{}, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), proxies: map[string]*faultnet.Proxy{},
 		start: time.Now(), stats: map[string]int{},
 		http: &http.Client{Transport: &http.Transport{DisableKeepAlives: true, DialContext: (&net.Dialer{Timeout: time.Second}).DialContext}}}
 	proxy := func(name, upstream string) *faultnet.Proxy {
@@ -457,21 +459,26 @@ func (w *jepsenWorld) readRegister(ctx context.Context, client int, k string) bo
 	return true
 }
 
-// regState is a register's value; known is false at the start of a segment after a crash (any value).
+// regState is a register's value; known is false at the start of a segment after a crash.
 type regState struct {
 	known bool
 	v     int64
 }
 
-// registerModel starts from init (the setup's 0, or unknown after a crash).
-func registerModel(init regState) linearize.Model[regState, regIn, regOut] {
+// registerModel starts from init (the setup's 0) or, with init.known false (after a crash), from one of
+// allowed: the setup's value or one written before the crash (a restart rolls back to some earlier published
+// state, never to a value nobody wrote).
+func registerModel(init regState, allowed map[int64]bool) linearize.Model[regState, regIn, regOut] {
 	return linearize.Model[regState, regIn, regOut]{
 		Init: func() regState { return init },
 		Step: func(s regState, in regIn, out regOut, unknown bool) (bool, regState) {
 			if in.write {
 				return true, regState{true, in.value}
 			}
-			return !s.known || out.value == s.v, regState{true, out.value}
+			if !s.known {
+				return allowed[out.value], regState{true, out.value}
+			}
+			return out.value == s.v, s
 		},
 		Key: func(s regState) string { return fmt.Sprint(s.known, s.v) },
 	}
@@ -483,6 +490,7 @@ func registerModel(init regState) linearize.Model[regState, regIn, regOut] {
 type bankIn struct {
 	transfer       bool
 	from, to       int
+	amount         int64
 	vFrom, vTo     int64 // the versions the transfer requires
 	newFrom, newTo int64 // the balances it writes
 	accounts       []int // a read's accounts
@@ -500,8 +508,13 @@ type bankState struct {
 	balances, versions [nAccounts]int64
 }
 
-// bankModel starts from the setup's accounts (known) or from nothing known (after a crash).
-func bankModel(known bool) linearize.Model[bankState, bankIn, bankOut] {
+// account is one account's (balance, version).
+type account struct{ balance, version int64 }
+
+// bankModel starts from the setup's accounts (known) or, after a crash, from nothing known: an account's first
+// (balance, version) in the segment must then be one of allowed[account] (the setup's or one a transfer
+// called before the crash wrote).
+func bankModel(known bool, allowed [nAccounts]map[account]bool) linearize.Model[bankState, bankIn, bankOut] {
 	return linearize.Model[bankState, bankIn, bankOut]{
 		Init: func() bankState {
 			var s bankState
@@ -513,10 +526,10 @@ func bankModel(known bool) linearize.Model[bankState, bankIn, bankOut] {
 		Step: func(s bankState, in bankIn, out bankOut, unknown bool) (bool, bankState) {
 			if in.transfer {
 				for _, a := range [2]struct {
-					i      int
-					v, bal int64
-				}{{in.from, in.vFrom, in.newFrom}, {in.to, in.vTo, in.newTo}} {
-					if s.known[a.i] && s.versions[a.i] != a.v {
+					i           int
+					v, old, bal int64
+				}{{in.from, in.vFrom, in.newFrom + in.amount, in.newFrom}, {in.to, in.vTo, in.newTo - in.amount, in.newTo}} {
+					if s.known[a.i] && s.versions[a.i] != a.v || !s.known[a.i] && !allowed[a.i][account{a.old, a.v}] {
 						return false, s // it could not have applied here
 					}
 					s.known[a.i], s.balances[a.i], s.versions[a.i] = true, a.bal, a.v+1
@@ -524,10 +537,11 @@ func bankModel(known bool) linearize.Model[bankState, bankIn, bankOut] {
 				return true, s
 			}
 			for i, a := range in.accounts {
-				if s.known[a] && (s.balances[a] != out.balances[i] || s.versions[a] != out.versions[i]) {
+				got := account{out.balances[i], out.versions[i]}
+				if s.known[a] && (s.balances[a] != got.balance || s.versions[a] != got.version) || !s.known[a] && !allowed[a][got] {
 					return false, s
 				}
-				s.known[a], s.balances[a], s.versions[a] = true, out.balances[i], out.versions[i]
+				s.known[a], s.balances[a], s.versions[a] = true, got.balance, got.version
 			}
 			return true, s
 		},
@@ -599,7 +613,7 @@ func (w *jepsenWorld) bankClient(ctx context.Context, client int) {
 			continue
 		}
 		amount := int64(1 + w.intn(10))
-		in := bankIn{transfer: true, from: from, to: to, vFrom: seen.versions[0], vTo: seen.versions[1],
+		in := bankIn{transfer: true, from: from, to: to, amount: amount, vFrom: seen.versions[0], vTo: seen.versions[1],
 			newFrom: seen.balances[0] - amount, newTo: seen.balances[1] + amount}
 		rid := fmt.Sprintf("bank-%d-%d", client, n)
 		ops := []map[string]any{
@@ -682,8 +696,20 @@ func (w *jepsenWorld) nemesis(ctx context.Context) {
 		case k < 7: // kill -9 an agent; restart it on the same files and ports
 			vm := []string{"vm-a", "vm-b"}[w.intn(2)]
 			w.note("kill-9:%s", vm)
+			owners := map[string]string{}
+			for _, app := range []string{jRegApp, jBankApp} {
+				if p, err := w.c.pl.Get(ctx, jTenant+":"+app); err == nil {
+					owners[app] = p.Owner
+				} // unreadable: counted as owned (the conservative reading)
+			}
 			w.mu.Lock()
-			w.crashes = append(w.crashes, w.now())
+			now := w.now()
+			w.kills++
+			for _, app := range []string{jRegApp, jBankApp} {
+				if o, ok := owners[app]; !ok || o == vm {
+					w.crashes[app] = append(w.crashes[app], now)
+				}
+			}
 			w.mu.Unlock()
 			w.c.agents[vm].kill()
 			time.Sleep(hold)
@@ -773,11 +799,20 @@ func (w *jepsenWorld) check() {
 	for _, o := range w.regOps {
 		regRets = append(regRets, o.Return)
 	}
-	t.Logf("registers: %s; %d crash-free segments; acknowledged writes lost to crashes (RPO): %v", known(len(w.regOps), unknownOf(regRets)),
-		len(w.crashes)+1, w.lostToCrashes())
+	t.Logf("kills %d; crashes of each database's owner: %v", w.kills, map[string]int{jRegApp: len(w.crashes[jRegApp]), jBankApp: len(w.crashes[jBankApp])})
+	t.Logf("registers: %s; acknowledged writes lost per owner crash (RPO): %v", known(len(w.regOps), unknownOf(regRets)), w.lostToCrashes())
 	for k, all := range linearize.Partition(w.regOps, func(in regIn) string { return in.key }) {
-		for seg, ops := range segments(all, w.crashes, func(in regIn) bool { return in.write }) {
-			res := linearize.Check(registerModel(regState{known: seg == 0}), ops)
+		crashes := w.crashes[jRegApp]
+		for seg, ops := range segments(all, crashes, func(in regIn) bool { return in.write }) {
+			allowed := map[int64]bool{0: true}
+			if seg > 0 {
+				for _, o := range all {
+					if o.Input.write && o.Call < crashes[seg-1] {
+						allowed[o.Input.value] = true
+					}
+				}
+			}
+			res := linearize.Check(registerModel(regState{known: seg == 0}, allowed), ops)
 			if res.OK {
 				continue
 			}
@@ -807,8 +842,21 @@ func (w *jepsenWorld) check() {
 	if len(w.sums) == 0 {
 		t.Error("no full bank read answered")
 	}
-	for seg, ops := range segments(w.bankOps, w.crashes, func(in bankIn) bool { return in.transfer }) {
-		res := linearize.Check(bankModel(seg == 0), ops)
+	bankCrashes := w.crashes[jBankApp]
+	for seg, ops := range segments(w.bankOps, bankCrashes, func(in bankIn) bool { return in.transfer }) {
+		var allowed [nAccounts]map[account]bool
+		for i := range allowed {
+			allowed[i] = map[account]bool{{balance0, 1}: true}
+		}
+		if seg > 0 {
+			for _, o := range w.bankOps {
+				if in := o.Input; in.transfer && o.Call < bankCrashes[seg-1] {
+					allowed[in.from][account{in.newFrom, in.vFrom + 1}] = true
+					allowed[in.to][account{in.newTo, in.vTo + 1}] = true
+				}
+			}
+		}
+		res := linearize.Check(bankModel(seg == 0, allowed), ops)
 		if res.OK {
 			continue
 		}
@@ -909,8 +957,8 @@ func segments[I, O any](ops []linearize.Op[I, O], crashes []int64, write func(I)
 //
 //	pre: w.mu held
 func (w *jepsenWorld) lostToCrashes() []int {
-	lost := make([]int, len(w.crashes))
-	for i, k := range w.crashes {
+	lost := make([]int, len(w.crashes[jRegApp]))
+	for i, k := range w.crashes[jRegApp] {
 		for _, key := range w.regKeys {
 			var acked []linearize.Op[regIn, regOut]
 			seen, found := int64(0), false
