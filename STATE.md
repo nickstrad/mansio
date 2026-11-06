@@ -1,8 +1,10 @@
-# Pages rename repair — 2026-11-06
+# mansio — project state
+
+## 2026-11-06 — Pages rename repair (ts-db → mansio)
 
 - Goal/spec: fulfill Nick's “fix the mansio GitHub Pages deploy after the ts-db → mansio rename” brief;
   workflow: `.github/workflows/pages.yml`; acceptance: unchanged source checks and passing Pages build.
-- Status: data fix validated locally; repair recorded on `fix/pages-after-rename`; not merged or deployed.
+- Status: rename repair landed on main (merge 5ea8b27, fix commit 0a2424d, Opus review PASS WITH NITS); Pages deploy on main to be verified green and https://nickstrad.github.io/mansio/ live.
 - Context: repository renamed `nickstrad/ts-db` → `nickstrad/mansio`; vm-1 checkout moved
   `/root/Software/ts-db` → `/root/Software/mansio`; origin is `git@github.com:nickstrad/mansio.git`.
 - Done: reproduced run 42233396362's failure at base `de7d7594c33e7b9b816df0b050a1ff43505282d8`: 6 failed /
@@ -16,12 +18,12 @@
   URL paths exist at their revisions (`git cat-file -e`); revisions, paths and inventory hrefs agree. Other
   source records are unchanged. Build output is ignored/untracked in this checkout and is excluded from the
   commit.
-- In progress: none; repair ready for coordinator review.
+- In progress: coordinator verifying the main Pages workflow run and the live mansio Pages URL.
 - Broader checks: Deno formatting/lint/typechecking passed, but `deno task ci` exited 139 during ingestion
   property tests (log: `/tmp/mansio-fix-pages-ci.log`). Go race tests reported failures in `cmd/agentd`,
   `internal/bench`, `internal/ir`, and `internal/objstore`; these files are unchanged. These wider checks are
   not green and require a separate coordinator investigation.
-- Next: coordinator obtains independent review, then lands the branch and checks the main Pages run.
+- Next: confirm the main Pages run is green and the site serves at /mansio/; the wider Deno/Go check failures noted below are a separate investigation.
 - Open decisions/blockers: none for this repair. Review/landing belongs to the coordinator.
 - Resume: worktree `/root/Software/mansio-work/fix-pages`, branch `fix/pages-after-rename`. Use `git log -1`
   for the repair SHA and `git status --short --branch` for push/worktree status. No detached agent run is
