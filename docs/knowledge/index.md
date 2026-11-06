@@ -30,6 +30,8 @@ One folder per part of the system, one dated entry per thread that explained it.
   - [2026-11-05 SQLite-only simplification](compiler/2026-11-05-sqlite-only-simplification.md): DuckDB app
     queries are dead code; the event log is what keeps DuckDB.
 - [ir/](ir/README.md): the IR protocol (`/v1/ops`), its spec, vectors and reference executor.
+  - [2026-11-06 IR-4a tenancy and auth](ir/2026-11-06-ir-4a-tenancy-auth.md): agentd's auth port, admin and
+    sign-in API, Better Auth scrypt, `controld import-mansio`.
   - [2026-11-05 IR-3 SDK](ir/2026-11-05-ir-3-sdk.md): handlers run in the SDK, derived preconditions and
     handler retry, the Deno `/v1/ops` shim, e2e on `BACKEND=deno|go`.
   - [2026-11-05 IR-0 reference executor](ir/2026-11-05-ir-0-reference-executor.md): what changes versus

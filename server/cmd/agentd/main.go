@@ -162,6 +162,8 @@ type agent struct {
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
 	events     *eventlog.Log // the event log (events.go); nil = none
+	// queryRoutes adds routes beside the front's on the query listener (tenancy's /admin/ and /api/auth/); may be nil.
+	queryRoutes func(mux *http.ServeMux) error
 }
 
 // backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
@@ -216,7 +218,22 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
 		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
-	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache}
+	ten := &tenancyPart{ready: func(context.Context) error { return nil }, close: func() {}}
+	if cfg.Tenancy != nil {
+		if ten, err = newTenancy(cfg, log, be.schemas); err != nil {
+			canaryHost.Close() // static mode: the backend's host
+			cleanCanary()
+			closeEventLog(events, time.Second)
+			return nil, err
+		}
+		if ten.breaker != nil {
+			if be.breakers == nil {
+				be.breakers = map[string]*breaker.Breaker{}
+			}
+			be.breakers["tenancy"] = ten.breaker
+		}
+	}
+	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache, Credentials: ten.creds, CredentialEpoch: cfg.DefaultEpoch}
 	if events != nil {
 		ops.Observer = opsObserver(events, cfg.EventLog.TraceSQL)
 	}
@@ -224,6 +241,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	probe := cfg.ReadyTimeout.Duration
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
 		front.Check{Name: "startup", Run: be.ready},
+		front.Check{Name: "tenancy", Run: ten.ready},
 		front.Check{Name: "canary", Run: func(ctx context.Context) error { return srv.Canary(ctx, front.CanaryDB, probe*2/3) }},
 		// Remote dependency breakers (S3, placement) never fail readiness: warm traffic still works while they are
 		// open (Release It C5, H2). They are exposed on /metrics instead.
@@ -246,22 +264,31 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	// it only writes what is already queued (a buffered file; no remote dependency), and records still queued
 	// at the end are lost, counted, never waited for.
 	cleanup := func() {
+		ten.close()
 		if err := closeEventLog(events, 2*time.Second); err != nil {
 			log.Warn("event log not closed cleanly", "event", "EVENTLOG.CLOSE_FAILED", "error", err.Error())
 		}
 		cleanCanary()
 	}
-	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events,
-		background: append(be.background, func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events, queryRoutes: ten.mount,
+		background: append(append(be.background, ten.background...),
+			func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
 }
 
 // newStatic is static mode: the databases in db_dir, opened in the background (startup), owned at fixed epochs.
 func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHost) *backend {
 	host.Expect(dbs...)
 	st := &startup{host: host}
+	table := epochs(dbs, cfg)
+	var admitter front.Admitter = startupAdmitter{table, host}
+	var lookup front.Host = host
+	if cfg.CreateDBs {
+		admitter = creatingAdmitter{Admitter: admitter, table: table, epoch: cfg.DefaultEpoch}
+		lookup = newCreatingHost(host, cfg, dbs)
+	}
 	return &backend{
-		admitter: startupAdmitter{epochs(dbs, cfg), host},
-		executor: front.ActorExecutor{Host: host, Grace: cfg.ReplyGrace.Duration},
+		admitter: admitter,
+		executor: front.ActorExecutor{Host: lookup, Grace: cfg.ReplyGrace.Duration},
 		ready:    st.readyCheck,
 		pending:  host.PendingCount,
 		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host) },
@@ -305,11 +332,19 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	protos.SetUnencryptedHTTP2(slices.Contains(cfg.Protocols, "h2c") && a.tls == nil)
 	protos.SetHTTP2(a.tls != nil)
 	var handler http.Handler = front.NewHandler(srv, log)
-	if cfg.HealthListen == "" {
+	if cfg.HealthListen == "" || a.queryRoutes != nil {
 		mux := http.NewServeMux()
-		mux.Handle(front.LivePath, a.lifecycle)
-		mux.Handle(front.ReadyPath, a.lifecycle)
-		mux.Handle(metricsPath, a.lifecycle)
+		if cfg.HealthListen == "" {
+			mux.Handle(front.LivePath, a.lifecycle)
+			mux.Handle(front.ReadyPath, a.lifecycle)
+			mux.Handle(metricsPath, a.lifecycle)
+		}
+		if a.queryRoutes != nil {
+			if err := a.queryRoutes(mux); err != nil {
+				ln.Close()
+				return rep.report(err)
+			}
+		}
 		mux.Handle("/", handler)
 		handler = mux
 	}
@@ -468,7 +503,7 @@ func listDBs(cfg *Config) ([]string, error) {
 		}
 		out = append(out, id)
 	}
-	if len(out) == 0 {
+	if len(out) == 0 && !cfg.CreateDBs {
 		return nil, errs.Wrap(module, nil, "no *.db files in db_dir %s", cfg.DBDir).With("dir", cfg.DBDir)
 	}
 	return out, nil
@@ -517,7 +552,7 @@ type reporter struct {
 }
 
 var wellFormed = map[string]bool{module: true, "actor": true, "front": true, "vactor": true, "owner": true, "objstore": true,
-	"placement": true, "durable": true}
+	"placement": true, "durable": true, "tenancy": true}
 
 func (r reporter) report(err error) int {
 	if e, ok := errs.Outermost(err); ok && wellFormed[e.Module] {

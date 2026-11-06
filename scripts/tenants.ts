@@ -59,8 +59,14 @@ export function parseArgs(argv: readonly string[]): Command {
       slug: text(slug, "slug (use --slug for names without ASCII letters/digits)"),
     };
   }
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)) {
-    throw new Error("id must be a canonical lowercase UUID");
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  // A key id is a uuid (Deno platform) or 16 hex digits (Go backend keys, `mansio_<id>_<secret>`).
+  if (!uuid.test(value) && !(kind === "revoke-key" && /^[0-9a-f]{16}$/.test(value))) {
+    throw new Error(
+      kind === "revoke-key"
+        ? "key id must be a lowercase UUID or 16 hex digits"
+        : "id must be a canonical lowercase UUID",
+    );
   }
   return { kind: kind as "show" | "deactivate" | "issue-key" | "revoke-key", id: value, name: option };
 }

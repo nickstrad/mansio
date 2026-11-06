@@ -4,7 +4,8 @@ import { kill } from "node:process";
 import { resolve } from "node:path";
 import { Effect, Either, Exit, type Scope } from "effect";
 import { OPTIONS } from "../../../platform/config.ts";
-import { createClient, createLegacyClient } from "../../../sdk/client.ts";
+import { createClient, createLegacyClient, schemaFingerprint } from "../../../sdk/client.ts";
+import postgres from "npm:postgres@3.4.9";
 import { functions } from "../../../app/functions.ts";
 import { schema } from "../../../app/schema.ts";
 import { withStorage } from "../../../sdk/schema.ts";
@@ -273,6 +274,7 @@ export function startServer(dir: string, databaseUrl: string, extra: Record<stri
       yield* Effect.sleep("50 millis");
     }
     return {
+      backend: "deno" as const,
       base,
       env,
       dir,
@@ -414,30 +416,131 @@ export function startGoAgent(dir: string, extra: Record<string, unknown> = {}) {
 
 export type DenoServer = Effect.Effect.Success<ReturnType<typeof startServer>>;
 export type GoAgent = Effect.Effect.Success<ReturnType<typeof startGoAgent>>;
-export type Server = DenoServer | GoAgent;
+export type GoTenancy = Effect.Effect.Success<ReturnType<typeof startGoTenancy>>;
+export type Server = DenoServer | GoAgent | GoTenancy;
+
+/** A tenancy mode by the Deno server's `TENANCY` name. */
+export type Tenancy = "off" | "api-key" | "better-auth";
+
+/**
+ * agentd with a `tenancy` section (IR-4a, ADR 0012): credentials on `/v1/ops`, `/admin/tenants*`, and in
+ * session mode (`better-auth`) `/api/auth` and `/admin/users/link`. Keys, users and sessions live in the
+ * scenario's Postgres database, schema `control` (the Deno platform's tables stay in `public`). `env` holds
+ * the same `ADMIN_TOKEN`/`*_APP_TOKEN` names as the Deno server's, so `request`, `cli` and `client` work
+ * unchanged. Databases `<tenant>:<app>` are created on first use (`create_dbs`).
+ */
+export function startGoTenancy(dir: string, databaseUrl: string, mode: Tenancy) {
+  return Effect.gen(function* () {
+    const env = {
+      ADMIN_TOKEN: crypto.randomUUID(),
+      COLUMN_APP_TOKEN: crypto.randomUUID(),
+      JSON_APP_TOKEN: crypto.randomUUID(),
+    };
+    yield* Effect.promise(async () => {
+      const sql = postgres(databaseUrl, { max: 1, onnotice() {} });
+      try {
+        await sql.unsafe("CREATE SCHEMA IF NOT EXISTS control");
+      } finally {
+        await sql.end();
+      }
+      await Deno.mkdir(`${dir}/secrets`, { recursive: true, mode: 0o700 });
+      await Deno.writeTextFile(
+        `${dir}/secrets/tenancy.json`,
+        JSON.stringify({
+          admin_token: env.ADMIN_TOKEN,
+          app_tokens: { [apps[0]]: env.COLUMN_APP_TOKEN, [apps[1]]: env.JSON_APP_TOKEN },
+          // An explicit sslmode: pgx's default (prefer) adds a fallback config, which the adapter refuses.
+          pg_dsn: `${databaseUrl}${databaseUrl.includes("?") ? "&" : "?"}sslmode=disable`,
+        }),
+        { mode: 0o600 },
+      );
+    });
+    const agent = yield* startGoAgent(dir, {
+      create_dbs: true,
+      tenancy: {
+        mode: mode === "better-auth" ? "session" : mode,
+        secrets_file: `${dir}/secrets/tenancy.json`,
+        pg_schema: "control",
+        cache_ttl: "1s",
+      },
+    });
+    const deadline = Date.now() + 30_000;
+    while (true) { // the tenancy schema migrates in the background: /readyz says when
+      const ready = yield* Effect.promise(async () => {
+        try {
+          const response = await fetch(`${agent.base}/readyz`, { signal: AbortSignal.timeout(500) });
+          await response.body?.cancel();
+          return response.ok;
+        } catch {
+          return false;
+        }
+      });
+      if (ready) break;
+      assert.ok(Date.now() < deadline, "agentd tenancy readiness timeout");
+      yield* Effect.sleep("50 millis");
+    }
+    return { ...agent, env, tenancy: mode };
+  });
+}
 
 /**
  * The backend this run targets (`BACKEND`): the Deno server (`databaseUrl` and `extra` are its options)
- * or a Go agent (both ignored; tenancy modes are IR-4's).
+ * or a Go agent: with `TENANCY` api-key or better-auth, `startGoTenancy`; otherwise tickets only.
  */
 export function startBackend(dir: string, databaseUrl: string, extra: Record<string, string> = {}) {
-  return backend === "go" ? startGoAgent(dir) : startServer(dir, databaseUrl, extra);
+  if (backend === "deno") return startServer(dir, databaseUrl, extra);
+  const mode = extra.TENANCY as Tenancy | undefined;
+  return mode === "api-key" || mode === "better-auth"
+    ? startGoTenancy(dir, databaseUrl, mode)
+    : startGoAgent(dir);
+}
+
+/** A backend in `mode` on either side (`TENANCY=off` on Go: app tokens, not tickets). */
+export function startTenancy(dir: string, databaseUrl: string, mode: Tenancy) {
+  return backend === "go"
+    ? startGoTenancy(dir, databaseUrl, mode)
+    : startServer(dir, databaseUrl, { TENANCY: mode });
+}
+
+/** Where a backend serves `/v1/ops` for `app`: agentd's one route, or the Deno shim's per-app one. */
+export const opsPath = (server: Server, app: string) =>
+  server.backend === "go" ? "/v1/ops" : `/apps/${encodeURIComponent(app)}/v1/ops`;
+
+/** A valid IR query body for `app` (one `get`), naming `tenant` as its database's tenant. */
+export async function opsQuery(app: string, id: string, tenant: string = TENANT) {
+  return {
+    v: 1,
+    db: { tenant, app },
+    kind: "query",
+    schema: await schemaFingerprint(withStorage(schema, layoutOf(app))),
+    ops: [{ op: "get", table: "games", id }],
+  };
 }
 
 export type Client = ReturnType<typeof createClient<typeof functions>>;
 /**
  * An IR-3 SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. On Deno
- * the bearer is the app token (TENANCY=off) or `token` (an API key or session); on Go a minted ticket.
+ * the bearer is the app token (TENANCY=off) or `token` (an API key or session); on Go `token`, the app token
+ * of a tenancy agent, or else a minted ticket. `tenant` is what the client claims (credentials decide).
  */
-export function client(server: Server, app: string = apps[0], token?: string): Client {
+export function client(
+  server: Server,
+  app: string = apps[0],
+  token?: string,
+  tenant: string = TENANT,
+): Client {
   const common = {
     functions,
     schema: withStorage(schema, layoutOf(app)),
-    tenant: TENANT,
+    tenant,
     app,
     timeoutMs: 15_000,
   };
-  if ("mint" in server) {
+  if (server.backend === "go") {
+    const credential = token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"];
+    if (credential !== undefined) {
+      return createClient({ ...common, endpoint: server.base, token: credential });
+    }
     return createClient({ ...common, endpoint: server.base, token: (kind) => server.mint(app, kind) });
   }
   return createClient({
@@ -503,9 +606,12 @@ export async function tenant(server: Server, index: number) {
   const keys = out.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
   assert.equal(keys.length, 1, "create must print the plaintext key exactly once");
   assert.match(out.stdout, /Save this API key now/);
-  const ids = out.stdout.match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g)!;
-  assert.ok(ids?.length >= 3, "tenant and key metadata must be printed");
-  return { id: ids[0], keyId: ids[1], key: keys[0] };
+  const id = out.stdout.match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/)?.[0];
+  assert.ok(id, "tenant metadata must be printed");
+  // The key row: its id (a uuid on Deno, 16 hex digits on Go), then its tenant.
+  const keyId = out.stdout.match(new RegExp(`^([0-9a-f-]{16,36})\\s+${id}\\s`, "m"))?.[1];
+  assert.ok(keyId, "key metadata must be printed");
+  return { id, keyId, key: keys[0] };
 }
 export async function play(c: Client, cells: readonly number[], suffix = "") {
   const people = { xPlayer: players.xPlayer + suffix, oPlayer: players.oPlayer + suffix };

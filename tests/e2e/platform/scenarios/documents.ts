@@ -1,7 +1,6 @@
 import {
   apps,
   assert,
-  backend,
   client,
   Effect,
   players,
@@ -19,8 +18,8 @@ test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts 
   Effect.gen(function* () {
     const dir = yield* scenarioDir("documents");
     const url = yield* database("documents");
-    // The Go agent has no tenancy modes yet (IR-4): it runs the off-mode half with minted tickets.
-    for (const mode of backend === "go" ? ["off"] : ["off", "api-key"]) {
+    // On Go the off-mode half uses minted tickets, the api-key half tenant keys (IR-4a).
+    for (const mode of ["off", "api-key"]) {
       yield* Effect.scoped(Effect.gen(function* () {
         const server = yield* startBackend(`${dir}/${mode}`, url, { TENANCY: mode });
         yield* Effect.promise(async () => {

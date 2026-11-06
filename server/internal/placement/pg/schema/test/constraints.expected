@@ -1,4 +1,4 @@
--- constraints.sql — each constraint of 0001_placement.sql rejects its off point and accepts its on point
+-- constraints.sql — each constraint of the schema files (0001 …) rejects its off point and accepts its on point
 -- (SQL G-20, G-21). Run in a fresh schema after the migrations; every statement autocommits, so a refused
 -- statement leaves nothing behind. Golden output: constraints.expected (TestConstraintsGolden, -update).
 -- By hand: psql -X -v ON_ERROR_STOP=0 -a -f constraints.sql (psql's error text differs in layout).
@@ -261,7 +261,8 @@ version
 4
 5
 6
-(6 rows)
+7
+(7 rows)
 
 -- 0006 schemas: the fingerprint is SHA-256 of the exact text (on point: the right hash; off points: another
 -- text's hash, the hash of the same text indented), its domain (lowercase hex, 64 digits), the size check.
@@ -307,3 +308,108 @@ ERROR:  insert or update on table "app_schemas" violates foreign key constraint 
 delete from schemas where body = '{}';
 ERROR:  update or delete on table "schemas" violates foreign key constraint "app_schemas_fingerprint_fkey" on table "app_schemas"
   sqlstate 23503, constraint app_schemas_fingerprint_fkey
+
+-- 0007 tenants: slug unique and 1..200 bytes, status one of two, name 1..200 bytes (null allowed: keys-only
+-- tenants have none).
+insert into tenants (tenant_id, slug, name) values ('00000000-0000-4000-8000-000000000001', 'one', 'One');
+INSERT 0 1
+insert into tenants (tenant_id, slug, name) values ('00000000-0000-4000-8000-000000000002', 'one', 'Dup');
+ERROR:  duplicate key value violates unique constraint "tenants_slug_key"
+  sqlstate 23505, constraint tenants_slug_key
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000003', '');
+ERROR:  new row for relation "tenants" violates check constraint "tenants_slug_check"
+  sqlstate 23514, constraint tenants_slug_check
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000004', repeat('s', 200));
+INSERT 0 1
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000005', repeat('s', 201));
+ERROR:  new row for relation "tenants" violates check constraint "tenants_slug_check"
+  sqlstate 23514, constraint tenants_slug_check
+insert into tenants (tenant_id, name) values ('00000000-0000-4000-8000-000000000006', '');
+ERROR:  new row for relation "tenants" violates check constraint "tenants_name_check"
+  sqlstate 23514, constraint tenants_name_check
+insert into tenants (tenant_id, status) values ('00000000-0000-4000-8000-000000000007', 'paused');
+ERROR:  new row for relation "tenants" violates check constraint "tenants_status_check"
+  sqlstate 23514, constraint tenants_status_check
+update tenants set status = 'deactivated' where tenant_id = '00000000-0000-4000-8000-000000000004';
+UPDATE 1
+
+-- api_keys: new keys have 16-hex ids, legacy keys uuids (and not the other way round); one legacy row per hash.
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000aa', 'acme', 'p', sha256('legacy'), 3, true);
+INSERT 0 1
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000ab', 'acme', 'p', sha256('legacy'), 3, true);
+ERROR:  duplicate key value violates unique constraint "api_keys_legacy_hash"
+  sqlstate 23505, constraint api_keys_legacy_hash
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('2123456789abcdef', 'acme', 'p', sha256('legacy'), 3, true);
+ERROR:  new row for relation "api_keys" violates check constraint "api_keys_key_id_check"
+  sqlstate 23514, constraint api_keys_key_id_check
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000ac', 'acme', 'p', sha256('x'), 3, false);
+ERROR:  new row for relation "api_keys" violates check constraint "api_keys_key_id_check"
+  sqlstate 23514, constraint api_keys_key_id_check
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, name) values ('3123456789abcdef', 'acme', 'p', sha256('legacy'), 3, '');
+ERROR:  new row for relation "api_keys" violates check constraint "api_keys_name_check"
+  sqlstate 23514, constraint api_keys_name_check
+
+-- auth_users: ids, lowercase unique emails, nonempty names.
+insert into auth_users (user_id, email, name) values ('u1', 'ann@example.test', 'Ann');
+INSERT 0 1
+insert into auth_users (user_id, email, name) values ('u2', 'ann@example.test', 'Ann 2');
+ERROR:  duplicate key value violates unique constraint "auth_users_email_key"
+  sqlstate 23505, constraint auth_users_email_key
+insert into auth_users (user_id, email, name) values ('u3', 'Bob@example.test', 'Bob');
+ERROR:  new row for relation "auth_users" violates check constraint "auth_users_email_check"
+  sqlstate 23514, constraint auth_users_email_check
+insert into auth_users (user_id, email, name) values ('u 4', 'bob@example.test', 'Bob');
+ERROR:  new row for relation "auth_users" violates check constraint "auth_users_user_id_check"
+  sqlstate 23514, constraint auth_users_user_id_check
+insert into auth_users (user_id, email, name) values ('u5', 'bob@example.test', '');
+ERROR:  new row for relation "auth_users" violates check constraint "auth_users_name_check"
+  sqlstate 23514, constraint auth_users_name_check
+
+-- auth_passwords: Better Auth's "<32 hex>:<128 hex>", one per user, a user that exists.
+insert into auth_passwords (user_id, hash) values ('u1', repeat('a', 32) || ':' || repeat('b', 128));
+INSERT 0 1
+insert into auth_passwords (user_id, hash) values ('u1', repeat('a', 32) || ':' || repeat('b', 128));
+ERROR:  duplicate key value violates unique constraint "auth_passwords_pkey"
+  sqlstate 23505, constraint auth_passwords_pkey
+insert into auth_passwords (user_id, hash) values ('nobody', repeat('a', 32) || ':' || repeat('b', 128));
+ERROR:  insert or update on table "auth_passwords" violates foreign key constraint "auth_passwords_user_id_fkey"
+  sqlstate 23503, constraint auth_passwords_user_id_fkey
+insert into auth_passwords (user_id, hash) values ('u3', repeat('a', 31) || ':' || repeat('b', 128));
+ERROR:  new row for relation "auth_passwords" violates check constraint "auth_passwords_hash_check"
+  sqlstate 23514, constraint auth_passwords_hash_check
+insert into auth_passwords (user_id, hash) values ('u3', repeat('A', 32) || ':' || repeat('b', 128));
+ERROR:  new row for relation "auth_passwords" violates check constraint "auth_passwords_hash_check"
+  sqlstate 23514, constraint auth_passwords_hash_check
+
+-- auth_sessions: a 32-byte hash, an expiry after creation.
+insert into auth_sessions (token_sha256, user_id, expires_at) values (sha256('t1'), 'u1', now() + interval '1 day');
+INSERT 0 1
+insert into auth_sessions (token_sha256, user_id, expires_at) values ('\x00', 'u1', now() + interval '1 day');
+ERROR:  new row for relation "auth_sessions" violates check constraint "auth_sessions_token_sha256_check"
+  sqlstate 23514, constraint auth_sessions_token_sha256_check
+insert into auth_sessions (token_sha256, user_id, expires_at) values (sha256('t2'), 'u1', now() - interval '1 second');
+ERROR:  new row for relation "auth_sessions" violates check constraint "auth_sessions_expiry_check"
+  sqlstate 23514, constraint auth_sessions_expiry_check
+
+-- memberships: known user and tenant, a role of two, one row per pair; deleting a user removes its rows.
+insert into memberships (user_id, tenant_id) values ('u1', '00000000-0000-4000-8000-000000000001');
+INSERT 0 1
+insert into memberships (user_id, tenant_id) values ('u1', '00000000-0000-4000-8000-000000000001');
+ERROR:  duplicate key value violates unique constraint "memberships_pkey"
+  sqlstate 23505, constraint memberships_pkey
+insert into memberships (user_id, tenant_id, role) values ('u3', '00000000-0000-4000-8000-000000000001', 'owner');
+ERROR:  new row for relation "memberships" violates check constraint "memberships_role_check"
+  sqlstate 23514, constraint memberships_role_check
+insert into memberships (user_id, tenant_id) values ('nobody', '00000000-0000-4000-8000-000000000001');
+ERROR:  insert or update on table "memberships" violates foreign key constraint "memberships_user_id_fkey"
+  sqlstate 23503, constraint memberships_user_id_fkey
+delete from auth_users where user_id = 'u1';
+DELETE 1
+select count(*) as left_after_user_delete from memberships;
+left_after_user_delete
+0
+(1 rows)
+select count(*) as sessions_after_user_delete from auth_sessions;
+sessions_after_user_delete
+0
+(1 rows)

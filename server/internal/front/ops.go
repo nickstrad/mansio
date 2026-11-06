@@ -58,12 +58,19 @@ type OpsConfig struct {
 	IDs det.IDGen
 	// SchemaCache bounds the decoded schemas kept (docexec.NewSchemas); default 256.
 	SchemaCache int
+	// Credentials, if set, accepts bearers that are not tickets (Credentials). Such a request reaches the
+	// database credential-tenant ':' db.app at CredentialEpoch with read and write permission (single node:
+	// static mode's default_epoch).
+	Credentials     Credentials
+	CredentialEpoch uint64
 	// Observer, if set, receives every /v1/ops request's trace from the HTTP adapter (opstrace.go).
 	Observer OpsObserver
 }
 
 // ops is the enabled protocol's state.
 type ops struct {
+	creds    Credentials
+	epoch    uint64
 	observer OpsObserver
 	schemas  SchemaSource
 	ids      det.IDGen
@@ -78,7 +85,9 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 	if cfg.IDs == nil {
 		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
 	}
-	s.ops = &ops{observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
+	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0, "front: credentials need an epoch")
+	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
+		cache: docexec.NewSchemas(cfg.SchemaCache)}
 }
 
 // OpsEnabled reports whether EnableOps was called.
@@ -134,14 +143,13 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 			out.Stack = p.Stack
 		}
 	}()
-	if in.Ticket == "" {
+	if in.Ticket == "" && s.ops.creds == nil {
 		return opsAnswer(nil, nil, Reply{}, ticket.ErrMalformed)
 	}
 	req, e := ir.DecodeBody(in.Body)
 	if e != nil {
 		return opsAnswer(nil, nil, Reply{}, &docexec.Failure{Err: e})
 	}
-	db := req.DB.Tenant + ":" + req.DB.App // the placement key (ADR 0011)
 	if in.Trace != nil {
 		in.Trace.update(func(t *OpsTraceSnapshot) { t.Kind, t.App = req.Kind, req.DB.App })
 	}
@@ -154,10 +162,11 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
 	defer cancel()
 
-	claims, err := s.tickets.Verify(in.Ticket, now, ticket.Want{DB: db, Perm: kind.Perm()})
+	claims, err := s.verifyOps(ctx, in, req, kind, now)
 	if err != nil {
 		return opsAnswer(req, nil, Reply{}, err)
 	}
+	db := claims.DBID // the placement key tenant ':' app (ADR 0011), from the ticket or the credential
 	if in.Trace != nil {
 		in.Trace.update(func(t *OpsTraceSnapshot) { t.Tenant = claims.TID })
 	}
@@ -205,6 +214,38 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 	return opsAnswer(req, &claims, reply, err)
 }
 
+// verifyOps authorizes a /v1/ops request: a ticket for db.tenant ':' db.app, or (with Credentials) a credential,
+// whose tenant replaces db.tenant. A bearer that is not ticket-shaped at all goes to Credentials; a ticket that
+// fails verification stays ticket_invalid.
+func (s *Server) verifyOps(ctx context.Context, in Input, req *ir.Request, kind Kind, now time.Time) (ticket.Claims, error) {
+	token := in.Ticket
+	if token == "" && in.MalformedAuth && s.ops.creds != nil {
+		return ticket.Claims{}, &AuthError{Reason: "malformed"}
+	}
+	if token != "" {
+		claims, err := s.tickets.Verify(token, now, ticket.Want{DB: req.DB.Tenant + ":" + req.DB.App, Perm: kind.Perm()})
+		if err == nil || s.ops.creds == nil || !(errors.Is(err, ticket.ErrMalformed) || errors.Is(err, ticket.ErrVersion)) {
+			return claims, err
+		}
+	}
+	tenant, sub, err := s.ops.creds.Authenticate(ctx, token, req.DB.App)
+	if err != nil {
+		return ticket.Claims{}, err
+	}
+	// A credential request may only name a registered schema, checked before anything is admitted or created
+	// (with create_dbs a database's file and actor would otherwise exist before its schema is looked up).
+	if s.ops.schemas != nil {
+		if _, err := s.ops.schemas.Schema(ctx, req.DB.App, req.Schema); err != nil {
+			return ticket.Claims{}, schemaError(ctx, req, err)
+		}
+	}
+	db := tenant + ":" + req.DB.App
+	if e := CheckDBID(db); e != nil {
+		return ticket.Claims{}, fmt.Errorf("front: the credentials port answered tenant %q, which makes no valid database id (%v)", tenant, e) // its bug: internal
+	}
+	return ticket.Claims{TID: tenant, DBID: db, Epoch: s.ops.epoch, Sub: sub, Perms: ticket.Read | ticket.Write}, nil
+}
+
 // initDB creates a new database's tables from the registered schema req names (docexec.Init). Another
 // request may initialize it first: Init then only compares.
 func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run func(Call) (Reply, error)) error {
@@ -212,16 +253,8 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 		return &docexec.Failure{Err: unregistered(req.Schema)}
 	}
 	text, err := s.ops.schemas.Schema(ctx, req.DB.App, req.Schema)
-	switch {
-	case errors.Is(err, ErrSchemaUnknown):
-		return &docexec.Failure{Err: unregistered(req.Schema)}
-	case errors.Is(err, ErrUnavailable):
-		return err
-	case err != nil && (ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)):
-		// The request's deadline passed (or the client left) while waiting for the registry: nothing ran.
-		return fmt.Errorf("%w: waiting for the schema registry: %w", ErrExpired, err)
-	case err != nil:
-		return err
+	if err != nil {
+		return schemaError(ctx, req, err)
 	}
 	schema, e := s.ops.cache.Get(text)
 	if e != nil || schema.Fingerprint != req.Schema {
@@ -233,6 +266,21 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 	if _, err = run(c); errors.Is(err, ErrNoReply) {
 		// Only the idempotent creation may have committed; the request itself never ran: not ambiguous.
 		return fmt.Errorf("%w: creating the database got no reply in time (%v); the request did not run", ErrExpired, err)
+	}
+	return err
+}
+
+// schemaError classifies a SchemaSource failure: an unregistered schema is drift, the rest unavailable, expired or
+// passed on.
+func schemaError(ctx context.Context, req *ir.Request, err error) error {
+	switch {
+	case errors.Is(err, ErrSchemaUnknown):
+		return &docexec.Failure{Err: unregistered(req.Schema)}
+	case errors.Is(err, ErrUnavailable):
+		return err
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		// The request's deadline passed (or the client left) while waiting for the registry: nothing ran.
+		return fmt.Errorf("%w: waiting for the schema registry: %w", ErrExpired, err)
 	}
 	return err
 }
@@ -302,6 +350,18 @@ func opsError(req *ir.Request, err error) (*ir.Error, Code) {
 	}
 	var bad *BadRequestError
 	var p *panicx.Panic
+	var quota *QuotaError
+	if errors.As(err, &quota) {
+		return ir.NewError(ir.TagQuota, "scope", quota.Scope, "limit", float64(quota.Limit)), BadRequest
+	}
+	var auth *AuthError
+	if errors.As(err, &auth) {
+		app := ""
+		if req != nil {
+			app = req.DB.App
+		}
+		return ir.NewError(ir.TagAuth, "scope", "app", "appId", app, "reason", auth.Reason), TicketInvalid
+	}
 	switch code := Classify(err); {
 	case errors.Is(err, ErrStmtTimeout):
 		return withOp(ir.NewError(ir.TagStmtDeadline)), StmtTimeout

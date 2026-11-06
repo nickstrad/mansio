@@ -792,3 +792,35 @@ Branch `ir/04c-observability`. Details: `docs/knowledge/ir/2026-11-06-ir-4c-obse
   `/v1/ops` answer to http/handler/tx/sql records; lifecycle startup/shutdown; metrics
   `mansio_eventlog_records_total{result}`, `mansio_eventlog_queue_depth`. Opened first in `newAgent`, closed
   in `agent.cleanup`.
+## 2026-11-06 — ir-4a: tenancy + auth on Go (API additions)
+
+Branch `ir/04a-auth`. Details: `docs/knowledge/ir/2026-11-06-ir-4a-tenancy-auth.md`, ADR 0012 (repo root).
+
+- **New packages:** `internal/tenancy` (domain: `Service.Authenticate`, admin ops, `SignUp`/`SignIn`, Better Auth
+  scrypt), `internal/tenancy/tenancyhttp` (`Mount(mux, svc, cfg)`: `/admin/` gate, `/admin/tenants…`,
+  `/admin/users/link`, `/api/auth/sign-{up,in}/email`), `internal/tenancy/tenancytest` (`Fake`, `RunStoreSuite`).
+- **placement/pg:** migration `0007_tenancy.sql` (tenants slug/name/status; `api_keys.legacy`, `name`, key_id check
+  now 16 hex or uuid-if-legacy; `auth_users`, `auth_passwords`, `auth_sessions`, `memberships`). `p.Tenancy()`
+  (a `tenancy.Store`), `ReadMansio` + `p.ImportMansio`. `isAnswer` also treats tenancy's NotFound/Conflict/
+  Deactivated as answers.
+- **front:** `OpsConfig.Credentials` (`front.Credentials` port) + `CredentialEpoch`; `front.AuthError`; ir
+  `TagAuth` ("AuthError", 401). Non-ticket bearers on `/v1/ops` → the port; the credential's tenant replaces
+  `db.tenant`.
+- **agentd:** `tenancy` section (static mode only), `create_dbs` (static: unknown `<tenant>:<app>` created on
+  first admitted request at `default_epoch`; db_dir may start empty), readiness check `tenancy`, breaker
+  `tenancy`, `agent.queryRoutes`. Reporter knows module `tenancy`.
+- **controld:** `controld import-mansio -secrets F [-schema S] [-from-schema public] [-from-dsn-env V] [-dry-run]`.
+
+## 2026-11-06 — ir-4a: security review fixes (API changes)
+
+Branch `ir/04a-auth`.
+
+- **agentd:** `create_dbs` needs `schemas_dir`; new `max_dbs` (10 000) and `max_dbs_per_tenant` (100) caps →
+  `front.QuotaError` / wire `QuotaExceeded` 429 (`ir.TagQuota`, spec §8 row). `tenancy.apps` (default: the
+  apps in `schemas_dir`); `tenancy.Config.Apps` is required in api-key and session modes.
+- **front:** a credential request must name a registered schema (checked before admission). `Input.MalformedAuth`:
+  a non-Bearer Authorization header is `AuthError` reason `malformed` with credentials.
+- **placement/pg:** `ImportCounts` gained `TenantsDeactivated`, `KeysRevoked`, `PasswordsChanged`; `api_key.sql`
+  reads a deactivated tenant's keys as revoked. TODO(IR-5): `create_api_key.sql` still inserts for a deactivated
+  tenant; the locator does not yet accept legacy keys or sessions.
+- **tenancy:** `tenancy.HashPassword` (tools, tests).

@@ -138,6 +138,10 @@ Every step lands with its tests from §6. "Gate" means the tests named there pas
 | **IR-5 Multi-node**    | Edge + locator path for `/v1/ops`; controld create/move for `(tenant, app)`                                                                                                         | Cluster DST (§6.4) and the new e2e `scale_out` green                                                                                     |
 | **IR-6 Cut over**      | Delete the Deno platform (replace plan phase 7)                                                                                                                                     | e2e green on Go only                                                                                                                     |
 
+IR-5 carry-over from IR-4a (ADR 0012): controld's locator must accept legacy keys and sessions through
+`internal/tenancy`, and `create_api_key.sql` must refuse a deactivated tenant (today it inserts for any
+tenant; `api_key.sql` already reads a deactivated tenant's keys as revoked). TODO(IR-5).
+
 IR-0 to IR-2 are server-only and can start now. IR-3 is where users start to see a difference.
 
 ## 6. Hardening: tests in layers, added step by step

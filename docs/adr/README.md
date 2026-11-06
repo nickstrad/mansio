@@ -13,3 +13,4 @@
 | [0009](0009-ir-is-the-app-wire.md)               | The IR is the only app wire; handlers run in the SDK               |
 | [0010](0010-compiler-port-with-ts-oracle.md)     | Compiler ported to Go; the TS compiler is the oracle (vectors)     |
 | [0011](0011-database-identity-and-client-ids.md) | `(tenant, app)` identifies a database; client ids are UUIDv7       |
+| [0012](0012-single-node-auth-port.md)            | Single node: agentd checks credentials; multi-node: controld       |

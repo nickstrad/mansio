@@ -167,7 +167,8 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 	}()
 	rc := http.NewResponseController(w)
 	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.BodyReadTimeout + h.s.cfg.WriteGrace)) // early refusals
-	in := Input{Ticket: bearer(r.Header.Get("Authorization"))}
+	auth := r.Header.Get("Authorization")
+	in := Input{Ticket: bearer(auth), MalformedAuth: auth != "" && bearer(auth) == ""}
 	if observe := h.s.ops.observer; observe != nil {
 		w = h.observeOps(w, r, &in, observe)
 	}
@@ -288,7 +289,9 @@ func (h *httpHandler) writeOps(w http.ResponseWriter, r *http.Request, out OpsOu
 	}
 }
 
-// bearer extracts the token from "Bearer <token>"; anything else is "" (ticket_invalid).
+// bearer extracts the token from "Bearer <token>"; anything else is "" (ticket_invalid; with credentials, an
+// AuthError: missing without a header, malformed with another one). The scheme is case-insensitive (RFC 9110
+// §11.1); tenancyhttp's admin check is too. The Deno platform matches "Bearer " exactly.
 func bearer(v string) string {
 	const p = "Bearer "
 	if len(v) > len(p) && strings.EqualFold(v[:len(p)], p) {

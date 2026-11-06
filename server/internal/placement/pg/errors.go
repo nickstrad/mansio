@@ -8,6 +8,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
 var (
@@ -40,7 +41,8 @@ func classify(err error) error {
 // isAnswer reports whether err says something about the data or the request, not about the authority's
 // health: it does not count against the breaker (Release It C2).
 func isAnswer(err error) bool {
-	for _, a := range []error{owner.ErrNotFound, owner.ErrConflict, owner.ErrInvalid, ErrInvariant, ErrUnknownVM} {
+	for _, a := range []error{owner.ErrNotFound, owner.ErrConflict, owner.ErrInvalid, ErrInvariant, ErrUnknownVM,
+		tenancy.ErrNotFound, tenancy.ErrConflict, tenancy.ErrDeactivated} {
 		if errors.Is(err, a) {
 			return true
 		}

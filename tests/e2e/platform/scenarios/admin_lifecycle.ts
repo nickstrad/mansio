@@ -3,14 +3,17 @@ import { Config } from "../../../../platform/services.ts";
 import {
   apps,
   assert,
+  backend,
   cli,
+  client,
   delay,
   Effect,
-  legacyClient,
+  opsPath,
+  opsQuery,
   play,
   request,
   scenarioDir,
-  startServer,
+  startBackend,
   tenant,
   test,
 } from "../harness.ts";
@@ -23,24 +26,24 @@ test(
     Effect.gen(function* () {
       const dir = yield* scenarioDir("admin_lifecycle");
       const url = yield* database("admin_lifecycle");
-      const server = yield* startServer(dir, url, { TENANCY: "api-key" });
-      // This baseline does not expose its optional TTL in OPTIONS (the live layer supplies a default).
-      // Local CLI mutations invalidate synchronously, so without a configured TTL enforce 1 s.
-      // When MT-02 supplies the option, ConfigTest derives its default from the same table.
+      const server = yield* startBackend(dir, url, { TENANCY: "api-key" });
+      // Deno: this baseline does not expose its optional TTL in OPTIONS (the live layer supplies a default).
+      // Local CLI mutations invalidate synchronously, so without a configured TTL enforce 1 s. Go: the agent's
+      // cache_ttl (startGoTenancy: 1 s); its admin API invalidates synchronously too.
       const config = yield* Config.pipe(Effect.provide(ConfigTest()));
-      const ttl = config.tenancy.tenantKeyCacheTtlMs ?? 0;
+      const ttl = backend === "go" ? 1_000 : config.tenancy.tenantKeyCacheTtlMs ?? 0;
       yield* Effect.promise(async () => {
         for (const [index, app] of apps.entries()) {
           const first = await tenant(server, 10 + index);
-          await play(legacyClient(server, app, first.key), moves.X.slice(0, 1));
+          await play(client(server, app, first.key), moves.X.slice(0, 1));
           const issue = await cli(server, "tenants", ["issue-key", first.id]);
           const keys = issue.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
           assert.equal(keys.length, 1);
           assert.match(issue.stdout, /Save this API key now/);
           const second = keys[0];
-          await play(legacyClient(server, app, second), moves.O.slice(0, 2));
+          await play(client(server, app, second), moves.O.slice(0, 2));
           const status = async (key: string, app: string) =>
-            (await request(server, `/apps/${app}/query/listGames`, { status: "playing" }, key)).status;
+            (await request(server, opsPath(server, app), await opsQuery(app, "any-game"), key)).status;
           const refused = async (key: string) => {
             const end = Date.now() + ttl + 1_000;
             while (await status(key, app) !== 401) {
@@ -68,5 +71,4 @@ test(
         assert.match(wrong.stderr, /401/);
       });
     }),
-  { go: "IR-4 ports tenant API keys and the admin CLI to Go" },
 );

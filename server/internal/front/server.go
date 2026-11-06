@@ -105,10 +105,13 @@ func (s *Server) Admission() *Admission { return s.adm }
 
 // Input is one request as the transport received it.
 type Input struct {
-	Ticket  string        // from the Authorization header; "" if missing
-	Body    []byte        // at most Limits.MaxBody + 1 bytes (the transport stops reading there)
-	Timeout time.Duration // client's deadline, relative; 0 = DefaultTimeout
-	Trace   *OpsTrace     // /v1/ops: collect the request's trace (opstrace.go); nil = off
+	Ticket string // from the Authorization header; "" if missing or not "Bearer <token>"
+	// MalformedAuth: an Authorization header was sent but is not "Bearer <token>" (/v1/ops credentials answer
+	// AuthError reason malformed rather than missing).
+	MalformedAuth bool
+	Body          []byte        // at most Limits.MaxBody + 1 bytes (the transport stops reading there)
+	Timeout       time.Duration // client's deadline, relative; 0 = DefaultTimeout
+	Trace         *OpsTrace     // /v1/ops: collect the request's trace (opstrace.go); nil = off
 }
 
 // Response is the JSON body of every answer.
