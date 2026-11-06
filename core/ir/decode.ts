@@ -125,7 +125,9 @@ function ref(value: unknown, path: string, here: number, ops: readonly Op[]): Re
 
 /** An id position: a non-empty string without U+0000, or a `$ref`. */
 function idRef(value: unknown, path: string, here: number, ops: readonly Op[]): Result<IdRef> {
-  if (value !== null && typeof value === "object") return ref(value, path, here, ops);
+  if (value !== null && typeof value === "object" && Object.hasOwn(value, "$ref")) {
+    return ref(value, path, here, ops);
+  }
   if (typeof value !== "string" || value === "" || value.includes(NUL)) {
     return mismatch(path, "non-empty id without U+0000, or $ref", value);
   }

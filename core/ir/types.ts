@@ -6,8 +6,6 @@
  */
 import type { Filter } from "../plan.ts";
 
-/** Protocol version carried in every envelope's `v`. */
-export const VERSION = 1;
 /** Most operations one request may carry. */
 export const MAX_OPS = 64;
 /** The body cap, in bytes of UTF-8. The same 64 KiB as the HTTP surface's default (`platform/config.ts`). */

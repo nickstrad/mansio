@@ -134,6 +134,7 @@ const envelope = (over: J = {}): J => ({
 const query = (ops: unknown[], over: J = {}) =>
   envelope({ kind: "query", requestId: undefined, ops, ...over });
 const mutation = (ops: unknown[], over: J = {}) => envelope({ ops, ...over });
+const getN0 = (): J => ({ op: "get", table: "lists", id: { $ref: 0 } });
 const sel = (over: J = {}): J => ({ op: "select", table: "notes", filters: [], limit: 10, ...over });
 const without = (o: J, key: string): J => Object.fromEntries(Object.entries(o).filter(([k]) => k !== key));
 
@@ -147,6 +148,16 @@ type DecodeCase = {
   expect: J;
 };
 const ok = { ok: true };
+
+const nested = (n: number, inner: string) => "[".repeat(n) + inner + "]".repeat(n);
+/** A query whose filter value is `n` nested arrays: with the 5 containers around it, `n + 5` deep. */
+const deep = (n: number, inner: string) =>
+  JSON.stringify(query([sel({ filters: [{ field: "tags", op: "eq", value: "X" }] })])).replace(
+    '"X"',
+    nested(n, inner),
+  );
+const SAFE_PLUS_TWO = JSON.stringify(query([sel({ filters: [{ field: "rank", op: "eq", value: 7 }] })]))
+  .replace('"value":7', '"value":9007199254740993');
 
 const DECODE: DecodeCase[] = [
   // Accepted
@@ -689,6 +700,103 @@ const DECODE: DecodeCase[] = [
     why: "strict decode; range is reserved for v1.1",
     request: mutation([{ op: "assert", table: "notes", id: "n1", expect: { range: 1 } }]),
     expect: schemaErr("unknown-field", "ops[0].expect.range", 0),
+  },
+  // Number literals, nesting, keys and ids (review fixups)
+  {
+    name: "integer literal above 2^53",
+    why: "a literal is its double value: 9007199254740993 reads as 9007199254740992",
+    raw: SAFE_PLUS_TWO,
+    expect: ok,
+  },
+  {
+    name: "v 1.0",
+    why: "1.0 is the number 1",
+    raw: JSON.stringify(query([sel()])).replace('"v":1', '"v":1.0'),
+    expect: ok,
+  },
+  {
+    name: "$ref 0.0",
+    why: "0.0 is the integer 0",
+    raw: JSON.stringify(mutation([{ op: "insert", table: "lists", value: { name: "l" } }, getN0()])).replace(
+      '"$ref":0',
+      '"$ref":0.0',
+    ),
+    expect: ok,
+  },
+  {
+    name: "expect version 1.0",
+    why: "1.0 is the integer 1",
+    raw: JSON.stringify(mutation([{ op: "delete", table: "notes", id: "n1", expect: { version: 1 } }]))
+      .replace('"version":1', '"version":1.0'),
+    expect: ok,
+  },
+  {
+    name: "expect version 9007199254740993",
+    why: "reads as 2^53, which is not a safe integer",
+    raw: JSON.stringify(mutation([{ op: "delete", table: "notes", id: "n1", expect: { version: 1 } }]))
+      .replace('"version":1', '"version":9007199254740993'),
+    expect: schemaErr("type-mismatch", "ops[0].expect.version", 0),
+  },
+  {
+    name: "number underflow",
+    why: "1e-400 is finite after rounding: it reads as 0",
+    raw: JSON.stringify(query([sel({ filters: [{ field: "score", op: "eq", value: 7 }] })])).replace(
+      '"value":7',
+      '"value":1e-400',
+    ),
+    expect: ok,
+  },
+  {
+    name: "64 containers, empty innermost",
+    why: "on point of the nesting limit",
+    raw: deep(59, ""),
+    expect: ok,
+  },
+  {
+    name: "64 containers, non-empty innermost",
+    why: "scalars do not count as nesting",
+    raw: deep(59, "1"),
+    expect: ok,
+  },
+  {
+    name: "65 containers, empty innermost",
+    why: "off point: the 65th container is refused at its own path",
+    raw: deep(60, ""),
+    expect: schemaErr("type-mismatch", "ops[0].filters[0].value" + "[0]".repeat(59), 0),
+  },
+  {
+    name: "65 containers, non-empty innermost",
+    why: "off point",
+    raw: deep(60, "1"),
+    expect: schemaErr("type-mismatch", "ops[0].filters[0].value" + "[0]".repeat(59), 0),
+  },
+  {
+    name: "lone surrogate in a member name",
+    why:
+      "names are text too; the path names the member (not compared here: a lone surrogate cannot survive a Go string)",
+    raw: JSON.stringify(mutation([{ op: "insert", table: "notes", value: { Q: 1 } }])).replace(
+      '"Q"',
+      '"\\ud800"',
+    ),
+    expect: err("SchemaError", 400, { reason: "type-mismatch" }, 0),
+  },
+  {
+    name: "duplicate member spelled with an escape",
+    why: "names compare after unescaping: \\u006bind is kind",
+    raw: JSON.stringify(query([sel()])).replace('"kind":"query"', '"kind":"query","\\u006bind":"query"'),
+    expect: schemaErr("type-mismatch", "kind"),
+  },
+  {
+    name: "object in an id position",
+    why: "an object without $ref is not an id",
+    request: query([{ op: "get", table: "notes", id: { id: "n1" } }]),
+    expect: schemaErr("type-mismatch", "ops[0].id", 0),
+  },
+  {
+    name: "array in an id position",
+    why: "an array is not an id",
+    request: query([{ op: "get", table: "notes", id: ["n1"] }]),
+    expect: schemaErr("type-mismatch", "ops[0].id", 0),
   },
 ];
 
@@ -1650,7 +1758,7 @@ const SCENARIOS: Scenario[] = [
       request: q([s({ aggregate: { kind: "count" } })], { requestId: "r1" }),
       expect: res(4),
     }],
-    final: { notes: [N1, N2, N3, NEW] },
+    final: { notes: [N1, N2, N3, NEW], requests: [{ request_id: "r1", applied_ms: 1000, result: ["s1"] }] },
   },
   // patch
   {
@@ -1973,7 +2081,10 @@ const SCENARIOS: Scenario[] = [
       { request: q([s({ aggregate: { kind: "count" } }), getN("n1")]), expect: res(3, N1) },
       { serverIds: ["s2"], request: m([ins(BODY)]), expect: res("s2") },
     ],
-    final: { notes: [N1, N2, N3, srv("s2", BODY)] },
+    final: {
+      notes: [N1, N2, N3, srv("s2", BODY)],
+      requests: [{ request_id: "r1", applied_ms: 1000, result: ["s2"] }],
+    },
   },
   {
     name: "failed precondition after a write",
@@ -1989,7 +2100,7 @@ const SCENARIOS: Scenario[] = [
         }]),
       },
       conflict({ check: "version", expected: 1, actual: 3 }, 1),
-      UNCHANGED,
+      { ...UNCHANGED, requests: [] },
     ),
   },
   // request ids
@@ -2004,13 +2115,18 @@ const SCENARIOS: Scenario[] = [
         expect: res("s1", { deleted: true }),
       },
       {
-        serverIds: ["s2"],
         request: m([ins(BODY)]),
         expect: { result: ["s1", { deleted: true }], duplicate: true },
       },
       { serverIds: ["s3"], request: m([ins(BODY)], "r2"), expect: res("s3") },
     ],
-    final: { notes: [N1, N2, NEW, srv("s3", BODY)] },
+    final: {
+      notes: [N1, N2, NEW, srv("s3", BODY)],
+      requests: [
+        { request_id: "r1", applied_ms: 1000, result: ["s1", { deleted: true }] },
+        { request_id: "r2", applied_ms: 1000, result: ["s3"] },
+      ],
+    },
   },
   {
     name: "duplicate of a read-only mutation",
@@ -2023,7 +2139,67 @@ const SCENARIOS: Scenario[] = [
         expect: { result: [N1], duplicate: true },
       },
     ],
-    final: UNCHANGED,
+    final: { ...UNCHANGED, requests: [{ request_id: "r1", applied_ms: 1000, result: [N1] }] },
+  },
+  {
+    name: "duplicate whose new payload is invalid",
+    why:
+      "a duplicate's operations are decoded but never validated: an unknown table still gets the first answer",
+    seed: SEED,
+    steps: [
+      {
+        clock: 2000,
+        request: m([{ op: "delete", table: "notes", id: "n1" }]),
+        expect: res({ deleted: true }),
+      },
+      {
+        clock: 3000,
+        request: m([ins(BODY, undefined, "nope")]),
+        expect: { result: [{ deleted: true }], duplicate: true },
+      },
+    ],
+    final: {
+      notes: [N2, N3],
+      requests: [{ request_id: "r1", applied_ms: 2000, result: [{ deleted: true }] }],
+    },
+  },
+  {
+    name: "expect fields wrong type on a missing document",
+    why: "expect.fields values are validated before existence is checked",
+    seed: SEED,
+    ...single(
+      { request: m([{ op: "assert", table: "notes", id: "zz", expect: { fields: { rank: "1" } } }]) },
+      schemaErr("type-mismatch", "rank", 0),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "invalid patch body on a missing document",
+    why: "the body is validated before the document is loaded: SchemaError, not NotFoundError",
+    seed: SEED,
+    ...single(
+      { request: m([{ op: "patch", table: "notes", id: "zz", value: { grid: [1] } }]) },
+      schemaErr("type-mismatch", "grid", 0),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "version and fields both failing",
+    why: "checks run exists, version, fields: version is reported",
+    seed: SEED,
+    ...single(
+      {
+        request: m([{
+          op: "patch",
+          table: "notes",
+          id: "n2",
+          value: {},
+          expect: { version: 2, fields: { title: "x" } },
+        }]),
+      },
+      conflict({ check: "version", expected: 2, actual: 3 }, 0),
+      UNCHANGED,
+    ),
   },
   // envelope at execution
   {
@@ -2037,6 +2213,19 @@ const SCENARIOS: Scenario[] = [
     final: UNCHANGED,
   },
 ];
+
+/** `final.requests[].result` → `result_hex`: version byte 0x02, then the canonical JSON of the result. */
+function finalOf(final: J): J {
+  if (!final.requests) return final;
+  const requests = (final.requests as J[]).map(({ result, ...row }) => ({
+    ...row,
+    result_hex: "02" +
+      Array.from(new TextEncoder().encode(canonical(result)), (b) => b.toString(16).padStart(2, "0")).join(
+        "",
+      ),
+  }));
+  return { ...final, requests };
+}
 
 async function executeFile(): Promise<VectorFile> {
   const vectors: J[] = [];
@@ -2057,7 +2246,7 @@ async function executeFile(): Promise<VectorFile> {
         fingerprint,
         seed: c.seed ?? {},
         steps,
-        final: c.final ?? {},
+        final: finalOf(c.final ?? {}),
       });
     }
   }

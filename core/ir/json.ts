@@ -46,7 +46,8 @@ export function parseStrict(text: string): Either.Either<unknown, SchemaError> {
     WHITESPACE.exec(text);
     at = WHITESPACE.lastIndex;
   };
-  const string = (path: string): string | Stop => {
+  /** A string at `path`; a member name passes `key`, so a refused name is reported at its own path. */
+  const string = (path: string, key = false): string | Stop => {
     // `at` is on the opening quote. Scan to the closing quote, then let JSON.parse decode escapes:
     // the scan has already checked the grammar it relies on.
     let end = at + 1;
@@ -65,14 +66,20 @@ export function parseStrict(text: string): Either.Either<unknown, SchemaError> {
       } else end++;
     }
     const decoded = JSON.parse(text.slice(at, end + 1)) as string;
-    if (LONE_SURROGATE.test(decoded)) return new Stop(path, "well-formed Unicode text");
+    if (LONE_SURROGATE.test(decoded)) {
+      return new Stop(key ? member(path, decoded) : path, "well-formed Unicode text");
+    }
     at = end + 1;
     return decoded;
   };
+  /** A value at `path`, inside `depth` open containers (the top level is depth 0). */
   const value = (path: string, depth: number): unknown | Stop => {
-    if (depth > MAX_DEPTH) return new Stop(path, `nesting at most ${MAX_DEPTH} deep`);
     skip();
     const c = text[at];
+    // At most MAX_DEPTH containers deep: a container opened inside MAX_DEPTH others is refused.
+    if ((c === "{" || c === "[") && depth >= MAX_DEPTH) {
+      return new Stop(path, `nesting at most ${MAX_DEPTH} arrays/objects deep`);
+    }
     if (c === "{") {
       at++;
       const out: Record<string, unknown> = {};
@@ -84,7 +91,7 @@ export function parseStrict(text: string): Either.Either<unknown, SchemaError> {
       for (;;) {
         skip();
         if (text[at] !== '"') return new Stop(path, "JSON");
-        const key = string(path);
+        const key = string(path, true);
         if (key instanceof Stop) return key;
         const at_ = member(path, key);
         if (Object.hasOwn(out, key)) return new Stop(at_, "unique member name");

@@ -52,12 +52,21 @@ Deno.test("parseStrict refusals", () => {
       ["[1,]", "[1]"],
       ["01", "body"],
       ['{"a":1} 2', "body"],
-      ["[".repeat(66) + "]".repeat(66), "[0]".repeat(65)],
+      ["[".repeat(65) + "]".repeat(65), "[0]".repeat(64)],
+      ['{"a":'.repeat(64) + "[1]" + "}".repeat(64), "a".repeat(64).split("").join(".")],
+      ['{"\\ud800":1}', "\ud800"],
     ] as const
   ) {
     const parsed = parseStrict(text);
     assert.ok(Either.isLeft(parsed), text);
     assert.equal(parsed.left.path, path, text);
+  }
+});
+
+Deno.test("parseStrict nesting: 64 containers are accepted, 65 are not, empty or not", () => {
+  for (const inner of ["", "1"]) {
+    assert.ok(Either.isRight(parseStrict("[".repeat(64) + inner + "]".repeat(64))));
+    assert.ok(Either.isLeft(parseStrict("[".repeat(65) + inner + "]".repeat(65))));
   }
 });
 

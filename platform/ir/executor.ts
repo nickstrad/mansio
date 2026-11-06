@@ -28,7 +28,7 @@ import { FingerprintMismatch, type IrCause, IrFailure, PreconditionConflict } fr
 import { canonical } from "../../core/ir/json.ts";
 import { fingerprintText } from "../../core/ir/schema.ts";
 import { body, checkExpect, type Doc, resolve, resolveId } from "../../core/ir/semantics.ts";
-import type { Op, Request, Response } from "../../core/ir/types.ts";
+import { type Op, READ_OPS, type Request, type Response } from "../../core/ir/types.ts";
 import { IdGen } from "../services.ts";
 import { Database, prepareCached } from "../sqlite_ffi/mod.ts";
 
@@ -108,6 +108,7 @@ export function openIrDatabase(
     const fingerprint = yield* sha256Fingerprint(text);
     yield* exec("pragma", "PRAGMA journal_mode=WAL");
     yield* exec("pragma", "PRAGMA synchronous=FULL");
+    yield* exec("pragma", "PRAGMA busy_timeout=5000");
     yield* transaction(
       "BEGIN IMMEDIATE",
       Effect.gen(function* () {
@@ -245,6 +246,10 @@ export function openIrDatabase(
           return yield* new FingerprintMismatch({ expected: fingerprint, actual: request.schema });
         }
         const now = yield* Clock.currentTimeMillis;
+        // Decode guarantees this; a request built any other way is a caller bug, not a client error.
+        if (request.kind === "query" && request.ops.some((op) => !READ_OPS.includes(op.op))) {
+          return yield* Effect.dieMessage("IR executor: a query holds a non-read operation");
+        }
         if (request.kind === "query") return { result: yield* transaction("BEGIN", ops(request, now)) };
         // Decode guarantees a mutation carries its request id.
         return yield* transaction("BEGIN IMMEDIATE", mutation(request, request.requestId!, now));

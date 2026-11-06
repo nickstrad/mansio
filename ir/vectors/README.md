@@ -11,22 +11,24 @@ deno run -A scripts/ir/gen-vectors.ts && deno fmt ir/
 deno run -A scripts/ir/gen-compile-corpus.ts          # generated/compile-corpus.jsonl
 ```
 
-The TS runner fails if a committed file differs from its generator. Expectations are hand-written in the
-source, except compiled SQL (`compile.json`, the corpus) and schema fingerprints (`schema.json`,
-`execute.json`'s `fingerprint`), which are golden output of `core/` — the oracle by decision.
+The TS runner fails if a committed file differs from its generator. `ir/spec/v1.schema.json` is informative
+only: it is not run against the vectors, and cannot express several decode rules (see its description).
+Expectations are hand-written in the source, except compiled SQL (`compile.json`, the corpus) and schema
+fingerprints (`schema.json`, `execute.json`'s `fingerprint`), which are golden output of `core/` — the oracle
+by decision.
 
 ## Files
 
 | File                             | Vectors | Input → expected                                                                          |
 | -------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `decode.json`                    | 81      | request bytes → accepted (+ canonical encoding) or error                                  |
+| `decode.json`                    | 95      | request bytes → accepted (+ canonical encoding) or error                                  |
 | `validation.json`                | 39      | table fields + body (insert = full, patch = partial) → validated body or error            |
 | `schema.json`                    | 21      | registered schema JSON → fingerprint text and `sha256:` fingerprint, or declaration error |
 | `compile.json`                   | 70      | schema + plan / write / DDL → SQLite SQL text and binds, or compile error (both layouts)  |
-| `execute.json`                   | 114     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
+| `execute.json`                   | 122     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
 | `generated/compile-corpus.jsonl` | 2000    | fast-check schemas + plans → SQL or error, for differential testing                       |
 
-`execute.json` holds 57 scenarios, each once per storage layout (`[columns]`, `[json]` in the name).
+`execute.json` holds 61 scenarios, each once per storage layout (`[columns]`, `[json]` in the name).
 
 ## Common shape
 
@@ -95,18 +97,18 @@ already JSON text).
 
 ## `execute.json`
 
-| Member        | Meaning                                                                                                                                       |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema`      | the database's schema (one storage layout)                                                                                                    |
-| `fingerprint` | its `sha256:` fingerprint; requests carry it in `schema` unless the vector tests a mismatch                                                   |
-| `seed`        | `{table: [doc…]}` written before the first step, bypassing the protocol: each doc's `_id`, `_creationTime` and `_version` are stored as given |
-| `steps`       | requests run in order against the same database                                                                                               |
-| `final`       | `{table: [doc…]}` — every row of each listed table after the last step, ordered by `_id`; **an unlisted table must be empty**                 |
+| Member        | Meaning                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schema`      | the database's schema (one storage layout)                                                                                                                                                                                                                                                                                                                                                 |
+| `fingerprint` | its `sha256:` fingerprint; requests carry it in `schema` unless the vector tests a mismatch                                                                                                                                                                                                                                                                                                |
+| `seed`        | `{table: [doc…]}` written before the first step, bypassing the protocol: each doc's `_id`, `_creationTime` and `_version` are stored as given                                                                                                                                                                                                                                              |
+| `steps`       | requests run in order against the same database                                                                                                                                                                                                                                                                                                                                            |
+| `final`       | `{table: [doc…]}` — every row of each listed table after the last step, ordered by `_id`; **an unlisted table must be empty**. Optional `requests`: `[{request_id, applied_ms, result_hex}]`, the whole `_tsdb_requests` table ordered by `request_id`, `result_hex` the lowercase hex of the stored blob (`02` + canonical JSON); compared exactly when present, not compared when absent |
 
 Each step: `clock` (the request's single clock reading, ms), `serverIds` (the ids the server's generator
-returns, in order, for inserts without a client id; using more is a runner failure), `request` (the envelope,
-which runs through decode first), and `expect`: `{"result": [...]}` plus `"duplicate": true` when the request
-id was already applied, or an error.
+returns, in order, for inserts without a client id; using more, or fewer, is a runner failure), `request` (the
+envelope, which runs through decode first), and `expect`: `{"result": [...]}` plus `"duplicate": true` when
+the request id was already applied, or an error.
 
 Documents compare as JSON values regardless of member order; arrays compare in order. The runner may seed and
 dump the database through its own connection; in TS both go through `core/compile`.

@@ -1177,6 +1177,179 @@
           }
         }
       }
+    },
+    {
+      "name": "integer literal above 2^53",
+      "why": "a literal is its double value: 9007199254740993 reads as 9007199254740992",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"rank\",\"op\":\"eq\",\"value\":9007199254740993}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"rank\",\"op\":\"eq\",\"value\":9007199254740992}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "v 1.0",
+      "why": "1.0 is the number 1",
+      "raw": "{\"v\":1.0,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "$ref 0.0",
+      "why": "0.0 is the integer 0",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"get\",\"table\":\"lists\",\"id\":{\"$ref\":0.0}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"id\":{\"$ref\":0},\"op\":\"get\",\"table\":\"lists\"}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "expect version 1.0",
+      "why": "1.0 is the integer 1",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"version\":1.0}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"expect\":{\"version\":1},\"id\":\"n1\",\"op\":\"delete\",\"table\":\"notes\"}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "expect version 9007199254740993",
+      "why": "reads as 2^53, which is not a safe integer",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"version\":9007199254740993}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.version"
+          }
+        }
+      }
+    },
+    {
+      "name": "number underflow",
+      "why": "1e-400 is finite after rounding: it reads as 0",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"score\",\"op\":\"eq\",\"value\":1e-400}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"score\",\"op\":\"eq\",\"value\":0}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "64 containers, empty innermost",
+      "why": "on point of the nesting limit",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "64 containers, non-empty innermost",
+      "why": "scalars do not count as nesting",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "65 containers, empty innermost",
+      "why": "off point: the 65th container is refused at its own path",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].value[0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0]"
+          }
+        }
+      }
+    },
+    {
+      "name": "65 containers, non-empty innermost",
+      "why": "off point",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"tags\",\"op\":\"eq\",\"value\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].value[0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0][0]"
+          }
+        }
+      }
+    },
+    {
+      "name": "lone surrogate in a member name",
+      "why": "names are text too; the path names the member (not compared here: a lone surrogate cannot survive a Go string)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"\\ud800\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate member spelled with an escape",
+      "why": "names compare after unescaping: \\u006bind is kind",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"\\u006bind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "object in an id position",
+      "why": "an object without $ref is not an id",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":{\"id\":\"n1\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "array in an id position",
+      "why": "an array is not an id",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":[\"n1\"]}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
     }
   ]
 }

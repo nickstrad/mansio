@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Clock, Effect, Either } from "effect";
+import { Cause, Clock, Effect, Either, Exit } from "effect";
 import type { Schema } from "../../core/schema.ts";
 import { compileDDL } from "../../core/compile/ddl.ts";
 import { compileSelect } from "../../core/compile/select.ts";
@@ -193,6 +193,21 @@ function dump(file: string, schema: Schema): Record<string, unknown> {
   }
 }
 
+/** `_tsdb_requests`, ordered by id, with `result` as lowercase hex. */
+function requests(file: string): unknown[] {
+  const db = Database.open(file);
+  try {
+    return db.prepare("select request_id, applied_ms, result from _tsdb_requests order by request_id").all()
+      .map((row) => ({
+        request_id: row.request_id,
+        applied_ms: row.applied_ms,
+        result_hex: Array.from(row.result as Uint8Array, (b) => b.toString(16).padStart(2, "0")).join(""),
+      }));
+  } finally {
+    db.close();
+  }
+}
+
 Deno.test("ir vectors: execute", async () => {
   for (const v of await load("execute.json")) {
     const dir = mkdtempSync(join(tmpdir(), "ir-vectors-"));
@@ -222,10 +237,12 @@ Deno.test("ir vectors: execute", async () => {
             }
             assertError(exit.left, expect.error as J, name);
           } else assert.deepEqual(JSON.parse(JSON.stringify(right(exit, name))), expect, name);
+          assert.deepEqual(ids, [], `${name}: serverIds not fully consumed`);
         }
       })));
       const want = v.final as Record<string, unknown[]>;
       const got = dump(file, schema);
+      if (want.requests) assert.deepEqual(requests(file), want.requests, `${v.name}: final requests`);
       for (const table of Object.keys(schema)) {
         assert.deepEqual(got[table], want[table] ?? [], `${v.name}: final ${table}`);
       }
@@ -258,4 +275,27 @@ Deno.test("ir vectors: generated compile corpus matches core/compile", async () 
     lines,
     "compile-corpus.jsonl is stale: run scripts/ir/gen-compile-corpus.ts",
   );
+});
+
+Deno.test("executor: a query holding a write is a defect, even when it bypassed decode", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ir-exec-"));
+  try {
+    const schema = schemaOf({
+      t: { fields: { a: { node: { kind: "string" } } }, storage: "columns", indexes: [] },
+    }, "t");
+    const exit = await Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
+      const db = yield* openIrDatabase({ file: join(dir, "db.sqlite"), schema });
+      return yield* db.execute({
+        v: 1,
+        db: { tenant: "t", app: "a" },
+        kind: "query",
+        schema: db.fingerprint,
+        ops: [{ op: "insert", table: "t", value: { a: "x" } }],
+      }).pipe(Effect.provideService(IdGen, { next: Effect.succeed("s1") }));
+    })));
+    assert.ok(Exit.isFailure(exit) && Cause.isDie(exit.cause), String(exit));
+    assert.deepEqual(dump(join(dir, "db.sqlite"), schema), { t: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
