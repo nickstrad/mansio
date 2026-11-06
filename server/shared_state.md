@@ -749,3 +749,19 @@ Branch `ir/03-sdk`. Details: `docs/knowledge/ir/2026-11-05-ir-3-sdk.md` (repo ro
 - For IR-4: the e2e scenarios `auth`, `tenant_isolation`, `admin_lifecycle`, `backup_restore`, `log_analysis` are
   skipped on Go (`{ go: "<reason>" }` in each scenario's `test(...)`); port them by removing the option and giving
   `startGoAgent` the needed config.
+
+## 2026-11-06 — ir-4b: durability on Go (backup, restore, import) — API additions
+
+Branch `ir/04b-durability`. Details: `docs/knowledge/ir/2026-11-06-ir-4b-durability.md` (repo root).
+
+- **agentd:** admin `POST /admin/backup?key=K` (durable mode): `Host.WriteBack` now, then answers the stored
+  manifest (`durable.Manifest` fields + `version`, `wrote`); 409 `wrong_owner` unless the key is Active here,
+  409 `fenced` on a stale write-back, 503 on transient S3. New `backend.backup` field. Durable mode accepts
+  `schemas_dir` (config: at most one of `schemas_dir`, `schemas_url`). **agentctl:** `backup <key>`.
+- **dbtool:** `restore [-gen G] [-object N] <key> <new file>` (verified download, integrity_check, hard link,
+  never overwrites; JSON line) and `import <file> -tenant T -app A -schema F [-placement-dir D -vm V]`
+  (VACUUM INTO from a read-only open, `_platform_schema` text must equal the schema, generation 1 epoch 1
+  create-only, If-None-Match manifest, placement CAS ACTIVE(vm,1,1); reruns resume). `pickObject` takes a verb.
+- **sqlitedsn:** `ReadOnly(path, immutable, pragmas...)` (`mode=ro`, `immutable=1`).
+- e2e: `tests/e2e/platform/durable.ts` (`startDurableAgent`, `dbtool`, `s3Store`), separate from
+  `startGoAgent`; `e2e-linux.sh go` starts SeaweedFS and builds dbtool.

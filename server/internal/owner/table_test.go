@@ -595,3 +595,21 @@ func TestClaimWithSlowAuthorityHonoursDeadline(t *testing.T) {
 		t.Fatal("state changed")
 	}
 }
+
+// An import (dbtool import without -placement-dir, IR-4b) leaves generation 1 at epoch 1 and no row; the
+// control plane's create then writes ACTIVE(vm, 1, gen 0). The claim adopts the imported generation: the
+// manifest is not behind the row, and the stamp keeps generation 1.
+func TestClaimAdoptsAnImportedGeneration(t *testing.T) {
+	w := newWorld(t, "a")
+	g, err := w.objs.Upload("k", []string{"imported"})
+	must(t, err)
+	must(t, w.objs.Publish("k", 0, g, 1))
+	w.pl.Create("k", owner.Place{Owner: "a", Epoch: 1, State: owner.PlaceActive})
+	l, err := w.tab("a").Claim(ctx, "k")
+	if err != nil || l != (owner.Local{State: owner.Active, Epoch: 1, Gen: 1}) {
+		t.Fatalf("Claim = %s, %v; want active(e1,g1)", l, err)
+	}
+	if gen, e, _, contents, _ := w.objs.Read("k"); gen != 1 || e != 1 || !slices.Equal(contents, []string{"imported"}) {
+		t.Fatalf("manifest after the claim: gen %d epoch %d %v", gen, e, contents)
+	}
+}

@@ -25,9 +25,10 @@ import (
 //	POST /admin/fetch:limit?n=N        S3 fetches in flight, N >= 1          → {"code":"ok","fetch_limit","previous"}
 //	POST /admin/drain                  front drain: shed new queries, /readyz and /healthz say draining (one way) → {"code":"ok","in_flight"}
 //	POST /admin/passivate?key=K        write K back and drop its warm copy  → {"code":"ok","key"}
+//	POST /admin/backup?key=K           write K back now (it stays warm)     → {"code":"ok", K's manifest…, "version","wrote"}
 //	POST /admin/loglevel?level=L       debug | info | warn                  → {"code":"ok","level","previous"}
 //
-// Breakers ("s3"; "placement" once it has one) and fetch:limit and passivate exist in durable mode only; in
+// Breakers ("s3"; "placement" once it has one) and fetch:limit, passivate and backup exist in durable mode only; in
 // static mode they answer not_found, like any unknown path. Each call runs under lifecycle_timeout (an
 // X-Timeout-Ms header may shorten it), at most adminConcurrency at once (more are refused, never queued).
 // Errors answer {"code","message"[,"log_id"]}: bad_request 400, not_found 404, unavailable 503 + Retry-After,
@@ -52,6 +53,9 @@ func (a *agent) adminHandler() http.Handler {
 	if a.be.host != nil {
 		mux.HandleFunc("POST /admin/fetch:limit", ep.handle(ad.fetchLimit))
 		mux.HandleFunc("POST /admin/passivate", ep.handle(ad.passivate))
+	}
+	if a.be.backup != nil {
+		mux.HandleFunc("POST /admin/backup", ep.handle(ad.backupHandler))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ep.write(w, r, nil, notFound("no admin endpoint "+r.Method+" "+r.URL.Path+" (in this mode)"))

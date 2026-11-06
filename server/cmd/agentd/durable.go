@@ -102,6 +102,10 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if d.schemas, err = openSchemas(cfg, log, sec); err != nil {
 		return fail(err)
 	}
+	schemas, err := loadSchemaDir(cfg.SchemasDir) // nil without schemas_dir (the config allows one registry)
+	if err != nil {
+		return fail(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 	defer cancel()
 	d.tab, err = owner.Open(ctx, owner.Config{Self: cfg.VM, Store: fs, Placement: d.place,
@@ -109,7 +113,6 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if err != nil {
 		return fail(err)
 	}
-	var schemas front.SchemaSource
 	if d.schemas != nil {
 		schemas = registrySchemas{d.schemas}
 	}
@@ -128,6 +131,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		abort:      func() { d.host.Close(); canary.Close(); d.closePlacement() },
 		breakers:   d.breakers(), // the admin endpoints' breakers, by name: "s3", and "placement" with Postgres
 		host:       d.host,
+		backup:     d.backup,
 	}, nil
 }
 
