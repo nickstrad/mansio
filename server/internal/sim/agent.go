@@ -12,6 +12,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/docexec"
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/owner"
@@ -42,6 +44,13 @@ type agent struct {
 var _ Agent = (*agent)(nil)
 
 func (a *agent) Front() *front.Server { return a.srv }
+
+func (a *agent) Ops() *front.Server {
+	if a.srv.OpsEnabled() {
+		return a.srv
+	}
+	return nil
+}
 
 // tickets is the sim's ticket verifier: every ticket is valid for the database it names at the one epoch.
 type tickets struct{}
@@ -103,6 +112,9 @@ func (w *world) newAgent(n int, claim bool) (*agent, error) {
 	}
 	a.tab = tab
 	a.srv = front.NewServer(front.Config{}, tickets{}, agentglue.DepAdmitter{Admitter: agentglue.Admitter{T: tab}}, agentglue.DepExecutor{Executor: agentglue.Executor{Host: a.host, Grace: time.Second}}, w.clk)
+	if src, ok := w.s.Workload.(front.SchemaSource); ok { // the IR hook: /v1/ops through docexec
+		a.srv.EnableOps(front.OpsConfig{Schemas: src, IDs: docexec.NewUUIDv7(w.clk, det.NewRand(subSeed(w.s.Seed, fmt.Sprintf("opsids-%d", n))))})
+	}
 	a.wg.Go(func() {
 		_ = a.host.RunMaintenance(a.ctx, w.s.Tick, func(r vactor.TickReport) { w.ticked(a, r) })
 	})

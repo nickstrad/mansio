@@ -2,4 +2,4 @@
 
 package sim_test
 
-const defaultSeeds, determinismSeeds = 8, 4
+const defaultSeeds, determinismSeeds, defaultIRSeeds = 8, 4, 4
