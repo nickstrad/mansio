@@ -159,7 +159,7 @@ type oneActor struct{ a *actor.Actor }
 
 func (o oneActor) Lookup(context.Context, string) (*actor.Actor, error) { return o.a, nil }
 
-var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, durable.ErrUnavailable}
+var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, vactor.ErrInDoubt, durable.ErrUnavailable}
 
 func asUnavailable(err error) error {
 	if err == nil || errors.Is(err, front.ErrUnavailable) {

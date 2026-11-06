@@ -172,7 +172,8 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 			event string
 			n     int64
 		}{{"activation", st.Activations}, {"activation_failure", st.Failures}, {"fetch", st.Fetches}, {"local_hit", st.LocalHits},
-			{"writeback", st.WriteBacks}, {"writeback_failure", st.WriteBackFailures}, {"bytes_uploaded", st.BytesUploaded}} {
+			{"writeback", st.WriteBacks}, {"writeback_failure", st.WriteBackFailures}, {"bytes_uploaded", st.BytesUploaded},
+			{"publish_in_doubt", st.PublishesInDoubt}} {
 			e.Value(metrics.Labels{"event", v.event}, float64(v.n))
 		}
 	})

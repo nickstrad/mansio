@@ -68,6 +68,7 @@ type Store struct {
 	f         Faults
 	call      CallFaults // nil: every call gets f
 	landIf    func(tag uint64) bool
+	denyHead  bool             // SetDenyMissingHead
 	clk       det.Clock        // Delay waits and fetch timings
 	clock     func() time.Time // stamps LastModified (and Seed's manifest)
 
@@ -93,6 +94,17 @@ func (s *Store) UseClock(c det.Clock) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clk, s.clock = det.Or(c), det.Or(c).Now
+}
+
+// ErrAccessDenied is what StatGeneration answers for a missing object under SetDenyMissingHead.
+var ErrAccessDenied = errors.New("durabletest: 403 AccessDenied")
+
+// SetDenyMissingHead makes StatGeneration of a missing object answer ErrAccessDenied instead of
+// durable.ErrNotFound, as S3 answers a HEAD (403, not 404) when the identity lacks s3:ListBucket.
+func (s *Store) SetDenyMissingHead(deny bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.denyHead = deny
 }
 
 // SetLandIf installs the predicate asked when a LandLate request lands, with its LandTag; false drops it. nil:
@@ -352,6 +364,9 @@ func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenI
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, ok := s.objects[object]
+	if !ok && s.denyHead {
+		return durable.GenInfo{}, fmt.Errorf("stat %s: %w", object, ErrAccessDenied)
+	}
 	if !ok {
 		return durable.GenInfo{}, fmt.Errorf("stat %s: %w", object, durable.ErrNotFound)
 	}
