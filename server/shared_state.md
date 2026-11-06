@@ -775,6 +775,23 @@ Branch `ir/04b-durability`. Details: `docs/knowledge/ir/2026-11-06-ir-4b-durabil
   removed. Seeds 180/232 pass.
 - Note: `knowledge/fencing/2026-11-06-reopen-restamp.md`.
 
+
+## 2026-11-06 — ir-4c: agentd's event log (JSONL for the TS ingest)
+
+Branch `ir/04c-observability`. Details: `docs/knowledge/ir/2026-11-06-ir-4c-observability.md` (repo root).
+
+- **New package `internal/eventlog`** (adapter): `Open(Config)`, `Emit(Event)` (never blocks; full queue →
+  dropped, counted, reported as a `queue events dropped` record), `Close(ctx)`, `Stats`. Payloads `HTTP`,
+  `Handler`, `SQL`, `Tx`, `Queue`, `Backup`, `Lifecycle`: byte-identical to `core/events.ts` `toJsonLine`
+  (goldens). `POST /admin/backup` (IR-4b) emits one `eventlog.Backup` (`publish-latest`, `backups`) through
+  `agent.events` (nil-safe) for `backup-history`.
+- **front (additive):** `OpsConfig.Observer` (`OpsObserver func(OpsEvent)`), `Input.Trace *OpsTrace`, constants
+  `HandlerHeader` (`X-Mansio-Handler`) and `OpsName`. With an observer the adapter echoes `X-Trace-Id` (a
+  generated UUIDv7 if absent/invalid) and traces the request's transaction via `docactor.Call.Wrap`.
+- **agentd:** config `event_log {dir, level, trace_sql, buffer, max_file_bytes}`; `events.go` maps each
+  `/v1/ops` answer to http/handler/tx/sql records; lifecycle startup/shutdown; metrics
+  `mansio_eventlog_records_total{result}`, `mansio_eventlog_queue_depth`. Opened first in `newAgent`, closed
+  in `agent.cleanup`.
 ## 2026-11-06 01:09 — dst-1: pending publishes and generation numbers (fix/pending-gens)
 
 - **vactor:** a publish in doubt is kept until a publish of ours applies or `Options.GC.Grace` passes (set it to the

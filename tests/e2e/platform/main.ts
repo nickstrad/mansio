@@ -34,8 +34,8 @@ const gitStatus = async () => {
  */
 const external = Deno.env.get("E2E_POSTGRES_URL") || undefined;
 const backend = Deno.env.get("BACKEND") ?? "deno";
-/** Scenarios IR-3 runs on the Go backend; the rest are skipped there with a reason (harness.ts `test`). */
-const onGo = ["documents", "queries", "backup_restore"];
+/** Scenarios that run on the Go backend (IR-3, IR-4b, IR-4c); the rest are skipped there with a reason (harness.ts `test`). */
+const onGo = ["documents", "queries", "backup_restore", "log_analysis"];
 const skipped = backend === "go" ? order.filter((name) => !onGo.includes(name)) : [];
 function forwarded(keys: string[]): Record<string, string> {
   return Object.fromEntries(keys.flatMap((key) => {

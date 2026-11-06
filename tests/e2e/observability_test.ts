@@ -22,6 +22,13 @@
  *
  * Run: `deno run -A tests/e2e/observability_test.ts` (needs `k6` on `PATH`; ~45 s).
  *
+ * `BACKEND=go` runs the same check against agentd (IR-4c): `startScratchAgent` (static mode, `event_log`
+ * under the scratch `LOG_DIR`), k6 with `BACKEND=go` (`perf/lib/ir.js`: the handlers as the SDK sends them
+ * to `/v1/ops`, with minted tickets), the barrier a traced `/v1/ops` read, and the ingest the offline CLI
+ * (`scripts/logs.ts ingest`) instead of the admin route. agentd's `handler` records are the server's half
+ * of each handler run (one read or the commit), so the bound below still holds per request. The negative
+ * control sets `event_log.level` to `error`. Needs Go (or `AGENTD_BIN`); runs on macOS too.
+ *
  * The k6 latency gate is the adopted host-dependent rule (sq-08): p(95) < 160 ms on the shared
  * VM, < 60 ms on a quiet host, decided per host at run time — `K6_HOST_CLASS=quiet` selects the
  * quiet-host gate, unset (or anything else) means the shared VM. A p95 at or above the threshold
@@ -42,7 +49,7 @@
  */
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, type Scope } from "effect";
 import {
   adminPost,
   awaitTraceIdsInLog,
@@ -50,6 +57,7 @@ import {
   scratchRoot,
   serverLogRecords,
   sqlString,
+  startScratchAgent,
   startScratchServer,
 } from "../integration.ts";
 
@@ -117,6 +125,74 @@ export async function recordLoadRefusal(refusal: LoadRefusal): Promise<void> {
   await Deno.writeTextFile(path, `${JSON.stringify(refusals, null, 2)}\n`);
 }
 
+/**
+ * What the run drives: the Deno server (k6 on the platform API, ingest through `POST /admin/logs/ingest`)
+ * or, with `BACKEND=go`, agentd (k6 on `/v1/ops` through `perf/lib/ir.js`, ingest by the offline CLI).
+ */
+interface Target {
+  readonly base: string;
+  readonly k6Env: Record<string, string>;
+  readonly logDir: string;
+  readonly eventLogPath: string;
+  /** A request under `traceId` that lands in the server's event log. */
+  readonly barrier: (traceId: string) => Promise<void>;
+  /** Ingests the JSONL; answers the ingest report. */
+  readonly ingest: Effect.Effect<string>;
+  readonly stop: Effect.Effect<Deno.CommandStatus>;
+}
+
+const backend = Deno.env.get("BACKEND") === "go" ? "go" : "deno";
+
+function startTarget(root: string, noop: boolean): Effect.Effect<Target, never, Scope.Scope> {
+  if (backend === "go") {
+    return Effect.map(startScratchAgent(root, noop ? { eventLevel: "error" } : {}), (agent) => ({
+      base: agent.base,
+      k6Env: {
+        BACKEND: "go",
+        BASE_URL: agent.base,
+        APP_ID: "tic-tac-toe",
+        READ_TICKET: agent.readTicket,
+        WRITE_TICKET: agent.writeTicket,
+        SCHEMA_FINGERPRINT: agent.fingerprint,
+      },
+      logDir: agent.logDir,
+      eventLogPath: agent.eventLogPath,
+      barrier: async (traceId) => {
+        const response = await fetch(`${agent.base}/v1/ops`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${agent.readTicket}`, "x-trace-id": traceId },
+          body: JSON.stringify({
+            v: 1,
+            db: { tenant: "local", app: "tic-tac-toe" },
+            kind: "query",
+            schema: agent.fingerprint,
+            ops: [{ op: "get", table: "games", id: "barrier" }],
+          }),
+        });
+        await response.body?.cancel();
+      },
+      ingest: Effect.map(agent.ingest, (out) => {
+        assert.equal(out.code, 0, `logs ingest failed: ${out.stderr}`);
+        return out.stdout.trim();
+      }),
+      stop: agent.stop,
+    }));
+  }
+  return Effect.map(startScratchServer(root, noop ? { LOG_LEVEL: "error" } : {}), (server) => ({
+    base: server.base,
+    k6Env: { BASE_URL: server.base, APP_ID: "tic-tac-toe", TOKEN: "dev-only" },
+    logDir: server.logDir,
+    eventLogPath: server.eventLogPath,
+    barrier: async (traceId) =>
+      void (await fetch(`${server.base}/health`, { headers: { "x-trace-id": traceId } })).body?.cancel(),
+    ingest: Effect.map(adminPost(server.base, "/admin/logs/ingest"), (ingest) => {
+      assert.equal(ingest.status, 200, JSON.stringify(ingest.body));
+      return JSON.stringify(ingest.body.result);
+    }),
+    stop: server.stop,
+  }));
+}
+
 const program = Effect.gen(function* () {
   const runId = `e2e-obs-${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}-` +
     crypto.randomUUID().slice(0, 6);
@@ -130,18 +206,20 @@ const program = Effect.gen(function* () {
   );
   const root = yield* scratchRoot("document-db-e2e-obs-");
   const noop = Deno.env.get("OBS_SINK") === "noop";
-  const sink = noop
+  const sink = backend === "go"
+    ? noop ? "agentd event_log gated to drop everything (OBS_SINK=noop: level error)" : "agentd event_log"
+    : noop
     ? "EventSinkLive gated to drop everything (OBS_SINK=noop: LOG_LEVEL=error)"
     : "EventSinkLive";
-  console.log(`run_id=${runId} sink=${sink}`);
+  console.log(`run_id=${runId} backend=${backend} sink=${sink}`);
 
   // --- server up: k6, then ingest ------------------------------------------
   const server = yield* Effect.scoped(Effect.gen(function* () {
-    const server = yield* startScratchServer(root, noop ? { LOG_LEVEL: "error" } : {});
+    const server = yield* startTarget(root, noop);
     const k6 = yield* Effect.promise(() =>
       new Deno.Command("k6", {
         args: ["run", "--quiet", "--out", `json=${resolve(k6Dir, "raw.json")}`, "perf/smoke.js"],
-        env: { BASE_URL: server.base, APP_ID: "tic-tac-toe", TOKEN: "dev-only", K6_RUN_ID: runId },
+        env: { ...server.k6Env, K6_RUN_ID: runId },
         stdout: "piped",
         stderr: "piped",
       }).output()
@@ -187,15 +265,11 @@ const program = Effect.gen(function* () {
     // Flush barrier: once a request made after k6 finished is in the log, every k6 request's records
     // are too (one FIFO queue). Best effort — the assertions below are on what ingest finds.
     const barrier = `e2e-barrier-${runId}`;
-    yield* Effect.promise(async () =>
-      (await fetch(`${server.base}/health`, { headers: { "x-trace-id": barrier } })).body?.cancel()
-    );
+    yield* Effect.promise(() => server.barrier(barrier));
     const missing = yield* awaitTraceIdsInLog(server.logDir, [barrier]);
     if (missing.length > 0) console.log(`barrier trace ${barrier} never reached the server log`);
 
-    const ingest = yield* adminPost(server.base, "/admin/logs/ingest");
-    assert.equal(ingest.status, 200, JSON.stringify(ingest.body));
-    console.log(`logs ingest: ${JSON.stringify(ingest.body.result)}`);
+    console.log(`logs ingest: ${yield* server.ingest}`);
     const stopped = yield* server.stop;
     assert.equal(stopped.code, 0, "SIGTERM must stop the server cleanly");
     const written = yield* Effect.promise(() => serverLogRecords(server.logDir));
