@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,17 +39,72 @@ func FuzzDocExecModel(f *testing.F) {
 	} {
 		f.Add(seed)
 	}
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(runModel)
+}
+
+// TestDocExecModelRandom runs seeded random scripts in every mode (layout, plain actor or durable host, read
+// pool), so plain go test covers what the fuzzer explores.
+func TestDocExecModelRandom(t *testing.T) {
+	n := 64
+	if testing.Short() {
+		n = 8
+	}
+	r := rand.New(rand.NewPCG(1, 2))
+	for i := range n {
+		data := make([]byte, 64+r.IntN(400))
+		for j := range data {
+			data[j] = byte(r.Uint32())
+		}
+		data[0] = byte(i % 8)
+		t.Run(strconv.Itoa(i), func(t *testing.T) { runModel(t, data) })
+	}
+}
+
+// runModel is one script: data[0] is the mode (bit 0 json layout, bit 1 durable host, bit 2 read pool).
+func runModel(t *testing.T, data []byte) {
+	{
+		var mode byte
+		if len(data) > 0 {
+			mode, data = data[0], data[1:]
+		}
 		layout := "columns"
-		if len(data) > 0 && data[0]%2 == 1 {
+		if mode&1 == 1 {
 			layout = "json"
 		}
+		cfg := actor.Config{}
+		if mode&4 != 0 {
+			cfg.ReadConns = 2 // reads on the read pool, writes on the writer
+		}
 		s := mustDecode(t, strings.ReplaceAll(modelSchema, `"columns"`, `"`+layout+`"`))
-		d := openDB(t, s, actor.Config{})
+		durable := mode&2 != 0
+		var d *db
+		if durable {
+			d = openDurable(t, s, cfg)
+		} else {
+			d = openDB(t, s, cfg)
+		}
 		m := newModel(s.Fingerprint)
+		published := m.clone() // durable mode: the state of the last published generation
 		g := &gen{src: data, m: m}
 		for reqNo := 1; !g.done() && reqNo <= 40; reqNo++ {
 			d.at(int64(reqNo) * 1000)
+			if durable { // passivation, write-back and crashes between requests (plan §6.3)
+				switch g.byte() % 8 {
+				case 0: // write back: publish what is there
+					if _, err := d.h.WriteBack(context.Background(), durableKey); err != nil {
+						t.Fatalf("write-back: %v", err)
+					}
+					published = m.clone()
+				case 1: // passivate: publish and close; the next request reactivates from the store
+					if err := d.h.Passivate(context.Background(), durableKey); err != nil {
+						t.Fatalf("passivate: %v", err)
+					}
+					published = m.clone()
+				case 2: // crash: everything since the last publish is lost, request ids included
+					d.crash()
+					*m = *published.clone()
+				}
+			}
 			group := 1
 			if g.byte()%7 == 0 {
 				group = 2 + int(g.byte()%2)
@@ -63,7 +120,7 @@ func FuzzDocExecModel(f *testing.F) {
 			}
 			compareState(t, d, m)
 		}
-	})
+	}
 }
 
 // modelSchema: one table of every scalar kind the script uses, and a second table.
@@ -82,6 +139,7 @@ type step struct {
 // runGroup runs a group of requests: one alone, or several mutations submitted before any is awaited, so the
 // actor runs them in one batch, in order, each in its own savepoint.
 func (d *db) runGroup(script []step) []outcome {
+	a := d.actor()
 	reqs := make([]*actor.Request, len(script))
 	for i, st := range script {
 		at := st.failAt
@@ -90,7 +148,7 @@ func (d *db) runGroup(script []step) []outcome {
 			call.Wrap = func(tx docexec.Tx) docexec.Tx { return &failingTx{Tx: tx, at: at, err: errInjected} }
 		}
 		reqs[i] = call.Request()
-		if err := d.a.Submit(reqs[i]); err != nil {
+		if err := a.Submit(reqs[i]); err != nil {
 			d.t.Fatal(err)
 		}
 	}
@@ -399,6 +457,7 @@ func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 		}
 	}
 	work := m.clone()
+	work.applied = m.applied // read only in run
 	result, e, upTo := work.run(req, now, seqBase)
 	for i, n := range upTo {
 		if st.failAt > 0 && st.failAt <= n {
@@ -416,7 +475,7 @@ func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 }
 
 func (m *model) clone() *model {
-	c := &model{fp: m.fp, tables: map[string]map[string]map[string]any{}, applied: m.applied, seen: slices.Clone(m.seen)}
+	c := &model{fp: m.fp, tables: map[string]map[string]map[string]any{}, applied: maps.Clone(m.applied), seen: slices.Clone(m.seen)}
 	for name, docs := range m.tables {
 		c.tables[name] = map[string]map[string]any{}
 		for id, doc := range docs {

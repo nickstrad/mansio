@@ -13,7 +13,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/doccompile"
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 	"github.com/nickstrad/mansio/server/internal/ir"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
 )
 
 // vectorDir is the shared corpus at the repo root (ir/vectors/README.md).
@@ -52,13 +55,66 @@ func (l *listIDs) NewID() string {
 	return id
 }
 
-// db is one vector database: a real actor on a file, with a manual clock.
+// db is one test database on a manual clock: a real actor on a file, or (durable) a key in a vactor.Host over
+// real SQLite actors and the fake object store, which can passivate, write back and crash.
 type db struct {
 	t      testing.TB
-	a      *actor.Actor
+	a      *actor.Actor // nil in durable mode: the host's current actor serves
 	clock  *dettest.Clock
 	schema *docexec.Schema
 	cache  *docexec.Schemas
+
+	h     *vactor.Host
+	store *durabletest.Store
+	cfg   actor.Config
+}
+
+const durableKey = "t/doc"
+
+// openDurable is a durable-mode database: a host over the fake store, created and initialized with s.
+func openDurable(t testing.TB, s *docexec.Schema, cfg actor.Config) *db {
+	t.Helper()
+	clock := dettest.NewClock(time.UnixMilli(0))
+	cfg.Clock = clock
+	d := &db{t: t, clock: clock, schema: s, cache: docexec.NewSchemas(0), store: durabletest.NewStore(), cfg: cfg}
+	d.newHost()
+	return d
+}
+
+// newHost starts a host with an empty cache (a fresh process) and initializes the database if its published
+// generation has no schema yet, as the route does on ErrUninitialized.
+func (d *db) newHost() {
+	h, err := vactor.NewHost(nil, actordb.Opener{Cfg: d.cfg}, vactor.Options{CacheDir: filepath.Join(d.t.TempDir(), "c"), Store: d.store,
+		CreateMissing: true, FailBackoff: -1})
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	d.h = h
+	d.t.Cleanup(func() { h.Close() })
+	if res := d.do(docexec.InitRequest(d.schema)); res.Err != nil {
+		d.t.Fatalf("init: %v", res.Err)
+	}
+}
+
+// crash abandons the host without publishing anything (the store refuses its shutdown's write-backs), then
+// starts a new one: the database is back at its last published generation.
+func (d *db) crash() {
+	d.store.SetFaults(durabletest.Faults{Down: true})
+	d.h.Close()
+	d.store.SetFaults(durabletest.Faults{})
+	d.newHost()
+}
+
+// actor is the actor serving the database now (activating it in durable mode).
+func (d *db) actor() *actor.Actor {
+	if d.h == nil {
+		return d.a
+	}
+	res, err := d.h.Get(context.Background(), durableKey)
+	if err != nil {
+		d.t.Fatalf("activate: %v", err)
+	}
+	return res.DB.(*actordb.DB).Actor()
 }
 
 func openDB(t testing.TB, s *docexec.Schema, cfg actor.Config) *db {
@@ -80,7 +136,7 @@ func openDB(t testing.TB, s *docexec.Schema, cfg actor.Config) *db {
 }
 
 func (d *db) do(r *actor.Request) actor.Result {
-	if err := d.a.Submit(r); err != nil {
+	if err := d.actor().Submit(r); err != nil {
 		return actor.Result{Err: err}
 	}
 	return r.Wait(context.Background())
