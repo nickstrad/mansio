@@ -6,7 +6,13 @@
 //	dbtool [flags] orphans <key>            what gc would delete for key (a dry run)
 //	dbtool [flags] gc [-dry-run] (-key K | -shard SS | -all)
 //	dbtool [flags] rebuild-manifest -gen G -epoch E [-object NAME] [-if-version V] <key>
+//	dbtool [flags] restore [-gen G] [-object NAME] <key> <new file>
+//	dbtool [flags] import <file> -tenant T -app A -schema F [-placement-dir D -vm V]
 //
+// restore and import (replace-platform plan phase 4) print one JSON line. import without -placement-dir writes
+// only object storage: with controld, register the app's schema (PUT /v1/apps/{app}/schema) and create the
+// database (POST /v1/apps/{app}/databases) after the import; the owner's claim adopts generation 1. That
+// multi-node path is IR-5's to exercise end to end.
 // Credentials come from the environment (DBTOOL_S3_ACCESS_KEY, DBTOOL_S3_SECRET_KEY), never from flags or
 // files. Results go to stdout; a JSON log (UTC, log IDs) goes to stderr. Exit codes: 0 ok, 1 expected failure
 // (message + log ID; e.g. verify found corruption), 2 usage, 70 bug, 130 interrupted.
@@ -22,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,6 +57,11 @@ commands:
   orphans <key>        what gc would delete for key (a dry run)
   gc [-dry-run] (-key K | -shard SS | -all)
   rebuild-manifest -gen G -epoch E [-object NAME] [-if-version V] <key>
+  restore [-gen G] [-object NAME] <key> <new file>
+                       write the current generation (or generation G, e.g. a backup's) to a new local file
+  import <file> -tenant T -app A -schema F [-placement-dir D -vm V]
+                       make an existing SQLite file (e.g. Deno-written) the first generation of tenant:app;
+                       without -placement-dir, run controld's create afterwards (its claim adopts the import)
 environment: DBTOOL_S3_ACCESS_KEY, DBTOOL_S3_SECRET_KEY (required)
 flags:`
 
@@ -204,6 +216,49 @@ func parseCommand(name string, args []string, stderr io.Writer) (func(context.Co
 		}
 		a.key = key
 		return func(ctx context.Context, t *tool) error { return t.rebuildManifest(ctx, a) }, true
+
+	case "restore":
+		var a restoreArgs
+		fs.Uint64Var(&a.gen, "gen", 0, "the generation to restore (a backup's answer); default the current one")
+		fs.StringVar(&a.object, "object", "", "which object of the generation, when two epochs uploaded it")
+		if fs.Parse(args) != nil {
+			return nil, false
+		}
+		if fs.NArg() != 2 {
+			fmt.Fprintln(stderr, "dbtool restore: want a key and a new file path")
+			return nil, false
+		}
+		if err := durable.ValidateKey(fs.Arg(0)); err != nil {
+			fmt.Fprintf(stderr, "dbtool restore: %v\n", err)
+			return nil, false
+		}
+		a.key, a.target = fs.Arg(0), fs.Arg(1)
+		return func(ctx context.Context, t *tool) error { return t.restore(ctx, a) }, true
+
+	case "import":
+		var a importArgs
+		fs.StringVar(&a.tenant, "tenant", "", "the tenant (required)")
+		fs.StringVar(&a.app, "app", "", "the app (required); the key is tenant:app")
+		fs.StringVar(&a.schema, "schema", "", "the app's schema file, in fingerprint form (required)")
+		fs.StringVar(&a.placementDir, "placement-dir", "", "the single-node placement authority (agentd's placement_dir)")
+		fs.StringVar(&a.vm, "vm", "", "the owner the placement row names (agentd's vm); required with -placement-dir")
+		if len(args) > 0 && !strings.HasPrefix(args[0], "-") { // the file may come first: import <file> -tenant ...
+			a.file, args = args[0], args[1:]
+		}
+		if fs.Parse(args) != nil {
+			return nil, false
+		}
+		if a.file == "" && fs.NArg() == 1 {
+			a.file = fs.Arg(0)
+		} else if fs.NArg() != 0 || a.file == "" {
+			fmt.Fprintln(stderr, "dbtool import: want exactly one file")
+			return nil, false
+		}
+		if problem := a.check(); problem != "" {
+			fmt.Fprintln(stderr, "dbtool import: "+problem)
+			return nil, false
+		}
+		return func(ctx context.Context, t *tool) error { return t.importFile(ctx, a) }, true
 	}
 	fmt.Fprintf(stderr, "dbtool: unknown command %q\n", name)
 	return nil, false

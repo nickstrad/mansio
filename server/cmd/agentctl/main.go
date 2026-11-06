@@ -5,6 +5,7 @@
 //	agentctl [flags] fetch-limit <n>
 //	agentctl [flags] drain
 //	agentctl [flags] passivate <key>
+//	agentctl [flags] backup <key>
 //	agentctl [flags] loglevel debug|info|warn
 //
 // -addr defaults to $AGENTCTL_ADDR, else 127.0.0.1:7072. The answer goes to stdout as one JSON line. Exit
@@ -49,6 +50,7 @@ commands:
   fetch-limit <n>            S3 fetches in flight from now on (n >= 1)
   drain                      stop taking queries (one way; /readyz says draining)
   passivate <key>            write one warm database back and drop its local copy
+  backup <key>               write one database back now and print its manifest (it stays warm)
   loglevel debug|info|warn   change the log level
 flags:`
 
@@ -127,6 +129,11 @@ func command(args []string) (string, error) {
 			return "", err
 		}
 		return "/admin/passivate?key=" + url.QueryEscape(args[1]), nil
+	case "backup":
+		if err := want(1); err != nil {
+			return "", err
+		}
+		return "/admin/backup?key=" + url.QueryEscape(args[1]), nil
 	case "loglevel":
 		if err := want(1); err != nil {
 			return "", err

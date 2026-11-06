@@ -107,7 +107,7 @@ type rebuildArgs struct {
 // (If-Match). A readable stored manifest also bounds it: the new (epoch, generation) must be greater (W3),
 // and the epoch never lower (W2). A rollback to an older generation therefore needs a new epoch.
 func (t *tool) rebuildManifest(ctx context.Context, a rebuildArgs) error {
-	obj, err := t.pickObject(ctx, a)
+	obj, err := t.pickObject(ctx, "rebuild", a)
 	if err != nil {
 		return err
 	}
@@ -164,21 +164,19 @@ func (t *tool) rebuildManifest(ctx context.Context, a rebuildArgs) error {
 	return nil
 }
 
-// pickObject finds the object of generation a.gen: a.object if given, else the only one listed.
-func (t *tool) pickObject(ctx context.Context, a rebuildArgs) (string, error) {
+// pickObject finds the object of generation a.gen: a.object if given, else the only one listed. verb names
+// the command in errors.
+func (t *tool) pickObject(ctx context.Context, verb string, a rebuildArgs) (string, error) {
 	if a.object != "" {
-		name := a.object
-		if !strings.Contains(name, "/") {
-			name = durable.GenPrefix(a.key) + name
-		}
+		name := t.objectName(a.key, a.object)
 		if g, _, ok := durable.ParseGenObject(a.key, name); !ok || g != a.gen {
-			return "", errs.Wrap(module, nil, "cannot rebuild %s: %q is not a generation %d object of it", a.key, a.object, a.gen)
+			return "", errs.Wrap(module, nil, "cannot %s %s: %q is not a generation %d object of it", verb, a.key, a.object, a.gen)
 		}
 		return name, nil
 	}
 	l, err := t.s.ListKey(ctx, a.key)
 	if err != nil {
-		return "", errs.Wrap(module, err, "cannot rebuild %s", a.key)
+		return "", errs.Wrap(module, err, "cannot %s %s", verb, a.key)
 	}
 	var found []string
 	for _, o := range l.Generations {
@@ -188,11 +186,20 @@ func (t *tool) pickObject(ctx context.Context, a rebuildArgs) (string, error) {
 	}
 	switch len(found) {
 	case 0:
-		return "", errs.Wrap(module, durable.ErrNotFound, "cannot rebuild %s: no object of generation %d", a.key, a.gen)
+		return "", errs.Wrap(module, durable.ErrNotFound, "cannot %s %s: no object of generation %d", verb, a.key, a.gen)
 	case 1:
 		return found[0], nil
 	}
-	return "", errs.Wrap(module, nil, "cannot rebuild %s: generation %d has %d objects (%s); pick one with -object", a.key, a.gen, len(found), strings.Join(found, ", "))
+	return "", errs.Wrap(module, nil, "cannot %s %s: generation %d has %d objects (%s); pick one with -object", verb, a.key, a.gen, len(found), strings.Join(found, ", "))
+}
+
+// objectName is a full generation object name: object as given, or under key's generation prefix if it is a
+// bare name.
+func (t *tool) objectName(key, object string) string {
+	if strings.Contains(object, "/") {
+		return object
+	}
+	return durable.GenPrefix(key) + object
 }
 
 // gc sweeps keys (durable.Sweep): one key, one shard, or all 256. A failure on one key is reported and the

@@ -750,6 +750,30 @@ Branch `ir/03-sdk`. Details: `docs/knowledge/ir/2026-11-05-ir-3-sdk.md` (repo ro
   skipped on Go (`{ go: "<reason>" }` in each scenario's `test(...)`); port them by removing the option and giving
   `startGoAgent` the needed config.
 
+## 2026-11-06 — ir-4b: durability on Go (backup, restore, import) — API additions
+
+Branch `ir/04b-durability`. Details: `docs/knowledge/ir/2026-11-06-ir-4b-durability.md` (repo root).
+
+- **agentd:** admin `POST /admin/backup?key=K` (durable mode): `Host.WriteBack` now, then answers the stored
+  manifest (`durable.Manifest` fields + `version`, `wrote`); 409 `wrong_owner` unless the key is Active here,
+  409 `fenced` on a stale write-back, 503 on transient S3. New `backend.backup` field. Durable mode accepts
+  `schemas_dir` (config: at most one of `schemas_dir`, `schemas_url`). **agentctl:** `backup <key>`.
+- **dbtool:** `restore [-gen G] [-object N] <key> <new file>` (verified download, integrity_check, hard link,
+  never overwrites; JSON line) and `import <file> -tenant T -app A -schema F [-placement-dir D -vm V]`
+  (VACUUM INTO from a read-only open, `_platform_schema` text must equal the schema, generation 1 epoch 1
+  create-only, If-None-Match manifest, placement CAS ACTIVE(vm,1,1); reruns resume). `pickObject` takes a verb.
+- **sqlitedsn:** `ReadOnly(path, immutable, pragmas...)` (`mode=ro`, `immutable=1`).
+- e2e: `tests/e2e/platform/durable.ts` (`startDurableAgent`, `dbtool`, `s3Store`), separate from
+  `startGoAgent`; `e2e-linux.sh go` starts SeaweedFS and builds dbtool.
+## 2026-11-06 00:13 — dst-1: restart zombie publishes fixed (fix/restart-zombie)
+
+- **owner:** `Reconcile` re-stamps every `EvReopen` key at its own epoch before opening it (stamp fails ⇒ stays
+  closed, retry). No epoch bump, no placement write.
+- **durable:** `Manifest.Seal` (json `seal`, omitempty) rises on every stamp; `Stamp` at the stored epoch is no
+  longer a no-op: always a new version. `Same` compares `Seal`. `WriteBack.Stamp` implementations must keep this.
+- **sim:** `Config.Zombies` replaced by `Config.NoZombies` (zombies land by default); env `MANSIO_SIM_ZOMBIES`
+  removed. Seeds 180/232 pass.
+- Note: `knowledge/fencing/2026-11-06-reopen-restamp.md`.
 ## 2026-11-06 — ir-4a: tenancy + auth on Go (API additions)
 
 Branch `ir/04a-auth`. Details: `docs/knowledge/ir/2026-11-06-ir-4a-tenancy-auth.md`, ADR 0012 (repo root).

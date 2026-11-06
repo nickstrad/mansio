@@ -180,6 +180,8 @@ type backend struct {
 	// static mode: no breaker, fetch-limit or passivate controls).
 	breakers map[string]*breaker.Breaker
 	host     *vactor.Host
+	// backup forces a key's write-back and answers its manifest (POST /admin/backup, backup.go); nil in static mode.
+	backup func(ctx context.Context, key string) (backupAnswer, error)
 }
 
 // newAgent wires the pipeline. Databases open (static) or reconcile (durable) in the background once serve

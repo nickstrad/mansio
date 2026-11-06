@@ -107,8 +107,8 @@ Related rules:
 **W3. Every publish must change the bytes, with a strictly increasing `(epoch, generation)`.**
 - Why: on many backends the ETag is the MD5 of the body. A byte-identical rewrite produces the same ETag
   again (ABA), and an old `If-Match` would then succeed (Ch 1, ETag).
-- Example: `CheckPublish` requires `gen > stored.gen`, and `CheckStamp` raises the epoch or does nothing
-  (`durable/durable.go:197-228`). Never publish "the same manifest again" to refresh it.
+- Example: `CheckPublish` requires `gen > stored.gen`, and a stamp raises the epoch or, at the same
+  epoch, the `Seal` (`durable/durable.go`), so `(epoch, generation, seal)` only rises. Never publish "the same manifest again" to refresh it.
 
 **W4. Treat 412 and 409 `ConditionalRequestConflict` the same: they mean stale.**
 - Why: AWS returns 409 for concurrent conditional conflicts.

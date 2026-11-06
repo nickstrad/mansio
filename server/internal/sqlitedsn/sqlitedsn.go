@@ -20,3 +20,16 @@ func Build(path string, pragmas ...string) string {
 	u.RawQuery = "_pragma=" + strings.Join(append([]string{"foreign_keys(1)"}, pragmas...), "&_pragma=")
 	return u.String()
 }
+
+// ReadOnly is Build for a file that must not change (mode=ro): no write, no checkpoint, no new file. With
+// immutable, SQLite also takes no locks and reads no -wal or -shm (immutable=1): only for a file nothing else
+// has open and whose content is all in the main file, such as a downloaded generation.
+//
+//	pre: pragmas come from code, never from requests (they are not escaped)
+func ReadOnly(path string, immutable bool, pragmas ...string) string {
+	dsn := Build(path, pragmas...) + "&mode=ro"
+	if immutable {
+		dsn += "&immutable=1"
+	}
+	return dsn
+}
