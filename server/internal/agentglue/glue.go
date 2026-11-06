@@ -177,6 +177,10 @@ type Executor struct {
 	Host   *vactor.Host
 	Grace  time.Duration
 	Canary front.Executor
+	// Order, if set, runs once the database is active and before its statement is submitted; an error ends
+	// the call with it (nothing submitted). The simulation orders submissions with it (several requests woken
+	// by one activation would otherwise race to the actor); agentd leaves it nil.
+	Order func(ctx context.Context, db string) error
 }
 
 // Exec implements front.Executor.
@@ -191,6 +195,11 @@ func (e Executor) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
 	db, ok := res.DB.(*actordb.DB)
 	if !ok {
 		return front.Reply{}, errs.Wrap(module, nil, "host served %s as %T, not an actor database (a wiring bug)", c.DB, res.DB)
+	}
+	if e.Order != nil {
+		if err := e.Order(ctx, c.DB); err != nil {
+			return front.Reply{}, err
+		}
 	}
 	return front.ActorExecutor{Host: OneActor{db.Actor()}, Grace: e.Grace}.Exec(ctx, c)
 }
