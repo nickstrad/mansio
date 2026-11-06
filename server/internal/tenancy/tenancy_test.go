@@ -369,7 +369,10 @@ func TestAnyAppAndCached(t *testing.T) {
 	if !s.Cached(key.Plaintext) {
 		t.Fatal("not cached after use")
 	}
-	reason(t, func() error { _, err := s.Authenticate(ctx, "mansio_0123456789abcdef_"+strings.Repeat("A", 43), "x"); return err }())
+	reason(t, func() error {
+		_, err := s.Authenticate(ctx, "mansio_0123456789abcdef_"+strings.Repeat("A", 43), "x")
+		return err
+	}())
 	if !s.Cached("mansio_0123456789abcdef_" + strings.Repeat("A", 43)) {
 		t.Fatal("a refusal the store decided is cached")
 	}

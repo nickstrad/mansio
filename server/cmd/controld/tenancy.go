@@ -63,7 +63,9 @@ func (d *daemon) appAllowed(app string) bool {
 }
 
 // errQuota is create on first use past a cap: 429 quota_exceeded, nothing created.
-func errQuota(msg string) error { return &apiError{"quota_exceeded", http.StatusTooManyRequests, msg, false} }
+func errQuota(msg string) error {
+	return &apiError{"quota_exceeded", http.StatusTooManyRequests, msg, false}
+}
 
 // checkCaps refuses a first-use create past locator.max_dbs_per_tenant or locator.max_dbs (live databases).
 func (d *daemon) checkCaps(ctx context.Context, tenant string) error {
