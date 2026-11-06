@@ -19,10 +19,14 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,10 +81,10 @@ type Log struct {
 
 	f        *os.File
 	w        *bufio.Writer
+	buffered int64 // records in w not yet flushed
 	path     string
 	dayHour  string
 	size     int64
-	seq      int
 	lastWarn time.Time
 
 	beforeWrite func() // tests: runs before each record is written (stalls the writer)
@@ -191,23 +195,25 @@ func (l *Log) reportDrops() {
 	}
 }
 
-// write writes one record, rolling the file first if needed. It reports whether the record was written.
+// write buffers one record, rolling the file first if needed. It reports whether the record was taken; it
+// counts as written once a flush puts it in the file.
 func (l *Log) write(ev Event) bool {
 	if l.beforeWrite != nil {
 		l.beforeWrite()
 	}
 	line := stamp{EventID: newUUID(), TS: ev.Time, Role: l.cfg.Role, PID: l.cfg.PID}.line(ev)
 	if err := l.roll(ev.Time, int64(len(line))+1); err != nil {
+		l.lost.Add(1)
 		l.fail(err)
 		return false
 	}
 	l.w.Write(line)
-	if err := l.w.WriteByte('\n'); err != nil {
+	l.buffered++
+	if err := l.w.WriteByte('\n'); err != nil { // bufio's errors stick: a failed auto-flush shows here
 		l.fail(errs.Wrap(module, err, "cannot write the event log").With("path", l.path))
 		return false
 	}
 	l.size += int64(len(line)) + 1
-	l.written.Add(1)
 	return true
 }
 
@@ -219,32 +225,63 @@ func (l *Log) roll(t time.Time, n int64) error {
 		return nil
 	}
 	l.closeFile()
-	l.seq++
 	dir := filepath.Join(l.cfg.Dir, l.cfg.Role, local.Format("2006-01-02"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return errs.Wrap(module, err, "cannot create the event log directory").With("dir", dir)
 	}
-	path := filepath.Join(dir, fmt.Sprintf("events-%s-%d-%03d.jsonl", local.Format("15"), l.cfg.PID, l.seq))
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	hour := local.Format("15")
+	seq, err := nextSeq(dir, hour, l.cfg.PID)
 	if err != nil {
-		return errs.Wrap(module, err, "cannot open the event log file").With("path", path)
+		return err
 	}
-	info, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return errs.Wrap(module, err, "cannot stat the event log file").With("path", path)
+	for {
+		path := filepath.Join(dir, fmt.Sprintf("events-%s-%d-%03d.jsonl", hour, l.cfg.PID, seq))
+		// O_EXCL: never append to a file another incarnation with this pid wrote (a container's pid 1
+		// restarting within the hour), whose torn last line would merge with ours.
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			seq++
+			continue
+		}
+		if err != nil {
+			return errs.Wrap(module, err, "cannot create the event log file").With("path", path)
+		}
+		l.f, l.w, l.path, l.dayHour, l.size = f, bufio.NewWriterSize(f, 64<<10), path, dayHour, 0
+		return nil
 	}
-	l.f, l.w, l.path, l.dayHour, l.size = f, bufio.NewWriterSize(f, 64<<10), path, dayHour, info.Size()
-	return nil
 }
 
+// nextSeq is one past the highest seq of events-<hour>-<pid>-<seq>.jsonl[.gz] in dir, or 1
+// (platform/logging/file_sink.ts nextSeq): scanning, not counting, is what makes a restart with a recycled
+// pid safe.
+func nextSeq(dir, hour string, pid int) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, errs.Wrap(module, err, "cannot list the event log directory").With("dir", dir)
+	}
+	pattern := regexp.MustCompile(`^events-` + hour + `-` + strconv.Itoa(pid) + `-(\d{3,})\.jsonl(\.gz)?$`)
+	highest := 0
+	for _, e := range entries {
+		if m := pattern.FindStringSubmatch(e.Name()); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				highest = max(highest, n)
+			}
+		}
+	}
+	return highest + 1, nil
+}
+
+// flush writes the buffered records to the file: written on success, lost on failure.
 func (l *Log) flush() {
 	if l.w == nil {
 		return
 	}
 	if err := l.w.Flush(); err != nil {
 		l.fail(errs.Wrap(module, err, "cannot write the event log").With("path", l.path))
+		return
 	}
+	l.written.Add(l.buffered)
+	l.buffered = 0
 }
 
 func (l *Log) closeFile() {
@@ -252,16 +289,22 @@ func (l *Log) closeFile() {
 		return
 	}
 	l.flush()
+	if l.f == nil { // the flush failed and dropped the file
+		return
+	}
 	if err := l.f.Sync(); err != nil {
 		l.fail(errs.Wrap(module, err, "cannot sync the event log").With("path", l.path))
+		return
 	}
 	l.f.Close()
 	l.f, l.w = nil, nil
 }
 
-// fail counts the record lost, drops the file (the next record reopens one), and reports at most once a minute.
+// fail counts the buffered records lost, drops the file (the next record opens a new one), and reports at
+// most once a minute.
 func (l *Log) fail(err error) {
-	l.lost.Add(1)
+	l.lost.Add(l.buffered)
+	l.buffered = 0
 	if l.f != nil {
 		l.f.Close()
 		l.f, l.w = nil, nil

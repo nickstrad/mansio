@@ -242,6 +242,9 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if be.routes != nil {
 		be.routes(mux, srv)
 	}
+	// The event log closes last, after the shutdown phases, with its own fixed 2 s on top of shutdown_budget:
+	// it only writes what is already queued (a buffered file; no remote dependency), and records still queued
+	// at the end are lost, counted, never waited for.
 	cleanup := func() {
 		if err := closeEventLog(events, 2*time.Second); err != nil {
 			log.Warn("event log not closed cleanly", "event", "EVENTLOG.CLOSE_FAILED", "error", err.Error())

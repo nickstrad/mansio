@@ -89,7 +89,9 @@ func (t *OpsTrace) update(f func(*OpsTraceSnapshot)) {
 	f(&t.snap)
 }
 
-// wrap is docactor.Call.Wrap: it marks the transaction's start and records each statement.
+// wrap is docactor.Call.Wrap: it marks the transaction's start and records each statement. Statements are
+// recorded whatever the observer logs (agentd writes them only with trace_sql, or on failure): the record is
+// the SQL text already built, a slice append and two clock reads under an uncontended lock.
 func (t *OpsTrace) wrap(x docexec.Tx) docexec.Tx {
 	now := t.now()
 	t.update(func(s *OpsTraceSnapshot) { s.Began, s.Ended, s.Statements = now, time.Time{}, nil })

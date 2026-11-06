@@ -83,7 +83,7 @@ func TestWritesTheTSLayoutAndRolls(t *testing.T) {
 		}
 	})
 	want := []string{"server/2026-11-06/events-09-77-001.jsonl", "server/2026-11-06/events-09-77-002.jsonl",
-		"server/2026-11-06/events-10-77-003.jsonl", "server/2026-11-07/events-10-77-004.jsonl"}
+		"server/2026-11-06/events-10-77-001.jsonl", "server/2026-11-07/events-10-77-001.jsonl"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("files %v, want %v", names, want)
 	}
@@ -206,5 +206,39 @@ func TestWriteFailureLosesAndRecovers(t *testing.T) {
 	closeLog(t, l)
 	if st := l.Stats(); st.Lost != 1 || st.Written != 1 {
 		t.Errorf("stats %+v", st)
+	}
+}
+
+// TestRestartNeverAppends: a second incarnation with the same pid in the same hour (a container's pid 1)
+// takes the next seq instead of appending to the file a torn last line may end.
+func TestRestartNeverAppends(t *testing.T) {
+	dir := t.TempDir()
+	at := time.Date(2026, 11, 6, 9, 0, 0, 0, time.Local)
+	for range 2 {
+		l, err := Open(Config{Dir: dir, Role: "server", PID: 1, Now: func() time.Time { return at }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.Emit(lifecycle("x"))
+		closeLog(t, l)
+	}
+	// A torn file from a crash, and a gzipped one from retention, both count.
+	day := filepath.Join(dir, "server", "2026-11-06")
+	os.WriteFile(filepath.Join(day, "events-09-1-007.jsonl.gz"), nil, 0o644)
+	l, _ := Open(Config{Dir: dir, Role: "server", PID: 1, Now: func() time.Time { return at }})
+	l.Emit(lifecycle("y"))
+	closeLog(t, l)
+	var names []string
+	for name, recs := range readAll(t, dir) {
+		if len(recs) != 1 {
+			t.Errorf("%s holds %d records, want 1", name, len(recs))
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	want := []string{"server/2026-11-06/events-09-1-001.jsonl", "server/2026-11-06/events-09-1-002.jsonl",
+		"server/2026-11-06/events-09-1-008.jsonl"}
+	if !slices.Equal(names, want) {
+		t.Errorf("files %v, want %v", names, want)
 	}
 }
