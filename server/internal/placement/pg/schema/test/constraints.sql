@@ -1,4 +1,4 @@
--- constraints.sql — each constraint of 0001_placement.sql rejects its off point and accepts its on point
+-- constraints.sql — each constraint of the schema files (0001 …) rejects its off point and accepts its on point
 -- (SQL G-20, G-21). Run in a fresh schema after the migrations; every statement autocommits, so a refused
 -- statement leaves nothing behind. Golden output: constraints.expected (TestConstraintsGolden, -update).
 -- By hand: psql -X -v ON_ERROR_STOP=0 -a -f constraints.sql (psql's error text differs in layout).
@@ -134,3 +134,49 @@ insert into app_schemas (app, fingerprint) values ('chess', 'sha256:' || repeat(
 
 -- A registered schema cannot be deleted from under its registration.
 delete from schemas where body = '{}';
+
+-- 0007 tenants: slug unique and 1..200 bytes, status one of two, name 1..200 bytes (null allowed: keys-only
+-- tenants have none).
+insert into tenants (tenant_id, slug, name) values ('00000000-0000-4000-8000-000000000001', 'one', 'One');
+insert into tenants (tenant_id, slug, name) values ('00000000-0000-4000-8000-000000000002', 'one', 'Dup');
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000003', '');
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000004', repeat('s', 200));
+insert into tenants (tenant_id, slug) values ('00000000-0000-4000-8000-000000000005', repeat('s', 201));
+insert into tenants (tenant_id, name) values ('00000000-0000-4000-8000-000000000006', '');
+insert into tenants (tenant_id, status) values ('00000000-0000-4000-8000-000000000007', 'paused');
+update tenants set status = 'deactivated' where tenant_id = '00000000-0000-4000-8000-000000000004';
+
+-- api_keys: new keys have 16-hex ids, legacy keys uuids (and not the other way round); one legacy row per hash.
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000aa', 'acme', 'p', sha256('legacy'), 3, true);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000ab', 'acme', 'p', sha256('legacy'), 3, true);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('2123456789abcdef', 'acme', 'p', sha256('legacy'), 3, true);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, legacy) values ('00000000-0000-4000-8000-0000000000ac', 'acme', 'p', sha256('x'), 3, false);
+insert into api_keys (key_id, tenant_id, principal, secret_sha256, perms, name) values ('3123456789abcdef', 'acme', 'p', sha256('legacy'), 3, '');
+
+-- auth_users: ids, lowercase unique emails, nonempty names.
+insert into auth_users (user_id, email, name) values ('u1', 'ann@example.test', 'Ann');
+insert into auth_users (user_id, email, name) values ('u2', 'ann@example.test', 'Ann 2');
+insert into auth_users (user_id, email, name) values ('u3', 'Bob@example.test', 'Bob');
+insert into auth_users (user_id, email, name) values ('u 4', 'bob@example.test', 'Bob');
+insert into auth_users (user_id, email, name) values ('u5', 'bob@example.test', '');
+
+-- auth_passwords: Better Auth's "<32 hex>:<128 hex>", one per user, a user that exists.
+insert into auth_passwords (user_id, hash) values ('u1', repeat('a', 32) || ':' || repeat('b', 128));
+insert into auth_passwords (user_id, hash) values ('u1', repeat('a', 32) || ':' || repeat('b', 128));
+insert into auth_passwords (user_id, hash) values ('nobody', repeat('a', 32) || ':' || repeat('b', 128));
+insert into auth_passwords (user_id, hash) values ('u3', repeat('a', 31) || ':' || repeat('b', 128));
+insert into auth_passwords (user_id, hash) values ('u3', repeat('A', 32) || ':' || repeat('b', 128));
+
+-- auth_sessions: a 32-byte hash, an expiry after creation.
+insert into auth_sessions (token_sha256, user_id, expires_at) values (sha256('t1'), 'u1', now() + interval '1 day');
+insert into auth_sessions (token_sha256, user_id, expires_at) values ('\x00', 'u1', now() + interval '1 day');
+insert into auth_sessions (token_sha256, user_id, expires_at) values (sha256('t2'), 'u1', now() - interval '1 second');
+
+-- memberships: known user and tenant, a role of two, one row per pair; deleting a user removes its rows.
+insert into memberships (user_id, tenant_id) values ('u1', '00000000-0000-4000-8000-000000000001');
+insert into memberships (user_id, tenant_id) values ('u1', '00000000-0000-4000-8000-000000000001');
+insert into memberships (user_id, tenant_id, role) values ('u3', '00000000-0000-4000-8000-000000000001', 'owner');
+insert into memberships (user_id, tenant_id) values ('nobody', '00000000-0000-4000-8000-000000000001');
+delete from auth_users where user_id = 'u1';
+select count(*) as left_after_user_delete from memberships;
+select count(*) as sessions_after_user_delete from auth_sessions;
