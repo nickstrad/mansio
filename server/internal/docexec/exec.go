@@ -4,20 +4,27 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/doccompile"
 	"github.com/nickstrad/mansio/server/internal/docschema"
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-// Tx is what execution needs of a connection; *actor.Tx satisfies it. Errors are the driver's or the actor's,
-// unwrapped.
+// Tx is what execution needs of a connection (docactor adapts an actor closure's Tx to it). Errors are the
+// driver's or the actor's, unwrapped.
 type Tx interface {
 	Exec(sql string, args ...any) (int64, error)
-	Query(sql string, maxRows int, args ...any) (actor.Rows, error)
+	// Query returns at most maxRows rows (more is an error).
+	Query(sql string, maxRows int, args ...any) (Rows, error)
 	// Now is the request's one clock reading (spec §6.3).
 	Now() time.Time
+}
+
+// Rows is a query's result: column names and one slice of values per row (int64, float64, string, []byte or
+// nil, as modernc's SQLite driver gives them).
+type Rows struct {
+	Columns []string
+	Values  [][]any
 }
 
 // Failure is a request's failure as an error (ir.Error itself is deliberately not an error).
@@ -264,7 +271,7 @@ func resolveExpect(e *ir.Expect, refs []string) *ir.Expect {
 }
 
 // rowsOf turns the actor's rows into the compiler's.
-func rowsOf(rows actor.Rows) []doccompile.Row {
+func rowsOf(rows Rows) []doccompile.Row {
 	out := make([]doccompile.Row, len(rows.Values))
 	for i, values := range rows.Values {
 		row := make(doccompile.Row, len(rows.Columns))

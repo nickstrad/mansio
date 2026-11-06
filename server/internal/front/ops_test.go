@@ -272,7 +272,8 @@ func TestOpsRoute(t *testing.T) {
 			map[string]any{"check": "version", "expected": 1.0, "actual": 2.0}},
 		{"decode error", w, []byte(`{"v":2}`), nil, 400, ir.TagSchema, ir.Undefined{}, map[string]any{"path": "db"}},
 		{"too large", w, bytes.Repeat([]byte(" "), ir.MaxBodyBytes+1), nil, 413, ir.TagTooLarge, ir.Undefined{}, map[string]any{"limit": 65536.0}},
-		{"bad timeout header", w, query(`[]`), map[string]string{front.TimeoutHeader: "0"}, 400, ir.TagSchema, ir.Undefined{}, nil},
+		{"bad timeout header", w, query(`[]`), map[string]string{front.TimeoutHeader: "0"}, 400, ir.TagSchema, ir.Undefined{},
+			map[string]any{"path": "header:X-Timeout-Ms", "actual": "0"}},
 		{"no ticket", "", query(`[]`), nil, 401, "ticket_invalid", ir.Undefined{}, nil},
 		{"ticket for another database", r.tok(t, "acme:other", ticket.Write), mutation("r5", insert), nil, 401, "ticket_invalid", ir.Undefined{}, nil},
 		{"read ticket for a mutation", rd, mutation("r5", insert), nil, 401, "ticket_invalid", ir.Undefined{}, nil},
@@ -309,6 +310,13 @@ func TestOpsRoute(t *testing.T) {
 	if got := r.post(t, r.tok(t, "acme:other", ticket.Read), request("acme", "other", "query", "", notesFP, `[{"op":"get","table":"notes","id":"x"}]`), nil); got.status != 503 ||
 		got.tag() != "unavailable" || got.header.Get("Retry-After") == "" {
 		t.Errorf("registry down on a new database: %d %s %v", got.status, got.raw, got.header)
+	}
+	// The request's deadline ends while waiting for the registry: expired, not a Defect, and not ambiguous
+	// (nothing ran).
+	r.schemas.err = fmt.Errorf("x: %w", context.DeadlineExceeded)
+	if got := r.post(t, r.tok(t, "acme:other", ticket.Write), request("acme", "other", "mutation", "r9", notesFP, insert), nil); got.status != 504 ||
+		got.tag() != "expired" || got.field("ambiguous") != (ir.Undefined{}) || r.log.String() == "" || strings.Contains(r.log.String(), "request failed (internal)") {
+		t.Errorf("registry wait past the deadline: %d %s", got.status, got.raw)
 	}
 	r.schemas.err = nil
 	if st := r.s.Stats(); st.InFlight != 0 {

@@ -6,7 +6,8 @@ Branch `ir/02b-docexec`. Plan: `docs/plans/ir-protocol.md` §4–§6 (IR-2). Spe
 
 | Piece | Where | Notes |
 |---|---|---|
-| Executor | `internal/docexec` | `Run(tx, schema, req, ids)` (the ops), `CheckExpect`, `Check` (fingerprint vs `_platform_schema`), `Init` (DDL + `_platform_schema`, byte for byte as `platform/ir/executor.ts`), `Call` (an `ir.Request` as `actor.Request{Check, Fn}`), `InitFn`, `Schemas` (decoded-schema cache keyed by text), `Decode`, `CanonicalText` (registry hook), `NewUUIDv7`. Errors: `*Failure{Err *ir.Error, Cause error}`, `ErrUninitialized`. In the det lint list. |
+| Executor | `internal/docexec` | `Run(tx, schema, req, ids)` (the ops), `CheckExpect`, `Check` (fingerprint vs `_platform_schema`), `Init` (DDL + `_platform_schema`, byte for byte as `platform/ir/executor.ts`), `Schemas` (decoded-schema cache keyed by text), `Decode`, `CanonicalText` (registry hook), `NewUUIDv7`; port `Tx`/`Rows`. Errors: `*Failure{Err *ir.Error, Cause error}`, `ErrUninitialized`. Domain, imports no adapter; in the det lint list. |
+| Actor glue | `internal/docexec/docactor` | `Call` (an `ir.Request` as `actor.Request{Check, Fn}`, `Wrap` for tests), `InitFn`, `InitRequest`, `Tx` (adapts `*actor.Tx`). Adapter. |
 | Route | `internal/front/ops.go`, `http.go` | `Server.EnableOps(OpsConfig)`, `HandleOps`, `OpsPath = "/v1/ops"`; `Call.Fn/Check`, `Reply.Body/Value`; port `SchemaSource` (+ `ErrSchemaUnknown`). Headers `X-Timeout-Ms`, `X-Trace-Id` (logged), `X-Log-Id` (answer of an internal failure). |
 | Wiring | `cmd/agentd/schemas.go` | durable: `registrySchemas` over `schemareg.Client` (Validate = `CanonicalText`); static: `schemas_dir` (`<app>/<name>.json`). controld `checkSchema = canonicalSchema`. |
 | Decode | `core/ir/decode.ts`, `internal/ir` | `db.tenant` / `db.app` use the registry domains; 9 new decode vectors (104). |
@@ -35,13 +36,17 @@ id; it only compares if another request initialized first) and runs the request 
 | `actor.ErrRecordKind` (id used by a raw SQL write) | `SchemaError` 400, path `requestId` |
 | `*panicx.Panic`, anything unexpected | `Defect` 500 |
 | `ErrShed`/draining, `ErrUnavailable`, `ErrExpired`/`ErrNoReply`, `ErrAborted`, `ErrWrongOwner`/`ErrUnknownDB`, `ErrFenced`, ticket errors | lowercase tags `shed` 503, `unavailable` 503, `expired` 504 (`fields.ambiguous: true` for a mutation without reply), `aborted` 409, `wrong_owner` 421, `fenced` 421, `ticket_invalid` 401; Retry-After as `/v1/query` |
-| transport refusals (405, 408, bad `X-Timeout-Ms`) | `SchemaError` (path `body`) with that status |
+| transport refusals (405, 408, bad `X-Timeout-Ms`) | `SchemaError` with that status; path `body`, or `header:X-Timeout-Ms` (spec §11.14) |
+| registry wait or creation write past the deadline | `expired` 504, not ambiguous |
 
 5xx bodies carry no `fields` (spec §8) except `expired`'s `ambiguous`.
 
 ## Results
 
-- `execute.json` 122/122 against a real actor (both layouts, final rows and `final.requests`), 0.4 s.
+- `execute.json` 122/122 against a real actor (both layouts, final rows and `finalRequests`), 0.4 s. Review
+  follow-up: the `_mansio_requests` expectation moved from `final.requests` to a sibling `finalRequests` (no
+  clash with a table named `requests`), and every vector where no mutation succeeds now carries `[]` (86/122
+  vectors compare the table).
 - `decode.json` 104/104 through the live HTTP route (`TestOpsDecodeVectors`).
 - `FuzzOpsRoute` (any body, valid ticket, real actor holding the vector schema, seeded with every vector
   request): 2 × 2 min (8.8 M and 8.0 M execs), no 5xx. Its first run "found" a 504: the test rig mixed a frozen fake clock
@@ -52,6 +57,18 @@ id; it only compares if another request initialized first) and runs the request 
   ~40 crashes and ~50 passivations among them). Mutation-checked: weakening `expect.fields` equality is found
   in ~25 s.
 - `FuzzDecodeRequest` (`internal/ir`) after the tenant/app narrowing: 1 min, 23.6 M execs, clean.
+
+## Known limits
+
+- **Init on a database with tables but no `_platform_schema` row succeeds silently**: the DDL is `CREATE … IF
+  NOT EXISTS`, as in TS, so a table left by raw `/v1/query` SQL with other columns stays; later operations on it
+  may then fail as `StorageError`. Only files created empty (or by this route / the TS backend) are safe.
+- **`NewUUIDv7` has no in-millisecond counter**: 48 bits of ms then 74 random bits, so ids drawn within one ms
+  are unordered among themselves; a collision (negligible) fails that insert on the primary key as a
+  `StorageError` and nothing commits.
+- A registry fetch that outlives the request's deadline (or a client that leaves) answers `expired`, not
+  ambiguous; so does a creation write with no reply (only the idempotent creation may have committed).
+- `TestDrainTimeoutIsReported` (`cmd/agentd`) is flaky on `main` too (≈ 2–3 in 10 runs), not related.
 
 ## Lessons
 

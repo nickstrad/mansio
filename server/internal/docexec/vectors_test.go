@@ -13,6 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/doccompile"
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/vactor"
@@ -91,7 +92,7 @@ func (d *db) newHost() {
 	}
 	d.h = h
 	d.t.Cleanup(func() { h.Close() })
-	if res := d.do(docexec.InitRequest(d.schema)); res.Err != nil {
+	if res := d.do(docactor.InitRequest(d.schema)); res.Err != nil {
 		d.t.Fatalf("init: %v", res.Err)
 	}
 }
@@ -128,7 +129,7 @@ func openDB(t testing.TB, s *docexec.Schema, cfg actor.Config) *db {
 	t.Cleanup(a.Close)
 	d := &db{t: t, a: a, clock: clock, schema: s, cache: docexec.NewSchemas(0)}
 	if s != nil {
-		if res := d.do(docexec.InitRequest(s)); res.Err != nil {
+		if res := d.do(docactor.InitRequest(s)); res.Err != nil {
 			t.Fatalf("init: %v", res.Err)
 		}
 	}
@@ -262,7 +263,7 @@ func (d *db) exec(body []byte, ids *listIDs, wrap func(docexec.Tx) docexec.Tx) o
 	if e != nil {
 		return outcome{err: e}
 	}
-	call := &docexec.Call{Req: req, Schemas: d.cache, IDs: ids, Wrap: wrap}
+	call := &docactor.Call{Req: req, Schemas: d.cache, IDs: ids, Wrap: wrap}
 	res := d.do(call.Request())
 	if res.Err != nil {
 		var f *docexec.Failure
@@ -365,7 +366,7 @@ func TestExecuteVectors(t *testing.T) {
 					t.Errorf("final %s:\n got %s\nwant %s", table, ir.Stringify(got[table]), ir.Stringify(want))
 				}
 			}
-			if want, ok := final.Get("requests"); ok {
+			if want, ok := v.Get("finalRequests"); ok {
 				got := d.requests()
 				if got == nil {
 					got = []any{}

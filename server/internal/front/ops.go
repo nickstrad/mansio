@@ -3,12 +3,14 @@ package front
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/assert"
 	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/ticket"
@@ -161,7 +163,7 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 		return s.exec.Exec(ctx, c)
 	}
 	call := func() (Reply, error) {
-		dc := &docexec.Call{Req: req, Schemas: s.ops.cache, IDs: s.ops.ids}
+		dc := &docactor.Call{Req: req, Schemas: s.ops.cache, IDs: s.ops.ids}
 		c := base
 		c.Fn, c.Check = dc.Fn, dc.Check
 		if kind == KindWrite {
@@ -188,6 +190,11 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 	switch {
 	case errors.Is(err, ErrSchemaUnknown):
 		return &docexec.Failure{Err: unregistered(req.Schema)}
+	case errors.Is(err, ErrUnavailable):
+		return err
+	case err != nil && (ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)):
+		// The request's deadline passed (or the client left) while waiting for the registry: nothing ran.
+		return fmt.Errorf("%w: waiting for the schema registry: %w", ErrExpired, err)
 	case err != nil:
 		return err
 	}
@@ -197,8 +204,11 @@ func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run fun
 		return errors.New("front: the schema source answered a text that is not the schema asked for")
 	}
 	c := base
-	c.Kind, c.Fn = KindWrite, docexec.InitFn(schema)
-	_, err = run(c)
+	c.Kind, c.Fn = KindWrite, docactor.InitFn(schema)
+	if _, err = run(c); errors.Is(err, ErrNoReply) {
+		// Only the idempotent creation may have committed; the request itself never ran: not ambiguous.
+		return fmt.Errorf("%w: creating the database got no reply in time (%v); the request did not run", ErrExpired, err)
+	}
 	return err
 }
 

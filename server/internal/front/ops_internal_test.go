@@ -1,6 +1,7 @@
 package front
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -70,5 +71,49 @@ func TestOpsAnswerMapping(t *testing.T) {
 	ok := opsAnswer(mutation, nil, Reply{Body: []byte(`["x"]`), Duplicate: true}, nil)
 	if ok.Status != 200 || string(ok.Body) != `{"result":["x"],"duplicate":true}` || ok.RequestID != "r1" {
 		t.Errorf("ok: %d %s", ok.Status, ok.Body)
+	}
+}
+
+// stubExec answers the first closure call (the request) with docexec.ErrUninitialized and every later one with
+// next: the creation path without an actor.
+type stubExec struct {
+	calls int
+	next  error
+}
+
+func (e *stubExec) Exec(_ context.Context, c Call) (Reply, error) {
+	e.calls++
+	if e.calls == 1 {
+		return Reply{}, docexec.ErrUninitialized
+	}
+	return Reply{}, e.next
+}
+
+type allow struct{}
+
+func (allow) Verify(string, time.Time, ticket.Want) (ticket.Claims, error) {
+	return ticket.Claims{TID: "a", DBID: "a:b", Epoch: 1}, nil
+}
+
+type stubSchemas string
+
+func (s stubSchemas) Schema(context.Context, string, string) (string, error) { return string(s), nil }
+
+// A creation write without a reply answers expired, not ambiguous: only the idempotent creation may have
+// committed, the mutation never ran.
+func TestOpsInitWithoutReplyIsNotAmbiguous(t *testing.T) {
+	text := `{"t":{"fields":{},"storage":"columns","indexes":[]}}`
+	sc, e := docexec.Decode(text)
+	if e != nil {
+		t.Fatal(e.Message())
+	}
+	ex := &stubExec{next: ErrNoReply}
+	s := NewServer(Config{}, allow{}, StaticAdmitter{"a:b": 1}, ex, nil)
+	s.EnableOps(OpsConfig{Schemas: stubSchemas(text)})
+	body := `{"v":1,"db":{"tenant":"a","app":"b"},"kind":"mutation","requestId":"r1","schema":"` + sc.Fingerprint +
+		`","ops":[{"op":"get","table":"t","id":"x"}]}`
+	out := s.HandleOps(context.Background(), Input{Ticket: "t", Body: []byte(body)})
+	if out.Status != 504 || out.Tag != "expired" || out.Ambiguous || strings.Contains(string(out.Body), "ambiguous") || ex.calls != 2 {
+		t.Fatalf("%d %s ambiguous=%v calls=%d", out.Status, out.Body, out.Ambiguous, ex.calls)
 	}
 }

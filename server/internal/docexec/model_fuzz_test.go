@@ -14,6 +14,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
@@ -143,7 +144,7 @@ func (d *db) runGroup(script []step) []outcome {
 	reqs := make([]*actor.Request, len(script))
 	for i, st := range script {
 		at := st.failAt
-		call := &docexec.Call{Req: st.req, Schemas: d.cache, IDs: &prefixIDs{prefix: "s" + strconv.Itoa(st.seqBase) + "-"}}
+		call := &docactor.Call{Req: st.req, Schemas: d.cache, IDs: &prefixIDs{prefix: "s" + strconv.Itoa(st.seqBase) + "-"}}
 		if at > 0 {
 			call.Wrap = func(tx docexec.Tx) docexec.Tx { return &failingTx{Tx: tx, at: at, err: errInjected} }
 		}

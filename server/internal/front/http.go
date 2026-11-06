@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/docexec"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/logx"
@@ -175,7 +176,8 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 	if v := r.Header.Get(TimeoutHeader); v != "" {
 		ms, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || ms <= 0 || ms > int64(time.Hour/time.Millisecond) {
-			h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, &BadRequestError{Msg: TimeoutHeader + " must be a positive integer number of milliseconds"}))
+			bad := ir.SchemaErr(ir.ReasonTypeMismatch, "header:"+TimeoutHeader, "a positive integer number of milliseconds, at most 3600000", v)
+			h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, &docexec.Failure{Err: bad}))
 			return
 		}
 		in.Timeout = time.Duration(ms) * time.Millisecond

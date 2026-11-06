@@ -8,14 +8,14 @@
 // insert's client-id existence check, the write. Selects see earlier operations' writes; one clock reading
 // (Tx.Now) is every insert's _creationTime; server ids come from an injected det.IDGen in operation order.
 //
-// How it runs: Call adapts a request to an actor closure (actor.Request.Check and Fn). A mutation is a write
+// How it runs: docactor.Call adapts a request to an actor closure (actor.Request.Check and Fn). A mutation is a write
 // closure, inside its savepoint in the group-commit batch, with the actor's request-id record holding the
 // canonical JSON of the result array (spec §7); a query is a read closure in one snapshot. A new, empty
 // database has no schema: Check answers ErrUninitialized and the caller runs Init (a write closure) with the
 // registered schema, then retries.
 //
-// Role: domain. It does no I/O of its own and does not log: every statement goes through Tx, which the
-// actor's *actor.Tx satisfies. Values are only ever bind parameters (internal/doccompile).
+// Role: domain. It does no I/O of its own, does not log and imports no adapter: every statement goes through
+// the Tx port, which docactor implements over an actor closure's *actor.Tx. Values are only ever bind parameters (internal/doccompile).
 //
 // Errors: a protocol failure is a *Failure whose Err is the wire error (ir.Error: tag, fields, op); a failed
 // statement is a *Failure with Err a StorageError at its operation and Cause the statement's error, for the

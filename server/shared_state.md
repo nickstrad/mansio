@@ -687,3 +687,11 @@ For IR-3 (TS SDK → Go):
   `ticket_invalid` (401). Statement timeout = `StatementDeadlineError` 504. Internal failures carry `X-Log-Id`.
 - Server ids are UUIDv7. A requestId already used by a raw `/v1/query` write on that database is a 400
   `SchemaError` at `requestId`.
+
+## 2026-11-05 23:07 — ir-2b: IR-2b review fixes — API moves
+
+Branch `ir/02b-docexec`. `docexec.Call`, `InitFn`, `InitRequest` moved to the new adapter `internal/docexec/docactor`
+(plus `docactor.Tx`, adapting `*actor.Tx`); `docexec` now imports no adapter: its `Tx.Query` returns `docexec.Rows`.
+`execute.json`: the `_mansio_requests` expectation is now the vector's sibling key `finalRequests` (was
+`final.requests`). `/v1/ops`: a registry wait or a creation write past the deadline answers `expired` (never
+ambiguous); a bad `X-Timeout-Ms` is `SchemaError` at path `header:X-Timeout-Ms` (spec §11.14).

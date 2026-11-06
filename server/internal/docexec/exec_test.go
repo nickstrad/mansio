@@ -10,6 +10,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
@@ -44,16 +45,16 @@ func TestCheckAndInit(t *testing.T) {
 		got.err.Tag != "unexpected" || !strings.Contains(ir.ToString(got.err.Field("detail")), "no schema yet") {
 		t.Fatalf("uninitialized query: %+v", got)
 	}
-	call := &docexec.Call{Req: &ir.Request{Kind: ir.Mutation, Schema: s.Fingerprint}, Schemas: d.cache}
+	call := &docactor.Call{Req: &ir.Request{Kind: ir.Mutation, Schema: s.Fingerprint}, Schemas: d.cache}
 	if res := d.do(call.Request()); !errors.Is(res.Err, docexec.ErrUninitialized) {
 		t.Fatalf("uninitialized mutation: %v", res.Err)
 	}
 	for range 2 { // idempotent
-		if res := d.do(docexec.InitRequest(s)); res.Err != nil {
+		if res := d.do(docactor.InitRequest(s)); res.Err != nil {
 			t.Fatal(res.Err)
 		}
 	}
-	res := d.do(docexec.InitRequest(other))
+	res := d.do(docactor.InitRequest(other))
 	var f *docexec.Failure
 	if !errors.As(res.Err, &f) || f.Err.Tag != ir.TagSchemaDrift || f.Err.Field("expected") != s.Fingerprint || f.Err.Field("actual") != other.Fingerprint {
 		t.Fatalf("init with another schema: %v", res.Err)
@@ -125,9 +126,9 @@ func (f *failingTx) Exec(sql string, args ...any) (int64, error) {
 	return f.Tx.Exec(sql, args...)
 }
 
-func (f *failingTx) Query(sql string, maxRows int, args ...any) (actor.Rows, error) {
+func (f *failingTx) Query(sql string, maxRows int, args ...any) (docexec.Rows, error) {
 	if err := f.fail(); err != nil {
-		return actor.Rows{}, err
+		return docexec.Rows{}, err
 	}
 	return f.Tx.Query(sql, maxRows, args...)
 }
@@ -146,7 +147,7 @@ func TestStatementFailureLeavesNoTrace(t *testing.T) {
 	before := ir.Canonical(req.JSON())
 	boom := errors.New("boom")
 	for at := 1; at <= 5; at++ { // insert, select, load, update: 4 statements; 5 runs clean
-		call := &docexec.Call{Req: req, Schemas: d.cache, IDs: &listIDs{ids: []string{"s1"}},
+		call := &docactor.Call{Req: req, Schemas: d.cache, IDs: &listIDs{ids: []string{"s1"}},
 			Wrap: func(tx docexec.Tx) docexec.Tx { return &failingTx{Tx: tx, at: at, err: boom} }}
 		res := d.do(call.Request())
 		var f *docexec.Failure

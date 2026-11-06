@@ -2268,17 +2268,32 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
-/** `final.requests[].result` → `result_hex`: version byte 0x02, then the canonical JSON of the result. */
-function finalOf(final: J): J {
-  if (!final.requests) return final;
-  const requests = (final.requests as J[]).map(({ result, ...row }) => ({
+/**
+ * The `_mansio_requests` rows a scenario expects, as the vector's `finalRequests` (a sibling of `final`, so no
+ * table name can clash with it): the scenario's `final.requests`, each `result` written as `result_hex`
+ * (version byte 0x02, then the canonical JSON of the result). A scenario without them in which no mutation
+ * succeeds expects none: a failed mutation leaves no request-id row and a query never writes one. Otherwise
+ * `undefined` (not compared).
+ */
+function requestsOf(c: Scenario): J[] | undefined {
+  const rows = c.final?.requests as J[] | undefined;
+  if (!rows) {
+    const applied = c.steps.some((step) => step.request.kind === "mutation" && "result" in step.expect);
+    return applied ? undefined : [];
+  }
+  return rows.map(({ result, ...row }) => ({
     ...row,
     result_hex: "02" +
       Array.from(new TextEncoder().encode(canonical(result)), (b) => b.toString(16).padStart(2, "0")).join(
         "",
       ),
   }));
-  return { ...final, requests };
+}
+
+/** A scenario's `final` without its `requests` (those become `finalRequests`). */
+function finalOf(final: J): J {
+  const { requests: _, ...tables } = final;
+  return tables;
 }
 
 async function executeFile(): Promise<VectorFile> {
@@ -2301,6 +2316,7 @@ async function executeFile(): Promise<VectorFile> {
         seed: c.seed ?? {},
         steps,
         final: finalOf(c.final ?? {}),
+        ...(requestsOf(c) ? { finalRequests: requestsOf(c) } : {}),
       });
     }
   }
