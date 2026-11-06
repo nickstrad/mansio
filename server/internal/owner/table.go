@@ -73,13 +73,12 @@ type slot struct {
 	pub      chan struct{} // publish lock (cap 1): at most one publish per key at a time
 	onChange func(key string, from, to Local)
 
-	// Guarded by life: the final write-back of a fence succeeded at finalEpoch but FENCED is not yet durable.
-	finalOK    bool
-	finalEpoch Epoch
-	finalGen   Generation
-	// finalAt is the epoch whose fence write-back has published (stored under pub, before pub is released):
-	// from then on no periodic publish of that epoch runs (admitPublish), so the fence's generation is the last.
-	finalAt atomic.Uint64
+	// finalAt is the epoch (0: none; epochs start at 1) whose fence write-back published finalGen, stored under
+	// pub before pub is released: from then on no periodic publish of that epoch runs (admitPublish), so finalGen
+	// is its last generation, and a Fence retried after a failed Put skips the write-back. finalGen is guarded
+	// by life.
+	finalAt  atomic.Uint64
+	finalGen Generation
 }
 
 func newSlot(key string, l Local, onChange func(string, Local, Local)) *slot {
@@ -323,7 +322,6 @@ func (t *Table) persistSupersede(ctx context.Context, s *slot, epoch Epoch) erro
 	if l.State != Fenced || !l.Superseded || l.Epoch != epoch {
 		return nil
 	}
-	s.finalOK = false
 	return t.cfg.Store.Put(ctx, Record{Key: s.key, State: Fenced, Epoch: l.Epoch, Gen: l.Gen, Superseded: true})
 }
 
@@ -533,12 +531,13 @@ func (t *Table) Fence(ctx context.Context, key string) (Ack, error) {
 	if l = s.view.Load().l; l.State == Fenced {
 		return t.fencedResult(ctx, s, l)
 	}
-	if !s.finalOK || s.finalEpoch != l.Epoch {
+	if s.finalAt.Load() != uint64(l.Epoch) {
 		if err := lock(ctx, s.pub); err != nil {
 			return Ack{}, errs.Wrap(module, err, "cannot fence %q: cancelled before write-back; admission stays stopped, retry Fence", key)
 		}
 		gen, err := t.cfg.WriteBack.Publish(ctx, key, l.Epoch)
 		if err == nil && gen >= l.Gen {
+			s.finalGen = gen
 			s.finalAt.Store(uint64(l.Epoch)) // under pub: no periodic publish of this epoch follows it
 		}
 		unlock(s.pub)
@@ -552,14 +551,12 @@ func (t *Table) Fence(ctx context.Context, key string) (Ack, error) {
 		if gen < l.Gen {
 			return Ack{}, errs.Wrap(module, ErrInvalid, "cannot fence %q: write-back returned generation %d, older than %d; admission stays stopped", key, gen, l.Gen)
 		}
-		s.finalOK, s.finalEpoch, s.finalGen = true, l.Epoch, gen
 	}
 	if err := t.cfg.Store.Put(ctx, Record{Key: key, State: Fenced, Epoch: l.Epoch, Gen: s.finalGen}); err != nil {
 		return Ack{}, errs.Wrap(module, err, "cannot fence %q: write-back done but the fence record was not written; admission stays stopped, retry Fence", key)
 	}
 	l, err = s.apply(Event{Kind: EvFenced, Gen: s.finalGen})
 	assert.That(err == nil && l.State == Fenced, "owner: fence of %q could not install fenced: %s %v", key, l, err)
-	s.finalOK = false
 	return Ack{Key: key, Epoch: l.Epoch, Gen: l.Gen}, nil
 }
 
