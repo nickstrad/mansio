@@ -180,95 +180,82 @@ func readFn(ctx context.Context, k executor, r *Request, now time.Time, onWriter
 }
 
 // closureSafe reports whether sql is one statement that does not control the transaction or the connection:
-// its first keyword is not BEGIN, COMMIT, END, ROLLBACK, SAVEPOINT, RELEASE, PRAGMA, ATTACH, DETACH or VACUUM,
-// and nothing but whitespace, comments and semicolons follows its first top-level ';'. It skips comments and
-// quoted strings and identifiers, so a ';' inside a literal does not count. One pass over sql, no allocation
-// beyond the keyword.
+// its first word is not BEGIN, COMMIT, END, ROLLBACK, SAVEPOINT, RELEASE, PRAGMA, ATTACH, DETACH or VACUUM,
+// and nothing but whitespace, comments and semicolons follows its first top-level ';'. Comments and quoted
+// strings and identifiers are skipped, so a ';' inside them does not count. One pass, no allocation beyond the
+// first word.
 func closureSafe(sql string) bool {
-	first := ""
-	for i := 0; i < len(sql); {
-		c := sql[i]
-		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
-			i++
-		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
-			for i < len(sql) && sql[i] != '\n' {
-				i++
-			}
-		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
-			end := strings.Index(sql[i+2:], "*/")
-			if end < 0 {
-				return first != "" // an unterminated comment ends the statement
-			}
-			i += end + 4
-		case c == ';':
-			if first == "" {
-				return false // an empty statement before the real one
-			}
-			return onlyTrivia(sql[i+1:])
-		case c == '\'' || c == '"' || c == '`' || c == '[':
-			closing := c
-			if c == '[' {
-				closing = ']'
-			}
-			if first == "" {
-				first = "?" // a statement cannot start with a literal; SQLite rejects it
-			}
-			i++
-			for i < len(sql) {
-				if sql[i] == closing {
-					if closing != ']' && i+1 < len(sql) && sql[i+1] == closing { // doubled quote: an escape
-						i += 2
-						continue
-					}
-					break
-				}
-				i++
-			}
-			i++
-		default:
-			if first == "" {
-				j := i
-				for j < len(sql) && isWordByte(sql[j]) {
-					j++
-				}
-				if j == i {
-					j = i + 1
-				}
-				first = strings.ToUpper(sql[i:j])
-				if txControl[first] {
-					return false
-				}
-				i = j
-				continue
-			}
-			i++
-		}
+	i := skipTrivia(sql, 0)
+	j := i
+	for j < len(sql) && isWordByte(sql[j]) {
+		j++
 	}
-	return first != ""
-}
-
-// onlyTrivia reports whether s holds nothing but whitespace, comments and semicolons.
-func onlyTrivia(s string) bool {
-	for i := 0; i < len(s); {
-		switch c := s[i]; {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' || c == ';':
-			i++
-		case c == '-' && i+1 < len(s) && s[i+1] == '-':
-			for i < len(s) && s[i] != '\n' {
-				i++
+	if j == i || txControl[strings.ToUpper(sql[i:j])] { // empty, or not starting with a keyword
+		return false
+	}
+	for k := j; k < len(sql); {
+		switch c := sql[k]; {
+		case c == ';':
+			for k = skipTrivia(sql, k+1); k < len(sql) && sql[k] == ';'; k = skipTrivia(sql, k+1) {
 			}
-		case c == '/' && i+1 < len(s) && s[i+1] == '*':
-			end := strings.Index(s[i+2:], "*/")
-			if end < 0 {
-				return true
-			}
-			i += end + 4
+			return k == len(sql)
+		case c == '\'' || c == '"' || c == '`' || c == '[':
+			k = skipQuoted(sql, k)
+		case strings.HasPrefix(sql[k:], "--") || strings.HasPrefix(sql[k:], "/*"):
+			k = skipTrivia(sql, k)
 		default:
-			return false
+			k++
 		}
 	}
 	return true
+}
+
+// skipTrivia returns the index of the first byte at or after i that is not whitespace or inside a comment (an
+// unterminated comment runs to the end).
+func skipTrivia(s string, i int) int {
+	for i < len(s) {
+		switch {
+		case s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == '\f' || s[i] == '\v':
+			i++
+		case strings.HasPrefix(s[i:], "--"):
+			j := strings.IndexByte(s[i:], '\n')
+			if j < 0 {
+				return len(s)
+			}
+			i += j
+		case strings.HasPrefix(s[i:], "/*"):
+			j := strings.Index(s[i+2:], "*/")
+			if j < 0 {
+				return len(s)
+			}
+			i += j + 4
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// skipQuoted returns the index just past the quoted string or identifier opening at s[i] ('…', "…", `…` with
+// doubled-quote escapes, or […]); an unterminated one runs to the end.
+//
+//	pre: s[i] is one of ' " ` [
+func skipQuoted(s string, i int) int {
+	closing := s[i]
+	if closing == '[' {
+		closing = ']'
+	}
+	for i++; i < len(s); i++ {
+		if s[i] != closing {
+			continue
+		}
+		if closing != ']' && i+1 < len(s) && s[i+1] == closing { // a doubled quote is an escaped one
+			i++
+			continue
+		}
+		return i + 1
+	}
+	return len(s)
 }
 
 func isWordByte(c byte) bool {

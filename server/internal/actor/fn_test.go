@@ -36,12 +36,17 @@ func TestClosureSafe(t *testing.T) {
 		{`SELECT 1 /* unterminated`, true},
 		{`UPDATE kv SET v = 1 WHERE id = 1 RETURNING v`, true},
 		{`ROLLBACKS`, true}, // not a keyword: SQLite rejects it on its own
+		{`SELECT 1;; ;`, true},
+		{`SELECT 'unterminated; COMMIT`, true}, // one (malformed) statement: SQLite rejects it
+		{`SELECT [a`, true},
 		// Off points.
 		{``, false},
 		{`   `, false},
 		{`-- only a comment`, false},
 		{`/* only a comment`, false},
 		{`;SELECT 1`, false},
+		{`'x'; COMMIT`, false}, // not starting with a keyword
+		{`(SELECT 1)`, false},
 		{`SELECT 1; COMMIT`, false},
 		{`SELECT 1;SELECT 2`, false},
 		{`SELECT 'x'; DELETE FROM kv`, false},
