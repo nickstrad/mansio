@@ -53,6 +53,14 @@ and what do its records mean when handlers run in the SDK? Built on `ir/04c-obse
 
 ## Traps
 
+- **JS regexp semantics are not Go's.** JS `\s` is Unicode white space plus U+FEFF (Go's is ASCII); the `i`
+  flag without `u` folds ASCII only (Go's `(?i)` also folds U+017F and U+212A); `toLowerCase` maps U+212A to
+  `k`; `Array#sort` orders keys by UTF-16 units; numbers use `Number#toString` (`1e+21`, `1e-7`). The encoder
+  spells each out; the shared goldens (`server/internal/eventlog/testdata/goldens.jsonl`, written and checked
+  by `tests/unit/eventlog_goldens_test.ts`, read by `record_test.go`) hold both sides to them.
+- **File names are scanned, never counted** (as `file_sink.ts nextSeq`): seq = 1 + the highest on disk for
+  that hour and pid, opened `O_EXCL`, so a restarted pid 1 never appends to a torn file.
+
 - `cli()` in the harness runs with a cleared environment: the Go scenario passes `cleanEnv()` plus `LOG_DIR`,
   `EVENTLOG_DUCKDB`, `DATA_DIR` (a GoAgent has no `env`).
 - The flush barrier's trace id ends in `-<run id>`, so the k6 join's server side counts one more request than

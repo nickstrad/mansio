@@ -10,6 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf16"
+
+	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
 // Level is an event's level (core/events.ts Level).
@@ -299,7 +303,7 @@ func (e *encoder) optInt(k string, v int64) {
 // ms writes d in milliseconds, to the microsecond.
 func (e *encoder) ms(k string, d time.Duration) {
 	e.key(k)
-	e.b.WriteString(strconv.FormatFloat(math.Round(float64(d)/1e3)/1e3, 'f', -1, 64))
+	e.b.WriteString(ir.FormatNumber(math.Round(float64(d)/1e3) / 1e3))
 }
 
 func (e *encoder) any(k string, v any) {
@@ -329,10 +333,13 @@ func writeValue(b *bytes.Buffer, v any, depth int) {
 			b.WriteString("null") // JSON.stringify's answer
 			return
 		}
-		b.WriteString(strconv.FormatFloat(x, 'f', -1, 64))
+		b.WriteString(ir.FormatNumber(x)) // JS Number#toString: 1e+21, 1e-7
 		return
 	case int:
 		b.WriteString(strconv.Itoa(x))
+		return
+	case error:
+		writeValue(b, map[string]any{"message": x.Error()}, depth)
 		return
 	case int64:
 		b.WriteString(strconv.FormatInt(x, 10))
@@ -357,7 +364,7 @@ func writeValue(b *bytes.Buffer, v any, depth int) {
 		b.WriteByte(']')
 	case map[string]any:
 		b.WriteByte('{')
-		for i, k := range slices.Sorted(maps.Keys(x)) {
+		for i, k := range slices.SortedFunc(maps.Keys(x), compareUTF16) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
@@ -417,27 +424,49 @@ func writeString(b *bytes.Buffer, s string) {
 	b.WriteByte('"')
 }
 
-// The redaction rules are core/events.ts's, verbatim.
+// The redaction rules are core/events.ts's, with JavaScript's regexp semantics spelled out: JS `\s` is
+// Unicode white space plus U+FEFF (Go's is ASCII), and the `i` flag without `u` folds ASCII letters only
+// (Go's (?i) also folds U+017F to s and U+212A to k), so the letters are explicit ASCII classes.
+const jsSpace = `\t\n\v\f\r \x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}`
+
 var (
-	bearer   = regexp.MustCompile(`(?i)Bearer\s+\S+`)
-	amzParam = regexp.MustCompile(`(?i)X-Amz-(Signature|Credential|Security-Token)=[^&\s"']+`)
+	bearer   = regexp.MustCompile(asciiFold("Bearer") + `[` + jsSpace + `]+[^` + jsSpace + `]+`)
+	amzParam = regexp.MustCompile(asciiFold("X-Amz-") + `(` + asciiFold("Signature") + `|` + asciiFold("Credential") + `|` +
+		asciiFold("Security-Token") + `)=[^&"'` + jsSpace + `]+`)
 	newlines = regexp.MustCompile("[\r\n\u2028\u2029]+")
 )
+
+// asciiFold is a pattern matching word with each ASCII letter in either case, and nothing else.
+func asciiFold(word string) string {
+	var b strings.Builder
+	for _, r := range word {
+		if lo, up := unicode.ToLower(r), unicode.ToUpper(r); r < 0x80 && lo != up {
+			b.WriteString("[" + string(up) + string(lo) + "]")
+		} else {
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	return b.String()
+}
+
+// compareUTF16 orders strings by UTF-16 code units, as Array#sort does (it differs from Go's byte order for
+// keys mixing U+E000–U+FFFF with characters past U+FFFF).
+func compareUTF16(a, b string) int {
+	return slices.Compare(utf16.Encode([]rune(a)), utf16.Encode([]rune(b)))
+}
 
 var secretSuffixes = []string{"authorization", "accesskeyid", "secretaccesskey", "sessiontoken", "securitytoken", "cookie", "token"}
 
 // secretKey reports whether a member named k is redacted whatever its value: k lower-cased, without
 // separators, ends in a secret suffix (AWS_SECRET_ACCESS_KEY, Proxy-Authorization, COLUMN_APP_TOKEN, …).
 func secretKey(k string) bool {
+	// key.toLowerCase().replace(/[^a-z]/g, ""): lower-case first, so U+212A KELVIN SIGN becomes k.
 	n := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z':
+		if r >= 'a' && r <= 'z' {
 			return r
-		case r >= 'A' && r <= 'Z':
-			return r + ('a' - 'A')
 		}
 		return -1
-	}, k)
+	}, strings.ToLower(k))
 	for _, s := range secretSuffixes {
 		if strings.HasSuffix(n, s) {
 			return true

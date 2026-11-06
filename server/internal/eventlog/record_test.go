@@ -2,54 +2,76 @@ package eventlog
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// The goldens are core/events.ts toJsonLine's output for the same records (generated with deno; see
-// TestLineMatchesTS). A difference is a format change the TS ingest may not read the same way.
+// The goldens are core/events.ts toJsonLine's output for the same records, by name, in
+// testdata/goldens.jsonl, which tests/unit/eventlog_goldens_test.ts writes and checks from the TS side. A
+// difference is a format change the TS ingest may not read the same way.
 var goldens = []struct {
 	name string
 	ev   Event
-	want string
 }{
 	{"http with redacted detail", Event{Level: Warn, TraceID: "t-1", AppID: "tic-tac-toe", Payload: HTTP{
 		Method: "POST", Path: "/v1/ops", HandlerKind: "mutation", Name: "makeMove", Status: 409, Duration: 1500 * time.Microsecond,
 		BytesIn: 120, BytesOut: 77, ErrorTag: "ConflictError", ErrorDetail: map[string]any{
 			"tag": "ConflictError", "message": "line1\nline2 Bearer abc.def",
 			"fields": map[string]any{"Authorization": "Bearer x", "x-api-token": "s", "nested": []any{1, "Bearer zz", nil, true}},
-		}}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"warn","role":"server","pid":42,"traceId":"t-1","spanId":null,"parentSpanId":null,"appId":"tic-tac-toe","kind":"http","method":"POST","path":"/v1/ops","handlerKind":"mutation","name":"makeMove","status":409,"durationMs":1.5,"bytesIn":120,"bytesOut":77,"errorTag":"ConflictError","errorDetail":{"fields":{"Authorization":"<redacted>","nested":[1,"Bearer <redacted>",null,true],"x-api-token":"<redacted>"},"message":"line1 line2 Bearer <redacted>","tag":"ConflictError"}}`},
+		}}}},
 	{"handler", Event{TraceID: "t-1", SpanID: "s1", ParentSpanID: "p1", AppID: "a", Payload: Handler{
-		HandlerKind: "query", Name: "getGame", Outcome: "ok", Duration: 250 * time.Microsecond}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"info","role":"server","pid":42,"traceId":"t-1","spanId":"s1","parentSpanId":"p1","appId":"a","kind":"handler","handlerKind":"query","name":"getGame","outcome":"ok","durationMs":0.25,"errorTag":null,"errorDetail":null}`},
+		HandlerKind: "query", Name: "getGame", Outcome: "ok", Duration: 250 * time.Microsecond}}},
 	{"sql never carries bind values", Event{TraceID: "t-1", SpanID: "s1", AppID: "a", Payload: SQL{
 		Engine: "sqlite", Dialect: "sqlite", StatementKind: "select", TableName: "games", SQLText: `SELECT * FROM "games" WHERE "_id" = ?`,
-		BindCount: 1, Duration: 12 * time.Microsecond, RowCount: 1, Outcome: "ok"}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"info","role":"server","pid":42,"traceId":"t-1","spanId":"s1","parentSpanId":null,"appId":"a","kind":"sql","engine":"sqlite","dialect":"sqlite","statementKind":"select","path":null,"tableName":"games","sqlText":"SELECT * FROM \"games\" WHERE \"_id\" = ?","bindCount":1,"bindValues":null,"durationMs":0.012,"rowCount":1,"outcome":"ok","errorTag":null,"errorDetail":null}`},
+		BindCount: 1, Duration: 12 * time.Microsecond, RowCount: 1, Outcome: "ok"}}},
 	{"tx", Event{TraceID: "t-1", SpanID: "s1", AppID: "a", Payload: Tx{Engine: "sqlite", Outcome: "rollback", Operations: 3,
-		Duration: 2 * time.Millisecond, QueueWait: 500 * time.Microsecond, ErrorTag: "StorageError", ErrorDetail: map[string]any{"reason": "x"}}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"info","role":"server","pid":42,"traceId":"t-1","spanId":"s1","parentSpanId":null,"appId":"a","kind":"tx","engine":"sqlite","outcome":"rollback","operations":3,"durationMs":2,"queueWaitMs":0.5,"errorTag":"StorageError","errorDetail":{"reason":"x"}}`},
-	{"queue drop report", Event{Level: Warn, TraceID: SinkTraceID, Payload: Queue{Queue: "events", Depth: 10, Cap: 10, Event: "dropped", Dropped: 3}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"warn","role":"server","pid":42,"traceId":"event-sink","spanId":null,"parentSpanId":null,"appId":null,"kind":"queue","queue":"events","depth":10,"cap":10,"event":"dropped","dropped":3}`},
+		Duration: 2 * time.Millisecond, QueueWait: 500 * time.Microsecond, ErrorTag: "StorageError", ErrorDetail: map[string]any{"reason": "x"}}}},
+	{"queue drop report", Event{Level: Warn, TraceID: SinkTraceID, Payload: Queue{Queue: "events", Depth: 10, Cap: 10, Event: "dropped", Dropped: 3}}},
 	{"lifecycle with S3 secrets", Event{TraceID: "t-1", Payload: Lifecycle{Phase: "startup", Detail: map[string]any{
 		"url": "https://s3/x?X-Amz-Signature=abc&X-Amz-Credential=def&ok=1", "AWS_SECRET_ACCESS_KEY": "k", "sessionToken": "t",
-		"list": []any{"a b", map[string]any{"Cookie": "c"}}}}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"info","role":"server","pid":42,"traceId":"t-1","spanId":null,"parentSpanId":null,"appId":null,"kind":"lifecycle","phase":"startup","detail":{"AWS_SECRET_ACCESS_KEY":"<redacted>","list":["a b",{"Cookie":"<redacted>"}],"sessionToken":"<redacted>","url":"https://s3/x?X-Amz-Signature=<redacted>&X-Amz-Credential=<redacted>&ok=1"}}`},
+		"list": []any{"a b", map[string]any{"Cookie": "c"}}}}}},
 	{"backup with absent optionals", Event{TraceID: "t-1", AppID: "a", Payload: Backup{Phase: "publish-latest", Emitter: "backups", RunID: "r1",
-		Bytes: -1, Attempts: -1, Duration: 3 * time.Millisecond, Outcome: "ok"}},
-		`{"eventId":"e1","ts":"2026-11-06T10:11:12.345Z","level":"info","role":"server","pid":42,"traceId":"t-1","spanId":null,"parentSpanId":null,"appId":"a","kind":"backup","phase":"publish-latest","emitter":"backups","runId":"r1","key":null,"bytes":null,"sha256":null,"attempts":null,"durationMs":3,"outcome":"ok","errorTag":null,"errorDetail":null}`},
+		Bytes: -1, Attempts: -1, Duration: 3 * time.Millisecond, Outcome: "ok"}}},
+	{"lifecycle with JS whitespace, case folding, key order and numbers", Event{TraceID: "t-1", Payload: Lifecycle{Phase: "js-semantics", Detail: map[string]any{
+		"lineSeparator": "Bearer\u2028SECRET1", "nbsp": "Bearer\u00a0SECRET2", "verticalTab": "Bearer\vSECRET3", "bom": "Bearer\ufeffSECRET4",
+		"ideographic": "Bearer\u3000SECRET5", "amzNbsp": "u?X-Amz-Signature=x\u00a0kept", "longS": "X-Amz-\u017fignature=kept",
+		"COO\u212aIE": "kelvin sign lower-cases to k", "\uff61": "sorts after", "\U00010000": "sorts before (UTF-16)",
+		"big": 1e21, "small": 1e-7, "plain": 123.456,
+	}}}},
 }
 
 var goldenStamp = stamp{EventID: "e1", TS: time.Date(2026, 11, 6, 10, 11, 12, 345e6, time.UTC), Role: "server", PID: 42}
 
-// TestLineMatchesTS: every kind serializes byte for byte as core/events.ts toJsonLine does, redaction included.
+// TestLineMatchesTS: every kind serializes byte for byte as core/events.ts toJsonLine does, redaction,
+// JS whitespace and case folding, key order and number format included.
 func TestLineMatchesTS(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "goldens.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var g struct{ Name, Line string }
+		if err := json.Unmarshal([]byte(l), &g); err != nil {
+			t.Fatal(err)
+		}
+		want[g.Name] = g.Line
+	}
+	if len(want) != len(goldens) {
+		t.Fatalf("%d goldens in the file, %d here: keep record_test.go and eventlog_goldens_test.ts in step", len(want), len(goldens))
+	}
 	for _, g := range goldens {
 		t.Run(g.name, func(t *testing.T) {
-			if got := string(goldenStamp.line(g.ev)); got != g.want {
-				t.Fatalf("line differs from core/events.ts\ngot:  %s\nwant: %s", got, g.want)
+			w, ok := want[g.name]
+			if !ok {
+				t.Fatalf("no golden named %q", g.name)
+			}
+			if got := string(goldenStamp.line(g.ev)); got != w {
+				t.Fatalf("line differs from core/events.ts\ngot:  %s\nwant: %s", got, w)
 			}
 		})
 	}
@@ -106,5 +128,12 @@ func TestParseLevel(t *testing.T) {
 	}
 	if _, ok := ParseLevel("trace"); ok {
 		t.Error("trace accepted")
+	}
+}
+
+func TestErrorDetailOfAnError(t *testing.T) {
+	line := string(goldenStamp.line(Event{Payload: Lifecycle{Phase: "x", Detail: errors.New("Bearer tok failed")}}))
+	if !strings.Contains(line, `"detail":{"message":"Bearer <redacted> failed"}`) {
+		t.Error(line)
 	}
 }
