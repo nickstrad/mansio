@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
@@ -343,7 +344,7 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 			return 0, 0, err
 		}
 	case err != nil:
-		return 0, 0, asUnavailable(err)
+		return 0, 0, agentglue.AsUnavailable(err)
 	}
 	l, err := p.d.tab.Claim(ctx, db)
 	switch {
@@ -354,7 +355,7 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 	case errors.Is(err, owner.ErrFenced), errors.Is(err, owner.ErrMoving):
 		return 0, 0, fmt.Errorf("%w: %w", front.ErrFenced, err)
 	}
-	return 0, 0, asUnavailable(err)
+	return 0, 0, agentglue.AsUnavailable(err)
 }
 
 // create writes db's placement row ACTIVE(self, 1, 0) within the caps. The caps count the keys this agent's
@@ -381,5 +382,5 @@ func (p *claimingPlace) create(ctx context.Context, db string) error {
 	if errors.Is(err, owner.ErrConflict) {
 		return nil // created meanwhile: the claim reads whatever is there
 	}
-	return asUnavailable(err)
+	return agentglue.AsUnavailable(err)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/front"
@@ -78,8 +79,8 @@ func (w *world) newAgent(n int, claim bool) (*agent, error) {
 	a.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: actor.Config{Clock: w.clk, ReadConns: w.s.readConns}}, vactor.Options{
 		CacheDir: filepath.Join(w.s.Dir, fmt.Sprintf("cache-%d", n)), Store: store, GenCacheBytes: w.s.genCache,
 		Policy: w.s.policy, Workers: 1, Clock: w.clk, Rand: stream(w.s.Seed, fmt.Sprintf("vactor-%d", n)),
-		CheckActivation: activationCheck(w.clk, func() *owner.Table { return tab }),
-		Guard:           publishGuard(func() *owner.Table { return tab }, func() *vactor.Host { return a.host }),
+		CheckActivation: agentglue.ActivationCheck(w.clk, func() *owner.Table { return tab }),
+		Guard:           agentglue.PublishGuard(func() *owner.Table { return tab }, func() *vactor.Host { return a.host }),
 	})
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (w *world) newAgent(n int, claim bool) (*agent, error) {
 		return nil, err
 	}
 	tab, err = owner.Open(a.ctx, owner.Config{Self: self, Store: gatedLocal{a.g, fs}, Placement: gatedPlacement{a.g, w.place},
-		WriteBack: hostWriteBack{host: a.host, store: store},
+		WriteBack: agentglue.WriteBack{Host: a.host, Store: store},
 		OnChange: func(key string, from, to owner.Local) {
 			if a.g.alive() {
 				tr.add("owner/"+key, "%s -> %s", from, to)
@@ -101,7 +102,7 @@ func (w *world) newAgent(n int, claim bool) (*agent, error) {
 		return nil, err
 	}
 	a.tab = tab
-	a.srv = front.NewServer(front.Config{}, tickets{}, depAdmitter{ownerAdmitter{tab}}, depExecutor{hostExecutor{host: a.host, grace: time.Second}}, w.clk)
+	a.srv = front.NewServer(front.Config{}, tickets{}, agentglue.DepAdmitter{Admitter: agentglue.Admitter{T: tab}}, agentglue.DepExecutor{Executor: agentglue.Executor{Host: a.host, Grace: time.Second}}, w.clk)
 	a.wg.Go(func() {
 		_ = a.host.RunMaintenance(a.ctx, w.s.Tick, func(r vactor.TickReport) { w.ticked(a, r) })
 	})

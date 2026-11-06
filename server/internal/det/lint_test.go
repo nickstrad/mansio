@@ -20,6 +20,7 @@ import (
 // *test package are exempt.
 var simulated = map[string]string{
 	"actor":           "request expiry, group-commit batches, idle passivation, request-id retention",
+	"agentglue":       "the activation check's deadline (agentd's glue, shared with the simulation)",
 	"breaker":         "closed/open/half-open transitions over a time window",
 	"client":          "retry and reroute backoff with jitter, route refresh, call deadlines, request ids",
 	"control":         "create/move/restore/resume decisions and their per-key deadlines",

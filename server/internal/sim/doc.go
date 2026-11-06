@@ -5,7 +5,7 @@
 // What runs. Each seed builds a world: a dettest.Clock, seeded random streams split from the seed, the
 // durabletest store (the S3 stand-in, on the clock, with per-call faults), the ownertest placement authority,
 // an owner FileStore directory, and one agent process ("incarnation") wired as cmd/agentd wires durable mode
-// (glue.go mirrors cmd/agentd/glue.go). Clients, one per database, send writes, failing writes and reads
+// (through internal/agentglue, the glue cmd/agentd runs). Clients, one per database, send writes, failing writes and reads
 // through the front pipeline and retry like the real client: same request id, backoff on the clock. The
 // agent's own maintenance loop writes back and passivates on its ticker. The sim injects S3 faults (stalls,
 // lost replies, failed calls, 503 storms), lost client replies and crashes.

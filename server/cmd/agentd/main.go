@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/eventlog"
@@ -219,7 +220,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		MaxTimeout: cfg.MaxTimeout.Duration, StmtTimeout: cfg.StatementTimeout.Duration,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
-		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
+		agentglue.DepAdmitter{Admitter: be.admitter}, agentglue.DepExecutor{Executor: be.executor}, nil)
 	ten := &tenancyPart{ready: func(context.Context) error { return nil }, close: func() {}}
 	if cfg.Tenancy != nil {
 		if ten, err = newTenancy(cfg, log, be.schemas); err != nil {

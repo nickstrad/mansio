@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/errs"
@@ -81,8 +82,8 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		Policy: vactor.Policy{WriteBackEvery: m.WriteBackEvery.Duration, WriteBackCommits: m.WriteBackCommits,
 			IdleAfter: m.IdleAfter.Duration, MaxActive: m.MaxActive, MaxBytes: m.MaxBytes},
 		WriteBackTimeout: m.WriteBackTimeout.Duration,
-		CheckActivation:  activationCheck(func() *owner.Table { return d.tab }),
-		Guard:            publishGuard(func() *owner.Table { return d.tab }, func() *vactor.Host { return d.host }),
+		CheckActivation:  agentglue.ActivationCheck(nil, func() *owner.Table { return d.tab }),
+		Guard:            agentglue.PublishGuard(func() *owner.Table { return d.tab }, func() *vactor.Host { return d.host }),
 	})
 	if err != nil {
 		return nil, err
@@ -109,7 +110,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
 	defer cancel()
 	d.tab, err = owner.Open(ctx, owner.Config{Self: cfg.VM, Store: fs, Placement: d.place,
-		WriteBack: hostWriteBack{host: d.host, store: d.store}, OnChange: d.events.onChange})
+		WriteBack: agentglue.WriteBack{Host: d.host, Store: d.store}, OnChange: d.events.onChange})
 	if err != nil {
 		return fail(err)
 	}
@@ -118,8 +119,8 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	}
 	be := &backend{
 		schemas:  schemas,
-		admitter: ownerAdmitter{d.tab},
-		executor: hostExecutor{host: d.host, grace: cfg.ReplyGrace.Duration, canary: front.ActorExecutor{Host: canary, Grace: cfg.ReplyGrace.Duration}},
+		admitter: agentglue.Admitter{T: d.tab},
+		executor: agentglue.Executor{Host: d.host, Grace: cfg.ReplyGrace.Duration, Canary: front.ActorExecutor{Host: canary, Grace: cfg.ReplyGrace.Duration}},
 		ready:    d.readyCheck,
 		pending:  d.unreconciled,
 		metrics:  d.register,

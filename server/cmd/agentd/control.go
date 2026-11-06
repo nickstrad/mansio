@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/agentglue"
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
@@ -163,10 +164,7 @@ func (c *control) fence(ctx context.Context, r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ack, err := c.d.tab.Fence(ctx, req.DB)
-	if err == nil || errors.Is(err, owner.ErrSuperseded) {
-		c.d.host.Discard(req.DB)
-	}
+	ack, err := agentglue.Lifecycle{Tab: c.d.tab, Host: c.d.host}.Fence(ctx, req.DB)
 	if err != nil {
 		return nil, err
 	}
