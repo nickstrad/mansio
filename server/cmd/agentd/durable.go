@@ -18,6 +18,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/file"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/schemareg"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
 )
@@ -26,20 +28,23 @@ import (
 // virtual-actor host in durable mode, the owner table over a local FileStore and the single-node placement
 // authority, and the glue between them (glue.go).
 type durableAgent struct {
-	cfg    *Config
-	log    *slog.Logger
-	s3     *objstore.Store
-	s3b    *breaker.Breaker
-	raw    durable.Store // the S3 adapter without the breaker (the probe only)
-	store  durable.Store // behind the breaker: every other caller
-	host   *vactor.Host
-	tab    *owner.Table
-	place  owner.Placement
-	pg     *pg.Placement // the Postgres authority (placement_pg); nil with placement_dir
-	canary *front.StaticHost
-	ticks  *tickLog
-	events *ownerEvents
-	probe  s3Probe
+	cfg   *Config
+	log   *slog.Logger
+	s3    *objstore.Store
+	s3b   *breaker.Breaker
+	raw   durable.Store // the S3 adapter without the breaker (the probe only)
+	store durable.Store // behind the breaker: every other caller
+	host  *vactor.Host
+	tab   *owner.Table
+	place owner.Placement
+	pg    *pg.Placement // the Postgres authority (placement_pg); nil with placement_dir
+	// schemas fetches app schemas from controld by fingerprint (schemas_url; IR-2); nil without schemas_url.
+	// IR-2b's /v1/ops executor reads it.
+	schemas *schemareg.Client
+	canary  *front.StaticHost
+	ticks   *tickLog
+	events  *ownerEvents
+	probe   s3Probe
 
 	firstRound atomic.Bool // the first reconcile round finished (some keys may still be retrying)
 }
@@ -92,6 +97,9 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		return fail(err)
 	}
 	if d.place, err = d.openPlacement(sec); err != nil {
+		return fail(err)
+	}
+	if d.schemas, err = openSchemas(cfg, log, sec); err != nil {
 		return fail(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), openTimeout)
@@ -152,7 +160,24 @@ func (d *durableAgent) breakers() map[string]*breaker.Breaker {
 	if d.pg != nil {
 		m["placement"] = d.pg.Breaker()
 	}
+	if d.schemas != nil {
+		m["schemas"] = d.schemas.Breaker()
+	}
 	return m
+}
+
+// openSchemas builds the schema registry client (schemas_url), or nil without one. It does no I/O: the first
+// fetch connects, so controld being down does not stop startup (Release It H1).
+func openSchemas(cfg *Config, log *slog.Logger, sec *Secrets) (*schemareg.Client, error) {
+	if cfg.SchemasURL == "" {
+		return nil, nil
+	}
+	hc, err := tlsx.HTTPClient(cfg.ControlCAFile)
+	if err != nil {
+		return nil, errs.Wrap(module, err, "cannot load the CA file for schemas_url").With("ca_file", cfg.ControlCAFile)
+	}
+	return schemareg.NewClient(schemareg.Config{URL: cfg.SchemasURL, Token: sec.ControlToken, HTTP: hc,
+		Timeout: cfg.SchemasTimeout.Duration, MaxEntries: cfg.SchemaCache, Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "schemas")}})
 }
 
 // readyCheck passes once the first reconcile round finished: every key was tried once (Release It H1).
@@ -212,6 +237,9 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
 	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
+	if d.schemas != nil {
+		schemaMetrics(reg, d.schemas)
+	}
 	d.events.register(reg)
 	d.probe.register(reg)
 }

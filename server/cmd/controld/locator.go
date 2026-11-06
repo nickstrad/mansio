@@ -127,24 +127,33 @@ type resolveAnswer struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// resolve is POST /v1/resolve (Authorization: Bearer <api key>; body {"tenant", "db"[, "min_epoch"]}). It runs
-// under locator.timeout with its own bulkhead (locator.concurrency): resolves never queue behind admin calls.
+// resolve is POST /v1/resolve (Authorization: Bearer <api key>; body {"tenant", "db"[, "min_epoch"]}, or
+// {"tenant", "app"[, "create"][, "min_epoch"]} for an app's database tenant:app, ADR 0011). It runs under
+// locator.timeout with its own bulkhead (locator.concurrency): resolves never queue behind admin calls. With
+// "create": true a missing app database is created on first use when the key may write and the app has a
+// registered schema (schemas.go); the answer may then be moving + Retry-After while its owner claims it.
 func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	d.call(w, r, d.resolveSem, &d.resolveShed, d.cfg.Locator.Timeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct {
 			Tenant   string `json:"tenant"`
 			DB       string `json:"db"`
+			App      string `json:"app"`
+			Create   bool   `json:"create"`
 			MinEpoch uint64 `json:"min_epoch"`
 		}
 		if err := decode(r, &req); err != nil {
 			return nil, err
 		}
-		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(req.DB) {
-			return nil, errBadRequest("tenant and db must be a valid tenant id and database name")
+		if (req.DB == "") == (req.App == "") || req.Create && req.App == "" {
+			return nil, errBadRequest(`give exactly one of "db" and "app"; "create" goes with "app"`)
 		}
-		rt, err := d.loc.Resolve(ctx, locator.Request{Tenant: req.Tenant, Name: req.DB, APIKey: key, MinEpoch: req.MinEpoch,
-			Source: r.RemoteAddr})
+		name := req.DB + req.App
+		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(name) {
+			return nil, errBadRequest("tenant and db (or app) must be a valid tenant id and database name")
+		}
+		rt, err := d.resolveApp(ctx, locator.Request{Tenant: req.Tenant, Name: name, APIKey: key, MinEpoch: req.MinEpoch,
+			Source: r.RemoteAddr, Create: req.Create})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, &apiError{"timeout", http.StatusGatewayTimeout, "resolve deadline passed; retry with backoff", false}
 		}

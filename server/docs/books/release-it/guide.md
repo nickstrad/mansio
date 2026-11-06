@@ -18,6 +18,7 @@ this guide adds failure-below-the-interface tests (§H).
 | Edge → agent | `internal/edge`, `cmd/edge` (CP-7) | yes | the client (the edge never retries) |
 | Locator → Postgres (resolve reads, LISTEN) | `internal/control/locator`, `placement/pg` `Locate`, `Listen` | yes (cache miss) | none (client re-resolves) |
 | Agent → issuer key set | `cmd/agentd/keys.go` (`keys_url`) | no (background) | the fetch loop (next period) |
+| Agent → schema registry | `internal/schemareg` `Client` (agentd `schemas_url`, IR-2) | yes (a database's first request per schema) | none (the caller answers unavailable) |
 | Actor mailbox / read pool | `internal/actor` | yes | none (shed) |
 | Local disk (fsync, cache dir) | `owner.FileStore`, vactor cache | yes (commit) | none |
 
@@ -237,6 +238,15 @@ Correlation IDs: `request_id`, `log_id`, db key, epoch. Log state transitions, n
 - GET every `keys_refresh` 30 s under `keys_timeout` 3 s, body ≤ 64 KiB; a failure keeps the ring and is counted
   (`agentd_keys_fetch_failures_total`, `agentd_keys_age_seconds`). `ticket_keys.activate` (5 min) ≥ 2 ×
   `keys_refresh`; a retired key stays published `ticket_ttl` + 2 min.
+
+**Schema registry** (agentd `schemas_url` → controld `GET /v1/apps/{app}/schemas/{fingerprint}`, IR-2)
+- One fetch per (app, fingerprint) at a time (single-flight), under `schemas_timeout` 3 s detached from the caller
+  (a caller that leaves only stops waiting); answer ≤ 6 × 64 KiB + 4 KiB. At most 16 distinct fetches in flight,
+  more refused at once (`unavailable`).
+- Cache bounded (`schema_cache` 1024 entries, 64 MiB of text), no TTL: a fingerprint names one text forever. Not
+  found is an answer, never cached (a registration may follow) and never counted against the breaker.
+- Every fetched text is re-hashed against its fingerprint before use (the registry's integrity check); a mismatch
+  is a system failure. Breaker "schemas" on Release It §P thresholds; metrics `agentd_schema_*`.
 
 **Inbound HTTP** (`agentd`)
 - `ReadHeaderTimeout` 5 s, body read deadline 5 s, write deadline = request deadline + grace, `MaxHeaderBytes`

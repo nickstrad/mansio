@@ -131,6 +131,10 @@ const (
 	namePattern   = `^[a-z0-9][a-z0-9_-]{0,55}$`
 )
 
+// NamePattern is the database_name domain: a database's name inside its tenant, and an app's name (an app's
+// database is tenant ":" app; ADR 0011).
+const NamePattern = namePattern
+
 var (
 	tenantRE = regexp.MustCompile(tenantPattern)
 	nameRE   = regexp.MustCompile(namePattern)

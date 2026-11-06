@@ -13,6 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/objstore"
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/schemareg"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
@@ -279,5 +280,26 @@ func reconcileLog(log *slog.Logger) func(owner.ReconcileReport, error) {
 			return
 		}
 		log.Info("reconcile done", append([]any{"event", "OWNER.RECONCILE_DONE"}, attrs...)...)
+	}
+}
+
+// schemaMetrics exposes the schema registry client (schemas_url): its cache and its fetches. Its breaker is
+// "schemas" in mansio_breaker_state.
+func schemaMetrics(reg *metrics.Registry, c *schemareg.Client) {
+	var st schemareg.Stats
+	reg.OnScrape(func() { st = c.Stats() })
+	for _, m := range []struct {
+		name, help string
+		kind       metrics.Type
+		v          func() float64
+	}{
+		{"agentd_schema_cache_hits_total", "Schema lookups answered from the cache.", metrics.Counter, func() float64 { return float64(st.Hits) }},
+		{"agentd_schema_fetches_total", "Schema fetches from controld started.", metrics.Counter, func() float64 { return float64(st.Loads) }},
+		{"agentd_schema_fetch_failures_total", "Schema fetches that failed as unavailable.", metrics.Counter, func() float64 { return float64(st.Failures) }},
+		{"agentd_schema_fetch_shed_total", "Schema fetches refused: too many in flight or the breaker open.", metrics.Counter, func() float64 { return float64(st.Shed) }},
+		{"agentd_schema_cached", "Schemas cached now.", metrics.Gauge, func() float64 { return float64(st.Entries) }},
+		{"agentd_schema_cached_bytes", "Bytes of schema text cached now.", metrics.Gauge, func() float64 { return float64(st.Bytes) }},
+	} {
+		reg.Add(m.name, m.help, m.kind, func(e *metrics.Emit) { e.Value(nil, m.v()) })
 	}
 }

@@ -197,6 +197,36 @@ func TestResolveAnswers(t *testing.T) {
 	}
 }
 
+// Create on first use (ADR 0011): a never-registered database answers ErrCreatable (which is also ErrNotFound)
+// only when asked and only to a key that may write; existing, dropped and creating databases answer as usual.
+func TestResolveCreateOnFirstUse(t *testing.T) {
+	f := newFixture(t, Config{})
+	ro, rid, rhash, _ := NewAPIKey(bytes.NewReader(bytes.Repeat([]byte{4}, 64)))
+	f.st.keys[rid] = StoredKey{Tenant: "acme", Principal: "reader", Perms: ticket.Read, Hash: rhash}
+	f.st.set("acme:dropped", Placement{Intent: "dropped"})
+	f.st.set("acme:creating", Placement{Intent: "creating"})
+	for _, tc := range []struct {
+		name, db, key string
+		create        bool
+		err           error
+		creatable     bool
+	}{
+		{"absent, create, write key", "new-app", f.key, true, ErrNotFound, true},
+		{"absent, no create (off point)", "new-app", f.key, false, ErrNotFound, false},
+		{"absent, create, read-only key (off point)", "new-app", ro, true, ErrNotFound, false},
+		{"dropped stays not found", "dropped", f.key, true, ErrNotFound, false},
+		{"being created answers moving", "creating", f.key, true, ErrMoving, false},
+		{"existing resolves", "db", f.key, true, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: tc.db, APIKey: tc.key, Create: tc.create})
+			if !errors.Is(err, tc.err) || (tc.err == nil) != (err == nil) || errors.Is(err, ErrCreatable) != tc.creatable {
+				t.Fatalf("got %v, want %v (creatable %v)", err, tc.err, tc.creatable)
+			}
+		})
+	}
+}
+
 func TestStoreErrorsPassThrough(t *testing.T) {
 	f := newFixture(t, Config{})
 	boom := errors.New("authority down")
