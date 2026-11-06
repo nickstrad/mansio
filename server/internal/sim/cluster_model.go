@@ -46,8 +46,8 @@ type cmark struct {
 	dup, everMaybe bool
 }
 
-// loss is a crash that lost a committed write, with what was durable then.
-type loss struct{ tc, durableBefore time.Time }
+// loss is a crash that lost a committed write (committed at commitAt), with what was durable then.
+type loss struct{ commitAt, tc, durableBefore time.Time }
 
 type cdbModel struct {
 	key           string
@@ -188,7 +188,7 @@ func (m *cmodel) answer(key, rid, tag string) {
 			e.ackedAt = e.commitAt // the agent answered when it committed; the answer may have taken a while
 		}
 		if l := e.lostAt; l != nil { // its commit was lost at a crash before this ok arrived
-			e.lostAt = nil
+			e.lostAt, e.ackedAt = nil, l.commitAt
 			m.judgeLoss(m.db(key), rid, e, l.tc, l.durableBefore, "an ok that arrived after its commit was lost")
 		}
 	}
@@ -398,7 +398,7 @@ func (m *cmodel) judge(d *cdbModel, marks []string, what string, crash bool, tc 
 		case committed && e.st == acked:
 			m.judgeLoss(d, rid, e, tc, d.durableBefore, what)
 		case committed: // not answered yet: judged if its ok arrives
-			e.lostAt = &loss{tc, d.durableBefore}
+			e.lostAt = &loss{e.commitAt, tc, d.durableBefore}
 		case e.st == acked:
 			m.violate(d.key, "%s: acknowledged mutation %s (at %v), which no live agent committed, is missing", what, rid, e.ackedAt.Sub(m.w.t0))
 		}
