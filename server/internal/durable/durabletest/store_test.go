@@ -101,3 +101,28 @@ func TestCallFaultsDecidePerCall(t *testing.T) {
 		t.Fatalf("after SetCallFaults(nil): %v, want the static FailRead", err)
 	}
 }
+
+// LandLate: the publish answers at once without applying, then lands later, its condition checked then.
+func TestLandLatePublishLandsLater(t *testing.T) {
+	clk := dettest.NewClock(time.Unix(1000, 0))
+	s := durabletest.NewStore()
+	s.UseClock(clk)
+	ctx := context.Background()
+	s.SetFaults(durabletest.Faults{LandLate: time.Second})
+	if _, err := s.PublishManifest(ctx, durable.Manifest{Key: "k", Epoch: 1}, durable.NoVersion); !errors.Is(err, durabletest.ErrInjected) {
+		t.Fatalf("late publish: %v, want no reply", err)
+	}
+	if _, ok := s.Manifest("k"); ok {
+		t.Fatal("applied before it landed")
+	}
+	clk.Advance(time.Second)
+	if m, ok := s.Manifest("k"); !ok || m.Epoch != 1 {
+		t.Fatalf("after landing: %+v %v", m, ok)
+	}
+	s.SetFaults(durabletest.Faults{LandLate: time.Second}) // conditional on a version that has moved: refused when it lands
+	s.PublishManifest(ctx, durable.Manifest{Key: "k", Epoch: 2}, durable.NoVersion)
+	clk.Advance(time.Second)
+	if m, _ := s.Manifest("k"); m.Epoch != 1 {
+		t.Fatalf("a stale late publish applied: %+v", m)
+	}
+}

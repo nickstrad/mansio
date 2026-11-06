@@ -21,14 +21,6 @@ import (
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
-// pendingPub is one publish or stamp of ours whose outcome is in doubt. unseen: its re-read failed, so nothing
-// is known; otherwise the re-read still showed ver (it had not applied then, but a request still in flight
-// could land later).
-type pendingPub struct {
-	m      durable.Manifest
-	unseen bool
-}
-
 // wbLock serializes an entry's write-backs, passivation and stamps. It is held across store calls, so a caller
 // waiting for it must be able to give up (Release It: waiting is not working): lockCtx honours ctx. A channel,
 // not a sync.Mutex, also lets a simulation see a waiter as blocked (synctest). The zero value is unlocked.
@@ -87,8 +79,8 @@ type durableState struct {
 	ver     durable.Version
 	lastGen uint64 // highest generation this host tried to upload for the key
 	// pending are the publishes and stamps of ours that failed and might still apply, or might have, oldest
-	// first: every unseen one, and the newest seen one. All are conditional on ver, so at most one applied.
-	pending  []pendingPub
+	// first. All are conditional on ver, so at most one of them applied (or ever will).
+	pending  []durable.Manifest
 	stranded bool // passivation's write-back failed and the file could not be reopened
 	// published are the generation objects this entry saw published, oldest first: the current one and the
 	// ones owner-side retention has not deleted yet (guide GC2).
@@ -359,8 +351,8 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 	return err == nil && info.Holds(d)
 }
 
-// maxPending bounds the unseen publishes in e.pending (S1: everything that accumulates has a reaper): with that
-// many in doubt, publish settles them by a re-read before it sends another. Seen ones are kept at one.
+// maxPending bounds e.pending (S1: everything that accumulates has a reaper): with that many in doubt, publish
+// settles them by a re-read before it sends another.
 const maxPending = 8
 
 // publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
@@ -377,24 +369,33 @@ const maxPending = 8
 //   - it is another writer's (the version moved to none of ours, or ours vanished): e.stale is set and the
 //     error is ErrStale;
 //
-//   - it is still the version we published on: nothing applied yet; ours joins e.pending in place of any
-//     earlier such one (a request still in flight could land later);
+//   - it is still the version we published on: nothing applied yet; ours joins e.pending (a request still in
+//     flight may land later: every pending one is kept, so a late one is recognised as ours);
 //
-//   - the re-read failed: ours joins e.pending, unseen, and a 412 does NOT come back as ErrStale: an earlier
+//   - the re-read failed: ours joins e.pending, and a 412 does NOT come back as ErrStale: an earlier
 //     pending publish of ours, or a re-send of this one (ApplyThenStale), may have caused it. ErrStale means
 //     a re-read showed another writer (guide R4; the owner.WriteBack contract: owner fences a key superseded
 //     on it, and a superseded key's unpublished writes are discarded). Safety does not need the eager answer:
 //     every later publish is conditional, so another writer is still refused, and found by the next re-read.
 //
-// An unseen pending publish is never dropped by a later one: every one of ours is conditional on e.ver, so any
-// of them may be the one that applied (found by the DST-1 sim). A successful conditional publish proves none
-// did. A publish the breaker refused was never sent: it is not pending.
+// A pending publish is never dropped by a later one: every one of ours is conditional on e.ver, so any of them
+// may be the one that applied, or lands late (found by the DST-1 sim and its review). A successful
+// conditional publish proves none did, nor can. A publish the breaker refused was never sent: not pending.
+// Whatever the re-read, a failed publish never returns ErrStale unless the re-read showed another writer.
 //
 //	pre:  e.wb is held
 //	post: err == nil ⇒ e.man is the returned manifest, e.ver its version, and nothing is pending
-//	post: errors.Is(err, durable.ErrStale) ⇒ e.stale (a re-read showed another writer)
+//	post: errors.Is(err, durable.ErrStale) ⇒ build refused it on what e knows, or a re-read showed another
+//	      writer (then e.stale); never a store's 412 alone (unknownOutcome)
 func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur *durable.Manifest) (durable.Manifest, error)) (durable.Manifest, error) {
-	if unseen(e.pending) >= maxPending {
+	m, err := h.publishOnce(ctx, key, e, build)
+	assert.That(err != nil || len(e.pending) == 0, "publish(%s) succeeded with %d publishes still pending", key, len(e.pending))
+	return m, err
+}
+
+// publishOnce is publish without its postcondition checks.
+func (h *Host) publishOnce(ctx context.Context, key string, e *entry, build func(cur *durable.Manifest) (durable.Manifest, error)) (durable.Manifest, error) {
+	if len(e.pending) >= maxPending {
 		if err := h.settlePending(ctx, key, e); err != nil {
 			return durable.Manifest{}, err
 		}
@@ -422,14 +423,9 @@ func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur
 		switch {
 		case rerr != nil && !errors.Is(rerr, durable.ErrNoManifest):
 			if sent {
-				e.pending = append(e.pending, pendingPub{m: next, unseen: true})
+				e.pending = append(e.pending, next)
 			}
-			if !errors.Is(err, durable.ErrStale) {
-				return durable.Manifest{}, err
-			}
-			return durable.Manifest{}, errs.Wrap(module, rerr,
-				"the outcome of publishing %s is unknown: the store answered 412, which a pending publish of ours or a re-send of this one may have caused, and the re-read failed; kept pending, safe to retry",
-				key).With("publish_error", err.Error())
+			return durable.Manifest{}, unknownOutcome(key, err, rerr)
 		case rerr == nil && sent && stored.Same(next):
 			e.man, e.ver, e.pending = stored, sv, nil
 			return stored, nil
@@ -439,10 +435,10 @@ func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur
 			e.stale.Store(true)
 			return durable.Manifest{}, errs.Wrap(module, errors.Join(durable.ErrStale, err),
 				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", stored.Key, stored.Generation, stored.Epoch)
-		case sent: // the re-read still shows ver: not applied (yet); of those, only the newest is kept
-			e.pending = append(slices.DeleteFunc(e.pending, func(p pendingPub) bool { return !p.unseen }), pendingPub{m: next})
+		case sent: // the re-read still shows ver: not applied, yet (it may still land)
+			e.pending = append(e.pending, next)
 		}
-		return durable.Manifest{}, err
+		return durable.Manifest{}, unknownOutcome(key, err, nil)
 	}
 }
 
@@ -456,7 +452,7 @@ func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 	switch {
 	case rerr != nil && !errors.Is(rerr, durable.ErrNoManifest):
 		return errs.Wrap(module, rerr, "cannot publish %s: %d earlier publishes of ours have an unknown outcome and the re-read failed; nothing sent, safe to retry",
-			key, unseen(e.pending))
+			key, len(e.pending))
 	case rerr == nil && e.adoptPending(stored, sv):
 	case !e.otherWriter(stored, sv, rerr):
 		e.pending = nil // none applied
@@ -467,21 +463,23 @@ func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 	return nil
 }
 
-// unseen counts the pending publishes whose re-read failed.
-func unseen(pending []pendingPub) int {
-	n := 0
-	for _, p := range pending {
-		if p.unseen {
-			n++
-		}
+// unknownOutcome is a failed publish whose re-read did not show another writer. A 412 (ErrStale) then cannot be
+// told from our own doing (a pending publish of ours, or a re-send of this one), so it is returned without
+// ErrStale in the chain: ErrStale ⇒ e.stale ⇒ a re-read showed another writer. cause is the re-read's error,
+// or nil when the re-read answered (and showed our version).
+func unknownOutcome(key string, err, cause error) error {
+	if !errors.Is(err, durable.ErrStale) {
+		return err
 	}
-	return n
+	return errs.Wrap(module, cause,
+		"the outcome of publishing %s is unknown: the store answered 412, which a pending publish of ours or a re-send of this one may have caused, and the re-read showed no other writer; kept pending, safe to retry",
+		key).With("publish_error", err.Error())
 }
 
 // adoptPending adopts the re-read manifest (stored, sv) if it is one of e.pending, and reports whether it was.
 func (e *durableState) adoptPending(stored durable.Manifest, sv durable.Version) bool {
 	for _, p := range e.pending {
-		if stored.Same(p.m) {
+		if stored.Same(p) {
 			e.man, e.ver, e.pending = stored, sv, nil // the others were conditional on the old version: none can apply now
 			e.raiseEpoch(stored.Epoch)                // a pending stamp may have raised it
 			return true
@@ -496,7 +494,7 @@ func (e *durableState) otherWriter(stored durable.Manifest, sv durable.Version, 
 	if rerr != nil {
 		return e.ver != durable.NoVersion
 	}
-	return sv != e.ver && !slices.ContainsFunc(e.pending, func(p pendingPub) bool { return stored.Same(p.m) })
+	return sv != e.ver && !slices.ContainsFunc(e.pending, stored.Same)
 }
 
 // Passivate drops key's database. In durable mode it first closes the database (so nothing more can be

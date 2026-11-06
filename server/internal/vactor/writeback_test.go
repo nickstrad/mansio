@@ -506,6 +506,43 @@ func TestWaitersBehindAStalledWriteBackHonourTheirDeadline(t *testing.T) {
 	}
 }
 
+// DST-1 review: publish P1 gets no reply but is still in flight; its re-read shows our version, so P1 is kept
+// pending. P2 fails the same way (FailPublish). P1 then lands late. The next publish gets 412 and the re-read
+// shows P1: still pending (a later one must not drop it), so ours, adopted; not another writer.
+func TestLatePendingPublishIsStillOurs(t *testing.T) {
+	r := newDurable(t, nil)
+	clk := r.clk.(*clock)
+	r.s.UseClock(clk)
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{durable.OpPublish: {{LandLate: 10 * time.Second}, {FailPublish: true}}}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	for _, v := range []string{"v2", "v3"} { // P1 (in flight), P2 (failed)
+		r.put("t/a", v)
+		if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+			t.Fatalf("publish of %s: %v; want a failure that is not ErrStale", v, err)
+		}
+	}
+	clk.Advance(10 * time.Second) // P1 lands
+	if r.published("t/a") != "v2" {
+		t.Fatalf("P1 did not land: published %q", r.published("t/a"))
+	}
+	r.put("t/a", "v4")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v4" {
+		t.Fatalf("write-back after P1 landed = %+v, %v (published %q); want P1 adopted and v4 published", res, err, r.published("t/a"))
+	}
+}
+
 func TestHigherEpochMakesWriteBackStale(t *testing.T) {
 	r := newDurable(t, nil)
 	r.s.Seed("t/a", 1, []byte("v1"))

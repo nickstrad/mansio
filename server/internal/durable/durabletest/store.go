@@ -42,6 +42,13 @@ type Faults struct {
 	FailList        bool          // ListKey and ListKeys fail
 	FailDelete      bool          // DeleteGenerations deletes the first half of the names, then fails
 	Delay           time.Duration // every call sleeps this long first (or until ctx ends), on the store's clock
+	// LandLate: PublishManifest answers ErrInjected at once (no reply) but the request is still in flight: it
+	// lands LandLate later on the store's clock, its condition checked then, like a PUT S3 completes after the
+	// client gave up. A zombie of a crashed process lands too.
+	LandLate time.Duration
+	// LandTag labels a LandLate request for the predicate SetLandIf installs (a simulation tags each request
+	// with the process that sent it, and decides whether a dead process's request still lands).
+	LandTag uint64
 }
 
 // CallFaults decides the switches for one call (SetCallFaults): op is the call's durable.Op* name
@@ -59,7 +66,8 @@ type Store struct {
 	mod       map[string]time.Time // object name → when it was stored (the store's LastModified)
 	next      uint64               // version counter
 	f         Faults
-	call      CallFaults       // nil: every call gets f
+	call      CallFaults // nil: every call gets f
+	landIf    func(tag uint64) bool
 	clk       det.Clock        // Delay waits and fetch timings
 	clock     func() time.Time // stamps LastModified (and Seed's manifest)
 
@@ -85,6 +93,14 @@ func (s *Store) UseClock(c det.Clock) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clk, s.clock = det.Or(c), det.Or(c).Now
+}
+
+// SetLandIf installs the predicate asked when a LandLate request lands, with its LandTag; false drops it. nil:
+// every one lands.
+func (s *Store) SetLandIf(f func(tag uint64) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.landIf = f
 }
 
 // SetCallFaults has f decide the switches of every later call (nil: back to SetFaults alone). f runs once per
@@ -392,6 +408,26 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 	if f.FailPublish {
 		return durable.NoVersion, fmt.Errorf("publish %s: %w", m.Key, ErrInjected)
 	}
+	if f.LandLate > 0 {
+		s.mu.Lock()
+		clk := s.clk
+		s.mu.Unlock()
+		tag := f.LandTag
+		clk.AfterFunc(f.LandLate, func() {
+			s.mu.Lock()
+			land := s.landIf
+			s.mu.Unlock()
+			if land == nil || land(tag) {
+				_, _ = s.publish(m, prev, Faults{})
+			}
+		})
+		return durable.NoVersion, fmt.Errorf("publish %s: no reply (the request is still in flight): %w", m.Key, ErrInjected)
+	}
+	return s.publish(m, prev, f)
+}
+
+// publish applies a conditional publish under the lock, then reports as f says.
+func (s *Store) publish(m durable.Manifest, prev durable.Version, f Faults) (durable.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.manifests[m.Key]

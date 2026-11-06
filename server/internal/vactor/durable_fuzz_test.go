@@ -77,20 +77,28 @@ func FuzzDurableHostModel(f *testing.F) {
 		published, local := map[string]string{}, map[string]string{}
 		warm, dirty, fenced := map[string]bool{}, map[string]bool{}, map[string]bool{}
 		known := map[string]bool{} // the host has seen ErrStale for this warm key (and could re-read)
-		// unseen counts this warm key's publishes whose outcome the host never saw (warm stamps under Down: the
-		// publish and its re-read both failed); with vactor.MaxPending of them it re-reads before it sends more.
-		unseen := map[string]int{}
+		// pend counts this warm key's publishes the host keeps pending (one that failed without the re-read
+		// showing another writer: under FailPublish, or a warm stamp under Down); with vactor.MaxPending of them
+		// it settles them by a re-read before it sends more, and fails if that re-read fails.
+		pend := map[string]int{}
 		own := map[string]uint64{} // our ownership epoch per key
 		fault := durabletest.Faults{}
+		settled := func(k string) bool { return pend[k] < vactor.MaxPending || !fault.FailRead && !fault.Down }
 		// writeBackFails predicts a write-back of a dirty, unfenced key under the current fault.
 		writeBackFails := func(k string) bool {
-			return fault.FailUpload || fault.FailPublish || fault.Down || fault.FailRead && unseen[k] >= vactor.MaxPending
+			return fault.FailUpload || fault.FailPublish || fault.Down || !settled(k)
 		}
 		activationFails := func(k string) bool {
 			return fenced[k] || fault.FailRead || fault.Down || (fault.FailFetch && published[k] != "")
 		}
 		// wbOutcome checks the result of a write-back of a warm dirty key and reports whether it published.
 		wbOutcome := func(step int, what, k string, err error) bool {
+			if pend[k] >= vactor.MaxPending && settled(k) && !fault.FailUpload {
+				pend[k] = 0 // the host re-read first: nothing of ours applied (durabletest has no late publish here)
+			}
+			if fault.FailPublish && !fenced[k] && !known[k] {
+				defer func() { pend[k]++ }() // published nothing, re-read showed our version: kept pending
+			}
 			switch {
 			case known[k]:
 				if !errors.Is(err, durable.ErrStale) {
@@ -115,7 +123,7 @@ func FuzzDurableHostModel(f *testing.F) {
 				if err != nil {
 					t.Fatalf("step %d: %s(%s): %v (fault %+v)", step, what, k, err, fault)
 				}
-				unseen[k] = 0
+				pend[k] = 0
 				return true
 			}
 			return false
@@ -165,7 +173,7 @@ func FuzzDurableHostModel(f *testing.F) {
 					if err != nil {
 						t.Fatalf("step %d: cold Get(%s): %v (fault %+v)", step, key, err, fault)
 					}
-					warm[key], local[key], dirty[key], unseen[key] = true, published[key], false, 0
+					warm[key], local[key], dirty[key], pend[key] = true, published[key], false, 0
 				}
 				if script[i]%11 == 1 {
 					v := fmt.Sprintf("s%d", step)
@@ -255,9 +263,13 @@ func FuzzDurableHostModel(f *testing.F) {
 				_, err := h.Stamp(ctx, key, ep, gen)
 				switch {
 				case !warm[key] || err == nil:
-					unseen[key] = 0 // a cold stamp keeps nothing pending; a stamp that applied settled the rest
-				case fault.Down && unseen[key] < vactor.MaxPending:
-					unseen[key]++
+					pend[key] = 0 // a cold stamp keeps nothing pending; a stamp that applied settled the rest
+				case !settled(key): // the settling re-read failed: nothing sent
+				case fault.Down || fault.FailPublish:
+					if pend[key] >= vactor.MaxPending {
+						pend[key] = 0
+					}
+					pend[key]++
 				}
 				if err != nil && !fault.Down && !fault.FailPublish && !fault.FailRead {
 					t.Fatalf("step %d: Stamp(%s, %d, %d) under %+v: %v", step, key, ep, gen, fault, err)
