@@ -1,0 +1,16 @@
+{
+  "listen": "127.0.0.1:7070",
+  "health_listen": "127.0.0.1:7071",
+  "vm": "vm-local",
+  "db_dir": "../../results/front/dbs",
+  "keys_file": "../../results/front/keys/keys.json",
+  "clock_skew": "5s",
+  "max_ticket_ttl": "10m",
+  "admission": {"tenant_in_flight": 256, "tenant_queue": 1024, "db_in_flight": 64, "db_queue": 256},
+  "limits": {"max_body": 1048576, "max_sql": 65536, "max_args": 999, "max_rows": 10000},
+  "default_timeout": "2s",
+  "statement_timeout": "200ms",
+  "drain_timeout": "10s",
+  "actor": {"mailbox_size": 256, "max_batch": 64},
+  "log_file": "../../results/front/agentd.log"
+}

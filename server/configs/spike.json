@@ -1,0 +1,69 @@
+{
+  "name": "spike",
+  "workers": 2048,
+  "keep_dbs": true,
+  "phases": [
+    {
+      "name": "baseline",
+      "dbs": 2000,
+      "duration": "10s",
+      "start_qpm": 300000,
+      "shape": "step"
+    },
+    {
+      "name": "waves",
+      "dbs": 2000,
+      "duration": "40s",
+      "start_qps": 5000,
+      "end_qps": 50000,
+      "shape": "sine",
+      "period": "20s"
+    },
+    {
+      "name": "spike",
+      "dbs": 2000,
+      "duration": "5s",
+      "start_qps": 80000,
+      "shape": "step"
+    },
+    {
+      "name": "recover",
+      "dbs": 2000,
+      "duration": "15s",
+      "start_qps": 5000,
+      "shape": "step"
+    }
+  ],
+  "clients": [
+    {
+      "name": "good",
+      "share": 0.7,
+      "retry": {
+        "max_attempts": 3,
+        "backoff": "exponential",
+        "base": "20ms",
+        "max": "1s",
+        "jitter": "full",
+        "retry_on": [
+          "shed",
+          "aborted",
+          "expired"
+        ],
+        "budget_ratio": 0.1,
+        "total_timeout": "3s"
+      }
+    },
+    {
+      "name": "bad",
+      "share": 0.3,
+      "retry": {
+        "max_attempts": 10,
+        "backoff": "none",
+        "jitter": "none",
+        "retry_on": [
+          "any"
+        ]
+      }
+    }
+  ]
+}

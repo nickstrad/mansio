@@ -1,0 +1,13 @@
+{
+  "listen": "127.0.0.1:17443",
+  "health_listen": "127.0.0.1:17444",
+  "tls": {"cert_file": "tls/server.crt", "key_file": "tls/server.key"},
+  "keys_url": "https://127.0.0.1:17080/v1/keys",
+  "control_ca_file": "tls/ca.pem",
+  "keys_file": "edge-ticket-keys.json",
+  "registry": {"url": "https://127.0.0.1:17080/v1/agents", "token_file": "edge-token", "refresh": "10s", "timeout": "2s", "agent_scheme": "https"},
+  "agent_tls": {"ca_file": "tls/ca.pem"},
+  "ticket_cache": 10000,
+  "rate_limit": {"verifies_per_second": 500, "burst": 1000},
+  "log_file": "edge.log"
+}

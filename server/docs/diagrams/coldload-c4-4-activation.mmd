@@ -1,0 +1,17 @@
+%% draw-visual:
+sequenceDiagram
+  autonumber
+  participant W1 as worker1
+  participant W2 as worker2
+  participant H as Host
+  participant S as S3
+  participant X as actor
+  W1->>H: Get key
+  W2->>H: Get key
+  Note over H: one activation
+  H->>S: GET
+  H->>X: Start
+  H->>X: first query
+  H->>X: warm
+  H-->>W1: Result
+  H-->>W2: Result, waited

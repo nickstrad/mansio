@@ -1,0 +1,5 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  MAIN[cmd/sqlbench] -->|1 config| LOAD[load]
+  MAIN -->|2 Run| BENCH[bench]
+  BENCH -->|3| LOAD

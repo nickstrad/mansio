@@ -1,0 +1,9 @@
+%% draw-visual: -x 2 -y 1 -p 0
+graph TD
+  BENCH[bench] -->|4| SCH[schema]
+  BENCH -->|5| WL[workload]
+  BENCH -->|6| RET[retry]
+  BENCH -->|7| ACT[actor]
+  BENCH -->|8| ST[stats]
+  BENCH -->|9| OUT[outcome]
+  BENCH -->|10| PX[panicx]

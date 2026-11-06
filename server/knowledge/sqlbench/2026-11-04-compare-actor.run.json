@@ -1,0 +1,191 @@
+{
+  "config": {
+    "name": "compare-actor",
+    "out_dir": "results/compare-actor",
+    "db_dir": "/var/folders/bh/gj52slt51639d18cgb918pcr0000gn/T/ts-db-go/v1-s1-t1_5-c2_8-r0_500-i0.3-p0.5",
+    "keep_dbs": true,
+    "mode": "actor",
+    "setup_workers": 18,
+    "workers": 2048,
+    "statement_timeout": "200ms",
+    "request_timeout": "2s",
+    "sample_every": "250ms",
+    "record_fraction": 1,
+    "seed": 1,
+    "actor": {
+      "mailbox_size": 0,
+      "max_batch": 0,
+      "read_conns": 0,
+      "idle_close": "0s",
+      "synchronous": "",
+      "cache_kib": 0,
+      "busy_timeout": "0s",
+      "stmt_cache": 0
+    },
+    "schema": {
+      "min_tables": 0,
+      "max_tables": 0,
+      "min_columns": 0,
+      "max_columns": 0,
+      "min_rows": 0,
+      "max_rows": 0,
+      "index_prob": 0,
+      "parent_prob": 0
+    },
+    "workload": {
+      "slow_cte_iterations": 0,
+      "bulk_min": 0,
+      "bulk_max": 0,
+      "range_max": 0
+    },
+    "mix": {
+      "aggregate": 3,
+      "bulk_insert": 3,
+      "cross_join": 0.5,
+      "delete": 2,
+      "filter_scan": 3,
+      "index_lookup": 12,
+      "insert": 12,
+      "join": 5,
+      "point_read": 35,
+      "range_scan": 6,
+      "slow_cte": 0.5,
+      "top_n": 2,
+      "update": 10,
+      "upsert": 6
+    },
+    "distribution": {
+      "kind": "uniform",
+      "s": 0
+    },
+    "clients": [
+      {
+        "name": "default",
+        "share": 1,
+        "retry": {
+          "max_attempts": 0,
+          "backoff": "",
+          "base": "0s",
+          "max": "0s",
+          "jitter": "",
+          "retry_on": null,
+          "budget_ratio": 0,
+          "total_timeout": "0s"
+        }
+      }
+    ],
+    "phases": [
+      {
+        "name": "1k-dbs",
+        "dbs": 1000,
+        "duration": "15s",
+        "start_qps": 2000,
+        "end_qps": 20000,
+        "start_qpm": 0,
+        "end_qpm": 0,
+        "shape": "linear",
+        "period": "15s",
+        "mix": {
+          "aggregate": 3,
+          "bulk_insert": 3,
+          "cross_join": 0.5,
+          "delete": 2,
+          "filter_scan": 3,
+          "index_lookup": 12,
+          "insert": 12,
+          "join": 5,
+          "point_read": 35,
+          "range_scan": 6,
+          "slow_cte": 0.5,
+          "top_n": 2,
+          "update": 10,
+          "upsert": 6
+        },
+        "distribution": {
+          "kind": "uniform",
+          "s": 0
+        },
+        "client_shares": {
+          "default": 1
+        }
+      },
+      {
+        "name": "1k-hold",
+        "dbs": 1000,
+        "duration": "15s",
+        "start_qps": 20000,
+        "end_qps": 20000,
+        "start_qpm": 0,
+        "end_qpm": 0,
+        "shape": "step",
+        "period": "15s",
+        "mix": {
+          "aggregate": 3,
+          "bulk_insert": 3,
+          "cross_join": 0.5,
+          "delete": 2,
+          "filter_scan": 3,
+          "index_lookup": 12,
+          "insert": 12,
+          "join": 5,
+          "point_read": 35,
+          "range_scan": 6,
+          "slow_cte": 0.5,
+          "top_n": 2,
+          "update": 10,
+          "upsert": 6
+        },
+        "distribution": {
+          "kind": "uniform",
+          "s": 0
+        },
+        "client_shares": {
+          "default": 1
+        }
+      },
+      {
+        "name": "5k-dbs",
+        "dbs": 5000,
+        "duration": "15s",
+        "start_qps": 20000,
+        "end_qps": 40000,
+        "start_qpm": 0,
+        "end_qpm": 0,
+        "shape": "linear",
+        "period": "15s",
+        "mix": {
+          "aggregate": 3,
+          "bulk_insert": 3,
+          "cross_join": 0.5,
+          "delete": 2,
+          "filter_scan": 3,
+          "index_lookup": 12,
+          "insert": 12,
+          "join": 5,
+          "point_read": 35,
+          "range_scan": 6,
+          "slow_cte": 0.5,
+          "top_n": 2,
+          "update": 10,
+          "upsert": 6
+        },
+        "distribution": {
+          "kind": "uniform",
+          "s": 0
+        },
+        "client_shares": {
+          "default": 1
+        }
+      }
+    ]
+  },
+  "driver": "modernc.org/sqlite (pure Go)",
+  "go": "go1.26.4",
+  "goarch": "arm64",
+  "gomaxprocs": 18,
+  "goos": "darwin",
+  "nofile_soft": 245760,
+  "num_cpu": 18,
+  "schema_fingerprint": "v1-s1-t1_5-c2_8-r0_500-i0.3-p0.5",
+  "started": "2026-11-04T19:07:49-06:00"
+}

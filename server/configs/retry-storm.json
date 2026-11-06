@@ -1,0 +1,135 @@
+{
+  "name": "retry-storm",
+  "workers": 2048,
+  "keep_dbs": true,
+  "statement_timeout": "100ms",
+  "request_timeout": "500ms",
+  "actor": {
+    "mailbox_size": 32,
+    "max_batch": 64
+  },
+  "distribution": {
+    "kind": "zipf",
+    "s": 1.2
+  },
+  "clients": [
+    {
+      "name": "good",
+      "share": 1,
+      "retry": {
+        "max_attempts": 4,
+        "backoff": "exponential",
+        "base": "25ms",
+        "max": "2s",
+        "jitter": "full",
+        "retry_on": [
+          "shed",
+          "aborted",
+          "expired"
+        ],
+        "budget_ratio": 0.1,
+        "total_timeout": "5s"
+      }
+    },
+    {
+      "name": "no-jitter",
+      "share": 1,
+      "retry": {
+        "max_attempts": 4,
+        "backoff": "exponential",
+        "base": "25ms",
+        "max": "2s",
+        "jitter": "none",
+        "retry_on": [
+          "shed",
+          "aborted",
+          "expired"
+        ]
+      }
+    },
+    {
+      "name": "bad",
+      "share": 1,
+      "retry": {
+        "max_attempts": 10,
+        "backoff": "none",
+        "jitter": "none",
+        "retry_on": [
+          "any"
+        ]
+      }
+    }
+  ],
+  "phases": [
+    {
+      "name": "calm-good",
+      "dbs": 1000,
+      "duration": "10s",
+      "start_qps": 5000,
+      "shape": "step",
+      "client_shares": {
+        "good": 1
+      }
+    },
+    {
+      "name": "overload-good",
+      "dbs": 1000,
+      "duration": "15s",
+      "start_qps": 60000,
+      "shape": "step",
+      "client_shares": {
+        "good": 1
+      }
+    },
+    {
+      "name": "recover-good",
+      "dbs": 1000,
+      "duration": "10s",
+      "start_qps": 5000,
+      "shape": "step",
+      "client_shares": {
+        "good": 1
+      }
+    },
+    {
+      "name": "overload-nojitter",
+      "dbs": 1000,
+      "duration": "15s",
+      "start_qps": 60000,
+      "shape": "step",
+      "client_shares": {
+        "no-jitter": 1
+      }
+    },
+    {
+      "name": "recover-nojitter",
+      "dbs": 1000,
+      "duration": "10s",
+      "start_qps": 5000,
+      "shape": "step",
+      "client_shares": {
+        "no-jitter": 1
+      }
+    },
+    {
+      "name": "overload-bad",
+      "dbs": 1000,
+      "duration": "15s",
+      "start_qps": 60000,
+      "shape": "step",
+      "client_shares": {
+        "bad": 1
+      }
+    },
+    {
+      "name": "recover-bad",
+      "dbs": 1000,
+      "duration": "10s",
+      "start_qps": 5000,
+      "shape": "step",
+      "client_shares": {
+        "bad": 1
+      }
+    }
+  ]
+}

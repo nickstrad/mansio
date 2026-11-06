@@ -1,0 +1,26 @@
+# knowledge index
+
+One line per topic folder or key note. Newest first within a section. Rules: `AGENTS.md`.
+
+## Topics
+
+- [determinism/](determinism/README.md): DST-0 seams in `internal/det` (`Clock`, `Rand`, `IDGen`; `dettest.Clock` manual clock with clock-aware context deadlines), where they are threaded, the lint banning wall clock / global rand / ctx timeouts in 14 simulated packages, and what is still non-deterministic for DST-1. Owner: DST builder.
+- [coding style](../docs/coding-style.md): one-page rules for all code, summarizing the guides in [docs/books/](../docs/books/README.md) (Release It!, Art of PostgreSQL, Object Storage, plus testing and concurrency here). Read before planning. Owner: coordinator.
+- [control-plane plan](../docs/control-plane-plan.md): 2026-11-05 standing after writeback/fencing/front landed, the three flows (route, new db, place+warm cold db), and the build order to a client that reaches the right process. Owner: coordinator.
+- [front/](front/README.md): the agent's network front: Ed25519 tickets, per-tenant/per-db admission, `Admitter`/`Executor` ports, wire codes; pipeline −7% vs in-process actor, loopback HTTP ~7× slower; ticket verify 26 µs (cached 53 ns). Owner: front agent.
+  - [2026-11-05 agentd admin controls](front/2026-11-05-agentd-admin-controls.md) (CP-4, RI-16): loopback admin listener (breaker trip/reset, fetch limit, drain, passivate, log level) + `agentctl`; trip → cold keys unavailable with 0 S3 calls.
+  - [2026-11-05 agentd durable mode](front/2026-11-05-agentd-durable-mode.md) (CP-1): vactor + owner + S3 wired; lifecycle endpoints; kill -9 / S3 outage / SIGTERM gates pass.
+  - [2026-11-05 request ids](front/2026-11-05-request-ids.md) (CP-2): exactly-once writes per database via `_tsdb_requests`; duplicate → `ok` + `duplicate: true`; +4 µs/write at batch 64.
+  - [2026-11-05 client](front/2026-11-05-client.md) (CP-6): Go client through the locator; Retry-After + windowed budget wired (RI-10); 0 errors during moves; retry-storm ≤ 0.093 per 1 s window.
+  - [2026-11-05 edge](front/2026-11-05-edge.md) (CP-7): stateless TLS edge routing on the ticket's vm claim; misses rate-limited per source, per-agent breaker; +70 µs p50 plain / +110–135 µs TLS at low load; flood: 180 of 297k forged tickets verified.
+  - [2026-11-05 controld](front/2026-11-05-controld.md) (CP-4): registries, M8 placement policy (dominant share under caps), create/move/suspend/drop/M5 restore, resumer from table scans; gate: 100 creates, move under load with no lost/duplicate writes, kill -9 + attested restore.
+- [writeback/](writeback/README.md): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; VACUUM INTO stalls writes ~0.8 GB/s; SeaweedFS conditional PUT documented but unverified. Owner: writeback agent.
+- [writeback/](writeback/README.md) (2026-11-05: [scoped S3 identities + TLS, OS-11](writeback/2026-11-05-s3-scoped-identities.md)): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; VACUUM INTO stalls writes ~0.8 GB/s; SeaweedFS conditional PUT documented but unverified. Owner: writeback agent.
+- [writeback/](writeback/README.md): warm → cold durability: immutable generations + conditional manifest (`internal/durable`), write-back before passivation, RPO by interval/commits, idle + LRU budget eviction; snapshot by backup API on a reader (no write stall, CP-8); TestS3Compat passes on SeaweedFS (single and 2-filer cluster) and MinIO. Owner: writeback agent.
+- [fencing/](fencing/README.md): single-owner fencing per database (`internal/owner`): epochs, durable local ACTIVE/FENCED, drain-then-write-back fence, storage stamp backstop, resumable moves; safety argument, Postgres placement note, Admit 9 ns. Owner: fencing agent.
+- [testing/](testing/README.md): how we test (Aniche): domain vs integration, pre/postconditions + assertions + invariants (`internal/assert`), spec tables with on/off points, fakes with fault switches, contract suites, model-based fuzzing. Owner: coldload agent; others add dated notes.
+- [concurrency-in-go/](concurrency-in-go/README.md): Cox-Buday error handling + logging (Result pattern, panic forwarding, wrap at module boundaries, log once with log ID); `internal/errs`, `internal/logx`. Owner: coldload agent; others add dated notes.
+- [multi-agent-coordination/](multi-agent-coordination/README.md): how several agents share one repo: per-agent state files, append-only `shared_state.md`, `scripts/lock.sh` / `shared-note.sh` (copies inside). Owner: sqlbench agent.
+- [sqlbench/](sqlbench/README.md): goroutine-per-database actors vs one global lock under generated load; throughput, latency, per-db cost, read pools, retries. Owner: sqlbench agent.
+- [coldload/](coldload/README.md): SQLite files from SeaweedFS (S3) → ready virtual actors; fetch/open/warm timings by size and concurrency. Owner: coldload agent.
+  - [2026-11-04 sizes](coldload/2026-11-04-sizes/README.md): fetch is ~all of ready time; ~250–290 MB/s cap; bound downloads by bytes in flight.

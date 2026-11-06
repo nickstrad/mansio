@@ -1,0 +1,29 @@
+{
+  "name": "smoke",
+  "sizes": [
+    {
+      "name": "64k",
+      "size": "64KiB",
+      "count": 40
+    },
+    {
+      "name": "1m",
+      "size": "1MiB",
+      "count": 40
+    },
+    {
+      "name": "16m",
+      "size": "16MiB",
+      "count": 10
+    }
+  ],
+  "concurrency": [
+    1,
+    8
+  ],
+  "per_level": 10,
+  "warm_queries": [
+    "SELECT count(*), sum(length(payload)) FROM items"
+  ],
+  "dup_callers": 100
+}

@@ -1,0 +1,24 @@
+{
+  "identities": [
+    {
+      "name": "coldload",
+      "credentials": [{ "accessKey": "coldload", "secretKey": "coldload-secret" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    },
+    {
+      "name": "agent",
+      "credentials": [{ "accessKey": "agent", "secretKey": "agent-secret-dev" }],
+      "actions": ["Read:coldload", "Write:coldload", "Read:tsdb", "Write:tsdb"]
+    },
+    {
+      "name": "gc",
+      "credentials": [{ "accessKey": "gc", "secretKey": "gc-secret-dev" }],
+      "actions": ["Read:coldload", "List:coldload", "Write:coldload", "Read:tsdb", "List:tsdb", "Write:tsdb"]
+    },
+    {
+      "name": "bench",
+      "credentials": [{ "accessKey": "bench", "secretKey": "bench-secret-dev" }],
+      "actions": ["Admin", "Read", "List", "Write"]
+    }
+  ]
+}

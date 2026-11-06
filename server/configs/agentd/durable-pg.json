@@ -1,0 +1,16 @@
+{
+  "listen": "127.0.0.1:7070",
+  "health_listen": "127.0.0.1:7071",
+  "admin_listen": "127.0.0.1:7072",
+  "vm": "vm-local",
+  "keys_url": "http://127.0.0.1:7080/v1/keys",
+  "keys_file": "../../results/agentd/ticket-keys.json",
+  "s3": {"endpoint": "localhost:8333", "bucket": "tsdb", "prefix": "agentd/"},
+  "secrets_file": "../../results/agentd/secrets.json",
+  "cache_dir": "../../results/agentd/cache",
+  "owner_dir": "../../results/agentd/owner",
+  "placement_pg": {},
+  "cache_bytes": 8589934592,
+  "maintenance": {"interval": "1s", "write_back_every": "10s", "idle_after": "5m"},
+  "log_file": "../../results/agentd/agentd.log"
+}

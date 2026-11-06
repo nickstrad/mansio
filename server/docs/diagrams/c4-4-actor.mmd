@@ -1,0 +1,8 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  W[bench worker] -->|1 Submit| MB[mailbox]
+  MB -->|2| RUN[actor loop]
+  RUN -->|3 writes| WC[write conn]
+  RUN -->|4 reads| RQ[read pool]
+  WC -->|5| F[SQLite file]
+  RQ -->|6| F

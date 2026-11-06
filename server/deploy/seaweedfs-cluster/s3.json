@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "coldload",
+      "credentials": [{ "accessKey": "coldload", "secretKey": "coldload-secret" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

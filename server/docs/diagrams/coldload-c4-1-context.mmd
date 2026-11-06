@@ -1,0 +1,7 @@
+%% draw-visual: -x 4 -y 1 -p 0
+graph TD
+  ENG[Engineer] -->|1| CL[coldload]
+  CL -->|2| SW[SeaweedFS S3]
+  CL -->|3| RES[results CSV]
+  RES -->|4| DUCK[DuckDB CLI]
+  DUCK -->|5| REP[report]
