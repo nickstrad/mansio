@@ -43,6 +43,8 @@ func seeds(t *testing.T) []uint64 {
 func run(t *testing.T, cfg sim.Config) sim.Result {
 	t.Helper()
 	cfg.Dir = t.TempDir()
+	cfg.Zombies = cfg.Zombies || os.Getenv("MANSIO_SIM_ZOMBIES") != ""
+	cfg.KeepGoing = cfg.KeepGoing || os.Getenv("MANSIO_SIM_KEEPGOING") != ""
 	var live io.Writer
 	if os.Getenv("MANSIO_SIM_TRACE") != "" {
 		live = os.Stdout

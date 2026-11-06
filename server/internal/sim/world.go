@@ -98,6 +98,8 @@ type world struct {
 	incs  int
 	stats Stats
 
+	crashedAt time.Time // the last crash; restored judges it when the next process starts
+
 	stopClients context.CancelFunc
 	clients     sync.WaitGroup
 	teardowns   []<-chan struct{}
@@ -123,6 +125,7 @@ func (w *world) boot() error {
 	}
 	w.store.UseClock(w.clk)
 	w.store.SetCallFaults(w.callFaults)
+	w.store.SetLandIf(w.lands)
 	w.place.UseClock(w.clk)
 	for _, k := range w.keys {
 		data, err := w.s.Workload.Seed(w.s.Dir, k)
@@ -206,6 +209,7 @@ func (w *world) finish() error {
 	w.faultsOn.Store(false)
 	w.stopClients()
 	w.crash()
+	w.restored()
 	done := make(chan struct{})
 	go func() {
 		w.clients.Wait()
@@ -271,21 +275,7 @@ func (w *world) crash() {
 	w.health.end("breaker", now) // the next process has a new breaker
 	w.count(func(s *Stats) { s.Crashes++ })
 	w.tr.add("sim", "crash: incarnation %d", a.n)
-	for _, k := range w.keys {
-		m, ok := w.store.Manifest(k)
-		var marks []string
-		var err error
-		if ok {
-			marks, err = w.marks(m)
-		}
-		if err != nil {
-			w.model.mu.Lock()
-			w.model.violate(now, k, "the manifest's generation %d cannot be read at the crash: %v", m.Generation, err)
-			w.model.mu.Unlock()
-			continue
-		}
-		w.model.restore(now, k, marks)
-	}
+	w.crashedAt = now
 	if w.crashr.IntN(3) == 0 { // a Put that crashed before its rename leaves a temp file (owner.FileStore drops it)
 		name := filepath.Join(w.ownerDir, fmt.Sprintf("%storn-%d", fsx.TempPrefix, a.n))
 		if err := os.WriteFile(name, []byte("{torn"), 0o644); err == nil {
@@ -297,8 +287,30 @@ func (w *world) crash() {
 	}
 }
 
+// restored judges the crash at w.crashedAt against what a restart starts from now: each manifest's generation
+// (a late publish of the dead process may have landed since the crash).
+func (w *world) restored() {
+	now := w.clk.Now()
+	for _, k := range w.keys {
+		m, ok := w.store.Manifest(k)
+		var marks []string
+		var err error
+		if ok {
+			marks, err = w.marks(m)
+		}
+		if err != nil {
+			w.model.mu.Lock()
+			w.model.violate(now, k, "the manifest's generation %d cannot be read at the restart: %v", m.Generation, err)
+			w.model.mu.Unlock()
+			continue
+		}
+		w.model.restore(w.crashedAt, k, marks)
+	}
+}
+
 // restart starts the next incarnation from the owner directory and the store.
 func (w *world) restart() {
+	w.restored()
 	w.mu.Lock()
 	w.incs++
 	n := w.incs
@@ -353,11 +365,15 @@ func (w *world) callFaults(op, key string, f durabletest.Faults) durabletest.Fau
 		f.Delay = 50*time.Millisecond + time.Duration(n%uint64(p.StallMax))
 		what = append(what, "stall "+f.Delay.String())
 	}
+	late := time.Duration(0)
 	switch {
-	case lose < p.LoseReply && op == durable.OpPublish && n%2 == 0:
+	case lose < p.LoseReply && op == durable.OpPublish && n%3 == 0:
 		f.LosePublishReply, what = true, append(what, "lose-reply")
-	case lose < p.LoseReply && op == durable.OpPublish:
+	case lose < p.LoseReply && op == durable.OpPublish && n%3 == 1:
 		f.ApplyThenStale, what = true, append(what, "apply-then-412")
+	case lose < p.LoseReply && op == durable.OpPublish:
+		late = 50*time.Millisecond + time.Duration(n/3%uint64(10*time.Second))
+		f.LandLate, f.LandTag, what = late, w.incarnation(), append(what, "land-late "+late.String())
 	case lose < p.LoseReply && op == durable.OpPutGen:
 		f.LoseUploadReply, what = true, append(what, "lose-reply")
 	case fail < p.FailCall:
@@ -379,11 +395,35 @@ func (w *world) callFaults(op, key string, f durabletest.Faults) durabletest.Fau
 	}
 	if len(what) > 0 {
 		now := w.clk.Now()
-		w.health.mark(now, now.Add(f.Delay))
+		if f.Delay > 0 { // the tick writes databases back in turn: a stall holds them all
+			w.health.mark("", now, now.Add(f.Delay))
+		}
+		w.health.mark(key, now, now.Add(f.Delay+late))
 		w.count(func(s *Stats) { s.Faults++ })
 		w.tr.add("fault/"+key, "%s %s", op, strings.Join(what, " "))
 	}
 	return f
+}
+
+// incarnation is the running process's number (0 while down): the tag of its late publishes.
+func (w *world) incarnation() uint64 {
+	if a := w.current(); a != nil {
+		return uint64(a.n)
+	}
+	return 0
+}
+
+// lands decides whether a late publish of incarnation tag still lands: always while it lives; after its crash
+// only with Config.Zombies (a dead process's in-flight PUT that S3 completes anyway).
+func (w *world) lands(tag uint64) bool {
+	if a := w.current(); a != nil && uint64(a.n) == tag {
+		return true
+	}
+	if w.s.Zombies {
+		w.tr.add("sim", "a dead process's publish lands")
+		return true
+	}
+	return false
 }
 
 // client is key's one sequential client: think, pick a request, send it with retries, repeat.
@@ -397,7 +437,10 @@ func (w *world) client(ctx context.Context, key string) {
 			return
 		}
 		req := Request{Value: r.Int64N(1000)}
-		switch x := r.Float64() * (m.Write + m.BadWrite + m.Read); {
+		switch x := r.Float64() * (m.Write + m.BadWrite + m.Read + m.Passivate); {
+		case x >= m.Write+m.BadWrite+m.Read:
+			w.passivate(key)
+			continue
 		case x < m.Write:
 			req.Kind, req.ID = Write, ids.NewID()
 			if reuse != "" && r.Float64() < m.Reuse {
@@ -413,6 +456,27 @@ func (w *world) client(ctx context.Context, key string) {
 			reuse = req.ID
 		}
 	}
+}
+
+// passivate is an operator passivating key (agentd's admin passivate) under a deadline. A success means every
+// write acknowledged before it began is published.
+func (w *world) passivate(key string) {
+	a := w.current()
+	if a == nil {
+		w.tr.add("c/"+key, "passivate -> down")
+		return
+	}
+	start := w.clk.Now()
+	c, cancel := det.WithTimeout(a.ctx, w.clk, 10*time.Second)
+	err := a.host.Passivate(c, key)
+	cancel()
+	if !a.g.alive() {
+		return
+	}
+	if err == nil {
+		w.model.durable(key, start)
+	}
+	w.tr.add("c/"+key, "passivate -> %s", errClass(err))
 }
 
 const maxTries = 8

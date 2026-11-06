@@ -29,6 +29,9 @@ type Config struct {
 	RPO time.Duration
 	// KeepGoing runs to the end after a violation (default: stop at the first one).
 	KeepGoing bool
+	// Zombies lets a late publish (Faults.LoseReply) land after its process crashed, as S3 may complete a PUT
+	// of a killed process. Off by default: see knowledge/determinism (DST-1 review) for what it finds.
+	Zombies bool
 }
 
 // Faults are the fault rates. Probabilities are per call or per client request; Every fields are mean gaps of
@@ -43,11 +46,13 @@ type Faults struct {
 	CrashEvery time.Duration // process crashes
 	RestartMax time.Duration // time from a crash to the restart (uniform from 0)
 	ClientLose float64       // the client never sees an answer the agent sent (it retries with the same id)
+	// LoseReply also makes a publish land late (durabletest LandLate: no reply, applied up to 10 s later).
 }
 
 // Mix is the clients' request mix (weights) and pacing.
 type Mix struct {
 	Write, BadWrite, Read float64
+	Passivate             float64       // an operator passivates the client's database (agentd's admin control)
 	Reuse                 float64       // after a failed write, the next write reuses its request id
 	Think                 time.Duration // mean pause between a client's requests
 }
@@ -108,7 +113,7 @@ func (c Config) settle() settings {
 	readConns := r.IntN(2)
 
 	s := settings{Config: c, faults: f, policy: policy, genCache: genCache, readConns: readConns,
-		mix: Mix{Write: 10, BadWrite: 1, Read: 2, Reuse: 0.5, Think: think}}
+		mix: Mix{Write: 10, BadWrite: 1, Read: 2, Passivate: 0.5, Reuse: 0.5, Think: think}}
 	if s.Duration <= 0 {
 		s.Duration = 10 * time.Minute
 	}

@@ -249,8 +249,8 @@ func (m *model) generation(at time.Time, key string, man durable.Manifest, marks
 	km.gen, km.epoch, km.genMarks = man.Generation, man.Epoch, mk
 }
 
-// restore judges a crash at `at`: marks is what the restarted process will start from (the manifest's
-// generation). Every write acknowledged before the last successful write-back must be there, and a write lost
+// restore judges a crash at `at`: marks is what the restarted process starts from (the manifest's generation
+// when it starts). Every write acknowledged before the last successful write-back must be there, and a write lost
 // otherwise must not have had a fault-free stretch of RPO before the crash. Then the history becomes what
 // survived.
 func (m *model) restore(at time.Time, key string, marks []string) {
@@ -266,7 +266,7 @@ func (m *model) restore(at time.Time, key string, marks []string) {
 			continue
 		}
 		if e.st == acked {
-			switch healthy := m.health.longestHealthy(e.ackedAt, at); {
+			switch healthy := m.health.longestHealthy(key, e.ackedAt, at); {
 			case e.ackedAt.Before(km.durableBefore):
 				m.violate(at, key, "write %s acknowledged at %v, before a write-back that published (started %v), lost at the crash",
 					e.id, e.ackedAt.Sub(m.t0), km.durableBefore.Sub(m.t0))
@@ -284,21 +284,24 @@ func (m *model) restore(at time.Time, key string, marks []string) {
 	km.live, km.durableBefore = live, at
 }
 
-// health records when the store was not healthy: injected faults (a point, or a stall's span), storms and an
-// open breaker. The RPO check counts only fault-free time.
+// health records when the store was not healthy for a database's write-backs. Global: storms, an open breaker,
+// and stalls (the maintenance tick writes databases back one after another, so a stall on one delays all).
+// Per database: its own failed calls and lost or late replies (a point each); they do not hold other
+// databases' write-backs. The RPO check counts only fault-free time.
 type health struct {
 	mu    sync.Mutex
-	spans []span
-	open  map[string]time.Time // named spans still going on
+	spans map[string][]span    // by database; "" = global
+	open  map[string]time.Time // named global spans still going on
 }
 
 type span struct{ from, to time.Time }
 
-func newHealth() *health { return &health{open: map[string]time.Time{}} }
+func newHealth() *health { return &health{spans: map[string][]span{}, open: map[string]time.Time{}} }
 
-func (h *health) mark(from, to time.Time) {
+// mark records an unhealthy span for key ("" = every database).
+func (h *health) mark(key string, from, to time.Time) {
 	h.mu.Lock()
-	h.spans = append(h.spans, span{from, to})
+	h.spans[key] = append(h.spans[key], span{from, to})
 	h.mu.Unlock()
 }
 
@@ -314,15 +317,15 @@ func (h *health) end(name string, at time.Time) {
 	h.mu.Lock()
 	if from, ok := h.open[name]; ok {
 		delete(h.open, name)
-		h.spans = append(h.spans, span{from, at})
+		h.spans[""] = append(h.spans[""], span{from, at})
 	}
 	h.mu.Unlock()
 }
 
-// longestHealthy is the longest stretch of [a, b] that no unhealthy span touches.
-func (h *health) longestHealthy(a, b time.Time) time.Duration {
+// longestHealthy is the longest stretch of [a, b] that no unhealthy span of key, or global one, touches.
+func (h *health) longestHealthy(key string, a, b time.Time) time.Duration {
 	h.mu.Lock()
-	spans := slices.Clone(h.spans)
+	spans := slices.Concat(h.spans[""], h.spans[key])
 	for _, from := range h.open {
 		spans = append(spans, span{from, b})
 	}

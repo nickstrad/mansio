@@ -142,6 +142,34 @@ seeds: applied twice) and "write-back marks one commit too many as published" (c
    fencing: one owner per epoch); a fenced write-back with the re-read failing now expects an unknown outcome,
    not `ErrStale`; the model counts unseen pending stamps for the re-read cap. Fuzzed 7 min clean after each.
 
+## 2026-11-05 review follow-ups
+
+Evidence after them: 1,000 seeds clean (151 s), `TestSameSeedSameTrace -count=3` with and without `-race`,
+`FuzzDurableHostModel` 150 s clean.
+
+- **Seen pending publishes are kept too** (vactor; `TestLatePendingPublishIsStillOurs`): the first fix kept
+  only the newest pending publish the re-read had seen unapplied, so an older one landing late was taken
+  for another writer. Now every pending publish is kept (at most one of them can ever apply), capped at 8
+  in all, after which publish re-reads first; a 412 whose re-read shows our own version is an unknown outcome
+  too, so a store's 412 alone never comes back as `ErrStale`.
+- **Late-landing publishes in the sim**: `durabletest.Faults.LandLate` (+ `LandTag`, `Store.SetLandIf`) (no reply now, applied up to 10 s
+  later on the clock, condition checked when it lands); drawn under `LoseReply`.
+- **Waiters honour ctx** (vactor): `e.wb` is a one-slot channel lock; `Passivate`, `WriteBack` and `Stamp`
+  give up at their deadline (a passivation undoes its mark, the key stays warm). With that the sim issues
+  **operator passivations** too (`Mix.Passivate`).
+- **RPO health per database**: a failed call or lost/late reply on one database no longer excuses another's
+  loss; storms, the breaker and stalls (the tick writes databases back in turn) stay global.
+- **Restore judged at the restart**, not the crash: a late publish of the dead process that lands before the
+  restart is what the restart starts from.
+- **Finding, not fixed — zombie publishes after a restart** (`Config.Zombies`, `MANSIO_SIM_ZOMBIES=1`; 2
+  of 500 seeds, e.g. 180, 232): a publish the crashed process sent can still land *after* the restarted
+  process read the manifest. The restart reopens at the **same epoch** and does not re-stamp the manifest,
+  so the old PUT's condition still holds; the new process's next publish gets 412, its re-read shows a
+  manifest that is none of its own, so it goes stale (`passivate -> stale`; a tick write-back makes the
+  owner fence the key superseded) and its newer acknowledged writes cannot be published. Fix belongs in
+  owner/agentd startup: re-stamp the manifest on reopen (a new version fails every earlier in-flight
+  publish) or reopen at a new epoch. Off by default until then.
+
 ## How to run and replay
 
 ```sh
@@ -149,6 +177,7 @@ go test ./internal/sim                                   # 8 seeds (3 under -rac
 MANSIO_SIM_SEEDS=500 go test ./internal/sim -run TestSeeds   # more seeds (MANSIO_SIM_FIRST=n to start elsewhere)
 MANSIO_SIM_SEED=192 MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestSeeds -v   # replay one, print its trace
 MANSIO_SIM_SHRINK=192 go test ./internal/sim -run TestShrink -v                   # cut duration, faults, dbs
+MANSIO_SIM_ZOMBIES=1 MANSIO_SIM_KEEPGOING=1 ...                                    # dead processes' late PUTs; run past the first violation
 ```
 
 A failure prints the seed's knobs, the violations, the last 40 trace lines and the replay command. A trace
@@ -168,19 +197,21 @@ preconditions) belong in the workload's own `Observe`/answer checks or in the `F
 
 ## Known gaps (for DST-2 and later)
 
-- **Glue copy**: `sim/glue.go` mirrors `cmd/agentd/glue.go` and `unavailable.go` (at 7dc3851); lift both into
-  one package after IR-2b so they cannot drift.
+- **Glue copy (must fix before DST-2)**: `sim/glue.go` mirrors `cmd/agentd/glue.go` and `unavailable.go`
+  (unchanged through IR-2b, main 12047d4). Lift both into one shared package before DST-2 builds on it, so
+  the sim cannot drift from what agentd runs.
+- **Multi-writer branches of the publish fix** (another owner's manifest, stale epochs, adopting a pending
+  stamp) are covered only by `FuzzDurableHostModel` and unit tests until DST-2 adds a second agent.
 - **Not in the sim**: the HTTP transport, `objstore` and minio-go (real network, retry jitter on global rand;
   `s3test`'s fault modes are mirrored by durabletest switches instead), `placement/file` and `/pg`, the
   edge, controld, locator, client library, tickets (stubbed), Postgres.
 - **One sequential client per database**: group-commit batches, `aborted`, and two requests waiting on one
   activation are not exercised; one event waking two goroutines of one database would make the order
-  scheduler-dependent. Operator `Passivate` is not issued either: `vactor`'s `e.wb` is a `sync.Mutex` held
-  across store I/O, which synctest cannot see past (a waiter behind a stalled write-back would hang
-  `synctest.Wait`). Same root, a finding: `Passivate(ctx)`/`WriteBack(ctx)` wait on `e.wb` ignoring ctx.
+  scheduler-dependent.
 - **Statement timeouts** never fire: SQLite takes zero simulated time. A clock-aware stall inside a statement
   (a registered SQL function) would cover `stmt_timeout` and `expired, ambiguous`.
 - **No epoch changes**: one owner at epoch 1 (moves, bumps, fences are DST-2).
-- **Per-call faults only on `durabletest`**: no torn uploads that HEAD reports whole, no late-landing PUTs.
+- **Per-call faults only on `durabletest`**: no torn uploads that HEAD reports whole; late landing for
+  publishes only (not generation uploads); zombies after a restart off by default (finding above).
 - Wall-clock-only code in the bubble (database/sql, SQLite busy handler) is deterministic only because the
   bubble's clock is; outside synctest the harness is not deterministic.

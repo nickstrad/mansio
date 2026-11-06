@@ -138,28 +138,34 @@ func TestModelFindsEachViolation(t *testing.T) {
 
 // A loss inside the RPO, or with faults covering the window, is allowed: on and off points of the RPO.
 func TestModelRPOWindow(t *testing.T) {
+	type sp struct {
+		key      string  // "" = global
+		from, to float64 // to < 0: an open (global) span
+	}
 	cases := []struct {
 		name  string
 		crash float64
-		spans [][2]float64
+		spans []sp
 		bad   bool
 	}{
 		{"just inside the RPO", 10.9, nil, false},
 		{"exactly the RPO", 11, nil, true},
-		{"faults split the window", 30, [][2]float64{{9, 9}, {18, 20}, {29, 29}}, false},
-		{"one fault-free stretch is long enough", 30, [][2]float64{{9, 9}}, true},
-		{"an open span covers the rest", 30, [][2]float64{{5, -1}}, false},
+		{"own faults split the window", 30, []sp{{"k", 9, 9}, {"", 18, 20}, {"k", 29, 29}}, false},
+		{"one fault-free stretch is long enough", 30, []sp{{"k", 9, 9}}, true},
+		{"another database's failures do not count", 30, []sp{{"other", 9, 9}, {"other", 18, 18}, {"other", 27, 27}}, true},
+		{"a global stall counts", 30, []sp{{"", 5, 25}}, false},
+		{"an open span covers the rest", 30, []sp{{"", 5, -1}}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m, h := newTestModel(10 * time.Second)
 			write(m, 1, "a", ok)
 			for _, s := range c.spans {
-				if s[1] < 0 {
-					h.begin("storm", at(s[0]))
+				if s.to < 0 {
+					h.begin("storm", at(s.from))
 					continue
 				}
-				h.mark(at(s[0]), at(s[1]))
+				h.mark(s.key, at(s.from), at(s.to))
 			}
 			m.restore(at(c.crash), "k", nil)
 			if got := len(m.violations()) > 0; got != c.bad {
