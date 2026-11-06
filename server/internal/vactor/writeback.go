@@ -29,13 +29,60 @@ type pendingPub struct {
 	unseen bool
 }
 
+// wbLock serializes an entry's write-backs, passivation and stamps. It is held across store calls, so a caller
+// waiting for it must be able to give up (Release It: waiting is not working): lockCtx honours ctx. A channel,
+// not a sync.Mutex, also lets a simulation see a waiter as blocked (synctest). The zero value is unlocked.
+type wbLock struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (l *wbLock) c() chan struct{} {
+	l.once.Do(func() { l.ch = make(chan struct{}, 1) })
+	return l.ch
+}
+
+func (l *wbLock) lock()   { l.c() <- struct{}{} }
+func (l *wbLock) unlock() { <-l.c() }
+
+// lockCtx takes the lock, or returns ctx.Err() if ctx ends before it is free. A free lock is taken even
+// with ctx ended (Shutdown's spent budget still closes clean databases).
+func (l *wbLock) lockCtx(ctx context.Context) error {
+	select {
+	case l.c() <- struct{}{}:
+		return nil
+	default:
+	}
+	select {
+	case l.c() <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// waitOr waits for ready (preferred when both are ready) or ctx.
+func waitOr(ctx context.Context, ready <-chan struct{}) error {
+	select {
+	case <-ready:
+		return nil
+	default:
+	}
+	select {
+	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // durableState is an entry's durable-mode bookkeeping.
 //
 // Invariant: (man, ver) is the manifest this entry last read or published, and pubCommits is the db's commit
 // count that manifest's generation holds. The entry is dirty iff forceDirty or db.Commits() != pubCommits.
 // The fields without atomics are guarded by wb, which also serializes every write-back of the entry.
 type durableState struct {
-	wb      sync.Mutex
+	wb      wbLock
 	man     durable.Manifest
 	ver     durable.Version
 	lastGen uint64 // highest generation this host tried to upload for the key
@@ -174,8 +221,10 @@ func (h *Host) WriteBack(ctx context.Context, key string) (WriteBackResult, erro
 	if e == nil {
 		return WriteBackResult{Key: key}, nil
 	}
-	e.wb.Lock()
-	defer e.wb.Unlock()
+	if err := e.wb.lockCtx(ctx); err != nil {
+		return WriteBackResult{Key: key}, errs.Wrap(module, err, "cannot write back %s: gave up waiting for its write-back or passivation in progress; nothing done, safe to retry", key)
+	}
+	defer e.wb.unlock()
 	if !e.dirty() {
 		return WriteBackResult{Key: key, Generation: e.man.Generation}, nil
 	}
@@ -471,9 +520,19 @@ func (h *Host) Passivate(ctx context.Context, key string) error {
 }
 
 // release finishes a passivation that the caller marked (e.gone set) under the lock.
+//
+//	post: ctx ends while it waits (for the activation, or for a write-back in progress) ⇒ the mark is undone
+//	      and nothing changed: the key stays warm
 func (h *Host) release(ctx context.Context, key string, e *entry) error {
-	<-e.done
+	if err := waitOr(ctx, e.done); err != nil {
+		h.unmark(e)
+		return errs.Wrap(module, err, "cannot passivate %s: gave up waiting for its activation; nothing changed", key)
+	}
 	if h.opts.Store != nil && (e.db != nil || e.stranded) {
+		if err := e.wb.lockCtx(ctx); err != nil {
+			h.unmark(e)
+			return errs.Wrap(module, err, "cannot passivate %s: gave up waiting for its write-back in progress; nothing changed, still warm", key)
+		}
 		uploaded, err := h.writeBackClosed(ctx, key, e)
 		if err != nil {
 			return err
@@ -526,6 +585,16 @@ func (h *Host) closing() bool {
 	return h.closed
 }
 
+// unmark undoes a passivation mark (e.gone) that nothing acted on yet: the key stays warm, and Gets waiting on
+// the mark start over.
+func (h *Host) unmark(e *entry) {
+	h.mu.Lock()
+	g := e.gone
+	e.gone = nil
+	h.mu.Unlock()
+	close(g)
+}
+
 // drop removes e from the map and wakes Gets waiting on its passivation.
 func (h *Host) drop(key string, e *entry) {
 	h.mu.Lock()
@@ -538,9 +607,10 @@ func (h *Host) drop(key string, e *entry) {
 
 // writeBackClosed is passivation's write-back: close, upload if dirty, and on failure put the key back warm.
 // uploaded reports that the local file itself was uploaded as e.man's generation.
+//
+//	pre: e.wb is held (release took it); writeBackClosed releases it
 func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) (uploaded bool, _ error) {
-	e.wb.Lock()
-	defer e.wb.Unlock()
+	defer e.wb.unlock()
 	if e.db != nil {
 		e.db.Close()
 	}
@@ -646,12 +716,12 @@ func (h *Host) Discard(key string) (lostWrites bool) {
 	e.gone = make(chan struct{})
 	h.mu.Unlock()
 	<-e.done
-	e.wb.Lock()
+	e.wb.lock()
 	if e.db != nil {
 		e.db.Close()
 	}
 	lostWrites = h.opts.Store != nil && (e.db != nil || e.stranded) && e.dirty()
-	e.wb.Unlock()
+	e.wb.unlock()
 	RemoveDB(h.LocalPath(key))
 	h.drop(key, e)
 	return lostWrites
@@ -676,8 +746,10 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 		}
 		return m, nil
 	}
-	e.wb.Lock()
-	defer e.wb.Unlock()
+	if err := e.wb.lockCtx(ctx); err != nil {
+		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s at epoch %d: gave up waiting for its write-back in progress; nothing sent", key, epoch)
+	}
+	defer e.wb.unlock()
 	m, err := h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
 		if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
 			return durable.Manifest{}, err

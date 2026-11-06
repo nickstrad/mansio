@@ -461,6 +461,51 @@ func TestOwnResentPublishIsNotAnotherWriter(t *testing.T) {
 	}
 }
 
+// Waiting is not working: a Passivate or WriteBack queued behind a write-back stalled in the store gives up at
+// its own deadline, changes nothing, and leaves the key warm and serving.
+func TestWaitersBehindAStalledWriteBackHonourTheirDeadline(t *testing.T) {
+	r := newDurable(t, nil)
+	clk := r.clk.(*clock)
+	r.s.UseClock(clk)
+	r.put("t/a", "v1")
+	r.s.SetFaults(durabletest.Faults{Delay: time.Hour})
+	stalled := make(chan error, 1)
+	go func() { _, err := r.h.WriteBack(ctx, "t/a"); stalled <- err }()
+	if !clk.AwaitPending(1) {
+		t.Fatal("the write-back never reached the store")
+	}
+	for _, op := range []string{"Passivate", "WriteBack"} {
+		c, cancel := det.WithTimeout(ctx, clk, time.Second)
+		done := make(chan error, 1)
+		go func() {
+			if op == "Passivate" {
+				done <- r.h.Passivate(c, "t/a")
+			} else {
+				_, err := r.h.WriteBack(c, "t/a")
+				done <- err
+			}
+		}()
+		clk.AwaitPending(2)
+		clk.Advance(time.Second)
+		if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s behind a stalled write-back: %v, want its deadline", op, err)
+		}
+		cancel()
+		if r.h.Active() != 1 || r.local("t/a") != "v1" {
+			t.Fatalf("after the %s gave up: active %d", op, r.h.Active())
+		}
+	}
+	r.get("t/a") // still serving: the given-up passivation's mark is gone
+	r.s.SetFaults(durabletest.Faults{})
+	clk.Advance(time.Hour)
+	if err := <-stalled; err != nil {
+		t.Fatalf("the stalled write-back: %v", err)
+	}
+	if err := r.h.Passivate(ctx, "t/a"); err != nil || r.h.Active() != 0 || r.published("t/a") != "v1" {
+		t.Fatalf("Passivate afterwards: %v, active %d", err, r.h.Active())
+	}
+}
+
 func TestHigherEpochMakesWriteBackStale(t *testing.T) {
 	r := newDurable(t, nil)
 	r.s.Seed("t/a", 1, []byte("v1"))
