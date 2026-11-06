@@ -109,7 +109,12 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if err != nil {
 		return fail(err)
 	}
+	var schemas front.SchemaSource
+	if d.schemas != nil {
+		schemas = registrySchemas{d.schemas}
+	}
 	return &backend{
+		schemas:  schemas,
 		admitter: ownerAdmitter{d.tab},
 		executor: hostExecutor{host: d.host, grace: cfg.ReplyGrace.Duration, canary: front.ActorExecutor{Host: canary, Grace: cfg.ReplyGrace.Duration}},
 		ready:    d.readyCheck,
@@ -177,7 +182,8 @@ func openSchemas(cfg *Config, log *slog.Logger, sec *Secrets) (*schemareg.Client
 		return nil, errs.Wrap(module, err, "cannot load the CA file for schemas_url").With("ca_file", cfg.ControlCAFile)
 	}
 	return schemareg.NewClient(schemareg.Config{URL: cfg.SchemasURL, Token: sec.ControlToken, HTTP: hc,
-		Timeout: cfg.SchemasTimeout.Duration, MaxEntries: cfg.SchemaCache, Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "schemas")}})
+		Timeout: cfg.SchemasTimeout.Duration, MaxEntries: cfg.SchemaCache, Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "schemas")},
+		Validate: validSchema})
 }
 
 // readyCheck passes once the first reconcile round finished: every key was tried once (Release It H1).

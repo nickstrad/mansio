@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
@@ -23,13 +24,16 @@ const (
 	QueryPath     = "/v1/query"
 	HealthPath    = "/healthz"
 	TimeoutHeader = "X-Timeout-Ms" // the client's deadline, relative, in milliseconds
+	TraceHeader   = "X-Trace-Id"   // the client's trace id, logged with failures (/v1/ops)
+	LogIDHeader   = "X-Log-Id"     // an internal failure's log id (/v1/ops; /v1/query has it in the body)
 )
 
 // UnavailableLogPerSecond bounds the WARN lines for unavailable answers: a dependency outage fails many
 // requests per second, and each line beyond this rate is only counted (in the next line's "suppressed").
 const UnavailableLogPerSecond = 1
 
-// NewHandler is the HTTP adapter: POST /v1/query runs the pipeline, GET /healthz answers without touching
+// NewHandler is the HTTP adapter: POST /v1/query runs the pipeline, POST /v1/ops the document protocol (when
+// EnableOps was called before), GET /healthz answers without touching
 // admission or actors (so it never queues behind queries). log receives one ERROR line per internal error (with a
 // log ID that is also in the response), sampled WARN lines (event FRONT.UNAVAILABLE) for unavailable answers,
 // and debug lines for other failures.
@@ -37,6 +41,9 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	h := &httpHandler{s: s, log: log, unavailable: sampler{perSec: UnavailableLogPerSecond}}
 	mux.HandleFunc(QueryPath, h.query)
+	if s.OpsEnabled() {
+		mux.HandleFunc(OpsPath, h.ops)
+	}
 	mux.Handle(HealthPath, HealthHandler(s))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.write(w, r, s.answer(Request{}, nil, &BadRequestError{Msg: "unknown path", Status: http.StatusNotFound}))
@@ -48,7 +55,7 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 		now := time.Now()
 		rc := http.NewResponseController(w)
 		rc.SetReadDeadline(now.Add(s.cfg.BodyReadTimeout)) // errors: the writer cannot (e.g. a test recorder)
-		if r.URL.Path != QueryPath {
+		if r.URL.Path != QueryPath && r.URL.Path != OpsPath {
 			rc.SetWriteDeadline(now.Add(s.cfg.WriteGrace))
 		}
 		mux.ServeHTTP(w, r)
@@ -144,6 +151,95 @@ func (h *httpHandler) query(w http.ResponseWriter, r *http.Request) {
 	in.Body = body
 	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.timeout(in.Timeout) + h.s.cfg.WriteGrace))
 	h.write(w, r, h.s.Handle(r.Context(), in))
+}
+
+// ops is POST /v1/ops: the same transport rules as query (deadlines, the timeout header, bearer token), with
+// the body capped at ir.MaxBodyBytes + 1 bytes so ir.DecodeBody answers RequestTooLarge without the rest being
+// buffered, and answers in the protocol's JSON.
+func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
+	defer func() { // a panic outside HandleOps: answer Defect if we still can
+		if p := panicx.From(recover()); p != nil {
+			out := opsAnswer(nil, nil, Reply{}, p)
+			out.Stack = p.Stack
+			h.writeOps(w, r, out)
+		}
+	}()
+	rc := http.NewResponseController(w)
+	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.BodyReadTimeout + h.s.cfg.WriteGrace)) // early refusals
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, &BadRequestError{Msg: "use POST", Status: http.StatusMethodNotAllowed}))
+		return
+	}
+	in := Input{Ticket: bearer(r.Header.Get("Authorization"))}
+	if v := r.Header.Get(TimeoutHeader); v != "" {
+		ms, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || ms <= 0 || ms > int64(time.Hour/time.Millisecond) {
+			h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, &BadRequestError{Msg: TimeoutHeader + " must be a positive integer number of milliseconds"}))
+			return
+		}
+		in.Timeout = time.Duration(ms) * time.Millisecond
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, ir.MaxBodyBytes+1))
+	if err != nil {
+		bad := &BadRequestError{Msg: "a body that can be read"}
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			bad = &BadRequestError{Msg: "a body received in time", Status: http.StatusRequestTimeout}
+		}
+		h.writeOps(w, r, opsAnswer(nil, nil, Reply{}, bad))
+		return
+	}
+	in.Body = body
+	rc.SetWriteDeadline(time.Now().Add(h.s.cfg.timeout(in.Timeout) + h.s.cfg.WriteGrace))
+	h.writeOps(w, r, h.s.HandleOps(r.Context(), in))
+}
+
+// writeOps logs out as write does (internal errors once, with a log ID, also sent in the X-Log-Id header so
+// the body stays the spec's envelope) and sends it.
+func (h *httpHandler) writeOps(w http.ResponseWriter, r *http.Request, out OpsOutput) {
+	hd := w.Header()
+	switch {
+	case out.Code == Internal:
+		id := logx.NewID()
+		hd.Set(LogIDHeader, id)
+		attrs := []slog.Attr{slog.String("log_id", id), slog.String("path", r.URL.Path), slog.String("tag", out.Tag),
+			slog.String("request_id", out.RequestID), slog.String("trace_id", r.Header.Get(TraceHeader))}
+		if out.Err != nil {
+			attrs = append(attrs, slog.String("error", out.Err.Error()), slog.Any("chain", errs.Chain(out.Err)))
+		}
+		stack := out.Stack
+		if stack == "" {
+			stack = errs.Stack(out.Err)
+		}
+		if stack != "" {
+			attrs = append(attrs, slog.String("stack", stack))
+		}
+		if out.Tenant != "" {
+			attrs = append(attrs, slog.String("tenant", out.Tenant), slog.String("sub", out.Sub))
+		}
+		h.log.LogAttrs(context.Background(), slog.LevelError, "request failed (internal)", attrs...)
+	case out.Code == Unavailable:
+		if ok, suppressed := h.unavailable.allow(h.s.clock.Now()); ok {
+			attrs := []slog.Attr{slog.String("event", "FRONT.UNAVAILABLE"), slog.String("request_id", out.RequestID),
+				slog.Int("suppressed", suppressed)}
+			if out.Err != nil {
+				attrs = append(attrs, slog.String("error", out.Err.Error()))
+			}
+			h.log.LogAttrs(context.Background(), slog.LevelWarn, "request refused (dependency unavailable)", attrs...)
+		}
+	case out.Err != nil && h.log.Enabled(context.Background(), slog.LevelDebug):
+		h.log.LogAttrs(context.Background(), slog.LevelDebug, "request refused", slog.String("tag", out.Tag),
+			slog.String("error", out.Err.Error()), slog.String("request_id", out.RequestID))
+	}
+	hd.Set("Content-Type", "application/json")
+	if out.RetryAfter > 0 {
+		hd.Set("Retry-After", strconv.Itoa(out.RetryAfter))
+	}
+	if out.Status == http.StatusUnauthorized {
+		hd.Set("WWW-Authenticate", `Bearer realm="mansio agent"`)
+	}
+	w.WriteHeader(out.Status)
+	w.Write(append(out.Body, '\n')) // a write error means the client left; nothing to do
 }
 
 // bearer extracts the token from "Bearer <token>"; anything else is "" (ticket_invalid).

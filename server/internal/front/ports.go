@@ -47,7 +47,13 @@ type Call struct {
 	Args        []any
 	Deadline    time.Time     // the caller stops caring at this instant; never zero
 	StmtTimeout time.Duration // bound on execution of the statement; > 0
-	MaxRows     int           // reads: more rows is ErrTooManyRows; > 0
+	MaxRows     int           // reads: more rows is ErrTooManyRows; > 0 (SQL calls only)
+	// Fn, if set, makes this a closure call (POST /v1/ops): Fn runs on the database's connection instead of SQL
+	// (actor.Request.Fn; a write runs in its savepoint, a read in one snapshot), after Check (actor.Request.Check,
+	// which runs before the request id is claimed). Kind and RequestID apply as for SQL; SQL, Args and MaxRows
+	// are ignored.
+	Fn    actor.Func
+	Check func(*actor.Tx) error
 }
 
 // Reply is a successful result.
@@ -58,6 +64,9 @@ type Reply struct {
 	// Duplicate: a write whose RequestID this database already applied. It did not run again; Count is the
 	// original's. The wire answers ok with "duplicate": true (knowledge/front/2026-11-05-request-ids.md).
 	Duplicate bool
+	// Closure calls: Fn's Output.Body (or, on a Duplicate, the stored one) and Output.Value (nil on a Duplicate).
+	Body  []byte
+	Value any
 }
 
 // Executor runs calls. Today: one statement on the database's actor (ActorExecutor). Later: a handler executor
@@ -74,6 +83,9 @@ type Reply struct {
 //	post: errors.Is(err, ErrShed | ErrUnavailable | ErrExpired): nothing ran
 //	post: errors.Is(err, ErrStmtTimeout | ErrAborted | ErrStatement | ErrTooManyRows): nothing changed
 //	post: errors.Is(err, ErrNoReply): no answer in time; a write may have committed
+//	post: closure calls (Fn set): the same, except that an error of Fn or Check (and actor.ErrRecordKind) comes
+//	      back unwrapped for the caller to classify, and a statement timeout matches ErrStmtTimeout and keeps the
+//	      closure's error in its chain
 //	post: any other error: unexpected (internal)
 type Executor interface {
 	Exec(ctx context.Context, c Call) (Reply, error)

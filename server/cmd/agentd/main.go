@@ -164,6 +164,7 @@ type agent struct {
 
 // backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
 type backend struct {
+	schemas    front.SchemaSource // creates new databases on /v1/ops (registry or schemas_dir); nil = none
 	admitter   front.Admitter
 	executor   front.Executor
 	ready      func(ctx context.Context) error // the "startup" readiness check
@@ -192,6 +193,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		be, err = newDurable(cfg, log, sec, canaryHost)
 	} else {
 		be = newStatic(cfg, log, dbs, canaryHost)
+		be.schemas, err = loadSchemaDir(cfg.SchemasDir)
 	}
 	if err != nil {
 		canaryHost.Close()
@@ -204,6 +206,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
 		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
+	srv.EnableOps(front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache})
 	probe := cfg.ReadyTimeout.Duration
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
 		front.Check{Name: "startup", Run: be.ready},

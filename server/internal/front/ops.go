@@ -1,0 +1,294 @@
+package front
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/ir"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+)
+
+// The document protocol (IR, ir/spec/v1.md): POST /v1/ops carries decoded-and-validated document operations
+// instead of SQL. It shares the pipeline's ticket check, ownership, admission, deadlines and executor with
+// /v1/query; what differs is the body (ir.DecodeBody), the work (a docexec closure on the actor) and the
+// answer: {"result": […]} or the spec's {"error": {tag, message, op?, fields?}}, written with ir's encoder.
+//
+// Error mapping (spec §8):
+//
+//	decode, validation, expect, unknown table…  the protocol's own tag and status (SchemaError 400, …)
+//	fingerprint mismatch                         SchemaDriftError 409 {expected (database), actual (request)}
+//	schema not registered (new database)         SchemaDriftError 409 {expected: null, actual}
+//	statement timeout                            StatementDeadlineError 504
+//	statement or transaction failure             StorageError 500
+//	request id used by a raw SQL write           SchemaError 400 at requestId (actor.ErrRecordKind)
+//	panic, unexpected error                      Defect 500
+//	shed, unavailable, expired, aborted, wrong_owner, fenced, ticket_invalid
+//	                                             mansio's wire codes, statuses and Retry-After, as tags
+
+// OpsPath is the document protocol's route.
+const OpsPath = "/v1/ops"
+
+// ErrSchemaUnknown: the registry has no schema with this fingerprint for the app (SchemaSource).
+var ErrSchemaUnknown = errors.New("front: schema not registered for this app")
+
+// SchemaSource is the schema registry port: it is asked only when a database has no schema yet (its first
+// request), for the schema to create it with.
+type SchemaSource interface {
+	// Schema returns the fingerprint text app registered under fingerprint (spec §2).
+	//
+	//	post: err == nil ⇒ text hashes to fingerprint and is a valid schema in fingerprint form
+	//	post: err != nil ⇒ errors.Is(err, ErrSchemaUnknown), errors.Is(err, ErrUnavailable), or ctx's error
+	Schema(ctx context.Context, app, fingerprint string) (string, error)
+}
+
+// OpsConfig enables /v1/ops on a Server.
+type OpsConfig struct {
+	// Schemas creates new databases; nil: a database without a schema answers SchemaDriftError.
+	Schemas SchemaSource
+	// IDs draws server ids for inserts without a client id; default UUIDv7 on the server's clock and
+	// det.SystemRand().
+	IDs det.IDGen
+	// SchemaCache bounds the decoded schemas kept (docexec.NewSchemas); default 256.
+	SchemaCache int
+}
+
+// ops is the enabled protocol's state.
+type ops struct {
+	schemas SchemaSource
+	ids     det.IDGen
+	cache   *docexec.Schemas
+}
+
+// EnableOps turns on /v1/ops (without it the route is an unknown path).
+//
+//	pre: called once, before the server handles requests
+func (s *Server) EnableOps(cfg OpsConfig) {
+	assert.That(s.ops == nil, "front: EnableOps called twice")
+	if cfg.IDs == nil {
+		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
+	}
+	s.ops = &ops{schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
+}
+
+// OpsEnabled reports whether EnableOps was called.
+func (s *Server) OpsEnabled() bool { return s.ops != nil }
+
+// OpsOutput is a /v1/ops answer plus what the transport needs to log it.
+type OpsOutput struct {
+	Status     int
+	RetryAfter int    // seconds; 0 = no header
+	Body       []byte // the JSON body, without a trailing newline
+	Code       Code   // the outcome as a pipeline code (Stats, logs): protocol 4xx are BadRequest, 5xx Internal
+	Tag        string // the wire tag; "" when ok
+	Ambiguous  bool   // expired mutation that may have committed
+	RequestID  string
+	Err        error  // the cause, for the log (never sent)
+	Stack      string // set when a panic was recovered
+	Tenant     string // from the verified ticket; "" before verification
+	Sub        string
+}
+
+// HandleOps runs one /v1/ops request through the pipeline. It never panics.
+//
+//	post: every Admitter release and admission slot taken is released before HandleOps returns
+//	post: the answer is counted in Stats (by Code, and its latency)
+func (s *Server) HandleOps(ctx context.Context, in Input) OpsOutput {
+	t0 := s.clock.Now()
+	out := s.handleOps(ctx, in)
+	s.latency.Observe(det.Since(s.clock, t0))
+	amb := 0
+	if out.Ambiguous {
+		amb = 1
+	}
+	s.outcomes[out.Code.index()][amb].Add(1)
+	return out
+}
+
+func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
+	if !s.enter() {
+		return opsAnswer(nil, nil, Reply{}, ErrDraining)
+	}
+	defer s.leave()
+	var req *ir.Request
+	defer func() {
+		if p := panicx.From(recover()); p != nil {
+			out = opsAnswer(req, nil, Reply{}, p)
+			out.Stack = p.Stack
+		}
+	}()
+	if in.Ticket == "" {
+		return opsAnswer(nil, nil, Reply{}, ticket.ErrMalformed)
+	}
+	req, e := ir.DecodeBody(in.Body)
+	if e != nil {
+		return opsAnswer(nil, nil, Reply{}, &docexec.Failure{Err: e})
+	}
+	db := req.DB.Tenant + ":" + req.DB.App // the placement key (ADR 0011)
+	kind := KindRead
+	if req.Kind == ir.Mutation {
+		kind = KindWrite
+	}
+	now := s.clock.Now()
+	deadline := now.Add(s.cfg.timeout(in.Timeout))
+	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
+	defer cancel()
+
+	claims, err := s.tickets.Verify(in.Ticket, now, ticket.Want{DB: db, Perm: kind.Perm()})
+	if err != nil {
+		return opsAnswer(req, nil, Reply{}, err)
+	}
+	release, err := s.admitter.Admit(db, claims.Epoch)
+	if err != nil {
+		return opsAnswer(req, &claims, Reply{}, err)
+	}
+	assert.That(release != nil, "Admitter.Admit returned no error and no release")
+	defer release()
+	slot, err := s.adm.Acquire(ctx, claims.TID, db)
+	if err != nil {
+		return opsAnswer(req, &claims, Reply{}, err)
+	}
+	defer slot()
+
+	base := Call{Tenant: claims.TID, DB: db, Epoch: claims.Epoch, Gen: claims.Gen, Kind: kind, Deadline: deadline}
+	run := func(c Call) (Reply, error) {
+		c.StmtTimeout = min(s.cfg.StmtTimeout, max(deadline.Sub(s.clock.Now()), time.Millisecond))
+		return s.exec.Exec(ctx, c)
+	}
+	call := func() (Reply, error) {
+		dc := &docexec.Call{Req: req, Schemas: s.ops.cache, IDs: s.ops.ids}
+		c := base
+		c.Fn, c.Check = dc.Fn, dc.Check
+		if kind == KindWrite {
+			c.RequestID = req.RequestID // a query's request id is ignored (spec §7)
+		}
+		return run(c)
+	}
+	reply, err := call()
+	if errors.Is(err, docexec.ErrUninitialized) { // a new database: create it with the request's schema, then retry
+		if err = s.initDB(ctx, req, base, run); err == nil {
+			reply, err = call()
+		}
+	}
+	return opsAnswer(req, &claims, reply, err)
+}
+
+// initDB creates a new database's tables from the registered schema req names (docexec.Init). Another
+// request may initialize it first: Init then only compares.
+func (s *Server) initDB(ctx context.Context, req *ir.Request, base Call, run func(Call) (Reply, error)) error {
+	if s.ops.schemas == nil {
+		return &docexec.Failure{Err: unregistered(req.Schema)}
+	}
+	text, err := s.ops.schemas.Schema(ctx, req.DB.App, req.Schema)
+	switch {
+	case errors.Is(err, ErrSchemaUnknown):
+		return &docexec.Failure{Err: unregistered(req.Schema)}
+	case err != nil:
+		return err
+	}
+	schema, e := s.ops.cache.Get(text)
+	if e != nil || schema.Fingerprint != req.Schema {
+		// SchemaSource broke its contract (it returns valid fingerprint texts): a bug, not the client's.
+		return errors.New("front: the schema source answered a text that is not the schema asked for")
+	}
+	c := base
+	c.Kind, c.Fn = KindWrite, docexec.InitFn(schema)
+	_, err = run(c)
+	return err
+}
+
+// unregistered is the drift answer for a new database whose request names a schema the registry does not
+// have for the app: there is no database fingerprint to report.
+func unregistered(fingerprint string) *ir.Error {
+	return ir.NewError(ir.TagSchemaDrift, "expected", nil, "actual", fingerprint, "detail", "no schema with this fingerprint is registered for the app")
+}
+
+// opsAnswer is the answer for reply or err (nil = ok). req and claims may be nil (not decoded or verified yet).
+func opsAnswer(req *ir.Request, claims *ticket.Claims, reply Reply, err error) OpsOutput {
+	var out OpsOutput
+	if req != nil && req.Kind == ir.Mutation {
+		out.RequestID = req.RequestID
+	}
+	if claims != nil {
+		out.Tenant, out.Sub = claims.TID, claims.Sub
+	}
+	out.Err = err
+	if err == nil {
+		assert.That(reply.Body != nil, "front: a closure call answered ok without a body")
+		body := make([]byte, 0, len(reply.Body)+32)
+		body = append(append(body, `{"result":`...), reply.Body...)
+		if reply.Duplicate {
+			body = append(body, `,"duplicate":true`...)
+		}
+		out.Status, out.Code, out.Body = 200, OK, append(body, '}')
+		return out
+	}
+	e, code := opsError(req, err)
+	if e != nil {
+		out.Status, out.Tag, out.Code = e.Status(), e.Tag, code
+		if bad := (*BadRequestError)(nil); errors.As(err, &bad) && bad.Status != 0 {
+			out.Status = bad.Status // 405, 408: the transport's refusals keep their status
+		}
+		out.Body = []byte(ir.Stringify(e.Wire()))
+		return out
+	}
+	// One of mansio's wire codes, passed through (spec §8: the lowercase tags).
+	out.Code, out.Tag, out.Status = code, string(code), Spec[code].Status
+	out.RetryAfter = retryAfter(code, err)
+	body := ir.NewObject("tag", string(code), "message", message[code])
+	if code == Expired && errors.Is(err, ErrNoReply) && req != nil && req.Kind == ir.Mutation {
+		out.Ambiguous = true
+		body.Set("fields", ir.NewObject("ambiguous", true)) // a mutation may have committed: retry with the same id
+	}
+	out.Body = []byte(ir.Stringify(ir.NewObject("error", body)))
+	return out
+}
+
+// opsError classifies err: the protocol error to answer (with its pipeline code), or nil and the mansio code.
+func opsError(req *ir.Request, err error) (*ir.Error, Code) {
+	var f *docexec.Failure
+	isFailure := errors.As(err, &f)
+	protocolCode := func(e *ir.Error) Code {
+		if e.Status() >= 500 {
+			return Internal
+		}
+		return BadRequest
+	}
+	withOp := func(e *ir.Error) *ir.Error {
+		if isFailure && f.Err.HasOp {
+			e.WithOp(f.Err.Op)
+		}
+		return e
+	}
+	var bad *BadRequestError
+	var p *panicx.Panic
+	switch code := Classify(err); {
+	case errors.Is(err, ErrStmtTimeout):
+		return withOp(ir.NewError(ir.TagStmtDeadline)), StmtTimeout
+	case isFailure && f.Cause == nil:
+		return f.Err, protocolCode(f.Err)
+	case errors.As(err, &bad):
+		return ir.SchemaErr(ir.ReasonTypeMismatch, "body", bad.Msg, ir.Undefined{}), BadRequest
+	case errors.Is(err, actor.ErrRecordKind):
+		return ir.SchemaErr(ir.ReasonTypeMismatch, "requestId", "an id no raw SQL write has used", requestID(req)), BadRequest
+	case errors.As(err, &p):
+		return ir.NewError(ir.TagDefect), Internal
+	case code != Internal && code != BadRequest:
+		return nil, code
+	case isFailure:
+		return f.Err, Internal // a StorageError at its operation; the cause goes to the log
+	}
+	return ir.NewError(ir.TagDefect), Internal
+}
+
+func requestID(req *ir.Request) any {
+	if req == nil {
+		return ir.Undefined{}
+	}
+	return req.RequestID
+}

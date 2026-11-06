@@ -74,6 +74,7 @@ type Server struct {
 	adm      *Admission
 	exec     Executor
 	clock    det.Clock
+	ops      *ops // /v1/ops (EnableOps); nil = off
 
 	mu         sync.Mutex
 	draining   bool
