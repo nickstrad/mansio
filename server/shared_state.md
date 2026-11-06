@@ -824,3 +824,11 @@ Branch `ir/04a-auth`.
   reads a deactivated tenant's keys as revoked. TODO(IR-5): `create_api_key.sql` still inserts for a deactivated
   tenant; the locator does not yet accept legacy keys or sessions.
 - **tenancy:** `tenancy.HashPassword` (tools, tests).
+## 2026-11-06 01:09 — dst-1: pending publishes and generation numbers (fix/pending-gens)
+
+- **vactor:** a publish in doubt is kept until a publish of ours applies or `Options.GC.Grace` passes (set it to the
+  sweeper's grace). With `maxPending` in doubt, a write-back/stamp sends nothing and fails with new
+  `vactor.ErrInDoubt` (safe to retry; still warm). Uploads skip generation numbers taken by orphans (HEAD probes).
+- **owner:** Reconcile's defense-in-depth Head is folded into the reopen stamp (storage at a higher epoch ⇒ superseded);
+  stamp error messages say "cannot stamp". A local ACTIVE record with gen > 0 and no manifest stays Closed.
+- Note: `knowledge/writeback/2026-11-06-pending-and-generation-numbers.md`.

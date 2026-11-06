@@ -49,16 +49,14 @@ Cost: one Head and one conditional PUT per owned key at startup.
   restart's restore at each key's reopen stamp, not at the restart: a zombie landing in between (the
   reconcile stalled, the key closed) is what the restart starts from (seed 984). 1000 seeds pass.
 
-## Open finding (not fixed here): the host forgets in-flight publishes when it settles them
+## Follow-ups (fixed 2026-11-06, branch `fix/pending-gens`)
 
-Same incarnation, no restart. `vactor.settlePending` runs once `maxPending` (8) publishes are in doubt; if the
-re-read shows the version unchanged it drops them ("none applied"). A request still in flight can land after
-that: the next publish gets 412, the re-read shows a manifest that is none of ours, the key goes stale and is
-superseded. This contradicts `publish`'s own rule ("only a successful conditional publish proves none did,
-nor can"). The extended fuzz model found it in 37 s (corpus `8da30814ac29f0c3`:
-9 in-flight write-backs, one clock step, a tick). The model now assumes a settled publish never lands
-(`SetLandIf`). A fix would bound pending publishes by age (the guide's grace window), not by count.
-
-Also seen once in 150 s of fuzzing, and also present on main with main's model: after a crash, a write-back
-under `LoseUploadReply` fails with "generation object already exists", probably because an orphan of the dead process holds
-that generation number (`FuzzDurableHostModel` input kept outside the corpus). Not investigated further.
+Both findings below are fixed: see [../writeback/2026-11-06-pending-and-generation-numbers.md](../writeback/2026-11-06-pending-and-generation-numbers.md).
+- The host no longer forgets in-flight publishes when it settles them: a pending publish is kept until one of
+  ours applied, or for the grace window (`Options.GC.Grace`); with `maxPending` in doubt it sends nothing
+  (`vactor.ErrInDoubt`). The fuzz model's `SetLandIf` assumption is gone.
+- "generation object already exists" after a restart or a discard: the upload skips numbers taken by orphans
+  with HEADs at doubling strides.
+- Reconcile: the defense-in-depth Head is folded into the reopen stamp's own Head (storage at a higher epoch
+  supersedes the key). A local ACTIVE record with generation > 0 whose manifest is missing or behind stays
+  Closed: the stamp refuses to start from less than this process knows was published.

@@ -21,13 +21,15 @@ import (
 //   - durable.ErrUnavailable: the S3 breaker is open, or a store call hit a system failure (RI-03). An open
 //     breaker's time to half-open, and a key's failure backoff in vactor, ride in the chain as a
 //     front.RetryHint, so the wire's Retry-After says when to come back.
+//   - vactor.ErrInDoubt: a write-back sent nothing because too many publishes of the key are in doubt (after
+//     an S3 brownout); its RetryHint is when the oldest is past the grace window.
 //   - pg.ErrUnavailable: the Postgres placement authority's breaker is open (with a RetryHint), or a call to
 //     it timed out or lost its connection (CP-4). owner.Table already wraps authority errors in
 //     owner.ErrUnavailable; this line keeps any direct caller right too.
 //
 // A bare context.DeadlineExceeded is deliberately NOT listed, because it also means "the caller's deadline
 // passed" (expired); vactor wraps its own activation deadline in ErrBusy.
-var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, durable.ErrUnavailable, pg.ErrUnavailable}
+var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, vactor.ErrInDoubt, durable.ErrUnavailable, pg.ErrUnavailable}
 
 // asUnavailable wraps err with front.ErrUnavailable when it is one of unavailableCauses, keeping the chain (and
 // any retry hint) for the log; any other error is returned unchanged.

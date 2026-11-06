@@ -108,8 +108,11 @@ type GCPolicy struct {
 	// Keep is K: the generations kept below the current one (guide GC1). Default 2; negative means 0.
 	Keep int
 	// Grace bounds delayed requests (guide GC3): an object is deleted only once the manifest was rewritten
-	// more than Grace after the object's upload, and the upload is more than Grace old. Default 10 min,
-	// 2 × the default WriteBackTimeout; use 2 × the writers' WriteBackTimeout.
+	// more than Grace after the object's upload, and the upload is more than Grace old. Writers keep a publish
+	// in doubt pending for Grace too (vactor Options.GC). Default 10 min: well above what a writer itself
+	// waits (one S3 request ≤ OpTimeout 5 s plus transfer time; a write-back ≤ agentd's 60 s); the rest is the
+	// assumption that S3 does not apply a request more than Grace after it was sent. agentd uses this default
+	// (not configurable); a sweeper's (dbtool -grace) must not be shorter than the writers'.
 	Grace time.Duration
 }
 
