@@ -118,8 +118,9 @@ async function cliAgrees(server: Server, env: Record<string, string>, throughput
 
 /**
  * The SDK runs the handlers; agentd writes the event log (`event_log`: JSONL under `<dir>/logs`, role
- * server); the offline CLI (`scripts/logs.ts`: `ingest`, `query`) is the ingest and the analysis. An app conflict never reaches the server (the SDK fails `makeMove` locally), so the
- * server-side failure is a schema drift: a client compiled for the other layout.
+ * server); the offline CLI (`scripts/logs.ts`: `ingest`, `query`) is the ingest and the analysis. An app
+ * conflict never reaches the server (the SDK fails `makeMove` locally), so the server-side failure is a
+ * schema drift: a client compiled for the other layout.
  */
 const scenario = (dir: string) =>
   Effect.gen(function* () {

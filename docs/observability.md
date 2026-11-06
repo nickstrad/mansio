@@ -307,9 +307,9 @@ fails if a name or parameter is documented here and absent there, or the reverse
 `handler_kind`, `name`, `path` and `deadline_hits`. Joins deadline-tagged `sql_events` to the nearest
 completing request by trace, app and request time window (one match per SQL event, including millisecond
 timestamp rounding at both window boundaries). Parameters: `since`, `until`, `appId` (all optional). Failed
-statements are logged even without `TRACE_SQL` (`deno task integration` runs a second, short pass with
-`TRACE_SQL=false` to check it); execution paths in older JSONL are NULL. Ingest adds the nullable `path`
-column to existing v2 event logs.
+statements are logged even without `TRACE_SQL` (the Deno platform's integration test checked this with a
+second `TRACE_SQL=false` pass; it went with the platform at IR-6); execution paths in older JSONL are NULL.
+Ingest adds the nullable `path` column to existing v2 event logs.
 
 **Upgrade note:** an event log ingested before FFI-06 has no `sql_events.path` column until the next ingest,
 and until then this query (only this one) fails with a DuckDB binder error

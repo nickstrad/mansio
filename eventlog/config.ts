@@ -128,8 +128,8 @@ export const OPTIONS = [
     type: "boolean",
     default: false,
     defaultLabel: "false",
-    description:
-      "Include SQL bind values in sql events. Off by default: bind values are application data. Accepts true/false, 1/0, yes/no.",
+    description: "Include SQL bind values in sql events. Off by default: bind values are application data. " +
+      "Accepts true/false, 1/0, yes/no.",
   },
   {
     name: "traceSql",
@@ -164,8 +164,8 @@ export const OPTIONS = [
     type: "string",
     default: "",
     defaultLabel: "<DATA_DIR>/eventlog.duckdb",
-    description:
-      "Persistent DuckDB file backing the ingested event log, resolved to an absolute path. Defaults to eventlog.duckdb inside DATA_DIR.",
+    description: "Persistent DuckDB file backing the ingested event log, resolved to an absolute path. " +
+      "Defaults to eventlog.duckdb inside DATA_DIR.",
   },
 ] as const;
 
@@ -174,7 +174,8 @@ export function renderOptionsTable(): string {
   const header = "| Option | Env var | Type | Default | Description |\n| --- | --- | --- | --- | --- |";
   const rows = OPTIONS.map((spec) => {
     const type = spec.type === "enum" ? `enum(${spec.enumValues!.join("\\|")})` : spec.type;
-    return `| \`${spec.name}\` | \`${spec.envVar}\` | ${type} | \`${spec.defaultLabel}\` | ${spec.description} |`;
+    const name = `\`${spec.name}\``, env = `\`${spec.envVar}\``, fallback = `\`${spec.defaultLabel}\``;
+    return `| ${name} | ${env} | ${type} | ${fallback} | ${spec.description} |`;
   });
   return [header, ...rows].join("\n");
 }
@@ -296,7 +297,7 @@ export const ConfigLive: Layer.Layer<Config, ConfigError> = Layer.effect(
   Effect.flatMap(Effect.sync(() => Deno.env.toObject() as EnvRecord), buildConfig),
 );
 
-/** Every option's documented default, as a full `ConfigService` — computed once, ignoring the environment. */
+/** Every option's documented default, as a full `ConfigService`: computed once, ignoring the environment. */
 const DEFAULT_CONFIG: ConfigService = Effect.runSync(buildConfig({}));
 
 export interface ConfigOverrides {

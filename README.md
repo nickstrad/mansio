@@ -145,7 +145,9 @@ clients cannot patch metadata. Arguments and writes also receive runtime validat
   document is `JSON.stringify` text, which writes an integral double at or beyond 2^53 as integer text, and
   `json_extract` would read that back as an exact INTEGER. The compiler therefore wraps a json-layout number
   read in `CAST(... AS REAL)`, so filters, ordering, `countBy` keys and index expressions agree across
-  layouts. `tests/unit/number_dialects_test.ts` pins the behavior.
+  layouts. Oracle regressions 1a and 1b in `tests/property/sqlite_oracle_test.ts` pin it for the TS compiler,
+  and `server/internal/doccompile`'s `TestSelectMatchesReference` (whose number domain includes 2^53 and
+  `1693240866440448768`) for the Go one.
 - **Embedded NUL.** A string or enum value (at any array depth), an id or a filter value containing U+0000 is
   refused before anything runs, with
   `SchemaError { reason: "type-mismatch", expected: "text without U+0000" }` (ADR 0005, spec §5).

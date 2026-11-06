@@ -22,9 +22,10 @@ when you add one (see `README.md`).
 ## Superseded FFI research probes
 
 These scripts live only on the branch `research/fable-lang-switch` (commit `d97bcf8`, 2026-10-12, the Fable
-language-switch research), not on `main`; their production replacements are the harnesses under `perf/`.
+language-switch research), not on `main`. Their production replacements, the `perf/ffi_*.ts` harnesses, were
+deleted in IR-6 with the FFI binding they measured; both are in git history before `b311d14`.
 
-| Script                         | Date       | Author           | Purpose                  | Replacement                                       | Notes                                                                                                         |
-| ------------------------------ | ---------- | ---------------- | ------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `deno/ffi-sqlite-read-cost.ts` | 2026-10-12 | fable (research) | Raw-symbol read-cost PoC | Superseded by `deno run -A perf/ffi_read_cost.ts` | Production Statement port; same JSON metric keys, independent node:sqlite file, loadavg and gates.            |
-| `deno/ffi-sqlite-interrupt.ts` | 2026-10-12 | fable (research) | Raw-symbol interrupt PoC | Superseded by `deno run -A perf/ffi_interrupt.ts` | Production Statement port; 50 samples with the PoC fields (minus `rc`), loadavg, interrupt p99 and tick gate. |
+| Script                         | Date       | Author           | Purpose                  | Replacement                               | Notes                                                                                                         |
+| ------------------------------ | ---------- | ---------------- | ------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `deno/ffi-sqlite-read-cost.ts` | 2026-10-12 | fable (research) | Raw-symbol read-cost PoC | `perf/ffi_read_cost.ts` (deleted in IR-6) | Production Statement port; same JSON metric keys, independent node:sqlite file, loadavg and gates.            |
+| `deno/ffi-sqlite-interrupt.ts` | 2026-10-12 | fable (research) | Raw-symbol interrupt PoC | `perf/ffi_interrupt.ts` (deleted in IR-6) | Production Statement port; 50 samples with the PoC fields (minus `rc`), loadavg, interrupt p99 and tick gate. |

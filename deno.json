@@ -1,6 +1,6 @@
 {
   "nodeModulesDir": "auto",
-  "exclude": ["server/"],
+  "exclude": ["server/", "agent-work/"],
   "compilerOptions": {
     "strict": true
   },
