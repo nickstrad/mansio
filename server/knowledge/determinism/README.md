@@ -18,9 +18,10 @@ reply** in `vactor.publish` (a 412 with a failed re-read came back as ErrStale; 
 (`UseClock`, `SetCallFaults`), `vactortest.Fetcher.Clock`, `ownertest.Placement.UseClock`. Replay:
 `MANSIO_SIM_SEED=<s> MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestSeeds -v`; more seeds:
 `MANSIO_SIM_SEEDS=500`. Review follow-ups (same day): every pending publish kept (late landings), ctx-aware
-`e.wb`, operator passivations and late-landing publishes in the sim, per-database RPO health; **open
-finding**: a crashed process's in-flight publish landing after the restart makes the new process go stale
-(restart reopens at the same epoch without re-stamping) — `MANSIO_SIM_ZOMBIES=1`, fix in owner/agentd.
+`e.wb`, operator passivations and late-landing publishes in the sim, per-database RPO health; finding
+(fixed 2026-11-06, [reopen re-stamp](../fencing/2026-11-06-reopen-restamp.md)): a crashed process's in-flight
+publish landing after the restart made the new process go stale; zombies are now on by default
+(`sim.Config.NoZombies` turns them off).
 
 ## 2026-11-05 DST-0: determinism hygiene (branch `dst/0-hygiene`)
 

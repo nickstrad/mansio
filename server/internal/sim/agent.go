@@ -72,7 +72,8 @@ func (w *world) newAgent(n int, claim bool) (*agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := durable.WithBreaker(gatedStore{g: a.g, s: w.store, tr: tr, keys: w.keys}, b, nil, w.clk.Now)
+	store := durable.WithBreaker(gatedStore{g: a.g, s: w.store, tr: tr, keys: w.keys, applied: w.reopened,
+		sent: &sentLog{m: map[string][]durable.Manifest{}}}, b, nil, w.clk.Now)
 	var tab *owner.Table
 	a.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: actor.Config{Clock: w.clk, ReadConns: w.s.readConns}}, vactor.Options{
 		CacheDir: filepath.Join(w.s.Dir, fmt.Sprintf("cache-%d", n)), Store: store, GenCacheBytes: w.s.genCache,
@@ -132,12 +133,12 @@ func (w *world) ticked(a *agent, r vactor.TickReport) {
 	var wrote, passivated, failed []string
 	for _, res := range r.WroteBack {
 		wrote = append(wrote, fmt.Sprintf("%s:g%d", res.Key, res.Generation))
-		w.model.durable(res.Key, start)
+		w.durable(res.Key, start)
 	}
 	for _, ev := range r.Plan.Passivate {
 		if r.Errors[ev.Key] == nil {
 			passivated = append(passivated, ev.Key+":"+string(ev.Reason))
-			w.model.durable(ev.Key, start)
+			w.durable(ev.Key, start)
 		}
 	}
 	for k, err := range r.Errors {

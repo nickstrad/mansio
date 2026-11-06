@@ -29,9 +29,9 @@ type Config struct {
 	RPO time.Duration
 	// KeepGoing runs to the end after a violation (default: stop at the first one).
 	KeepGoing bool
-	// Zombies lets a late publish (Faults.LoseReply) land after its process crashed, as S3 may complete a PUT
-	// of a killed process. Off by default: see knowledge/determinism (DST-1 review) for what it finds.
-	Zombies bool
+	// NoZombies drops a late publish (Faults.LoseReply) whose process crashed before it landed. By default it
+	// still lands, as S3 may complete a killed process's PUT; the restart's reopen stamp must fence it.
+	NoZombies bool
 }
 
 // Faults are the fault rates. Probabilities are per call or per client request; Every fields are mean gaps of
