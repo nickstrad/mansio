@@ -1,0 +1,1 @@
+{"kind":"select","table":"games","limit":20,"filters":[{"field":"status","op":"eq","value":"playing"}],"order":{"field":"_creationTime","direction":"desc"}}
