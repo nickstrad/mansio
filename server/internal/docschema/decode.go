@@ -21,7 +21,7 @@ func record(value any, path string, allowed []string) (*ir.Object, *ir.Error) {
 	if allowed != nil {
 		for _, k := range o.Keys() {
 			if !slices.Contains(allowed, k) {
-				return nil, ir.SchemaErr(ir.ReasonUnknownField, ir.Member(path, k), "declared field", ir.Undefined)
+				return nil, ir.SchemaErr(ir.ReasonUnknownField, ir.Member(path, k), "declared field", ir.Undefined{})
 			}
 		}
 	}
@@ -63,12 +63,12 @@ func decodeNode(value any, path string) (*Node, *ir.Error) {
 		}
 		out.HasValues = true
 	} else if kind == KindEnum {
-		return nil, mismatch(ir.Member(path, "values"), "required member", ir.Undefined)
+		return nil, mismatch(ir.Member(path, "values"), "required member", ir.Undefined{})
 	}
 	if kind == KindArray {
 		item, ok := n.Get("item")
 		if !ok {
-			return nil, mismatch(ir.Member(path, "item"), "required member", ir.Undefined)
+			return nil, mismatch(ir.Member(path, "item"), "required member", ir.Undefined{})
 		}
 		if out.Item, err = decodeNode(item, ir.Member(path, "item")); err != nil {
 			return nil, err
@@ -83,7 +83,7 @@ func decodeNode(value any, path string) (*Node, *ir.Error) {
 	} else {
 		for _, k := range []string{"item", "length"} {
 			if n.Has(k) {
-				return nil, mismatch(ir.Member(path, k), "absent unless kind is array", ir.Undefined)
+				return nil, mismatch(ir.Member(path, k), "absent unless kind is array", ir.Undefined{})
 			}
 		}
 	}
@@ -123,7 +123,7 @@ func Decode(value any) (*Schema, *ir.Error) {
 			}
 			fields = append(fields, Field{Name: field, Node: node})
 		}
-		table, err := DefineTable(fields)
+		table, err := defineTable(fields)
 		if err != nil {
 			return nil, err
 		}
@@ -150,13 +150,13 @@ func Decode(value any) (*Schema, *ir.Error) {
 			if !ok {
 				return nil, mismatch(ir.Member(at, "fields"), "array of strings", idx.Value("fields"))
 			}
-			if table, err = table.AddIndex(idxName, names); err != nil {
+			if table, err = table.addIndex(idxName, names); err != nil {
 				return nil, err
 			}
 		}
 		s.add(name, table)
 	}
-	if err := DefineSchema(s); err != nil {
+	if err := defineSchema(s); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -178,7 +178,8 @@ func stringList(v any) ([]string, bool) {
 	return out, true
 }
 
-// Load reads schema JSON into tables without any declaration check, as scripts/ir/gen-compile-corpus.ts's
+// Load is for the differential corpus and fuzzing only; a server never loads a schema with it (use Decode).
+// It reads schema JSON into tables without any declaration check, as scripts/ir/gen-compile-corpus.ts's
 // tablesOf does (new Table(fields, storage, indexes)): illegal names, empty enums, itemless arrays and odd
 // lengths all load, and the compiler must be total over them. Shapes the TypeScript would crash on (a
 // table that is not an object, a field without a node) are skipped; their behaviour is not specified.
@@ -212,7 +213,7 @@ func Load(value any) *Schema {
 		case string:
 			table.Storage = storage
 		default:
-			if storage != ir.Undefined {
+			if storage != (ir.Undefined{}) {
 				table.Storage = ""
 			}
 		}
@@ -274,5 +275,5 @@ func truthy(v any) bool {
 	case string:
 		return x != ""
 	}
-	return v != ir.Undefined
+	return v != (ir.Undefined{})
 }

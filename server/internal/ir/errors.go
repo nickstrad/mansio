@@ -22,6 +22,10 @@ const (
 // Error is a protocol failure (spec §8): a wire tag, the structured fields of the TypeScript error class
 // (in that class's construction order, so a JSON rendering matches TS byte for byte), and the index of the
 // operation it belongs to.
+//
+// It deliberately does not implement the error interface: functions return a *Error that is nil on
+// success, and a nil *Error stored in an error variable would compare non-nil. Keep it as *Error until
+// the edge turns it into a response (Wire); if it must travel as an error, wrap a non-nil one explicitly.
 type Error struct {
 	Tag    string
 	Fields *Object
@@ -83,8 +87,9 @@ func (e *Error) Status() int {
 	return 500
 }
 
-// Error is the wire message (core/ir/errors.ts toWireError): "Tag: k=v ..." for 4xx, the bare tag for 5xx.
-func (e *Error) Error() string {
+// Message is the wire message (core/ir/errors.ts toWireError): "Tag: k=v ..." for 4xx, the bare tag for
+// 5xx.
+func (e *Error) Message() string {
 	if e.Status() >= 500 {
 		return e.Tag
 	}
@@ -95,9 +100,12 @@ func (e *Error) Error() string {
 	return e.Tag + ": " + strings.Join(parts, " ")
 }
 
+// String is Message, for fmt.
+func (e *Error) String() string { return e.Message() }
+
 // Wire is the response body {"error": {tag, message, op?, fields?}} (spec §8): fields only on 4xx.
 func (e *Error) Wire() *Object {
-	body := NewObject("tag", e.Tag, "message", e.Error())
+	body := NewObject("tag", e.Tag, "message", e.Message())
 	if e.HasOp {
 		body.Set("op", float64(e.Op))
 	}

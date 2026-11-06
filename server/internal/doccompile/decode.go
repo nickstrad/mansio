@@ -2,6 +2,8 @@ package doccompile
 
 import (
 	"math"
+	"math/big"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,7 +16,9 @@ type Row map[string]any
 
 func decodeErr(kv ...any) *ir.Error { return ir.NewError(ir.TagDecode, kv...) }
 
-// number is JavaScript's Number(v) for a driver value.
+// number is JavaScript's Number(v) for a driver value. For text it follows StringToNumber: trimmed,
+// empty is 0, [+-]Infinity, 0x/0o/0b integers, decimal literals; anything else (Go's "inf", "nan",
+// "1_0", hex floats) is NaN.
 func number(v any) float64 {
 	switch x := v.(type) {
 	case nil:
@@ -29,20 +33,43 @@ func number(v any) float64 {
 		}
 		return 0
 	case string:
-		s := strings.TrimSpace(x)
-		if s == "" {
-			return 0
-		}
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return f
-		}
+		return stringToNumber(x)
 	}
 	return math.NaN()
 }
 
-// SafeNumber narrows a driver integer to a safe integer (core/compile/decode.ts safeNumber); _creationTime,
+var decimalRE = regexp.MustCompile(`^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$`)
+
+func stringToNumber(text string) float64 {
+	s := strings.TrimSpace(text)
+	switch s {
+	case "":
+		return 0
+	case "Infinity", "+Infinity":
+		return math.Inf(1)
+	case "-Infinity":
+		return math.Inf(-1)
+	}
+	if len(s) > 2 && s[0] == '0' {
+		base := map[byte]int{'x': 16, 'X': 16, 'o': 8, 'O': 8, 'b': 2, 'B': 2}[s[1]]
+		if base != 0 {
+			if n, ok := new(big.Int).SetString(s[2:], base); ok && n.Sign() >= 0 {
+				f, _ := new(big.Float).SetInt(n).Float64()
+				return f
+			}
+			return math.NaN()
+		}
+	}
+	if !decimalRE.MatchString(s) {
+		return math.NaN()
+	}
+	f, _ := strconv.ParseFloat(s, 64) // a range error still yields the JS value: ±Inf or 0
+	return f
+}
+
+// safeNumber narrows a driver integer to a safe integer (core/compile/decode.ts safeNumber); _creationTime,
 // _version and every count go through it.
-func SafeNumber(v any, field, table string) (float64, *ir.Error) {
+func safeNumber(v any, field, table string) (float64, *ir.Error) {
 	n := number(v)
 	if !ir.IsSafeInteger(n) {
 		return 0, decodeErr("reason", "unsafe-integer", "field", field, "table", table, "actual", driverJSON(v))
@@ -60,7 +87,7 @@ func driverJSON(v any) any {
 	case nil, float64, string, bool:
 		return x
 	}
-	return ir.Undefined
+	return ir.Undefined{}
 }
 
 func parseJSON(v any, field, table string) (any, *ir.Error) {
@@ -87,7 +114,7 @@ func DecodeValue(n *docschema.Node, v any, field, table string) (any, *ir.Error)
 	}
 	switch n.Kind {
 	case docschema.KindInteger:
-		return SafeNumber(v, field, table)
+		return safeNumber(v, field, table)
 	case docschema.KindNumber:
 		return number(v), nil
 	case docschema.KindBoolean:
@@ -115,13 +142,13 @@ func Decode(s *docschema.Schema, plan Plan, rows []Row) (any, *ir.Error) {
 	}
 	switch kind {
 	case "count":
-		var v any = ir.Undefined
+		var v any = ir.Undefined{}
 		if len(rows) > 0 {
 			if c, ok := rows[0]["count"]; ok {
 				v = c
 			}
 		}
-		return SafeNumber(v, "count", plan.Table)
+		return safeNumber(v, "count", plan.Table)
 	case "countBy":
 		field := plan.Aggregate.Field
 		n, err := FieldNode(t, field)
@@ -134,7 +161,7 @@ func Decode(s *docschema.Schema, plan Plan, rows []Row) (any, *ir.Error) {
 			if err != nil {
 				return nil, err
 			}
-			count, err := SafeNumber(row["count"], "count", plan.Table)
+			count, err := safeNumber(row["count"], "count", plan.Table)
 			if err != nil {
 				return nil, err
 			}
@@ -168,13 +195,15 @@ func Decode(s *docschema.Schema, plan Plan, rows []Row) (any, *ir.Error) {
 		if err != nil {
 			return nil, err
 		}
-		doc.Set("_id", driverJSON(row["_id"]))
-		created, err := SafeNumber(row["_creationTime"], "_creationTime", plan.Table)
+		if id, ok := row["_id"]; ok { // a missing column is undefined in TS, which the spread omits
+			doc.Set("_id", driverJSON(id))
+		}
+		created, err := safeNumber(row["_creationTime"], "_creationTime", plan.Table)
 		if err != nil {
 			return nil, err
 		}
 		doc.Set("_creationTime", created)
-		version, err := SafeNumber(row["_version"], "_version", plan.Table)
+		version, err := safeNumber(row["_version"], "_version", plan.Table)
 		if err != nil {
 			return nil, err
 		}

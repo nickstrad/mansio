@@ -41,11 +41,11 @@ func Quote(name string) (string, *ir.Error) {
 	return `"` + name + `"`, nil
 }
 
-// Literal is a single-quoted SQL string literal; only ever applied to schema-derived text.
-func Literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+// literal is a single-quoted SQL string literal; only ever applied to schema-derived text.
+func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-// Placeholder is the index-th (1-based) bind placeholder.
-func Placeholder(d Dialect, index int) string {
+// placeholder is the index-th (1-based) bind placeholder.
+func placeholder(d Dialect, index int) string {
 	if d == SQLite {
 		return "?"
 	}

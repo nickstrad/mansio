@@ -48,7 +48,7 @@ func FuzzDecodeRequest(f *testing.F) {
 		if _, err := ir.DecodeValue(top); err == nil || err.Reason() != ir.ReasonUnknownField || err.Path() != "zz_unknown" {
 			t.Fatalf("unknown envelope member: %v", err)
 		}
-		top.Set("zz_unknown", ir.Undefined)
+		top.Set("zz_unknown", ir.Undefined{})
 		op := top.Value("ops").([]any)[0].(*ir.Object)
 		op.Set("zz_unknown", true)
 		if _, err := ir.DecodeValue(top); err == nil || err.Reason() != ir.ReasonUnknownField || err.Path() != "ops[0].zz_unknown" || !err.HasOp || err.Op != 0 {

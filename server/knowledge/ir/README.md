@@ -9,9 +9,9 @@ Three pure packages (in the DST-0 lint list, `internal/det/lint_test.go`, now 17
 
 | Package | Ports | Public API |
 |---|---|---|
-| `internal/ir` | `core/ir/{json,decode,types,errors}.ts`, `resolve` of `semantics.ts` | JSON values (`nil, bool, float64, string, []any, *Object`, `Undefined`); `Parse` (strict), `Stringify`, `StringifyIndent`, `Canonical`, `FormatNumber`, `ToString`; `DecodeBody`, `DecodeValue` → `*Request` with `Op` = `*Select / *Get / *Insert / *Patch / *Delete / *Assert`; `Request.JSON()`; `Resolve`, `ResolveID`; `*Error` (tag, `Fields *Object`, op, `Status()`, `Wire()`) |
-| `internal/docschema` | `core/schema.ts`, `core/ir/schema.ts` | `Decode` (strict registered JSON + declaration rules), `Load` (no checks, the corpus's `tablesOf`), `Schema.FingerprintText()`, `Fingerprint`, `Validate`, `Storable`, `ParseObject`, `Body`, `Identifier`, `DefineTable/DefineSchema/AddIndex`, `WithStorage` |
-| `internal/doccompile` | `core/compile/*.ts`, `core/plan.ts` normalise | `Select` (SQLite and DuckDB), `DDL`, `Insert`, `Replace`, `Delete`, `Decode` (rows → documents / count / countBy), `PlanOf`, `Args` (bind values as the TS binding types them) |
+| `internal/ir` | `core/ir/{json,decode,types,errors}.ts`, `resolve` of `semantics.ts` | JSON values (`nil, bool, float64, string, []any, *Object`, `Undefined{}`; encoders panic on any other Go type); `Parse` (strict), `Stringify`, `StringifyIndent`, `Canonical`, `FormatNumber`, `ToString`; `DecodeBody`, `DecodeValue` → `*Request` with `Op` = `*Select / *Get / *Insert / *Patch / *Delete / *Assert`; `Request.JSON()`; `Resolve`, `ResolveID`; `*Error` (tag, `Fields *Object`, op, `Status()`, `Message()`, `Wire()`; **not** an `error`, see below) |
+| `internal/docschema` | `core/schema.ts`, `core/ir/schema.ts` | `Decode` (strict registered JSON + declaration rules), `Load` (no checks, the corpus's `tablesOf`; corpus and fuzz only), `Schema.FingerprintText()`, `Fingerprint`, `Validate`, `Storable`, `ParseObject`, `Body`, `Identifier`, `WithStorage` |
+| `internal/doccompile` | `core/compile/*.ts`, `core/plan.ts` normalise | `Select` (SQLite and DuckDB), `DDL`, `Insert`, `Replace`, `Delete`, `Decode` (rows → documents / count / countBy), `PlanOf`, `Args` (bind values as the TS binding types them), `Normalise`, `Expression`, `Scalar`, `FieldNode`, `TableFor`, `Quote` |
 
 What matched (all on 2026-11-05, Apple M-series laptop, go1.26.4):
 
@@ -55,7 +55,37 @@ Not a quirk: `__proto__` is an ordinary, reserved name. Deno disables the `__pro
 that assignment would set the prototype instead; the SDK computes fingerprints from `defineSchema` values,
 not through `decodeSchema`, but keep it in mind if `core/ir/schema.ts` ever runs client-side.
 
+`*ir.Error` deliberately does not implement `error` (2026-11-05 review fixup). Functions return a `*ir.Error`
+that is nil on success; were it an `error`, returning that nil through an `error`-typed result would make a
+non-nil interface (the typed-nil trap). The compiler now refuses that mix; keep `*ir.Error` until the edge
+renders it with `Wire()`, and wrap a non-nil one explicitly if it must travel as an `error`.
+
+Decode of a cap-sized body of array-index member names (`{"0":0,…,"7000":0}`) was quadratic (~615 ms, TS
+37 ms): `Object.Set` rescanned the keys. The parser now builds each object in one sorted pass and `Set`
+binary-searches its insert: ~1.5 ms in any order (`BenchmarkDecodeIndexNames`, bounded by
+`TestIndexNamesDecodeFast`).
+
+Deferred from plan §6.2 (not built in IR-1):
+
+- The differential covers `select` and DDL only. Insert, replace, delete and body validation are covered by
+  the hand-written vectors (`compile.json`, `validation.json`), not by a generated corpus.
+- No generated corpus for request decode either: `decode.json` plus `FuzzDecodeRequest` (Go only) cover it;
+  nothing feeds the same random bytes to the TS decoder.
+- The nightly job that runs both compilers' SQL on the same SQLite and compares rows is not built; the Go
+  side has `TestSelectMatchesReference` against a Go reference evaluator instead.
+- `GENERATED_SQL.txt`'s inputs are frozen JSON in `internal/doccompile/testdata/`; the TS test
+  `tests/unit/generated_sql_inputs_test.ts` fails if they (or the committed file) drift from `app/schema.ts`
+  and `scripts/explain.ts`.
+
 For IR-2 (`docexec`, `/v1/ops`):
+
+- Write wire output (results, errors, the stored duplicate result) with `ir.Stringify` / `ir.Canonical`,
+  never `encoding/json`: it escapes `<`, `>`, `&` and U+2028, formats numbers differently and drops the
+  member order.
+- Cap the body read at `ir.MaxBodyBytes + 1` bytes before `DecodeBody` (which then answers
+  `RequestTooLarge`), so an oversized body is never buffered whole.
+- `doccompile.PlanOf` shares the decoded `Filters` slice: resolve `$ref`s into a copy of the filters, do
+  not write resolved values back into the request (it may be replayed or compared as a duplicate).
 
 - Decoded values keep their raw `{"$ref": i}` objects; call `ir.Resolve` before validation, as the TS
   executor does. `ir.ResolveID` for id positions.

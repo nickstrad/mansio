@@ -68,7 +68,7 @@ func TestValidationVectors(t *testing.T) {
 		}
 		if verr != nil {
 			t.Errorf("%s: unexpected %v", name, verr)
-		} else if !ir.Equal(got, expect.Value("value")) {
+		} else if ir.Stringify(got) != ir.Stringify(expect.Value("value")) { // member order and -0 too
 			t.Errorf("%s: got %s, want %s", name, ir.Stringify(got), ir.Stringify(expect.Value("value")))
 		}
 	}

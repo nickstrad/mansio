@@ -28,8 +28,9 @@ const (
 	MaxLimit = 1000
 )
 
-// system are the metadata columns every table has, in both layouts.
-var system = map[string]*docschema.Node{
+// system are the metadata columns every table has, in both layouts. Values, not pointers: FieldNode hands
+// out a copy, so no caller can change them.
+var system = map[string]docschema.Node{
 	"_id":           {Kind: docschema.KindString},
 	"_creationTime": {Kind: docschema.KindInteger},
 	"_version":      {Kind: docschema.KindInteger},
@@ -49,7 +50,7 @@ func TableFor(s *docschema.Schema, name string) (*docschema.Table, *ir.Error) {
 // FieldNode is the node behind a field name: a metadata column or a declared field.
 func FieldNode(t *docschema.Table, name string) (*docschema.Node, *ir.Error) {
 	if n, ok := system[name]; ok {
-		return n, nil
+		return &n, nil
 	}
 	n, ok := t.Field(name)
 	if !ok {
@@ -84,7 +85,7 @@ func Expression(t *docschema.Table, name string, d Dialect) (string, *ir.Error) 
 	if err := docschema.Identifier(name); err != nil {
 		return "", err
 	}
-	path := Literal("$." + name)
+	path := literal("$." + name)
 	if d == SQLite {
 		extract := `json_extract("doc", ` + path + ")"
 		if n.Kind == docschema.KindNumber {
@@ -157,7 +158,7 @@ func Select(s *docschema.Schema, plan Plan, d Dialect) (SQL, *ir.Error) {
 	values := []any{}
 	bind := func(v any) string {
 		values = append(values, v)
-		return Placeholder(d, len(values))
+		return placeholder(d, len(values))
 	}
 	var where []string
 	for _, f := range p.Filters {

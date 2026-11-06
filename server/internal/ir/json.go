@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -47,7 +48,7 @@ func Parse(text string) (any, *Error) {
 		if path == "" {
 			path = "body"
 		}
-		return nil, SchemaErr(ReasonTypeMismatch, path, s.expected, Undefined)
+		return nil, SchemaErr(ReasonTypeMismatch, path, s.expected, Undefined{})
 	}
 	return v, nil
 }
@@ -103,11 +104,12 @@ func (p *parser) value(path string, depth int) (any, *stop) {
 
 func (p *parser) object(path string, depth int) (any, *stop) {
 	p.at++
-	out := NewObject()
+	var names []string
+	vals := map[string]any{}
 	p.skip()
 	if p.peek() == '}' {
 		p.at++
-		return out, nil
+		return objectOf(nil, vals), nil
 	}
 	for {
 		p.skip()
@@ -120,7 +122,7 @@ func (p *parser) object(path string, depth int) (any, *stop) {
 		}
 		key := k.(string)
 		at := Member(path, key)
-		if out.Has(key) {
+		if _, dup := vals[key]; dup {
 			return nil, &stop{at, "unique member name"}
 		}
 		p.skip()
@@ -132,7 +134,8 @@ func (p *parser) object(path string, depth int) (any, *stop) {
 		if s != nil {
 			return nil, s
 		}
-		out.Set(key, item)
+		names = append(names, key)
+		vals[key] = item
 		p.skip()
 		switch p.peek() {
 		case ',':
@@ -140,7 +143,7 @@ func (p *parser) object(path string, depth int) (any, *stop) {
 			continue
 		case '}':
 			p.at++
-			return out, nil
+			return objectOf(names, vals), nil
 		}
 		return nil, &stop{path, "JSON"}
 	}
@@ -395,6 +398,12 @@ func StringifyIndent(v any, indent string) string {
 	return b.String()
 }
 
+// nonJSON is the contract failure for a Go value outside the JSON model (an int, a []byte, a struct):
+// a caller bug, never input, so it panics rather than writing something plausible.
+func nonJSON(v any) string {
+	return fmt.Sprintf("ir: %T is not a JSON value (want nil, bool, float64, string, []any, *Object or Undefined)", v)
+}
+
 func writeJSON(b *strings.Builder, v any, indent, prefix string) {
 	inner := prefix + indent
 	open := func(c byte) {
@@ -438,7 +447,7 @@ func writeJSON(b *strings.Builder, v any, indent, prefix string) {
 			if i > 0 {
 				sep()
 			}
-			if item == Undefined {
+			if item == (Undefined{}) {
 				item = nil
 			}
 			writeJSON(b, item, indent, inner)
@@ -462,8 +471,10 @@ func writeJSON(b *strings.Builder, v any, indent, prefix string) {
 			writeJSON(b, x.vals[k], indent, inner)
 		}
 		end('}')
+	case Undefined:
+		b.WriteString("null") // only reachable at the top level; members and elements handle it above
 	default:
-		b.WriteString("null")
+		panic(nonJSON(v))
 	}
 }
 
@@ -541,7 +552,7 @@ func writeCanonical(b *strings.Builder, v any) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			if item == Undefined {
+			if item == (Undefined{}) {
 				item = nil
 			}
 			writeCanonical(b, item)
@@ -607,13 +618,15 @@ func ToString(v any) string {
 	case []any:
 		parts := make([]string, len(x))
 		for i, item := range x {
-			if item != nil && item != Undefined {
+			if item != nil && item != (Undefined{}) {
 				parts[i] = ToString(item)
 			}
 		}
 		return strings.Join(parts, ",")
 	case *Object:
 		return "[object Object]"
+	case Undefined:
+		return "undefined"
 	}
-	return "undefined"
+	panic(nonJSON(v))
 }

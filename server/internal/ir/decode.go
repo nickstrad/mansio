@@ -47,13 +47,13 @@ func object(value any, path string, allowed, required []string) (*Object, *Error
 	if allowed != nil {
 		for _, k := range o.keys {
 			if !slices.Contains(allowed, k) {
-				return nil, SchemaErr(ReasonUnknownField, Member(path, k), "declared field", Undefined)
+				return nil, SchemaErr(ReasonUnknownField, Member(path, k), "declared field", Undefined{})
 			}
 		}
 	}
 	for _, k := range required {
 		if !o.Has(k) {
-			return nil, mismatch(Member(path, k), "required member", Undefined)
+			return nil, mismatch(Member(path, k), "required member", Undefined{})
 		}
 	}
 	return o, nil
@@ -156,7 +156,7 @@ func (d *decoder) expect(value any, path, op string) (*Expect, *Error) {
 	}
 	out := &Expect{}
 	if e.Len() == 0 {
-		return nil, mismatch(path, "at least one of version, exists, fields", Undefined)
+		return nil, mismatch(path, "at least one of version, exists, fields", Undefined{})
 	}
 	if v, ok := e.Get("version"); ok {
 		if !IsSafeInteger(v) || v.(float64) < 1 {
@@ -172,7 +172,7 @@ func (d *decoder) expect(value any, path, op string) (*Expect, *Error) {
 			return nil, err
 		}
 		if fields.Len() == 0 {
-			return nil, mismatch(at, "at least one field", Undefined)
+			return nil, mismatch(at, "at least one field", Undefined{})
 		}
 		out.Fields = fields
 	}
@@ -255,12 +255,12 @@ func (d *decoder) selectOf(o *Object, path string) (Op, *Error) {
 		}
 		if kind == "count" {
 			if agg.Has("field") {
-				return nil, SchemaErr(ReasonUnknownField, Member(at, "field"), "declared field", Undefined)
+				return nil, SchemaErr(ReasonUnknownField, Member(at, "field"), "declared field", Undefined{})
 			}
 			sel.Aggregate = &Aggregate{Kind: kind}
 		} else {
 			if !agg.Has("field") {
-				return nil, mismatch(Member(at, "field"), "required member", Undefined)
+				return nil, mismatch(Member(at, "field"), "required member", Undefined{})
 			}
 			field, err := str(agg.Value("field"), Member(at, "field"))
 			if err != nil {
@@ -394,7 +394,7 @@ func decodeValue(value any) (*Request, *Error) {
 			return nil, err
 		}
 	} else if r.Kind == Mutation {
-		return nil, mismatch("requestId", "required member", Undefined)
+		return nil, mismatch("requestId", "required member", Undefined{})
 	}
 	schema, ok := top.Value("schema").(string)
 	if !ok || !fingerprint.MatchString(schema) {
@@ -428,7 +428,7 @@ func DecodeBody(body []byte) (*Request, *Error) {
 		return nil, TooLarge(MaxBodyBytes, len(body))
 	}
 	if !utf8.Valid(body) {
-		return nil, mismatch("body", "UTF-8", Undefined)
+		return nil, mismatch("body", "UTF-8", Undefined{})
 	}
 	v, err := Parse(string(body))
 	if err != nil {

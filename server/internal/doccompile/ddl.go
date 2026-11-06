@@ -40,7 +40,7 @@ func DDL(s *docschema.Schema) ([]string, *ir.Error) {
 					if len(n.Values) > 0 {
 						allowed := make([]string, len(n.Values))
 						for i, v := range n.Values {
-							allowed[i] = Literal(v)
+							allowed[i] = literal(v)
 						}
 						col += " CHECK (" + column + " IN (" + strings.Join(allowed, ", ") + "))"
 					}

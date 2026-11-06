@@ -38,7 +38,7 @@ func parseFile(t testing.TB, path string) any {
 func planOf(v any) doccompile.Plan {
 	o, ok := v.(*ir.Object)
 	if !ok {
-		return doccompile.Plan{Limit: ir.Undefined}
+		return doccompile.Plan{Limit: ir.Undefined{}}
 	}
 	p := doccompile.Plan{Table: ir.ToString(o.Value("table")), Limit: o.Value("limit")}
 	if list, ok := o.Value("filters").([]any); ok {
@@ -118,7 +118,7 @@ func TestCompileVectors(t *testing.T) {
 
 // corpusLine recompiles one corpus case and returns the line Go would write: the case's own members with
 // select and ddl replaced by the Go compiler's outputs (ir/vectors/README.md).
-func corpusLine(line string) (string, error) {
+func corpusLine(line string) (string, *ir.Error) {
 	v, err := ir.Parse(line)
 	if err != nil {
 		return "", err

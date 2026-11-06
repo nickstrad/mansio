@@ -2,14 +2,15 @@ package ir
 
 import (
 	"math"
+	"slices"
+	"sort"
 	"strconv"
 )
 
-// Undefined is the JavaScript undefined: an absent value. An object member set to Undefined is absent,
-// an array element that is Undefined encodes as null, and an error field that is Undefined is dropped.
-var Undefined any = undefined{}
-
-type undefined struct{}
+// Undefined is the JavaScript undefined: an absent value, written Undefined{} (a type, so no package can
+// reassign it; compare with v == (Undefined{})). An object member set to Undefined is absent, an array
+// element that is Undefined encodes as null, and an error field that is Undefined is dropped.
+type Undefined struct{}
 
 // Object is a JSON object with ECMAScript own-property order: names that are array indices ("0" to
 // "4294967294", canonical decimal) come first in ascending numeric order, then the other names in the order
@@ -19,6 +20,9 @@ type undefined struct{}
 type Object struct {
 	keys []string
 	vals map[string]any
+	// idx holds the numeric values of the leading array-index names, keys[:len(idx)], ascending, so an
+	// insert is a binary search (and an append for ascending names) rather than a rescan.
+	idx []uint64
 }
 
 // NewObject returns an empty object; kv are name/value pairs set in order.
@@ -27,6 +31,34 @@ func NewObject(kv ...any) *Object {
 	for i := 0; i+1 < len(kv); i += 2 {
 		o.Set(kv[i].(string), kv[i+1])
 	}
+	return o
+}
+
+// objectOf builds an object from distinct names in insertion order in O(n log n), whatever the order of
+// the array-index names (the parser's path: untrusted input must not make Set's ordered insert quadratic).
+func objectOf(names []string, vals map[string]any) *Object {
+	o := &Object{vals: vals}
+	type indexed struct {
+		n    uint64
+		name string
+	}
+	var index []indexed
+	var rest []string
+	for _, name := range names {
+		if n, ok := arrayIndex(name); ok {
+			index = append(index, indexed{n, name})
+		} else {
+			rest = append(rest, name)
+		}
+	}
+	sort.Slice(index, func(i, j int) bool { return index[i].n < index[j].n })
+	o.keys = make([]string, 0, len(names))
+	o.idx = make([]uint64, len(index))
+	for i, x := range index {
+		o.keys = append(o.keys, x.name)
+		o.idx[i] = x.n
+	}
+	o.keys = append(o.keys, rest...)
 	return o
 }
 
@@ -40,7 +72,7 @@ func (o *Object) Keys() []string { return o.keys }
 func (o *Object) Get(name string) (any, bool) {
 	v, ok := o.vals[name]
 	if !ok {
-		return Undefined, false
+		return Undefined{}, false
 	}
 	return v, true
 }
@@ -60,7 +92,7 @@ func (o *Object) Has(name string) bool {
 // Set sets a member. A new name takes its ECMAScript position; an existing one keeps its position.
 // Setting Undefined removes the member.
 func (o *Object) Set(name string, v any) {
-	if v == Undefined {
+	if v == (Undefined{}) {
 		o.remove(name)
 		return
 	}
@@ -69,22 +101,17 @@ func (o *Object) Set(name string, v any) {
 		return
 	}
 	o.vals[name] = v
-	idx, isIndex := arrayIndex(name)
+	n, isIndex := arrayIndex(name)
 	if !isIndex {
 		o.keys = append(o.keys, name)
 		return
 	}
-	at := 0
-	for at < len(o.keys) {
-		other, ok := arrayIndex(o.keys[at])
-		if !ok || other > idx {
-			break
-		}
-		at++
+	at := len(o.idx)
+	if at > 0 && o.idx[at-1] > n {
+		at = sort.Search(len(o.idx), func(i int) bool { return o.idx[i] > n })
 	}
-	o.keys = append(o.keys, "")
-	copy(o.keys[at+1:], o.keys[at:])
-	o.keys[at] = name
+	o.idx = slices.Insert(o.idx, at, n)
+	o.keys = slices.Insert(o.keys, at, name)
 }
 
 func (o *Object) remove(name string) {
@@ -92,11 +119,10 @@ func (o *Object) remove(name string) {
 		return
 	}
 	delete(o.vals, name)
-	for i, k := range o.keys {
-		if k == name {
-			o.keys = append(o.keys[:i], o.keys[i+1:]...)
-			return
-		}
+	i := slices.Index(o.keys, name)
+	o.keys = slices.Delete(o.keys, i, i+1)
+	if i < len(o.idx) {
+		o.idx = slices.Delete(o.idx, i, i+1)
 	}
 }
 

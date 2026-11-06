@@ -151,7 +151,7 @@ func (id IDRef) json() any {
 
 func (e *Expect) json() any {
 	if e == nil {
-		return Undefined
+		return Undefined{}
 	}
 	out := NewObject()
 	if e.Version != nil {

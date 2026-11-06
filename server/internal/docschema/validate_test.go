@@ -41,7 +41,7 @@ func TestValidateOnOffPoints(t *testing.T) {
 		{integer, 1.5, false}, {integer, "1", false}, {integer, nil, false}, {integer, math.Copysign(0, -1), true},
 		{enum, "a", true}, {enum, "A", false}, {enum, "c", false}, {enum, nil, false},
 		{fixed, []any{1.0, 2.0, 3.0}, true}, {fixed, []any{1.0, 2.0}, false}, {fixed, []any{1.0, 2.0, 3.0, 4.0}, false},
-		{fixed, []any{1.0, 2.5, 3.0}, false}, {nullable, nil, true}, {nullable, ir.Undefined, false},
+		{fixed, []any{1.0, 2.5, 3.0}, false}, {nullable, nil, true}, {nullable, ir.Undefined{}, false},
 	} {
 		_, err := docschema.Validate(c.n, c.value, "f")
 		if (err == nil) != c.ok {

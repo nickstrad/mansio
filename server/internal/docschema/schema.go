@@ -126,14 +126,14 @@ func Identifier(name string) *ir.Error {
 // NUL is U+0000, the one character the text storage contract refuses (ADR 0005).
 const NUL = "\x00"
 
-// DefineTable applies defineTable's rules: identifier names, no _ prefix, no enum member holding U+0000.
-func DefineTable(fields []Field) (*Table, *ir.Error) {
+// defineTable applies defineTable's rules: identifier names, no _ prefix, no enum member holding U+0000.
+func defineTable(fields []Field) (*Table, *ir.Error) {
 	for _, f := range fields {
 		if err := Identifier(f.Name); err != nil {
 			return nil, err
 		}
 		if strings.HasPrefix(f.Name, "_") {
-			return nil, ir.SchemaErr("reserved-field", f.Name, "unreserved name", ir.Undefined)
+			return nil, ir.SchemaErr("reserved-field", f.Name, "unreserved name", ir.Undefined{})
 		}
 		n := f.Node
 		for n != nil && n.Kind == KindArray {
@@ -150,22 +150,22 @@ func DefineTable(fields []Field) (*Table, *ir.Error) {
 	return newTable(fields), nil
 }
 
-// AddIndex applies Table.addIndex's rules and returns the table with the index appended.
-func (t *Table) AddIndex(name string, fields []string) (*Table, *ir.Error) {
+// addIndex applies Table.addIndex's rules and returns the table with the index appended.
+func (t *Table) addIndex(name string, fields []string) (*Table, *ir.Error) {
 	if err := Identifier(name); err != nil {
 		return nil, err
 	}
 	if len(fields) == 0 {
-		return nil, ir.SchemaErr("empty-index", name, "one or more fields", ir.Undefined)
+		return nil, ir.SchemaErr("empty-index", name, "one or more fields", ir.Undefined{})
 	}
 	for _, f := range fields {
 		if n, ok := t.byName[f]; !ok || n.Kind == KindArray {
-			return nil, ir.SchemaErr("unindexable-field", f, "scalar field", ir.Undefined)
+			return nil, ir.SchemaErr("unindexable-field", f, "scalar field", ir.Undefined{})
 		}
 	}
 	for _, idx := range t.Indexes {
 		if idx.Name == name {
-			return nil, ir.SchemaErr("duplicate-index", name, "unused index name", ir.Undefined)
+			return nil, ir.SchemaErr("duplicate-index", name, "unused index name", ir.Undefined{})
 		}
 	}
 	out := *t
@@ -173,15 +173,15 @@ func (t *Table) AddIndex(name string, fields []string) (*Table, *ir.Error) {
 	return &out, nil
 }
 
-// DefineSchema applies defineSchema's table-name rules: identifiers, not _-prefixed, not sqlite_-prefixed
+// defineSchema applies defineSchema's table-name rules: identifiers, not _-prefixed, not sqlite_-prefixed
 // in any case.
-func DefineSchema(s *Schema) *ir.Error {
+func defineSchema(s *Schema) *ir.Error {
 	for _, name := range s.names {
 		if err := Identifier(name); err != nil {
 			return err
 		}
 		if strings.HasPrefix(name, "_") || strings.HasPrefix(strings.ToLower(name), "sqlite_") {
-			return ir.SchemaErr("reserved-table", name, "unreserved name", ir.Undefined)
+			return ir.SchemaErr("reserved-table", name, "unreserved name", ir.Undefined{})
 		}
 	}
 	return nil

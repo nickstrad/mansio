@@ -96,7 +96,7 @@ func TestObjectOrder(t *testing.T) {
 	}
 	o := ir.NewObject("a", 1.0, "b", 2.0)
 	o.Set("a", 3.0)
-	o.Set("b", ir.Undefined)
+	o.Set("b", ir.Undefined{})
 	if ir.Stringify(o) != `{"a":3}` {
 		t.Errorf("set/remove: %s", ir.Stringify(o))
 	}
@@ -128,7 +128,7 @@ func TestToString(t *testing.T) {
 		want string
 	}{
 		{nil, "null"}, {true, "true"}, {1.5, "1.5"}, {"x", "x"}, {[]any{1.0, nil, []any{"a", 2.0}}, "1,,a,2"},
-		{ir.NewObject(), "[object Object]"}, {ir.Undefined, "undefined"},
+		{ir.NewObject(), "[object Object]"}, {ir.Undefined{}, "undefined"},
 	} {
 		if got := ir.ToString(c.v); got != c.want {
 			t.Errorf("ToString(%v) = %q, want %q", c.v, got, c.want)
@@ -160,5 +160,25 @@ func TestResolve(t *testing.T) {
 	}
 	if ir.ResolveID(ir.IDRef{Ref: 1, IsRef: true}, []string{"i0", "i1"}) != "i1" || ir.ResolveID(ir.IDRef{ID: "z"}, nil) != "z" {
 		t.Error("ResolveID")
+	}
+}
+
+// TestNonJSONPanics: a Go value outside the JSON model is a caller bug (a contract), not something to
+// encode as null or "undefined".
+func TestNonJSONPanics(t *testing.T) {
+	for name, f := range map[string]func(){
+		"Stringify int":    func() { ir.Stringify([]any{1}) },
+		"Canonical int64":  func() { ir.Canonical(ir.NewObject("a", int64(1))) },
+		"ToString []byte":  func() { ir.ToString([]byte("x")) },
+		"Stringify struct": func() { ir.Stringify(struct{}{}) },
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("%s: no panic", name)
+				}
+			}()
+			f()
+		}()
 	}
 }
