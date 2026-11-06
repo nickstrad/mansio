@@ -35,7 +35,7 @@ const gitStatus = async () => {
 const external = Deno.env.get("E2E_POSTGRES_URL") || undefined;
 const backend = Deno.env.get("BACKEND") ?? "deno";
 /** Scenarios IR-3 runs on the Go backend; the rest are skipped there with a reason (harness.ts `test`). */
-const onGo = ["documents", "queries"];
+const onGo = ["documents", "queries", "backup_restore"];
 const skipped = backend === "go" ? order.filter((name) => !onGo.includes(name)) : [];
 function forwarded(keys: string[]): Record<string, string> {
   return Object.fromEntries(keys.flatMap((key) => {
@@ -95,6 +95,14 @@ try {
           E2E_KEEP: keep ? "1" : "0",
           // The backend under test and how to get a Go agent (harness.ts `startBackend`).
           ...forwarded(["BACKEND", "AGENTD_BIN", "GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS"]),
+          // Durability on Go (durable.ts): dbtool and the S3 the durable agents use.
+          ...forwarded([
+            "DBTOOL_BIN",
+            "E2E_S3_ENDPOINT",
+            "E2E_S3_BUCKET",
+            "E2E_S3_ACCESS_KEY",
+            "E2E_S3_SECRET_KEY",
+          ]),
         },
         { inherit: true, trackRoot: temp },
       );

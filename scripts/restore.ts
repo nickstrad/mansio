@@ -1,3 +1,4 @@
+// The Deno platform's restore. On the Go backend, `dbtool restore [-gen G] <tenant:app> <file>` (server/cmd/dbtool).
 import { dirname, resolve } from "node:path";
 import { objectStore, sha256 } from "../platform/object_store.ts";
 import { integrityCheck, type Manifest } from "../platform/backup.ts";
