@@ -871,7 +871,8 @@ Branch `dst/2-cluster`. Details: `knowledge/determinism/2026-11-06-dst2-dst3-clu
 - **sim:** `RunCluster(ClusterConfig, io.Writer) ClusterResult` (DST-2), `ShrinkCluster`, `Vector`/`ReadVector`/
   `WriteVector` (testdata/cluster), `sim.IR` workload and `sim.Agent.Ops()` (the DST-1 IR hook).
   Tests: `TestClusterSeeds`, `TestClusterSameSeedSameTrace`, `TestClusterVectors`, `TestClusterShrink`,
-  `TestIRSeeds`. Env: `MANSIO_SIM_SWARM=1`, `MANSIO_SIM_SAVE=1` (plus DST-1's).
+  `TestIRSeeds`, `TestClusterOpenFindings`. Env: `MANSIO_SIM_SWARM=1`, `MANSIO_SIM_SAVE=<dir>` (`1`: testdata/open),
+  `MANSIO_SIM_OPEN=1` (plus DST-1's).
 - **Nightly:** `server/scripts/sim-swarm.sh [seeds] [first]` = `make sim-swarm SEEDS=N` = `deno task sim:swarm`.
 - **owner (behaviour change):** `Table.Publish` now also runs for a key `Fencing` at its own epoch (a fence that
   failed and waits for its retry) until the fence's write-back has published; before, write-backs stopped and

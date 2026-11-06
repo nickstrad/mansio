@@ -50,6 +50,7 @@ type ClusterResult struct {
 type ClusterStats struct {
 	Steps, Requests, Acked, Kills, Restarts, Attests, Moves, MovesDone, Creates, Partitions int
 	LostInRPO                                                                               int
+	LostExcused                                                                             int            // of LostInRPO: older than the RPO, excused by faults
 	VersionReuse                                                                            int            // (account, _version) read with two balances: a rollback re-issued it
 	Answers                                                                                 map[string]int // client-side answers by tag
 	Ops                                                                                     int            // linearizability: operations checked
@@ -116,7 +117,7 @@ func RunCluster(cfg ClusterConfig, live io.Writer) ClusterResult {
 	w.mu.Lock()
 	res.Stats, res.Script = w.stats, slices.Clone(w.script)
 	w.mu.Unlock()
-	res.Stats.LostInRPO, res.Stats.Ops, res.Stats.VersionReuse = w.model.lostOK, w.model.checked, w.model.reused
+	res.Stats.LostInRPO, res.Stats.LostExcused, res.Stats.Ops, res.Stats.VersionReuse = w.model.lostOK, w.model.excused, w.model.checked, w.model.reused
 	return res
 }
 
@@ -554,8 +555,8 @@ func (w *cworld) callFaults(op, key string, f durabletest.Faults) durabletest.Fa
 	}
 	if len(what) > 0 {
 		now := w.clk.Now()
-		if f.Delay > 0 {
-			w.health.mark("", now, now.Add(f.Delay))
+		if f.Delay > 0 && w.ownerVM(key) != "" { // a stall holds the owner's write-backs of every database
+			w.health.mark(vmScope(w.ownerVM(key)), now, now.Add(f.Delay))
 		}
 		w.health.mark(key, now, now.Add(f.Delay+late))
 		w.tr.add("fault/"+key, "%s %s", op, strings.Join(what, " "))
@@ -651,6 +652,37 @@ func (w *cworld) readyKeys() []string {
 	return out
 }
 
+// vmScope is the health scope of a VM's links and breaker.
+func vmScope(vm string) string { return "vm:" + vm }
+
+// ownerVM is key's owner in the authority ("" if none).
+func (w *cworld) ownerVM(key string) string {
+	if p, ok := w.place.Row(key); ok {
+		return p.Owner
+	}
+	return ""
+}
+
+// storageCut lists the VMs a partition of node from cut separates from S3 or Postgres.
+func storageCut(node string, cut []string) []string {
+	storage := func(n string) bool { return n == nodeS3 || n == nodePG }
+	var vms []string
+	if strings.HasPrefix(node, "vm") {
+		if slices.ContainsFunc(cut, storage) {
+			vms = append(vms, node)
+		}
+		return vms
+	}
+	if storage(node) {
+		for _, n := range cut {
+			if strings.HasPrefix(n, "vm") {
+				vms = append(vms, n)
+			}
+		}
+	}
+	return vms
+}
+
 // apply runs one nemesis operation (on the event loop) and records it in the script.
 func (w *cworld) apply(op Op) {
 	w.mu.Lock()
@@ -661,11 +693,18 @@ func (w *cworld) apply(op Op) {
 	case "partition":
 		heal := w.net.partition(op.Node, op.Cut)
 		w.count(func(s *ClusterStats) { s.Partitions++ })
-		span := fmt.Sprintf("partition/%d", w.spans.Add(1)) // partitions overlap: each its own unhealthy span
-		w.health.begin(span, w.clk.Now())
+		// Unhealthy: each VM cut from S3 or Postgres (its write-backs and claims), each its own span (they overlap).
+		var spans []string
+		for _, vm := range storageCut(op.Node, op.Cut) {
+			span := fmt.Sprintf("partition/%d", w.spans.Add(1))
+			w.health.beginIn(vmScope(vm), span, w.clk.Now())
+			spans = append(spans, span)
+		}
 		w.at(op.For, "heal", func() {
 			heal()
-			w.health.end(span, w.clk.Now())
+			for _, span := range spans {
+				w.health.end(span, w.clk.Now())
+			}
 			w.tr.add("nemesis", "healed %s", op.Node)
 		})
 	case "kill":

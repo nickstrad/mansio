@@ -79,7 +79,7 @@ func (w *cworld) startAgent(v *cvm) (*cinc, error) {
 			if t.To == breaker.Closed {
 				w.health.end("breaker/"+v.name, w.clk.Now())
 			} else {
-				w.health.begin("breaker/"+v.name, w.clk.Now())
+				w.health.beginIn(vmScope(v.name), "breaker/"+v.name, w.clk.Now())
 			}
 		}
 	}})

@@ -41,6 +41,7 @@ type cmark struct {
 	commitAt time.Time
 	lostAt   *loss
 	final    string // a definite failure the client ended with ("" otherwise)
+	vm       string // the VM that committed it (its links and breaker decide the RPO excuse)
 	// dup: the network delivered one of its requests twice; everMaybe: some attempt may have applied (no
 	// answer, or an ambiguous one), and may still land later. Either way no answer proves it did not run.
 	dup, everMaybe bool
@@ -75,6 +76,7 @@ type cmodel struct {
 	dbs     map[string]*cdbModel
 	found   []Violation
 	lostOK  int
+	excused int // of lostOK: older than the RPO at the crash, excused by faults on the owner's links or the key
 	checked int
 	reused  int // (account, version) pairs read with two balances
 
@@ -228,7 +230,7 @@ func (m *cmodel) committed(at time.Time, key, vm string, epoch uint64, rid strin
 		return
 	}
 	e := m.mark(key, rid)
-	e.commitAt, e.lostAt = at, nil
+	e.commitAt, e.lostAt, e.vm = at, nil, vm
 	if o, ok := d.epochOwner[epoch]; ok && o != vm {
 		m.violate(key, "two owners serve writes at epoch %d: %s and %s", epoch, o, vm)
 	}
@@ -416,7 +418,7 @@ func (m *cmodel) judge(d *cdbModel, marks []string, what string, crash bool, tc 
 // for a write committed before a write-back or fence that published. pre: m.mu held
 func (m *cmodel) judgeLoss(d *cdbModel, rid string, e *cmark, tc, durableBefore time.Time, what string) {
 	e.st = lost
-	switch healthy := m.w.health.longestHealthy(d.key, e.ackedAt, tc); {
+	switch healthy := m.w.health.longestHealthyIn(e.ackedAt, tc, d.key, vmScope(e.vm)); {
 	case e.ackedAt.Before(durableBefore):
 		m.violate(d.key, "%s: mutation %s acknowledged at %v, before a write-back or fence that published (started %v), is lost at the crash at %v",
 			what, rid, e.ackedAt.Sub(m.w.t0), durableBefore.Sub(m.w.t0), tc.Sub(m.w.t0))
@@ -425,6 +427,9 @@ func (m *cmodel) judgeLoss(d *cdbModel, rid string, e *cmark, tc, durableBefore 
 			what, rid, e.ackedAt.Sub(m.w.t0), tc.Sub(m.w.t0), healthy, m.w.s.RPO)
 	default:
 		m.lostOK++
+		if tc.Sub(e.ackedAt) >= m.w.s.RPO {
+			m.excused++
+		}
 		m.w.tr.add("check", "%s lost %s inside the RPO (acked %v)", d.key, rid, e.ackedAt.Sub(m.w.t0))
 	}
 }

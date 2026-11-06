@@ -84,15 +84,18 @@ Evidence: `TestClusterSameSeedSameTrace` (3 seeds by default; `MANSIO_SIM_SEEDS`
 | every step, each manifest | generation and epoch never go down; a new generation extends the last; no mark twice (**nothing applied twice**), none unknown, none of a write every answer said did nothing, none whose final answer was a definite failure (e.g. `ConflictError` for an applied transfer) |
 | every answer | `duplicate` only for a write an earlier attempt may have applied |
 | an owner starts serving (owner table → Active: claim after create/move/restore, reopen after restart) | the generation it starts from holds every write committed so far, except, after a kill -9 of the owner, writes lost inside the RPO; **a graceful move loses nothing** (any committed write missing is a violation, acknowledged or not) |
-| end of the run | the same against the final manifests (as a crash); then per database: registers and the bank **linearizable** (`internal/linearize`), segmented at the kills of the database's owner (the IR-5a Jepsen rules: ops across a crash are dropped (reads) or unknown (writes); a later segment starts unknown, each register's / account's first value must be the setup's or one written by an op called before the crash) |
+| end of the run | the same against the final manifests (as a crash); then per database: registers and the bank **linearizable** (`internal/linearize`), segmented at the kills of the database's owner (the IR-5a Jepsen rules: ops across a crash are dropped (reads) or unknown (writes); a later segment starts from exactly the generation the first owner after the crash started from: each register's / account's last write in its marks, or the setup's; carried-over unknown writes it already holds are dropped) |
 | every full bank read | balances sum to the setup total |
 
 **RPO** (plan §9's open decision; parameterized, `ClusterConfig.RPO`, default `WriteBackEvery + Tick + 1 s`): a
 write lost at a kill is judged by its **commit time** (when the agent answered; the client may hear the ok much
 later through a slow network): a violation iff it committed before a write-back or fence that published, or a
-fault-free stretch at least RPO long fits between its commit and the crash. Unhealthy time: S3 faults on that
-database, storms, stalls, any agent's breaker open, any partition. A write whose commit a restore lost before
-its ok arrived is judged when the ok arrives. Losses inside the RPO are counted (`Stats.LostInRPO`).
+fault-free stretch at least RPO long fits between its commit and the crash. Unhealthy time, scoped to the
+write: S3 faults on that database's calls; stalls of any call while its committing VM owned the database (the
+tick writes back one database after another); that VM's breaker open; a partition cutting that VM from S3 or
+Postgres; storms (global). Partitions of clients, the edge or controld excuse nothing. A write whose commit a restore lost before
+its ok arrived is judged when the ok arrives. Losses inside the RPO are counted (`Stats.LostInRPO`; of those, `Stats.LostExcused` were older than the RPO
+and excused only by faults: 1 loss in 100 swarm seeds, so nearly every excused loss is inside the plain window).
 
 Teeth (production mutants, by hand, reverted): request-id dedupe off (actor) — caught by 6/6 seeds (applied
 twice, final answer `ConflictError` for an applied transfer, non-linearizable registers); `Fence` without its
@@ -149,17 +152,20 @@ No seed produced an `Internal` (defect) answer.
 go test ./internal/sim                                       # DST-1 (8 + 4 IR seeds), DST-2 (6 seeds), determinism, vectors
 MANSIO_SIM_SWARM=1 MANSIO_SIM_SEEDS=500 go test ./internal/sim -run TestClusterSeeds     # swarm (MANSIO_SIM_FIRST=n)
 MANSIO_SIM_SWARM=1 MANSIO_SIM_SEED=388 MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestClusterSeeds -v   # replay
-MANSIO_SIM_SWARM=1 MANSIO_SIM_SHRINK=388 MANSIO_SIM_SAVE=1 go test ./internal/sim -run TestClusterShrink -v  # shrink, save a vector
+MANSIO_SIM_SWARM=1 MANSIO_SIM_SHRINK=388 MANSIO_SIM_SAVE=1 go test ./internal/sim -run TestClusterShrink -v  # shrink, save to testdata/open
 scripts/sim-swarm.sh [seeds] [first]    # nightly: make sim-swarm SEEDS=2000 / deno task sim:swarm
 ```
 
 `ShrinkCluster`: the drawn schedule becomes an explicit script (`Scripted`, `Script`); the duration is cut to
 just past the first violation; the script is delta-debugged (halves, then smaller chunks, then single ops);
-network and S3 fault classes and notifications are turned off one by one; clients and boot databases cut. Any
-failure counts (the shape may change, as in DST-1). The fence mutant's seed 1 shrinks in 11 runs to one move,
+network and S3 fault classes and notifications are turned off one by one; clients and boot databases cut. A
+change is kept only while the run fails in the same `FailureClass` (split brain, conservation, not
+linearizable, lost beyond the RPO, ...), so the shrinker does not drift to another bug. The fence mutant's seed 1 shrinks in 11 runs to one move,
 one client, 10 s: committed as `testdata/cluster/move-handoff.json`. `TestClusterVectors` replays every
-vector (each must pass). The nightly script shrinks every failing seed and writes its vector; fix the bug,
-edit the vector's `why`, commit both.
+vector (each must pass). `MANSIO_SIM_SAVE=<dir>` writes the shrunk vector to `<dir>` (`1`: `testdata/open`,
+replayed only by `MANSIO_SIM_OPEN=1 ... TestClusterOpenFindings`, which also checks each open vector's
+`expect` class); the nightly script writes them to its `results/sim-swarm/<time>/` directory. Moving a vector
+to `testdata/cluster` is a manual step taken with the fix.
 
 ## Gaps (for later)
 
@@ -172,6 +178,6 @@ edit the vector's `why`, commit both.
   client with its rules), controld crashes and more than one controld.
 - **Partitions are fail-fast**: a cut S3 or Postgres call fails at once instead of hanging to its deadline;
   network messages to a cut node are lost (the caller waits for its deadline).
-- **Health is coarse**: any partition or any agent's open breaker counts as unhealthy for every database's RPO
-  (conservative: it excuses more).
+- **Health is approximate**: a stall counts against the database's authority owner at the time, not the VM
+  that made the call; storms excuse every database.
 - One shared agent clock (no clock skew between nodes; tickets have `Skew` 2 s anyway).
