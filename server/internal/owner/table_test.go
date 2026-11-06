@@ -613,3 +613,39 @@ func TestClaimAdoptsAnImportedGeneration(t *testing.T) {
 		t.Fatalf("manifest after the claim: gen %d epoch %d %v", gen, e, contents)
 	}
 }
+
+// A fence whose final write-back failed leaves the key Fencing until the control plane retries it. Periodic
+// write-backs keep publishing it meanwhile (admission has stopped, so its writes are final): a crash before
+// the retry loses nothing beyond the write-back window. Found by the DST-2 cluster sim (seed 1963 in swarm
+// mode: a move's fence failed in an S3 storm; ticks refused the Fencing key for the rest of the run).
+func TestPublishWhileAFenceIsPending(t *testing.T) {
+	w := newWorld(t, "a")
+	w.place("k", "a")
+	a := w.tab("a")
+	must(t, w.write("a", "k", 1, "w1"))
+	w.objs.SetDown(true)
+	if _, err := a.Fence(ctx, "k"); err == nil {
+		t.Fatal("Fence with storage down succeeded")
+	}
+	if a.State("k").State != owner.Fencing {
+		t.Fatalf("State = %s, want fencing", a.State("k"))
+	}
+	w.objs.SetDown(false)
+	if _, err := a.Admit("k", 1); err != owner.ErrMoving {
+		t.Fatalf("Admit while fencing = %v, want ErrMoving", err)
+	}
+	g, err := a.Publish(ctx, "k", 1, func(c context.Context) (owner.Generation, error) { return w.procs["a"].wb.Publish(c, "k", 1) })
+	must(t, err)
+	if _, _, _, c, _ := w.objs.Read("k"); !slices.Equal(c, []string{"w1"}) || a.State("k").Gen != g {
+		t.Fatalf("published %v (gen %d, local %s), want [w1]", c, g, a.State("k"))
+	}
+	_, err = a.Publish(ctx, "k", 2, func(context.Context) (owner.Generation, error) { return 0, nil })
+	mustIs(t, err, owner.ErrMoving) // only at the fencing epoch
+	ack, err := a.Fence(ctx, "k")
+	must(t, err)
+	if ack.Gen < g || a.State("k").State != owner.Fenced { // the fence's own write-back may publish again
+		t.Fatalf("ack %+v after a pending-fence publish of gen %d; state %s", ack, g, a.State("k"))
+	}
+	_, err = a.Publish(ctx, "k", 1, func(context.Context) (owner.Generation, error) { return 0, nil })
+	mustIs(t, err, owner.ErrFenced)
+}
