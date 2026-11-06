@@ -72,9 +72,9 @@ func Run(tx Tx, s *docschema.Schema, req *ir.Request, ids det.IDGen) ([]any, err
 			}
 			return nil, err
 		}
-		id, _ := v.(string)
-		if op.Name() != "insert" {
-			id = ""
+		id := ""
+		if _, ok := op.(*ir.Insert); ok {
+			id = v.(string)
 		}
 		r.refs = append(r.refs, id)
 		result = append(result, v)

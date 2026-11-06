@@ -429,10 +429,9 @@ type appliedReq struct {
 }
 
 type modelOutcome struct {
-	result      any
-	duplicate   bool
-	err         *ir.Error
-	storageOnly bool // the injected failure is reached: err is the StorageError the actor answers
+	result    any
+	duplicate bool
+	err       *ir.Error
 }
 
 var modelFields = map[string][]string{"notes": {"title", "n", "tag"}, "lists": {"name"}}
@@ -461,7 +460,7 @@ func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 	result, e, upTo := work.run(req, now, seqBase)
 	for i, n := range upTo {
 		if st.failAt > 0 && st.failAt <= n {
-			return modelOutcome{storageOnly: true, err: ir.NewError(ir.TagStorage).WithOp(i)}
+			return modelOutcome{err: ir.NewError(ir.TagStorage).WithOp(i)} // the injected failure is reached
 		}
 	}
 	if e != nil {

@@ -22,9 +22,9 @@ const (
 // with the registered schema the request names, then the request again.
 var ErrUninitialized = errors.New("docexec: the database has no schema yet")
 
-// Drift is the SchemaDriftError of a request whose fingerprint is not the database's (spec §6.1 step 3):
+// drift is the SchemaDriftError of a request whose fingerprint is not the database's (spec §6.1 step 3):
 // expected is the database's fingerprint, actual the request's.
-func Drift(expected, actual string) *ir.Error {
+func drift(expected, actual string) *ir.Error {
 	return ir.NewError(ir.TagSchemaDrift, "expected", expected, "actual", actual)
 }
 
@@ -136,7 +136,7 @@ func Check(tx Tx, cache *Schemas, fingerprint string) (*Schema, error) {
 		actual = docschema.Fingerprint(text)
 	}
 	if actual != fingerprint {
-		return nil, protocol(Drift(actual, fingerprint))
+		return nil, protocol(drift(actual, fingerprint))
 	}
 	return s, nil
 }
@@ -189,7 +189,7 @@ func Init(tx Tx, s *Schema) error {
 	case ok && text == s.Text:
 		return nil
 	case ok:
-		return protocol(Drift(docschema.Fingerprint(text), s.Fingerprint))
+		return protocol(drift(docschema.Fingerprint(text), s.Fingerprint))
 	}
 	ddl, e := doccompile.DDL(s.Schema)
 	if e != nil {
