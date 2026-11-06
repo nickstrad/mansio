@@ -20,13 +20,20 @@ import (
 
 func TestOutcomeEncodingRoundTrips(t *testing.T) {
 	for _, rows := range []int64{0, 1, 63, 64, -1, 1 << 40} {
-		got, err := decodeOutcome(encodeOutcome(Result{Rows: rows}))
-		if err != nil || got != rows {
-			t.Fatalf("rows %d: got %d, %v", rows, got, err)
+		got, err := decodeRecord(encodeOutcome(Result{Rows: rows}))
+		if err != nil || got.closure || got.rows != rows {
+			t.Fatalf("rows %d: got %+v, %v", rows, got, err)
 		}
 	}
-	for _, b := range [][]byte{nil, {}, {outcomeV1}, {2, 0}, {outcomeV1, 0x80}, {outcomeV1, 0, 0}} {
-		if _, err := decodeOutcome(b); !errors.Is(err, errBadPriorResult) {
+	for _, body := range []string{"", "[]", `[{"_version":2},null,"id-1"]`} {
+		got, err := decodeRecord(encodeBody([]byte(body)))
+		if err != nil || !got.closure || got.body == nil || string(got.body) != body {
+			t.Fatalf("body %q: got %+v, %v", body, got, err)
+		}
+	}
+	// Off points: empty, a lone v1 byte, an unknown version, a truncated or overlong varint.
+	for _, b := range [][]byte{nil, {}, {outcomeV1}, {3, 0}, {0, 0}, {outcomeV1, 0x80}, {outcomeV1, 0, 0}} {
+		if _, err := decodeRecord(b); !errors.Is(err, errBadPriorResult) {
 			t.Fatalf("%v: err %v, want errBadPriorResult", b, err)
 		}
 	}

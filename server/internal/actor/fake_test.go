@@ -22,6 +22,7 @@ type faultExec struct {
 	FailSavepoint error            // SAVEPOINT w fails (the transaction stays open)
 	FailOn        map[string]error // exec of this SQL fails
 	EndsTxn       map[string]bool  // exec of this SQL fails and ends the open transaction
+	FailRun       map[string]error // run of this statement fails (PRAGMA, BEGIN of a read closure, ...)
 	ran           []string
 	closed        bool
 	inTxn         bool
@@ -58,6 +59,9 @@ func (f *faultExec) run(_ context.Context, q string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ran = append(f.ran, q)
+	if err := f.FailRun[q]; err != nil {
+		return err
+	}
 	switch {
 	case strings.HasPrefix(q, "BEGIN"):
 		if f.FailBegin == nil {
