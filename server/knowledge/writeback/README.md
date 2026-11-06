@@ -7,6 +7,7 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-06 **PAUSED by the user** — [backup paused, open issues](2026-11-06-backup-paused-open-issues.md): default backup every 10 s (kill -9 RPO ~11 s, not the 170 ms the Jepsen config showed); `_version` reuse after rollback (open sim vector); full-file copies too costly; LiteFS/similar to be evaluated. Code left working as is.
 - 2026-11-06 [publishes in doubt and generation numbers](2026-11-06-pending-and-generation-numbers.md): a
   publish in doubt is kept until one of ours applies or the grace window passes (`ErrInDoubt` at
   `maxPending`); uploads skip generation numbers taken by orphans with HEADs at doubling strides (I2).

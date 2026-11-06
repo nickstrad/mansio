@@ -285,7 +285,7 @@ Still open:
 
 - leases, and the WAL degraded mode (from mansio-server);
 - the durability promise: today `synchronous=FULL`, versus mansio-server's write-back RPO;
-- **OPEN DECISION (for the user; IR-5a measured it, nothing decided): acknowledged writes lost to kill -9.** A
+- **PAUSED (user, 2026-11-06): S3 backup work is on hold; the code stays working as is, and LiteFS or similar will be evaluated instead of full-file copies. Open issues: `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`. Correction: with the shipped default (`write_back_every` 10 s, 1 s tick) a kill -9 can lose about 11 s of acknowledged writes; the 170 ms below is the Jepsen test config (200 ms). A rollback also reuses `_version` numbers (open sim vector `server/internal/sim/testdata/open/version-reuse-after-rollback.json`).** Earlier text: acknowledged writes lost to kill -9. A
   durable agent killed with kill -9 and restarted serves each database from its last published generation, so
   writes acknowledged inside the write-back window are lost (the RPO; `server/knowledge/writeback`, DST-1's
   RPO rule). Measured in the IR-5a Jepsen-style run (`server/cmd/controld/jepsen_test.go`, write-back every
