@@ -100,12 +100,12 @@ func (c *cclient) resolve(ctx context.Context, minEpoch uint64) (*croute, time.D
 	defer cancel()
 	v, err := w.net.call(cctx, c.r, nodeClients, nodeControld, nil, nil, func(sctx context.Context) any {
 		rt, err := w.loc.Resolve(sctx, locator.Request{Tenant: tenant, Name: c.db.name, App: true, APIKey: w.apiKey, Source: "10.0.0.1:1", MinEpoch: minEpoch})
-		return lifeAnswer{rt, err}
+		return callAnswer{rt, err}
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	a := v.(lifeAnswer)
+	a := v.(callAnswer)
 	if a.err != nil {
 		var hint interface{ RetryAfter() time.Duration }
 		wait := time.Duration(0)
@@ -133,6 +133,11 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 	body["kind"] = kind
 	payload := []byte(mustJSON(body))
 	maybe := false
+	judge := func(tag string) { // the checker hears every answer to a mutation
+		if mutation {
+			w.model.answer(c.db.key, rid, tag)
+		}
+	}
 	var minEpoch uint64
 	what := kind
 	if mutation {
@@ -176,7 +181,7 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 			w.tr.add(c.name, "%s try %d -> no answer", what, attempt)
 			w.answered("no-answer")
 			maybe = maybe || mutation
-			w.model.answer(c.db.key, rid, mutation, "no-answer")
+			judge("no-answer")
 			continue
 		}
 		a := v.(httpAnswer)
@@ -192,27 +197,23 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 			w.tr.add(c.name, "%s try %d -> unreadable %d", what, attempt, a.status)
 			w.answered("unreadable")
 			maybe = maybe || mutation
-			w.model.answer(c.db.key, rid, mutation, "unreadable")
+			judge("unreadable")
 			continue
 		}
 		if out.Error == nil {
 			w.tr.add(c.name, "%s try %d -> ok%s at %s e%d", what, attempt, flag(out.Duplicate, " dup"), rt.vm, rt.epoch)
 			w.answered("ok")
-			if mutation {
-				w.model.answer(c.db.key, rid, mutation, okTag(out.Duplicate))
-			}
+			judge(okTag(out.Duplicate))
 			return canswer{result: out.Result, dup: out.Duplicate}
 		}
 		tag := out.Error.Tag
 		amb, _ := out.Error.Fields["ambiguous"].(bool)
 		w.tr.add(c.name, "%s try %d -> %s%s at %s e%d", what, attempt, tag, flag(amb, " ambiguous"), rt.vm, rt.epoch)
 		w.answered(tag)
-		if mutation {
-			t := tag
-			if amb {
-				t = "expired-ambiguous"
-			}
-			w.model.answer(c.db.key, rid, mutation, t)
+		if amb {
+			judge("expired-ambiguous")
+		} else {
+			judge(tag)
 		}
 		switch tag {
 		case "wrong_owner", "fenced":

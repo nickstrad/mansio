@@ -123,10 +123,11 @@ func (w *cworld) startAgent(v *cvm) (*cinc, error) {
 	a.handler = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), seqKey{}, w.seq.Add(1))))
 	})
-	phase := time.Duration(stream(w.s.Seed, "phase/"+name).Int64N(int64(w.s.Tick)))
+	phase := time.Microsecond + time.Duration(stream(w.s.Seed, "phase/"+name).Int64N(int64(time.Millisecond)))
 	a.wg.Go(func() {
-		// A random phase, so no two agents' ticks fall on one instant (timers due at one instant fire in
-		// creation order, and goroutines started together create theirs in the scheduler's order).
+		// A random phase under 1 ms, so no two agents' ticks fall on one instant (timers due at one instant fire
+		// in creation order, and goroutines started together create theirs in the scheduler's order). Small,
+		// so the first write-back comes when agentd's would (a phase of up to a tick broke the RPO bound).
 		if det.Sleep(a.ctx, w.clk, phase) != nil {
 			return
 		}

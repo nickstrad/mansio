@@ -131,7 +131,9 @@ type cworld struct {
 	net    *netw
 	store  *durabletest.Store
 	place  *ownertest.Placement
-	pgDown atomic.Bool
+	pgDown atomic.Int32 // Postgres outages going on
+	storms atomic.Int32 // S3 storms going on
+	spans  atomic.Int64 // names unhealthy spans
 	doors  doors
 	seq    atomic.Int64 // request arrival numbers (doors)
 
@@ -312,7 +314,7 @@ func (noObjects) DeletePrefix(context.Context, string) (int, error) { return 0, 
 func (w *cworld) controldLoops() {
 	r := stream(w.s.Seed, "controld")
 	ctx := withRand(w.bg, r)
-	if det.Sleep(ctx, w.clk, time.Duration(r.Int64N(int64(5*time.Second)))) != nil { // a phase (see startAgent)
+	if det.Sleep(ctx, w.clk, time.Microsecond+time.Duration(r.Int64N(int64(time.Millisecond)))) != nil { // a phase (see startAgent)
 		return
 	}
 	for i := 0; ; i++ {
@@ -390,7 +392,7 @@ func (w *cworld) loop(end time.Time) {
 func (w *cworld) finish() error {
 	w.faultsOn.Store(false)
 	w.stop()
-	w.pgDown.Store(false)
+	w.pgDown.Store(0)
 	w.store.SetFaults(durabletest.Faults{})
 	done := make(chan struct{})
 	go func() {
@@ -658,11 +660,12 @@ func (w *cworld) apply(op Op) {
 	switch op.Kind {
 	case "partition":
 		heal := w.net.partition(op.Node, op.Cut)
-		w.health.begin("partition", w.clk.Now())
 		w.count(func(s *ClusterStats) { s.Partitions++ })
+		span := fmt.Sprintf("partition/%d", w.spans.Add(1)) // partitions overlap: each its own unhealthy span
+		w.health.begin(span, w.clk.Now())
 		w.at(op.For, "heal", func() {
 			heal()
-			w.health.end("partition", w.clk.Now())
+			w.health.end(span, w.clk.Now())
 			w.tr.add("nemesis", "healed %s", op.Node)
 		})
 	case "kill":
@@ -687,19 +690,25 @@ func (w *cworld) apply(op Op) {
 		w.workers.Go(func() { w.createDB(op.Node) })
 	case "cacheloss":
 		w.loc.Reset()
-	case "storm":
-		w.store.SetFaults(durabletest.Faults{Down: true})
-		w.health.begin("storm", w.clk.Now())
+	case "storm": // storms may overlap (a script): S3 is down while any lasts
+		if w.storms.Add(1) == 1 {
+			w.store.SetFaults(durabletest.Faults{Down: true})
+		}
+		span := fmt.Sprintf("storm/%d", w.spans.Add(1))
+		w.health.begin(span, w.clk.Now())
 		w.at(op.For, "storm end", func() {
-			w.store.SetFaults(durabletest.Faults{})
-			w.health.end("storm", w.clk.Now())
+			if w.storms.Add(-1) == 0 {
+				w.store.SetFaults(durabletest.Faults{})
+			}
+			w.health.end(span, w.clk.Now())
 			w.tr.add("nemesis", "storm over")
 		})
 	case "pgdown":
-		w.pgDown.Store(true)
+		w.pgDown.Add(1)
 		w.at(op.For, "pg up", func() {
-			w.pgDown.Store(false)
-			w.tr.add("nemesis", "pg up")
+			if w.pgDown.Add(-1) == 0 {
+				w.tr.add("nemesis", "pg up")
+			}
 		})
 	}
 }

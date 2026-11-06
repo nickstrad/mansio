@@ -163,7 +163,7 @@ var maybeTags = map[string]bool{"no-answer": true, "unreadable": true, "expired-
 
 // answer judges one answer to mutation rid as the client saw it (tag: ok, ok-dup, a wire tag, or one of
 // maybeTags).
-func (m *cmodel) answer(key, rid string, _ bool, tag string) {
+func (m *cmodel) answer(key, rid, tag string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e := m.mark(key, rid)

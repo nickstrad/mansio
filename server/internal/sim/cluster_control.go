@@ -25,7 +25,7 @@ import (
 var errPGDown = errors.New("sim: the placement authority (Postgres) is unreachable")
 
 // pgUp reports whether node can reach Postgres now.
-func (w *cworld) pgUp(node string) bool { return !w.pgDown.Load() && !w.net.blocked(node, nodePG) }
+func (w *cworld) pgUp(node string) bool { return w.pgDown.Load() == 0 && !w.net.blocked(node, nodePG) }
 
 // authority is one node's view of the placement authority.
 type authority struct {
@@ -301,7 +301,8 @@ type lifecycleClient struct {
 
 var _ control.Agent = lifecycleClient{}
 
-type lifeAnswer struct {
+// callAnswer is a handler's result carried back over the network.
+type callAnswer struct {
 	v   any
 	err error
 }
@@ -316,19 +317,19 @@ func (l lifecycleClient) call(ctx context.Context, what, key string, fn func(con
 	v, err := l.w.net.call(cctx, r, nodeControld, l.vm, nil, nil, func(sctx context.Context) any {
 		a := l.w.inc(l.vm)
 		if a == nil {
-			return lifeAnswer{err: errRefused}
+			return callAnswer{err: errRefused}
 		}
 		c, cancel := det.WithTimeout(sctx, l.w.clk, 10*time.Second)
 		defer cancel()
 		x, err := fn(c, a)
 		// Two calls for one key may finish in one step (one waited on the other's lock): each its own stream.
 		l.w.tr.add(fmt.Sprintf("life/%s/%04x", key, ctxRand(sctx).Uint32()&0xffff), "%s on %s -> %s", what, l.vm, lifeClass(err))
-		return lifeAnswer{x, err}
+		return callAnswer{x, err}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sim: lifecycle %s %s on %s: %w", what, key, l.vm, err)
 	}
-	a := v.(lifeAnswer)
+	a := v.(callAnswer)
 	return a.v, a.err
 }
 
