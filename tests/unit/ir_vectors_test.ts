@@ -242,7 +242,9 @@ Deno.test("ir vectors: execute", async () => {
       })));
       const want = v.final as Record<string, unknown[]>;
       const got = dump(file, schema);
-      if (want.requests) assert.deepEqual(requests(file), want.requests, `${v.name}: final requests`);
+      if (v.finalRequests) {
+        assert.deepEqual(requests(file), v.finalRequests, `${v.name}: final requests`);
+      }
       for (const table of Object.keys(schema)) {
         assert.deepEqual(got[table], want[table] ?? [], `${v.name}: final ${table}`);
       }

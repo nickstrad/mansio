@@ -76,12 +76,30 @@
       }
     },
     {
-      "name": "64-byte ids",
-      "why": "on point of the id length",
-      "raw": "{\"v\":1,\"db\":{\"tenant\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"a\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "name": "64-byte request id",
+      "why": "on point of the wire-id length",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
       "expect": {
         "ok": true,
-        "canonical": "{\"db\":{\"app\":\"a\",\"tenant\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"requestId\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "63-byte tenant, 56-byte app",
+      "why": "on points of the registry domains' lengths (spec §4)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"tenant\":\"ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "registry charset",
+      "why": "every character the tenant and app domains allow",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"0a-z9\",\"app\":\"9a_b-z0\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"9a_b-z0\",\"tenant\":\"0a-z9\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
       }
     },
     {
@@ -351,7 +369,7 @@
     },
     {
       "name": "tenant with a slash",
-      "why": "ids are [A-Za-z0-9._:-]",
+      "why": "tenants are [a-z0-9-]",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"a/b\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
         "error": {
@@ -366,7 +384,7 @@
     },
     {
       "name": "app starting with a dot",
-      "why": "ids may become file names",
+      "why": "apps are [a-z0-9_-]; names become file names",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\".x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
         "error": {
@@ -380,9 +398,9 @@
       }
     },
     {
-      "name": "65-byte tenant",
-      "why": "off point of the id length",
-      "raw": "{\"v\":1,\"db\":{\"tenant\":\"ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "name": "64-byte tenant",
+      "why": "off point of the tenant domain's length",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
         "error": {
           "tag": "SchemaError",
@@ -395,8 +413,113 @@
       }
     },
     {
+      "name": "57-byte app",
+      "why": "off point of the app domain's length",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
+      "name": "uppercase tenant",
+      "why": "registry names are lowercase (a wire id would allow it)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"Acme\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.tenant"
+          }
+        }
+      }
+    },
+    {
+      "name": "uppercase app",
+      "why": "registry names are lowercase (a wire id would allow it)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"Notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
+      "name": "tenant with a dot",
+      "why": "the tenant domain has no '.' (a wire id would allow it)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a.b\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.tenant"
+          }
+        }
+      }
+    },
+    {
+      "name": "app with a colon",
+      "why": "':' separates tenant and app in the placement key",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"b:c\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
+      "name": "tenant with an underscore",
+      "why": "only the app domain allows '_'",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a_b\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.tenant"
+          }
+        }
+      }
+    },
+    {
+      "name": "app starting with a dash",
+      "why": "both domains start with [a-z0-9]",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"-x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
       "name": "empty app",
-      "why": "ids are 1..64 bytes",
+      "why": "apps are 1..56 bytes",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
         "error": {

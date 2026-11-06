@@ -42,6 +42,13 @@ const WIRE_ID = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]{0,63}$/;
 /** A canonical lowercase UUIDv7: version nibble 7, RFC 9562 variant. */
 export const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const FINGERPRINT = /^sha256:[0-9a-f]{64}$/;
+/**
+ * `db.tenant` and `db.app`: the control plane's registry domains (mansio-server `0002_registry.sql`,
+ * `tenant_id` and `database_name`), narrower than wire ids because the database is stored under the
+ * placement key `tenant ":" app` (spec §4, ADR 0011).
+ */
+const TENANT = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const APP = /^[a-z0-9][a-z0-9_-]{0,55}$/;
 const OPS: readonly OpName[] = ["select", "get", "insert", "patch", "delete", "assert"];
 
 const mismatch = (path: string, expected: string, actual?: unknown): Result<never> =>
@@ -91,6 +98,12 @@ function wireId(value: unknown, path: string): Result<string> {
   return typeof value === "string" && WIRE_ID.test(value)
     ? Either.right(value)
     : mismatch(path, `1..${MAX_ID_BYTES} of [A-Za-z0-9._:-], not starting with "."`, value);
+}
+
+function registryName(value: unknown, path: string, pattern: RegExp): Result<string> {
+  return typeof value === "string" && pattern.test(value)
+    ? Either.right(value)
+    : mismatch(path, pattern.source, value);
 }
 
 /**
@@ -309,8 +322,8 @@ export function decodeValue(value: unknown): Either.Either<Request, IrFailure> {
     ]);
     if (top.v !== 1) return yield* mismatch("v", "1", top.v);
     const db = yield* object(top.db, "db", ["tenant", "app"], ["tenant", "app"]);
-    const tenant = yield* wireId(db.tenant, "db.tenant");
-    const app = yield* wireId(db.app, "db.app");
+    const tenant = yield* registryName(db.tenant, "db.tenant", TENANT);
+    const app = yield* registryName(db.app, "db.app", APP);
     const kind = yield* literal(top.kind, "kind", ["query", "mutation"] as const);
     let requestId: string | undefined;
     if (Object.hasOwn(top, "requestId")) requestId = yield* wireId(top.requestId, "requestId");

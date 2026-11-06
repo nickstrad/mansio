@@ -37,8 +37,8 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 	}
 	// The actor applies a write's RequestID at most once per database (CP-2); reads ignore it.
 	r := &actor.Request{SQL: c.SQL, Args: c.Args, Write: c.Kind == KindWrite, StmtTimeout: c.StmtTimeout,
-		Deadline: c.Deadline, RequestID: c.RequestID}
-	if c.Kind == KindRead {
+		Deadline: c.Deadline, RequestID: c.RequestID, Fn: c.Fn, Check: c.Check}
+	if c.Kind == KindRead && c.Fn == nil {
 		r.MaxRows = c.MaxRows
 	}
 	if err := a.Submit(r); err != nil {
@@ -55,7 +55,13 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 		if wctx.Err() != nil && errors.Is(res.Err, wctx.Err()) {
 			return Reply{}, ErrNoReply
 		}
+		if c.Fn != nil {
+			return Reply{}, closureError(res.Err, res.TimedOut)
+		}
 		return Reply{}, actorError(res.Err, res.TimedOut)
+	}
+	if c.Fn != nil {
+		return Reply{Body: res.Body, Value: res.Value, Duplicate: res.Duplicate}, nil
 	}
 	if c.Kind == KindWrite {
 		return Reply{Count: res.Rows, Duplicate: res.Duplicate}, nil
@@ -91,6 +97,19 @@ func actorError(err error, timedOut bool) error {
 		}
 	}
 	return errs.Wrap("front", err, "statement failed unexpectedly; a write may or may not have committed")
+}
+
+// closureError maps the actor's own outcomes of a closure call to this package's sentinels and leaves the
+// closure's errors (and the driver's, which only it can interpret) unwrapped for the caller.
+func closureError(err error, timedOut bool) error {
+	switch {
+	case timedOut:
+		return fmt.Errorf("%w: %w", ErrStmtTimeout, err)
+	case errors.Is(err, actor.ErrMailboxFull), errors.Is(err, actor.ErrClosed), errors.Is(err, actor.ErrExpired),
+		errors.Is(err, actor.ErrAborted):
+		return actorError(err, false)
+	}
+	return err
 }
 
 // StaticHost serves a fixed set of started actors. Safe for concurrent Lookup; Close closes every actor.

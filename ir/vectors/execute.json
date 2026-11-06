@@ -904,7 +904,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "one clock reading per request [columns]",
@@ -1585,7 +1586,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert into an unknown table [columns]",
@@ -1863,7 +1865,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert with _id in the body [columns]",
@@ -2142,7 +2145,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert with U+0000 [columns]",
@@ -2420,7 +2424,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert at the integer bounds [columns]",
@@ -3123,7 +3128,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "select all [columns]",
@@ -3436,7 +3442,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "order ties break on _id [columns]",
@@ -3753,7 +3760,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "nulls first ascending [columns]",
@@ -4070,7 +4078,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "nulls last descending [columns]",
@@ -4387,7 +4396,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "order by number [columns]",
@@ -4704,7 +4714,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "limit [columns]",
@@ -5001,7 +5012,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "eq boolean [columns]",
@@ -5281,7 +5293,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "eq null [columns]",
@@ -5561,7 +5574,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "gt number [columns]",
@@ -5860,7 +5874,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "count [columns]",
@@ -6119,7 +6134,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "countBy [columns]",
@@ -6392,7 +6408,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "countBy limit [columns]",
@@ -6657,7 +6674,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "select limit 0 [columns]",
@@ -6918,7 +6936,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "gt on a string [columns]",
@@ -7186,7 +7205,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "filter value U+0000 [columns]",
@@ -7454,7 +7474,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "query ignores requestId [columns]",
@@ -7777,15 +7798,15 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227331225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227331225d"
+        }
+      ]
     },
     {
       "name": "patch [columns]",
@@ -8569,7 +8590,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch invalid value [columns]",
@@ -8836,7 +8858,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect version pass [columns]",
@@ -9371,7 +9394,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect version on missing [columns]",
@@ -9638,7 +9662,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect fields pass [columns]",
@@ -10182,7 +10207,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields unknown field [columns]",
@@ -10449,7 +10475,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields metadata [columns]",
@@ -10716,7 +10743,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields array [columns]",
@@ -10985,7 +11013,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields wrong type [columns]",
@@ -11252,7 +11281,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "delete existing [columns]",
@@ -12015,7 +12045,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "delete with version [columns]",
@@ -13049,7 +13080,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "assert unknown table [columns]",
@@ -13313,7 +13345,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "$ref chain [columns]",
@@ -14806,15 +14839,15 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227332225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227332225d"
+        }
+      ]
     },
     {
       "name": "failed precondition after a write [columns]",
@@ -15084,9 +15117,9 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": []
-      }
+        ]
+      },
+      "finalRequests": []
     },
     {
       "name": "duplicate request id [columns]",
@@ -15477,20 +15510,20 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227331222c7b2264656c65746564223a747275657d5d"
-          },
-          {
-            "request_id": "r2",
-            "applied_ms": 1000,
-            "result_hex": "025b227333225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227331222c7b2264656c65746564223a747275657d5d"
+        },
+        {
+          "request_id": "r2",
+          "applied_ms": 1000,
+          "result_hex": "025b227333225d"
+        }
+      ]
     },
     {
       "name": "duplicate of a read-only mutation [columns]",
@@ -15811,15 +15844,15 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b7b225f6372656174696f6e54696d65223a3130302c225f6964223a226e31222c225f76657273696f6e223a312c22646f6e65223a66616c73652c2267726964223a5b312c322c335d2c226f776e6572223a6e756c6c2c2272616e6b223a312c2273636f7265223a312e352c22746167223a2261222c2274616773223a5b2278225d2c227469746c65223a22616c706861227d5d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b7b225f6372656174696f6e54696d65223a3130302c225f6964223a226e31222c225f76657273696f6e223a312c22646f6e65223a66616c73652c2267726964223a5b312c322c335d2c226f776e6572223a6e756c6c2c2272616e6b223a312c2273636f7265223a312e352c22746167223a2261222c2274616773223a5b2278225d2c227469746c65223a22616c706861227d5d"
+        }
+      ]
     },
     {
       "name": "duplicate whose new payload is invalid [columns]",
@@ -16102,15 +16135,15 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 2000,
-            "result_hex": "025b7b2264656c65746564223a747275657d5d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 2000,
+          "result_hex": "025b7b2264656c65746564223a747275657d5d"
+        }
+      ]
     },
     {
       "name": "expect fields wrong type on a missing document [columns]",
@@ -16377,7 +16410,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "invalid patch body on a missing document [columns]",
@@ -16644,7 +16678,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "version and fields both failing [columns]",
@@ -16914,7 +16949,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "schema fingerprint mismatch [columns]",
@@ -17190,7 +17226,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert with a server id [json]",
@@ -18093,7 +18130,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "one clock reading per request [json]",
@@ -18774,7 +18812,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert into an unknown table [json]",
@@ -19052,7 +19091,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert with _id in the body [json]",
@@ -19331,7 +19371,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert with U+0000 [json]",
@@ -19609,7 +19650,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "insert at the integer bounds [json]",
@@ -20312,7 +20354,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "select all [json]",
@@ -20625,7 +20668,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "order ties break on _id [json]",
@@ -20942,7 +20986,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "nulls first ascending [json]",
@@ -21259,7 +21304,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "nulls last descending [json]",
@@ -21576,7 +21622,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "order by number [json]",
@@ -21893,7 +21940,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "limit [json]",
@@ -22190,7 +22238,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "eq boolean [json]",
@@ -22470,7 +22519,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "eq null [json]",
@@ -22750,7 +22800,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "gt number [json]",
@@ -23049,7 +23100,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "count [json]",
@@ -23308,7 +23360,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "countBy [json]",
@@ -23581,7 +23634,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "countBy limit [json]",
@@ -23846,7 +23900,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "select limit 0 [json]",
@@ -24107,7 +24162,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "gt on a string [json]",
@@ -24375,7 +24431,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "filter value U+0000 [json]",
@@ -24643,7 +24700,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "query ignores requestId [json]",
@@ -24966,15 +25024,15 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227331225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227331225d"
+        }
+      ]
     },
     {
       "name": "patch [json]",
@@ -25758,7 +25816,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch invalid value [json]",
@@ -26025,7 +26084,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect version pass [json]",
@@ -26560,7 +26620,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect version on missing [json]",
@@ -26827,7 +26888,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "patch expect fields pass [json]",
@@ -27371,7 +27433,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields unknown field [json]",
@@ -27638,7 +27701,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields metadata [json]",
@@ -27905,7 +27969,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields array [json]",
@@ -28174,7 +28239,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "expect fields wrong type [json]",
@@ -28441,7 +28507,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "delete existing [json]",
@@ -29204,7 +29271,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "delete with version [json]",
@@ -30238,7 +30306,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "assert unknown table [json]",
@@ -30502,7 +30571,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "$ref chain [json]",
@@ -31995,15 +32065,15 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227332225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227332225d"
+        }
+      ]
     },
     {
       "name": "failed precondition after a write [json]",
@@ -32273,9 +32343,9 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": []
-      }
+        ]
+      },
+      "finalRequests": []
     },
     {
       "name": "duplicate request id [json]",
@@ -32666,20 +32736,20 @@
             ],
             "owner": null
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b227331222c7b2264656c65746564223a747275657d5d"
-          },
-          {
-            "request_id": "r2",
-            "applied_ms": 1000,
-            "result_hex": "025b227333225d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b227331222c7b2264656c65746564223a747275657d5d"
+        },
+        {
+          "request_id": "r2",
+          "applied_ms": 1000,
+          "result_hex": "025b227333225d"
+        }
+      ]
     },
     {
       "name": "duplicate of a read-only mutation [json]",
@@ -33000,15 +33070,15 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 1000,
-            "result_hex": "025b7b225f6372656174696f6e54696d65223a3130302c225f6964223a226e31222c225f76657273696f6e223a312c22646f6e65223a66616c73652c2267726964223a5b312c322c335d2c226f776e6572223a6e756c6c2c2272616e6b223a312c2273636f7265223a312e352c22746167223a2261222c2274616773223a5b2278225d2c227469746c65223a22616c706861227d5d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 1000,
+          "result_hex": "025b7b225f6372656174696f6e54696d65223a3130302c225f6964223a226e31222c225f76657273696f6e223a312c22646f6e65223a66616c73652c2267726964223a5b312c322c335d2c226f776e6572223a6e756c6c2c2272616e6b223a312c2273636f7265223a312e352c22746167223a2261222c2274616773223a5b2278225d2c227469746c65223a22616c706861227d5d"
+        }
+      ]
     },
     {
       "name": "duplicate whose new payload is invalid [json]",
@@ -33291,15 +33361,15 @@
             ],
             "owner": "amy"
           }
-        ],
-        "requests": [
-          {
-            "request_id": "r1",
-            "applied_ms": 2000,
-            "result_hex": "025b7b2264656c65746564223a747275657d5d"
-          }
         ]
-      }
+      },
+      "finalRequests": [
+        {
+          "request_id": "r1",
+          "applied_ms": 2000,
+          "result_hex": "025b7b2264656c65746564223a747275657d5d"
+        }
+      ]
     },
     {
       "name": "expect fields wrong type on a missing document [json]",
@@ -33566,7 +33636,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "invalid patch body on a missing document [json]",
@@ -33833,7 +33904,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "version and fields both failing [json]",
@@ -34103,7 +34175,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     },
     {
       "name": "schema fingerprint mismatch [json]",
@@ -34379,7 +34452,8 @@
             "owner": "amy"
           }
         ]
-      }
+      },
+      "finalRequests": []
     }
   ]
 }

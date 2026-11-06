@@ -127,7 +127,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		return nil, err
 	}
 	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
-		schemas: p, control: sec.ControlToken,
+		schemas: p, control: sec.ControlToken, checkSchema: canonicalSchema,
 		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,

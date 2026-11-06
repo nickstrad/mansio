@@ -647,3 +647,51 @@ Tx), `Tx.Err()`; a write closure's first statement error now poisons its Tx and 
 returns nil; `CREATE TEMP…` refused (`ErrTxControl`). controld: schema PUT answers 413 `too_large` over its cap
 and 400 on trailing data; schema GET runs in the locator bulkhead. Spec §4/§11 + ADR 0011: `db.tenant`/`db.app`
 use the registry domains (decoder narrowing is TODO(IR-2b)).
+
+## 2026-11-05 22:46 — ir-2b: IR-2b docexec + POST /v1/ops — API changes, notes for IR-3
+
+Branch `ir/02b-docexec`. Details: `knowledge/ir/2026-11-05-ir2b-docexec-and-ops-route.md`.
+
+- **New package `internal/docexec`** (domain; in the det lint list): `Run`, `CheckExpect`, `Check`, `Init`, `Call`
+  (`Request()`, `Check`, `Fn`, `Wrap`), `InitFn`/`InitRequest`, `Schemas`/`NewSchemas`, `Decode`, `CanonicalText`,
+  `NewUUIDv7`; errors `*Failure{Err *ir.Error, Cause error}`, `ErrUninitialized`.
+- **front (additive):** `Call.Fn`, `Call.Check`, `Reply.Body`, `Reply.Value` (ActorExecutor runs closures; their
+  own errors come back unwrapped, a statement timeout matches `ErrStmtTimeout`); `Server.EnableOps(OpsConfig)`,
+  `OpsEnabled`, `HandleOps`, `OpsOutput`; `OpsPath`, `TraceHeader`, `LogIDHeader`; port `SchemaSource` +
+  `ErrSchemaUnknown`. `NewHandler` serves `/v1/ops` when `EnableOps` ran first. `/v1/query` unchanged.
+- **agentd:** config `schemas_dir` (static mode: `<app>/<name>.json`); `schemas_url` client now validates with
+  `docexec.CanonicalText`. **controld:** `PUT /v1/apps/{app}/schema` refuses texts that are not a valid schema in
+  fingerprint form (400).
+- **ir / core/ir (decode):** `db.tenant` ^[a-z0-9][a-z0-9-]{0,62}$, `db.app` ^[a-z0-9][a-z0-9_-]{0,55}$ in both
+  decoders; decode.json 104 vectors.
+
+For IR-3 (TS SDK → Go):
+
+- `POST http://<agent>/v1/ops`, `Authorization: Bearer <ticket>`, `Content-Type: application/json`, optional
+  `X-Timeout-Ms` (1..3600000; capped by `max_timeout`, default 2 s) and `X-Trace-Id`. Body: spec §3–§5, ≤ 65536 bytes.
+- Ticket: Ed25519 `internal/ticket` v1 for DBID `tenant:app` (TID = tenant, VM = the agent's `vm`, Epoch = the
+  agent's epoch for it: static mode `default_epoch` 1, Perms Read for a query, Write for a mutation — Write does
+  not imply Read). Multi-node: controld `POST /v1/resolve {"tenant","app","create":true}` with an API key answers
+  the agent and a ticket. Single-node dev: `frontbench keygen -out DIR` writes `issuer.key` + `keys.json`; agentd
+  static mode with `keys_file: DIR/keys.json`; the SDK (or a test helper) mints with the issuer seed.
+- Single-node dev agent: static mode, `db_dir` holding an **empty file** `<tenant>:<app>.db` per database (static
+  mode serves only files it finds at start), `schemas_dir/<app>/v1.json` holding `JSON.stringify(schema)` (a
+  trailing newline is ignored). Durable mode: register with controld `PUT /v1/apps/{app}/schema
+  {"fingerprint","schema"}` (admin token), create with `POST /v1/apps/{app}/databases {"tenant"}` or resolve with
+  `create`.
+- The first request to a database (query or mutation) creates its tables from the registered schema named by
+  `schema`; an unregistered fingerprint on a new database is `SchemaDriftError` `{expected: null, actual}`.
+- Answers: `200 {"result":[…]}` (+ `"duplicate":true`), or `{"error":{tag,message,op?,fields?}}`; lowercase mansio
+  tags `shed`/`unavailable` (503 + Retry-After), `expired` (504, `fields.ambiguous` on a mutation without reply:
+  retry with the same requestId), `aborted` (409, retry at once), `wrong_owner`/`fenced` (421: re-resolve),
+  `ticket_invalid` (401). Statement timeout = `StatementDeadlineError` 504. Internal failures carry `X-Log-Id`.
+- Server ids are UUIDv7. A requestId already used by a raw `/v1/query` write on that database is a 400
+  `SchemaError` at `requestId`.
+
+## 2026-11-05 23:07 — ir-2b: IR-2b review fixes — API moves
+
+Branch `ir/02b-docexec`. `docexec.Call`, `InitFn`, `InitRequest` moved to the new adapter `internal/docexec/docactor`
+(plus `docactor.Tx`, adapting `*actor.Tx`); `docexec` now imports no adapter: its `Tx.Query` returns `docexec.Rows`.
+`execute.json`: the `_mansio_requests` expectation is now the vector's sibling key `finalRequests` (was
+`final.requests`). `/v1/ops`: a registry wait or a creation write past the deadline answers `expired` (never
+ambiguous); a bad `X-Timeout-Ms` is `SchemaError` at path `header:X-Timeout-Ms` (spec §11.14).

@@ -4,7 +4,7 @@ package ir
 const (
 	MaxOps       = 64     // operations per request
 	MaxBodyBytes = 65_536 // request body cap, bytes
-	MaxIDBytes   = 64     // longest requestId, db.tenant or db.app
+	MaxIDBytes   = 64     // longest requestId (db.tenant and db.app have the registry domains' bounds)
 )
 
 // Kind is a request kind.

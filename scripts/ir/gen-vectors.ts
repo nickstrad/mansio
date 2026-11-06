@@ -223,9 +223,21 @@ const DECODE: DecodeCase[] = [
     expect: ok,
   },
   {
-    name: "64-byte ids",
-    why: "on point of the id length",
-    request: query([sel()], { db: { tenant: "t".repeat(64), app: "a" } }),
+    name: "64-byte request id",
+    why: "on point of the wire-id length",
+    request: mutation([sel()], { requestId: "r".repeat(64) }),
+    expect: ok,
+  },
+  {
+    name: "63-byte tenant, 56-byte app",
+    why: "on points of the registry domains' lengths (spec §4)",
+    request: query([sel()], { db: { tenant: "t".repeat(63), app: "a".repeat(56) } }),
+    expect: ok,
+  },
+  {
+    name: "registry charset",
+    why: "every character the tenant and app domains allow",
+    request: query([sel()], { db: { tenant: "0a-z9", app: "9a_b-z0" } }),
     expect: ok,
   },
   {
@@ -346,25 +358,67 @@ const DECODE: DecodeCase[] = [
   },
   {
     name: "tenant with a slash",
-    why: "ids are [A-Za-z0-9._:-]",
+    why: "tenants are [a-z0-9-]",
     request: envelope({ db: { tenant: "a/b", app: "x" } }),
     expect: schemaErr("type-mismatch", "db.tenant"),
   },
   {
     name: "app starting with a dot",
-    why: "ids may become file names",
+    why: "apps are [a-z0-9_-]; names become file names",
     request: envelope({ db: { tenant: "a", app: ".x" } }),
     expect: schemaErr("type-mismatch", "db.app"),
   },
   {
-    name: "65-byte tenant",
-    why: "off point of the id length",
-    request: envelope({ db: { tenant: "t".repeat(65), app: "x" } }),
+    name: "64-byte tenant",
+    why: "off point of the tenant domain's length",
+    request: envelope({ db: { tenant: "t".repeat(64), app: "x" } }),
     expect: schemaErr("type-mismatch", "db.tenant"),
   },
   {
+    name: "57-byte app",
+    why: "off point of the app domain's length",
+    request: envelope({ db: { tenant: "a", app: "a".repeat(57) } }),
+    expect: schemaErr("type-mismatch", "db.app"),
+  },
+  {
+    name: "uppercase tenant",
+    why: "registry names are lowercase (a wire id would allow it)",
+    request: envelope({ db: { tenant: "Acme", app: "x" } }),
+    expect: schemaErr("type-mismatch", "db.tenant"),
+  },
+  {
+    name: "uppercase app",
+    why: "registry names are lowercase (a wire id would allow it)",
+    request: envelope({ db: { tenant: "a", app: "Notes" } }),
+    expect: schemaErr("type-mismatch", "db.app"),
+  },
+  {
+    name: "tenant with a dot",
+    why: "the tenant domain has no '.' (a wire id would allow it)",
+    request: envelope({ db: { tenant: "a.b", app: "x" } }),
+    expect: schemaErr("type-mismatch", "db.tenant"),
+  },
+  {
+    name: "app with a colon",
+    why: "':' separates tenant and app in the placement key",
+    request: envelope({ db: { tenant: "a", app: "b:c" } }),
+    expect: schemaErr("type-mismatch", "db.app"),
+  },
+  {
+    name: "tenant with an underscore",
+    why: "only the app domain allows '_'",
+    request: envelope({ db: { tenant: "a_b", app: "x" } }),
+    expect: schemaErr("type-mismatch", "db.tenant"),
+  },
+  {
+    name: "app starting with a dash",
+    why: "both domains start with [a-z0-9]",
+    request: envelope({ db: { tenant: "a", app: "-x" } }),
+    expect: schemaErr("type-mismatch", "db.app"),
+  },
+  {
     name: "empty app",
-    why: "ids are 1..64 bytes",
+    why: "apps are 1..56 bytes",
     request: envelope({ db: { tenant: "a", app: "" } }),
     expect: schemaErr("type-mismatch", "db.app"),
   },
@@ -2214,17 +2268,32 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
-/** `final.requests[].result` → `result_hex`: version byte 0x02, then the canonical JSON of the result. */
-function finalOf(final: J): J {
-  if (!final.requests) return final;
-  const requests = (final.requests as J[]).map(({ result, ...row }) => ({
+/**
+ * The `_mansio_requests` rows a scenario expects, as the vector's `finalRequests` (a sibling of `final`, so no
+ * table name can clash with it): the scenario's `final.requests`, each `result` written as `result_hex`
+ * (version byte 0x02, then the canonical JSON of the result). A scenario without them in which no mutation
+ * succeeds expects none: a failed mutation leaves no request-id row and a query never writes one. Otherwise
+ * `undefined` (not compared).
+ */
+function requestsOf(c: Scenario): J[] | undefined {
+  const rows = c.final?.requests as J[] | undefined;
+  if (!rows) {
+    const applied = c.steps.some((step) => step.request.kind === "mutation" && "result" in step.expect);
+    return applied ? undefined : [];
+  }
+  return rows.map(({ result, ...row }) => ({
     ...row,
     result_hex: "02" +
       Array.from(new TextEncoder().encode(canonical(result)), (b) => b.toString(16).padStart(2, "0")).join(
         "",
       ),
   }));
-  return { ...final, requests };
+}
+
+/** A scenario's `final` without its `requests` (those become `finalRequests`). */
+function finalOf(final: J): J {
+  const { requests: _, ...tables } = final;
+  return tables;
 }
 
 async function executeFile(): Promise<VectorFile> {
@@ -2247,6 +2316,7 @@ async function executeFile(): Promise<VectorFile> {
         seed: c.seed ?? {},
         steps,
         final: finalOf(c.final ?? {}),
+        ...(requestsOf(c) ? { finalRequests: requestsOf(c) } : {}),
       });
     }
   }

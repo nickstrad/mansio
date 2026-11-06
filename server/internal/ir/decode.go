@@ -14,7 +14,12 @@ var (
 	// UUIDv7 is a canonical lowercase UUIDv7: version nibble 7, RFC 9562 variant.
 	UUIDv7      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	fingerprint = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	opIndexRE   = regexp.MustCompile(`^ops\[(\d+)\]`)
+	// tenantRE and appRE are the control plane's registry domains (0002_registry.sql tenant_id and
+	// database_name), narrower than wire ids: the database is stored under the placement key tenant ":" app
+	// (spec §4, ADR 0011).
+	tenantRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	appRE     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,55}$`)
+	opIndexRE = regexp.MustCompile(`^ops\[(\d+)\]`)
 )
 
 var opNames = []string{"select", "get", "insert", "patch", "delete", "assert"}
@@ -82,6 +87,13 @@ func wireIDOf(value any, path string) (string, *Error) {
 		return s, nil
 	}
 	return "", mismatch(path, "1.."+strconv.Itoa(MaxIDBytes)+` of [A-Za-z0-9._:-], not starting with "."`, value)
+}
+
+func registryName(value any, path string, re *regexp.Regexp) (string, *Error) {
+	if s, ok := value.(string); ok && re.MatchString(s) {
+		return s, nil
+	}
+	return "", mismatch(path, re.String(), value)
 }
 
 // decoder carries the operations decoded so far, which a $ref may target.
@@ -378,10 +390,10 @@ func decodeValue(value any) (*Request, *Error) {
 		return nil, err
 	}
 	r := &Request{}
-	if r.DB.Tenant, err = wireIDOf(db.Value("tenant"), "db.tenant"); err != nil {
+	if r.DB.Tenant, err = registryName(db.Value("tenant"), "db.tenant", tenantRE); err != nil {
 		return nil, err
 	}
-	if r.DB.App, err = wireIDOf(db.Value("app"), "db.app"); err != nil {
+	if r.DB.App, err = registryName(db.Value("app"), "db.app", appRE); err != nil {
 		return nil, err
 	}
 	kind, err := literal(top.Value("kind"), "kind", []string{"query", "mutation"})

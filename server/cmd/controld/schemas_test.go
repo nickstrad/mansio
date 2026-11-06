@@ -266,3 +266,29 @@ func TestSchemaClientContractPostgres(t *testing.T) {
 	}
 	runClientContract(t, p)
 }
+
+// With the docschema check (serve's checkSchema), only valid schemas in fingerprint form are stored: a text
+// with whitespace, or one that is no schema, hashes fine but is refused.
+func TestRegisterSchemaChecksFingerprintForm(t *testing.T) {
+	store := &memSchemas{regs: map[[2]string][]byte{}}
+	srv, d := schemaDaemon(t, store)
+	d.checkSchema = canonicalSchema
+	for _, tc := range []struct {
+		text string
+		code int
+	}{
+		{schemaText, 200},
+		{" " + schemaText, 400},
+		{`{"games":{}}`, 400},
+		{`{"games":{"storage":"columns","fields":{},"indexes":[]}}`, 400}, // members out of order
+	} {
+		raw, _ := json.Marshal(tc.text)
+		body := []byte(`{"fingerprint":"` + schemareg.Fingerprint([]byte(tc.text)) + `","schema":` + string(raw) + `}`)
+		if code, out := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != tc.code {
+			t.Errorf("%q: %d %v, want %d", tc.text, code, out, tc.code)
+		}
+	}
+	if len(store.regs) != 1 {
+		t.Fatalf("stored %d schemas, want 1", len(store.regs))
+	}
+}

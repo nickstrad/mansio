@@ -25,6 +25,7 @@ var simulated = map[string]string{
 	"control":         "create/move/restore/resume decisions and their per-key deadlines",
 	"control/locator": "route and API-key caches by TTL, ticket expiry, resolve deadlines",
 	"doccompile":      "pure (IR-1): SQL and decoded rows are a function of schema, plan and rows only",
+	"docexec":         "IR execution (IR-2b): _creationTime from Tx.Now, server ids from an injected IDGen (UUIDv7 from a det.Clock and det.Rand)",
 	"docschema":       "pure (IR-1): validation and fingerprints are a function of their inputs only",
 	"durable":         "manifest stamps, generation numbering, GC grace, the storage breaker",
 	"edge":            "ticket gate, proxy deadlines, per-agent breakers, registry refresh cadence",

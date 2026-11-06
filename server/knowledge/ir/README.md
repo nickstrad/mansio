@@ -1,7 +1,12 @@
-# ir/ — the IR protocol in Go (IR-1: decode, schema, compiler)
+# ir/ — the IR protocol in Go (IR-1: decode, schema, compiler; IR-2b: execution and /v1/ops)
 
 Owner: IR builders (IR-1 Go core; IR-2 adds execution). Plan: `../../../docs/plans/ir-protocol.md`; spec:
 `../../../ir/spec/v1.md`; vectors: `../../../ir/vectors/`.
+
+## Notes
+
+- [2026-11-05 IR-2b: docexec and POST /v1/ops](2026-11-05-ir2b-docexec-and-ops-route.md): the executor, the route
+  and its error mapping, database creation from the registry, the model fuzz, what IR-3 needs.
 
 ## 2026-11-05 — IR-1: Go port of core/ir, core/schema and core/compile (SQLite)
 
@@ -95,4 +100,5 @@ For IR-2 (`docexec`, `/v1/ops`):
 - Bind with `doccompile.Args(sql.Values)`; scan rows into `doccompile.Row` (modernc gives int64, float64,
   string, []byte, nil) and decode with `doccompile.Decode`.
 - `_mansio_requests.result` is `0x02` + `ir.Canonical(result)`.
-- Execute vectors (`execute.json`) are not run in Go yet: they need the executor.
+- Execute vectors (`execute.json`) are not run in Go yet: they need the executor. (Done in IR-2b:
+  `internal/docexec` `TestExecuteVectors`, 122/122.)

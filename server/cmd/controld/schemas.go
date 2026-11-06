@@ -10,6 +10,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/control"
 	"github.com/nickstrad/mansio/server/internal/control/locator"
+	"github.com/nickstrad/mansio/server/internal/docexec"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
@@ -160,3 +161,8 @@ func (d *daemon) resolveApp(ctx context.Context, req locator.Request) (locator.R
 	req.MinEpoch = max(req.MinEpoch, 1) // read the primary: a replica may not have the new row yet
 	return d.loc.Resolve(ctx, req)
 }
+
+// canonicalSchema is the registry's check before a PUT stores a text (daemon.checkSchema): a valid schema in
+// fingerprint form (docexec.CanonicalText), so a stored text always creates databases exactly as the
+// TypeScript backend would and every agent accepts it.
+func canonicalSchema(_ string, text []byte) error { return docexec.CanonicalText(string(text)) }
