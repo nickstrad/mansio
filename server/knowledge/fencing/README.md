@@ -8,6 +8,9 @@ are stale (mansio `scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4
 
 ## Findings (newest first)
 
+- 2026-11-06 [reopen re-stamp](2026-11-06-reopen-restamp.md): a restart stamps every reopened key at its own
+  epoch before it admits, and a stamp is always a new version (`Manifest.Seal`), so a crashed incarnation's
+  in-flight publish gets 412. No epoch bump: placement stays the only epoch writer.
 - 2026-11-05 (CP-8) [leases: options](2026-11-05-leases-options.md) (**decision open, for the user**): status
   quo, owner lease, read stamp check, ticket-bound. Recommends a per-VM owner lease (T ≈ 30 s) plus
   ticket-bound routes, after deciding what a VM does when placement is unreachable longer than T.

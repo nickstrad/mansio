@@ -106,7 +106,8 @@ type Manifest struct {
 //	Head:    read the stored manifest; ErrNoManifest if none.
 //	Stamp:   re-publish the stored manifest unchanged except epoch := epoch (no upload), iff the stored
 //	         generation is still gen and the stored epoch ≤ epoch. No manifest and gen == 0 creates one for an
-//	         empty database.
+//	         empty database. Always a new version, at the stored epoch too: every publish conditional on an
+//	         earlier version fails afterwards (Reconcile's reopen relies on it).
 //	errors:  a failed condition matches ErrStale. Any other error means nothing is known to have changed.
 //	         An implementation resolves its own ambiguous writes (a lost reply, or a 412 its own re-sent PUT
 //	         caused) by re-reading before it answers (object-storage guide R3): ErrStale means the re-read

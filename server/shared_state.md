@@ -730,3 +730,13 @@ Branch `dst/1-single-node` (rebased on main 12047d4).
   newer acknowledged writes. Repro: `MANSIO_SIM_ZOMBIES=1 MANSIO_SIM_SEED=180 go test ./internal/sim -run
   TestSeeds -v`. Suggested fix: re-stamp on reopen, or reopen at a new epoch.
 - **Before DST-2:** lift `cmd/agentd/glue.go` + `unavailable.go` into a package shared with `internal/sim`.
+
+## 2026-11-06 00:13 — dst-1: restart zombie publishes fixed (fix/restart-zombie)
+
+- **owner:** `Reconcile` re-stamps every `EvReopen` key at its own epoch before opening it (stamp fails ⇒ stays
+  closed, retry). No epoch bump, no placement write.
+- **durable:** `Manifest.Seal` (json `seal`, omitempty) rises on every stamp; `Stamp` at the stored epoch is no
+  longer a no-op: always a new version. `Same` compares `Seal`. `WriteBack.Stamp` implementations must keep this.
+- **sim:** `Config.Zombies` replaced by `Config.NoZombies` (zombies land by default); env `MANSIO_SIM_ZOMBIES`
+  removed. Seeds 180/232 pass.
+- Note: `knowledge/fencing/2026-11-06-reopen-restamp.md`.

@@ -256,3 +256,34 @@ func TestReconcileUntilDoneOnSimulatedClock(t *testing.T) {
 		t.Fatalf("waits %v: want 3 backoffs", a)
 	}
 }
+
+// A publish the crashed incarnation still had in flight (conditional on the manifest version it read) lands
+// after the restart (DST-1 zombie publishes, S3 completing a killed process's PUT). Reconcile's reopen stamps
+// the manifest at the same epoch, a new version, so the zombie fails and the restarted owner's next publish
+// is not refused as another writer's. The epoch does not move: no placement write, tickets stay valid.
+func TestReopenStampFencesTheCrashedIncarnationsInFlightPublish(t *testing.T) {
+	w := newWorld(t, "a")
+	w.place("k", "a")
+	must(t, w.write("a", "k", 1, "w1"))
+	_, _, v, _, _ := w.objs.Read("k") // the publish in flight read this version...
+	g, err := w.objs.Upload("k", w.procs["a"].disk.Contents("k"))
+	must(t, err) // ...and uploaded; then the process died before the publish landed
+
+	w.start("a") // restart: loads ACTIVE(1) as Closed
+	must(t, w.tab("a").Reconcile(ctx, "k"))
+	if st := w.tab("a").State("k"); st.State != owner.Active || st.Epoch != 1 {
+		t.Fatalf("after reconcile: %s, want active at epoch 1", st)
+	}
+	if err := w.objs.Publish("k", v, g, 1); !errors.Is(err, owner.ErrStale) {
+		t.Fatalf("the crashed incarnation's publish landed after the reopen: %v, want ErrStale", err)
+	}
+	must(t, w.write("a", "k", 1, "w2"))
+	if _, err := w.tab("a").Publish(ctx, "k", 1, func(ctx context.Context) (owner.Generation, error) {
+		return w.procs["a"].wb.Publish(ctx, "k", 1)
+	}); err != nil {
+		t.Fatalf("the restarted owner's publish: %v", err)
+	}
+	if p, _ := w.pl.Row("k"); p.Epoch != 1 {
+		t.Fatalf("placement epoch %d: the reopen must not move it", p.Epoch)
+	}
+}
