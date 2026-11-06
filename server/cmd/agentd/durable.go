@@ -116,7 +116,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if d.schemas != nil {
 		schemas = registrySchemas{d.schemas}
 	}
-	return &backend{
+	be := &backend{
 		schemas:  schemas,
 		admitter: ownerAdmitter{d.tab},
 		executor: hostExecutor{host: d.host, grace: cfg.ReplyGrace.Duration, canary: front.ActorExecutor{Host: canary, Grace: cfg.ReplyGrace.Duration}},
@@ -132,13 +132,11 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		breakers:   d.breakers(), // the admin endpoints' breakers, by name: "s3", and "placement" with Postgres
 		host:       d.host,
 		backup:     d.backup,
-		credentialPlace: func() func(context.Context, string) (uint64, uint64, error) {
-			if cfg.Tenancy == nil {
-				return nil
-			}
-			return (&claimingPlace{d: d}).place
-		}(),
-	}, nil
+	}
+	if cfg.Tenancy != nil {
+		be.credentialPlace = (&claimingPlace{d: d}).place
+	}
+	return be, nil
 }
 
 // openPlacement opens the configured authority: the single-node file adapter, or Postgres (CP-4). The

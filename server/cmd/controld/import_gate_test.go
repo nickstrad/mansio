@@ -73,11 +73,9 @@ func TestImportAdoptGate(t *testing.T) {
 	if code, out := ops(acme, "acme", "mutation", "patch-1", map[string]any{"op": "patch", "table": "registers", "id": doc, "value": map[string]any{"value": 42}}); code != 200 {
 		t.Fatalf("patch: %d %v", code, out)
 	}
-	var p struct{ Owner string }
-	if pl, err := c.pl.Get(t.Context(), "acme:notes"); err != nil {
+	p, err := c.pl.Get(t.Context(), "acme:notes")
+	if err != nil {
 		t.Fatal(err)
-	} else {
-		p.Owner = pl.Owner
 	}
 	if res, err := http.Post("http://"+c.agents[p.Owner].admin+"/admin/backup?key=acme:notes", "", nil); err != nil || res.StatusCode != 200 {
 		t.Fatalf("backup: %v %v", res, err)

@@ -81,7 +81,7 @@ func TestJepsen(t *testing.T) {
 
 	// Settle, then read everything once more (part of the histories).
 	settle := time.Now().Add(30 * time.Second)
-	for _, ok := w.readAll(context.Background(), 0); !ok && time.Now().Before(settle); _, ok = w.readAll(context.Background(), 0) {
+	for _, ok := w.readAll(context.Background()); !ok && time.Now().Before(settle); _, ok = w.readAll(context.Background()) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	for _, k := range w.regKeys {
@@ -483,7 +483,6 @@ func registerModel(init regState) linearize.Model[regState, regIn, regOut] {
 type bankIn struct {
 	transfer       bool
 	from, to       int
-	amount         int64
 	vFrom, vTo     int64 // the versions the transfer requires
 	newFrom, newTo int64 // the balances it writes
 	accounts       []int // a read's accounts
@@ -568,7 +567,7 @@ func (w *jepsenWorld) readAccounts(ctx context.Context, accounts []int) (bankOut
 }
 
 // readAll reads every account and records the total (conservation).
-func (w *jepsenWorld) readAll(ctx context.Context, _ int) (bankOut, bool) {
+func (w *jepsenWorld) readAll(ctx context.Context) (bankOut, bool) {
 	all := make([]int, nAccounts)
 	for i := range all {
 		all[i] = i
@@ -590,7 +589,7 @@ func (w *jepsenWorld) bankClient(ctx context.Context, client int) {
 	for n := 0; ctx.Err() == nil; n++ {
 		w.pace()
 		if w.intn(4) == 0 {
-			w.readAll(ctx, client)
+			w.readAll(ctx)
 			continue
 		}
 		from := w.intn(nAccounts)
@@ -600,7 +599,7 @@ func (w *jepsenWorld) bankClient(ctx context.Context, client int) {
 			continue
 		}
 		amount := int64(1 + w.intn(10))
-		in := bankIn{transfer: true, from: from, to: to, amount: amount, vFrom: seen.versions[0], vTo: seen.versions[1],
+		in := bankIn{transfer: true, from: from, to: to, vFrom: seen.versions[0], vTo: seen.versions[1],
 			newFrom: seen.balances[0] - amount, newTo: seen.balances[1] + amount}
 		rid := fmt.Sprintf("bank-%d-%d", client, n)
 		ops := []map[string]any{
@@ -691,9 +690,7 @@ func (w *jepsenWorld) nemesis(ctx context.Context) {
 			w.c.startAgent(vm)
 		case k < 8: // move a database to the other agent
 			app := []string{jRegApp, jBankApp}[w.intn(2)]
-			var d map[string]any
-			code := w.c.call("GET", "/v1/databases/"+jTenant+":"+app, nil, &d)
-			w.note("move:%s(%d)", app, code)
+			w.note("move:%s", app)
 			mctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			w.move(mctx, jTenant+":"+app)
 			cancel()
