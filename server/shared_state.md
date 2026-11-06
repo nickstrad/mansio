@@ -879,3 +879,22 @@ Branch `dst/2-cluster`. Details: `knowledge/determinism/2026-11-06-dst2-dst3-clu
   a kill -9 could lose acknowledged writes beyond the RPO.
 - **Open finding (needs a decision):** `_version` repeats after a kill -9 rollback, so a stale `expect` can pass
   against a different document (`internal/sim/testdata/open/version-reuse-after-rollback.json`).
+
+## 2026-11-06 — ir-6: the Deno platform is deleted; e2e is Go-only (no Go API change)
+
+Branch `ir/06-cutover`. ADR: `docs/adr/0013-go-server-replaces-deno-platform.md` (repo root).
+
+- **No Go code changed.** `server/` is now the only server; `platform/` (the Deno writer, reader, Better Auth,
+  backups) and its tests are gone. Comments in Go that name `platform/...` files are history (e.g. the
+  compatibility notes in `internal/eventlog`, `cmd/dbtool/import.go`, `placement/pg` testdata).
+- **e2e:** `BACKEND=deno` is gone; `work-scripts/bash/e2e-linux.sh` (a leading `go` still accepted) runs the
+  eight scenarios on agentd/controld/edge/dbtool only. A scenario database now starts empty: the harness no
+  longer runs the platform's Postgres migrations, so anything that needs a schema must migrate it itself
+  (agentd tenancy and controld already do).
+- **Event log:** agentd's JSONL (`event_log`) is still read by the TS CLI, now `scripts/logs.ts` over
+  `eventlog/` (moved from `platform/{eventlog,logging,analysis}`). The goldens in
+  `internal/eventlog/testdata/goldens.jsonl` stay shared with `core/events.ts` (`tests/unit/eventlog_goldens_test.ts`).
+- **IR vectors:** the TS run of `ir/vectors/execute.json` is gone with the TS reference executor; Go
+  (`internal/docexec`) is the only executor of those vectors. TS still runs decode/validation/schema/compile and
+  regenerates every file (`scripts/ir/gen-vectors.ts`).
+- k6 (`perf/`) always speaks `/v1/ops`; `BACKEND`/`TOKEN` are gone, `BASE_URL` defaults to `127.0.0.1:7070`.

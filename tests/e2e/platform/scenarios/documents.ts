@@ -18,10 +18,10 @@ test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts 
   Effect.gen(function* () {
     const dir = yield* scenarioDir("documents");
     const url = yield* database("documents");
-    // On Go the off-mode half uses minted tickets, the api-key half tenant keys (IR-4a).
-    for (const mode of ["off", "api-key"]) {
+    // The tickets half runs on a static agent with minted tickets, the api-key half on tenant keys (IR-4a).
+    for (const mode of ["tickets", "api-key"] as const) {
       yield* Effect.scoped(Effect.gen(function* () {
-        const server = yield* startBackend(`${dir}/${mode}`, url, { TENANCY: mode });
+        const server = yield* startBackend(`${dir}/${mode}`, url, mode === "api-key" ? mode : undefined);
         yield* Effect.promise(async () => {
           for (const [index, app] of apps.entries()) {
             // A tenant file has one layout; exercise each app with a fresh tenant.

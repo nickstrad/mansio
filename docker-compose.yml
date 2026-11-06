@@ -1,6 +1,6 @@
 # Local development services for mansio. Driven by the Makefile (`make help`); see docker/README.md.
 #
-# seaweedfs: a single-container SeaweedFS (master + volume + filer + S3 API) giving the platform an
+# seaweedfs: a single-container SeaweedFS (master + volume + filer + S3 API) giving the Go server an
 # S3-compatible object store at http://localhost:8333. DEV ONLY: the credentials below are public
 # test values and must never be reused anywhere real.
 
@@ -18,7 +18,7 @@ services:
       - -s3
       - -s3.config=/etc/seaweedfs/s3.json
     ports:
-      - "8333:8333" # S3 API (what S3_BASE_URL points at)
+      - "8333:8333" # S3 API
       - "9333:9333" # master (debug UI / cluster status)
       - "8888:8888" # filer (debug UI)
       - "8080:8080" # volume server (debug)

@@ -3,9 +3,9 @@
  * handler durations, both read back out of DuckDB.
  *
  * ```text
- * scratch server ──k6 smoke (30 s)──> logs/k6/<run>/raw.json ──perf/ingest_k6.ts──> k6.duckdb : k6_points
+ * scratch agent ──k6 smoke (30 s)──> logs/k6/<run>/raw.json ──perf/ingest_k6.ts──> k6.duckdb : k6_points
  *       │                                                                                 │
- *       └─ JSONL ──POST /admin/logs/ingest──> eventlog.duckdb : platform_events ──ATTACH──┘
+ *       └─ JSONL ──scripts/logs.ts ingest──> eventlog.duckdb : platform_events ──ATTACH──┘
  *                                                                     k6-vs-platform join
  * ```
  *
@@ -20,14 +20,14 @@
  *   over the same requests inherits the bound. A mis-bucketed clock, a wrong duration column or a
  *   unit mix-up breaks it.
  *
- * Run: `deno run -A tests/e2e/observability_test.ts` (needs `k6` on `PATH`; ~45 s).
+ * Run: `deno run -A tests/e2e/observability_test.ts` (needs `k6` on `PATH`, and Go or `AGENTD_BIN`; ~45 s;
+ * runs on macOS too).
  *
- * `BACKEND=go` runs the same check against agentd (IR-4c): `startScratchAgent` (static mode, `event_log`
- * under the scratch `LOG_DIR`), k6 with `BACKEND=go` (`perf/lib/ir.js`: the handlers as the SDK sends them
- * to `/v1/ops`, with minted tickets), the barrier a traced `/v1/ops` read, and the ingest the offline CLI
- * (`scripts/logs.ts ingest`) instead of the admin route. agentd's `handler` records are the server's half
- * of each handler run (one read or the commit), so the bound below still holds per request. The negative
- * control sets `event_log.level` to `error`. Needs Go (or `AGENTD_BIN`); runs on macOS too.
+ * The target is agentd (IR-4c): `startScratchAgent` (static mode, `event_log` under the scratch `LOG_DIR`),
+ * k6 (`perf/lib/ir.js`: the handlers as the SDK sends them to `/v1/ops`, with minted
+ * tickets), the barrier a traced `/v1/ops` read, and the ingest the offline CLI (`scripts/logs.ts ingest`).
+ * agentd's `handler` records are the server's half of each handler run (one read or the commit), so each
+ * request's client duration still bounds its server duration.
  *
  * The k6 latency gate is the adopted host-dependent rule (sq-08): p(95) < 160 ms on the shared
  * VM, < 60 ms on a quiet host, decided per host at run time — `K6_HOST_CLASS=quiet` selects the
@@ -35,14 +35,9 @@
  * is a load refusal: the host was too noisy for the run to serve as a regression signal. It is
  * recorded in `perf/baseline.json` and fails the run loudly. p99 is never gated (too noisy).
  *
- * Negative control: `OBS_SINK=noop deno run -A tests/e2e/observability_test.ts` must fail. It starts
- * the server (and its reader) with `LOG_LEVEL=error`, so `EventSinkLive`'s level gate drops every
- * record below `error` before it is queued — on a clean run, every record either process emits (the
- * test prints the server-log record count to show it). No handler events reach the JSONL, ingest has
- * none to load, and the join returns no rows. It is a config setting rather than a substituted
- * `EventSink`: the server's composition has no sink seam, and a module-level switch in
- * `platform/logging/logger.ts` would break the rule that only `platform/config.ts` reads the
- * environment (`tests/unit/server_scope_test.ts`).
+ * Negative control: `OBS_SINK=noop deno run -A tests/e2e/observability_test.ts` must fail. It sets agentd's
+ * `event_log.level` to `error`, so no handler record reaches the JSONL, ingest has none to load, and the
+ * join returns no rows.
  *
  * Not covered here: `deno task logs:query k6-vs-platform` is item 23's CLI over its catalog; this
  * file verifies the data and the join underneath it.
@@ -51,15 +46,13 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { Effect, Exit, type Scope } from "effect";
 import {
-  adminPost,
   awaitTraceIdsInLog,
   duckdbRows,
   scratchRoot,
   serverLogRecords,
   sqlString,
   startScratchAgent,
-  startScratchServer,
-} from "../integration.ts";
+} from "./scratch.ts";
 
 const BUCKET = "INTERVAL 10 seconds";
 
@@ -125,10 +118,7 @@ export async function recordLoadRefusal(refusal: LoadRefusal): Promise<void> {
   await Deno.writeTextFile(path, `${JSON.stringify(refusals, null, 2)}\n`);
 }
 
-/**
- * What the run drives: the Deno server (k6 on the platform API, ingest through `POST /admin/logs/ingest`)
- * or, with `BACKEND=go`, agentd (k6 on `/v1/ops` through `perf/lib/ir.js`, ingest by the offline CLI).
- */
+/** What the run drives: agentd (k6 on `/v1/ops` through `perf/lib/ir.js`, ingest by the offline CLI). */
 interface Target {
   readonly base: string;
   readonly k6Env: Record<string, string>;
@@ -141,55 +131,37 @@ interface Target {
   readonly stop: Effect.Effect<Deno.CommandStatus>;
 }
 
-const backend = Deno.env.get("BACKEND") === "go" ? "go" : "deno";
-
 function startTarget(root: string, noop: boolean): Effect.Effect<Target, never, Scope.Scope> {
-  if (backend === "go") {
-    return Effect.map(startScratchAgent(root, noop ? { eventLevel: "error" } : {}), (agent) => ({
-      base: agent.base,
-      k6Env: {
-        BACKEND: "go",
-        BASE_URL: agent.base,
-        APP_ID: "tic-tac-toe",
-        READ_TICKET: agent.readTicket,
-        WRITE_TICKET: agent.writeTicket,
-        SCHEMA_FINGERPRINT: agent.fingerprint,
-      },
-      logDir: agent.logDir,
-      eventLogPath: agent.eventLogPath,
-      barrier: async (traceId) => {
-        const response = await fetch(`${agent.base}/v1/ops`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${agent.readTicket}`, "x-trace-id": traceId },
-          body: JSON.stringify({
-            v: 1,
-            db: { tenant: "local", app: "tic-tac-toe" },
-            kind: "query",
-            schema: agent.fingerprint,
-            ops: [{ op: "get", table: "games", id: "barrier" }],
-          }),
-        });
-        await response.body?.cancel();
-      },
-      ingest: Effect.map(agent.ingest, (out) => {
-        assert.equal(out.code, 0, `logs ingest failed: ${out.stderr}`);
-        return out.stdout.trim();
-      }),
-      stop: agent.stop,
-    }));
-  }
-  return Effect.map(startScratchServer(root, noop ? { LOG_LEVEL: "error" } : {}), (server) => ({
-    base: server.base,
-    k6Env: { BASE_URL: server.base, APP_ID: "tic-tac-toe", TOKEN: "dev-only" },
-    logDir: server.logDir,
-    eventLogPath: server.eventLogPath,
-    barrier: async (traceId) =>
-      void (await fetch(`${server.base}/health`, { headers: { "x-trace-id": traceId } })).body?.cancel(),
-    ingest: Effect.map(adminPost(server.base, "/admin/logs/ingest"), (ingest) => {
-      assert.equal(ingest.status, 200, JSON.stringify(ingest.body));
-      return JSON.stringify(ingest.body.result);
+  return Effect.map(startScratchAgent(root, noop ? { eventLevel: "error" } : {}), (agent) => ({
+    base: agent.base,
+    k6Env: {
+      BASE_URL: agent.base,
+      APP_ID: "tic-tac-toe",
+      READ_TICKET: agent.readTicket,
+      WRITE_TICKET: agent.writeTicket,
+      SCHEMA_FINGERPRINT: agent.fingerprint,
+    },
+    logDir: agent.logDir,
+    eventLogPath: agent.eventLogPath,
+    barrier: async (traceId) => {
+      const response = await fetch(`${agent.base}/v1/ops`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${agent.readTicket}`, "x-trace-id": traceId },
+        body: JSON.stringify({
+          v: 1,
+          db: { tenant: "local", app: "tic-tac-toe" },
+          kind: "query",
+          schema: agent.fingerprint,
+          ops: [{ op: "get", table: "games", id: "barrier" }],
+        }),
+      });
+      await response.body?.cancel();
+    },
+    ingest: Effect.map(agent.ingest, (out) => {
+      assert.equal(out.code, 0, `logs ingest failed: ${out.stderr}`);
+      return out.stdout.trim();
     }),
-    stop: server.stop,
+    stop: agent.stop,
   }));
 }
 
@@ -206,12 +178,10 @@ const program = Effect.gen(function* () {
   );
   const root = yield* scratchRoot("document-db-e2e-obs-");
   const noop = Deno.env.get("OBS_SINK") === "noop";
-  const sink = backend === "go"
-    ? noop ? "agentd event_log gated to drop everything (OBS_SINK=noop: level error)" : "agentd event_log"
-    : noop
-    ? "EventSinkLive gated to drop everything (OBS_SINK=noop: LOG_LEVEL=error)"
-    : "EventSinkLive";
-  console.log(`run_id=${runId} backend=${backend} sink=${sink}`);
+  const sink = noop
+    ? "agentd event_log gated to drop everything (OBS_SINK=noop: level error)"
+    : "agentd event_log";
+  console.log(`run_id=${runId} sink=${sink}`);
 
   // --- server up: k6, then ingest ------------------------------------------
   const server = yield* Effect.scoped(Effect.gen(function* () {

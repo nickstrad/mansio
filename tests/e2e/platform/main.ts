@@ -33,30 +33,13 @@ const gitStatus = async () => {
  * container): no Compose project is started, and the Docker hermeticity checks are skipped.
  */
 const external = Deno.env.get("E2E_POSTGRES_URL") || undefined;
-const backend = Deno.env.get("BACKEND") ?? "deno";
-/** Scenarios that run on the Go backend; the rest are skipped there with a reason (harness.ts `test`). */
-const onGo = [
-  "documents",
-  "queries",
-  "auth",
-  "tenant_isolation",
-  "admin_lifecycle",
-  "backup_restore",
-  "log_analysis",
-  "scale_out",
-];
-/** Scenarios that run on the Go backend only (multi-node: controld, the edge, several agents). */
-const goOnly = ["scale_out"];
-const skipped = backend === "go"
-  ? order.filter((name) => !onGo.includes(name))
-  : order.filter((name) => goOnly.includes(name));
 function forwarded(keys: string[]): Record<string, string> {
   return Object.fromEntries(keys.flatMap((key) => {
     const value = Deno.env.get(key);
     return value === undefined ? [] : [[key, value]];
   }));
 }
-console.log(`order=${order.join(",")} seed=${SEED} backend=${backend}`);
+console.log(`order=${order.join(",")} seed=${SEED}`);
 console.log(`players=${JSON.stringify(players)} tenant-slugs=${names.slice(2).join(",")}`);
 try {
   beforeStatus = await gitStatus();
@@ -106,9 +89,9 @@ try {
           E2E_POSTGRES_URL: url,
           PROP_SEED: String(SEED),
           E2E_KEEP: keep ? "1" : "0",
-          // The backend under test and how to get a Go agent (harness.ts `startBackend`).
-          ...forwarded(["BACKEND", "AGENTD_BIN", "GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS"]),
-          // Durability on Go (durable.ts): dbtool and the S3 the durable agents use.
+          // How to get agentd (harness.ts `startGoAgent`).
+          ...forwarded(["AGENTD_BIN", "GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS"]),
+          // Durability (durable.ts) and the cluster (cluster.ts): dbtool, controld, the edge and their S3.
           ...forwarded([
             "DBTOOL_BIN",
             "CONTROLD_BIN",
@@ -176,9 +159,6 @@ try {
 }
 if (interrupted) failed = true;
 console.log(`E2E duration=${((performance.now() - started) / 1000).toFixed(2)}s`);
-if (failed) console.error(`Replay: PROP_SEED=${SEED} BACKEND=${backend} deno task e2e`);
-console.log(
-  `E2E ${failed ? "FAIL" : "PASS"} seed=${SEED} backend=${backend} scenarios=${order.length} ` +
-    `skipped=${skipped.length ? skipped.join(",") : "none"}`,
-);
+if (failed) console.error(`Replay: PROP_SEED=${SEED} deno task e2e`);
+console.log(`E2E ${failed ? "FAIL" : "PASS"} seed=${SEED} scenarios=${order.length}`);
 Deno.exitCode = failed ? 1 : 0;

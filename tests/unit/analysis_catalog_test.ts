@@ -1,5 +1,5 @@
 /**
- * The analysis query catalog (plan item 23): `platform/analysis/catalog.ts`, `AnalysisLive`, and the
+ * The analysis query catalog (plan item 23): `eventlog/catalog.ts`, `AnalysisLive`, and the
  * `scripts/logs.ts` command line over it.
  *
  * - **Catalog hygiene** — every SQL string is a single `SELECT`/`WITH` with no write or DDL keyword,
@@ -26,9 +26,9 @@ import {
   CATALOG,
   type CatalogEntry,
   resolveParams,
-} from "../../platform/analysis/catalog.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { Analysis } from "../../platform/services.ts";
+} from "../../eventlog/catalog.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { Analysis } from "../../eventlog/services.ts";
 import { formatRows, parseQueryArgs, run, UsageError } from "../../scripts/logs.ts";
 
 const entries = Object.entries(CATALOG) as [string, CatalogEntry][];

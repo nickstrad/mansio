@@ -1,4 +1,5 @@
-// Smoke scenario: one VU replays the demo call order (scripts/demo.ts) against a live server.
+// Smoke scenario: one VU replays the sample app's call order (createGame, getGame, makeMove x5, winsByMark)
+// against a live agentd.
 // Thresholds double as the "fail loudly if the server is down" mechanism: a down server produces
 // connection-refused requests, which k6 always counts in http_req_failed regardless of status
 // expectations, so the threshold fails and the run exits non-zero.

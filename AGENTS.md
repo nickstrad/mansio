@@ -51,7 +51,8 @@ unit and follows the global fresh-agent lifecycle. In this repo:
 - An item marked **SYNC** must land before the next batch starts. See the plan's §3 batch table for which
   items gate which batches.
 - `deno.json` is written once, completely, in item 01. No later item edits it.
-- Every commit must leave `deno task ci` green.
+- Every commit must leave `deno task ci` (on Linux: `work-scripts/bash/deno-linux.sh 'deno task ci'`) and
+  `deno task go:ci` green.
 
 ## Model assignment policy
 
@@ -87,7 +88,7 @@ The seat mapping (Opus/astra, Sonnet/sol, Haiku/luna) is global. Repo specifics:
 
 Side quests are small, bounded investigations (survey a library's patterns, measure a baseline, compare output
 formats) that are read-only or scratch-only against the product tree — they must never modify plan item files
-(`core/`, `platform/`, `sdk/`, `app/`, `tests/`, `scripts/`, `perf/`, `deno.json`).
+(`core/`, `eventlog/`, `sdk/`, `app/`, `server/`, `tests/`, `scripts/`, `perf/`, `deno.json`).
 
 1. The main agent appends new quests to the board table in `docs/side-quests.md` (id, question, why it
    matters, done-criteria).

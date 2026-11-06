@@ -1,5 +1,4 @@
-import { apps, assert, client, Effect, play, run, scenarioDir, startBackend, test } from "../harness.ts";
-import { database } from "../postgres.ts";
+import { apps, assert, client, Effect, play, run, scenarioDir, startGoAgent, test } from "../harness.ts";
 import { workloads } from "../seed.ts";
 
 // Independent reference: derive status/winner from the moves sent, never from app rules or responses.
@@ -22,8 +21,7 @@ function normalize(rows: readonly Record<string, unknown>[]) {
 test("e2e/2-queries: status, history and countBy match an independent seeded reference (SDK, /v1/ops)", () =>
   Effect.gen(function* () {
     const dir = yield* scenarioDir("queries");
-    const url = yield* database("queries");
-    const server = yield* startBackend(dir, url);
+    const server = yield* startGoAgent(dir);
     yield* Effect.promise(async () => {
       const results: unknown[] = [];
       for (const app of apps) {

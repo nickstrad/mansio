@@ -6,24 +6,18 @@ from textwrap import wrap
 from canvas import Canvas
 
 TITLE = 'Container — observability path'
-BOUNDARY = 'Platform observability'
-NODES = [('server',
-  'Server process',
-  'Deno process',
-  'platform/server.ts',
-  'LoggingLive; HTTP, handler, SQL, tx and lifecycle',
-  True),
- ('reader',
-  'Reader process',
-  'Deno child process',
-  'platform/reader.ts; reader_layers.ts',
-  'Reader logging; ingest-then-sweep; live analysis',
+BOUNDARY = 'Mansio observability'
+NODES = [('agentd',
+  'Agent',
+  'Go process',
+  'server/cmd/agentd; internal/eventlog',
+  'event_log: http, handler, sql, tx, backup and lifecycle records',
   True),
  ('jsonl',
   'Structured event sources',
   'Filesystem',
-  'LOG_DIR/role/date/events-*.jsonl',
-  'Server/reader JSONL; quarantine beside source',
+  'event_log.dir: role/date/events-*.jsonl',
+  "agentd JSONL (role server); the CLI's own (role reader); quarantine beside source",
   True),
  ('duck',
   'Derived event log',
@@ -34,33 +28,24 @@ NODES = [('server',
  ('cli',
   'Logs CLI',
   'Deno process',
-  'scripts/logs.ts',
+  'scripts/logs.ts; eventlog/',
   'Ingest/list/query/sweep; named catalog',
   True),
- ('loader',
-  'k6 point loader',
-  'Deno process',
-  'perf/ingest_k6.ts',
-  'Loads raw points into k6_points (item 25)',
-  True),
+ ('loader', 'k6 point loader', 'Deno process', 'perf/ingest_k6.ts', 'Loads raw points into k6_points', True),
  ('results', 'k6 artifacts', 'Filesystem', 'logs/k6/run-id/', 'raw.json and summary.json', True),
  ('k6',
   'k6 load generator',
   'External process',
   'perf/*.js',
-  'HTTP load; JSON metric output',
+  'IR load over /v1/ops; JSON metric output',
   False)]
-EDGES = [('server', 'jsonl', 'Append structured JSONL through dropping queue'),
- ('reader', 'jsonl', 'Append reader-role JSONL; stdout reserved for RPC'),
- ('server', 'reader', 'JSONL ingest/analysis RPC; timer and admin HTTP'),
- ('reader', 'duck', 'Transactional ingest (adds sql_events.path if missing); shared-instance catalog SELECT'),
- ('reader', 'jsonl', 'After committed ingest: seal tails, gzip/delete safe files'),
- ('cli', 'duck', 'Offline ingest or read-only catalog SELECT'),
- ('cli', 'jsonl', 'Offline ingest-then-sweep; dry-run plans only'),
+EDGES = [('agentd', 'jsonl', 'Append JSONL in core/events.ts format through a dropping queue'),
+ ('cli', 'jsonl', 'Offline ingest-then-sweep; seal tails, gzip/delete safe files; dry-run plans only'),
+ ('cli', 'duck', 'Transactional ingest (adds sql_events.path if missing); read-only catalog SELECT'),
  ('k6', 'results', 'Raw points and summary JSON'),
  ('results', 'loader', 'Read raw.json for selected run id'),
  ('loader', 'duck', 'Insert k6_points; catalog compares overlapping HTTP buckets')]
-NOTES = 'Item 23 provides the named catalog and logs CLI; item 25 provides the k6 loader and join acceptance\ntest. MT-10 wires the reader analysis RPC and shares the ingest instance so later commits remain visible.\nThe server never opens DuckDB. The standalone CLI queries read-only and can fail while a writer owns the\nfile; use the live admin route during serving. Ingest and analysis handles are independently scoped\nconnections on the shared native instance. Document reads run in-process against application SQLite files;\nthey do not use the reader event-log database.\nRetention bounds JSONL only, requires committed watermarks and matching hashes, and never touches today\nor the reader sink open path. Derived tables are never pruned; logs:compact remains future work.\nGzipped retained sources are not re-ingested by the current scanner. No load-performance result is\nclaimed by this diagram.\nFFI-06: the sql event now persists its SQLite execution path (blocking or nonblocking) in the JSONL line\n(core/events.ts KIND_KEYS) and in a nullable sql_events.path column (core/eventlog/ddl.ts). Ingest runs\nALTER TABLE sql_events ADD COLUMN IF NOT EXISTS path on every open, so an older v2 file gains the column on its\nnext ingest without a schema-version bump; older rows hold NULL. The named catalog gains\ndeadline-hits-per-handler-hour (platform/analysis/catalog.ts), which counts StatementDeadlineError sql events by\napp, handler and UTC hour with the path; until an older log is re-ingested, that one query fails on the missing\ncolumn. The perf/ffi_*.ts harnesses and the deadline scenario in tests/integration.ts add no container:\nthe harnesses drive the FFI binding directly, and the scenario runs the existing server, logs ingest and logs query.'
+NOTES = "agentd writes the event log when its config has event_log (dir, level, trace_sql); the records are\nbyte-identical to core/events.ts toJsonLine (goldens shared with Go, IR-4c). Nothing in the server opens\nDuckDB: ingest and analysis are offline, in the logs CLI (eventlog/), and the DuckDB file has a single\nwriter, so a query fails while an ingest holds it. The CLI writes its own records under the reader role.\nRetention bounds JSONL only, requires committed watermarks and matching hashes, and never touches today\nor the CLI's open file. Derived tables are never pruned. Gzipped retained sources are not re-ingested.\nUntil IR-6 the Deno server and its reader child process did all of this in-process (ADR 0004)."
 NAME = 'c4-container-observability'
 
 
@@ -105,7 +90,7 @@ def mermaid():
 
 
 def document(github):
-    text = '# ' + TITLE + '\n\nAudited against landed main `643b706` on 2026-10-11 (item 27); updated for FFI-06 at `5c2a499` on 2026-10-14.\nBoth formats are generated from\n'
+    text = '# ' + TITLE + '\n\nRedrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone and\nthe server is the Go server in `server/`. Both formats are generated from\n'
     text += '`diagrams/' + NAME + '.py`; numbered relationships are identical. All boxes describe landed code.\n\n'
     if github:
         text += '```mermaid\n' + mermaid() + '\n```\n'

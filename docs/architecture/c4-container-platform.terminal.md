@@ -1,78 +1,75 @@
 # Container — request path
 
-Audited against landed main `643b706` on 2026-10-11 (item 27); re-checked for FFI-01 to FFI-05 at `f2bf1c9` on
-2026-10-14, and re-audited at `aa26b27` (FFI-06 and FFI-07 change no element here; FFI-08 changes none). Both
-formats are generated from `diagrams/c4-container-platform.py`; numbered relationships are identical. All
-boxes describe landed code.
+Redrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone
+and the server is the Go server in `server/`. Both formats are generated from
+`diagrams/c4-container-platform.py`; numbered relationships are identical. All boxes describe landed code.
 
 <!-- c4-render: diagrams/c4-container-platform.py -->
 
 ```text
-╭╌ Platform host and central registry ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╭╌ Mansio cluster ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
 ╎                                                                      ╎
 ╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ Server process               │   │ Reader process               │ ╎
-╎  │ [Deno process]               │   │ [Deno child process]         │ ╎
-╎  │ platform/server.ts           │   │ platform/reader.ts           │ ╎
-╎  │ HTTP auth, SQLite document   │   │ Event-log DuckDB; ingest and │ ╎
-╎  │ reads/writes, backup and     │   │ named analysis               │ ╎
-╎  │ ingest timers                │   └──────────────────────────────┘ ╎
-╎  └──────────────────────────────┘                                    ╎
-╎                                                                      ╎
-╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ Application documents        │   │ Central registry             │ ╎
-╎  │ [SQLite 3 WAL files]         │   │ [Postgres 17 process/store]  │ ╎
-╎  │ DATA_DIR; TENANTS_DIR        │   │ docker-compose.yml;          │ ╎
-╎  │ Legacy app.sqlite;           │   │ platform/tenants/            │ ╎
-╎  │ TENANTS_DIR/tenantId.db; one │   │ Tenants, hashed keys, users, │ ╎
-╎  │ file per tenant              │   │ sessions, memberships        │ ╎
+╎  │ Edge                         │   │ Agent                        │ ╎
+╎  │ [Go process]                 │   │ [Go process]                 │ ╎
+╎  │ server/cmd/edge              │   │ server/cmd/agentd            │ ╎
+╎  │ Forwards /v1/ops to the      │   │ IR front (/v1/ops); one      │ ╎
+╎  │ ticket's VM; registry from   │   │ actor per database; static,  │ ╎
+╎  │ controld                     │   │ tenancy or durable mode      │ ╎
 ╎  └──────────────────────────────┘   └──────────────────────────────┘ ╎
 ╎                                                                      ╎
 ╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ Tenant/auth CLI              │   │ Migration runner             │ ╎
-╎  │ [Deno process]               │   │ [Deno process]               │ ╎
-╎  │ scripts/tenants.ts;          │   │ scripts/db/migrate.ts        │ ╎
-╎  │ scripts/auth.ts              │   │ Journaled, advisory-locked   │ ╎
-╎  │ Tenant administration and    │   │ SQL migrations               │ ╎
-╎  │ headless email/password      │   └──────────────────────────────┘ ╎
-╎  └──────────────────────────────┘                                    ╎
+╎  │ Databases                    │   │ Control plane                │ ╎
+╎  │ [SQLite 3 files]             │   │ [Go process]                 │ ╎
+╎  │ agentd db_dir                │   │ server/cmd/controld          │ ╎
+╎  │ One file per (tenant, app):  │   │ Resolve and tickets; create, │ ╎
+╎  │ tenant:app.db                │   │ move, attest-dead, restore;  │ ╎
+╎  └──────────────────────────────┘   │ tenancy admin and auth       │ ╎
+╎                                     └──────────────────────────────┘ ╎
+╎                                                                      ╎
+╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
+╎  │ Control store                │   │ Operator CLIs                │ ╎
+╎  │ [Postgres 17]                │   │ [Go and Deno processes]      │ ╎
+╎  │ schema control               │   │ server/cmd/dbtool;           │ ╎
+╎  │ Placement, issuer keys,      │   │ scripts/tenants.ts           │ ╎
+╎  │ tenants, API keys, users,    │   │ Restore, import, verify;     │ ╎
+╎  │ sessions                     │   │ tenant and key admin         │ ╎
+╎  └──────────────────────────────┘   └──────────────────────────────┘ ╎
 ╎                                                                      ╎
 ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
    ┌──────────────────────────────┐   ┌──────────────────────────────┐
-   │ Typed client SDK             │   │ Object storage               │
-   │ [Library in caller process]  │   │ [External system /           │
-   │ sdk/client.ts                │   │ filesystem]                  │
-   │ Named handlers, bearer,      │   │ S3_BASE_URL or               │
-   │ X-Trace-Id                   │   │ LOCAL_OBJECT_DIR             │
-   └──────────────────────────────┘   │ apps/appId/ snapshots and    │
-                                      │ manifests                    │
-                                      └──────────────────────────────┘
+   │ Client SDK                   │   │ Object storage               │
+   │ [Library in caller process]  │   │ [External system]            │
+   │ sdk/client.ts;               │   │ S3 (SeaweedFS in dev)        │
+   │ sdk/transport.ts             │   │ SQLite generations and       │
+   │ Runs handlers; sends IR;     │   │ manifests                    │
+   │ resolves and caches tickets  │   └──────────────────────────────┘
+   └──────────────────────────────┘
 ```
 
 ## Relationships
 
-| # | From             | To                    | Relationship                                                                   |
-| - | ---------------- | --------------------- | ------------------------------------------------------------------------------ |
-| 1 | Typed client SDK | Server process        | HTTP JSON + bearer + trace                                                     |
-| 2 | Server process   | Reader process        | JSONL IPC ping/ingest/analysis                                                 |
-| 3 | Server process   | Application documents | FFI binding over system libsqlite3; read-only queries and serialized mutations |
-| 4 | Server process   | Central registry      | Postgres protocol; registry SQL and session auth                               |
-| 5 | Tenant/auth CLI  | Central registry      | Postgres protocol; tenant/key or auth operations                               |
-| 6 | Migration runner | Central registry      | Postgres protocol; journal and migration SQL                                   |
-| 7 | Server process   | Object storage        | Snapshot verification/hash; S3 HTTPS or local publication                      |
+| #  | From          | To             | Relationship                                                        |
+| -- | ------------- | -------------- | ------------------------------------------------------------------- |
+| 1  | Client SDK    | Control plane  | HTTP POST /v1/resolve; API key or session; ticket and endpoint back |
+| 2  | Client SDK    | Edge           | HTTP POST /v1/ops (IR); ticket; X-Trace-Id                          |
+| 3  | Edge          | Agent          | HTTP /v1/ops, routed by the ticket's VM                             |
+| 4  | Edge          | Control plane  | HTTP VM registry and ticket keys                                    |
+| 5  | Agent         | Databases      | modernc SQLite; group-committed writes and reads                    |
+| 6  | Agent         | Object storage | S3 HTTP; write-back of generations, restore on claim                |
+| 7  | Agent         | Control plane  | HTTP ticket keys and registered schemas (keys_url, schemas_url)     |
+| 8  | Control plane | Agent          | HTTP lifecycle: claim, release, move                                |
+| 9  | Agent         | Control store  | Postgres protocol; placement rows (placement_pg)                    |
+| 10 | Control plane | Control store  | Postgres protocol; placement, tenancy, issuer                       |
+| 11 | Operator CLIs | Object storage | S3 HTTP; dbtool restore, import, verify                             |
+| 12 | Operator CLIs | Agent          | Admin HTTP; /admin/tenants, /admin/backup                           |
 
 ## Runtime notes
 
-The writer and reader remain separate OS processes and native module graphs. The central Postgres connection
-is acquired lazily for registry use; TENANCY=off preserves app tokens and legacy files. Each app has a
-LocalFolderRouter over the shared TENANTS_DIR/tenantId.db path. Different physical layouts need distinct
-tenants because the schema guard rejects switching layouts. Document queries use fresh read-only connections
-in the server, opened through the FFI SQLite binding over system libsqlite3 (node:sqlite is no longer loaded),
-with authenticated tenant routing selecting the file. Unbounded SQLite reads (any select that is not a
-primary-key lookup, count, countBy) run nonblocking under a statement deadline (default 5 s) and fail HTTP 504
-when it passes; writes and point reads stay blocking (FFI-05). The DuckDB SQLite extension stays in the
-separate reader process, so the two SQLite copies never share an address space. Application documents stay in
-SQLite. Better Auth is mounted in the server at /api/auth/*; scripts/auth.ts is the headless CLI. The future
-control-plane router is not implemented. E2E uses ephemeral Postgres, distinct tenants for layouts, and fresh
-Better Auth servers per layout.
+This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs alone: static mode (a keys
+file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or sessions on
+/v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or placement_pg); then
+the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are acknowledged before
+write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts talks to whichever
+process mounts /admin/tenants (agentd or controld).

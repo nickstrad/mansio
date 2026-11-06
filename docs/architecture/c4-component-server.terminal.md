@@ -1,9 +1,14 @@
 # Component — server process
 
+> **Historical.** This diagram describes the Deno platform's server process, which was deleted at IR-6 (ADR
+> 0013). It is kept because older plans link it; it is not redrawn for the Go agent. Current pictures: the
+> context and container pairs in this directory.
+
 Audited against landed main `643b706` on 2026-10-11 (item 27); updated for FFI-01 to FFI-05 at `f2bf1c9` on
 2026-10-14; FFI-06 at `5c2a499` changes only the runtime note on `path`; re-audited at `aa26b27` on 2026-10-14
 (FFI-07 touches no C4 surface; FFI-08 changes no element). Both formats are generated from
-`diagrams/c4-component-server.py`; numbered relationships are identical. All boxes describe landed code.
+`diagrams/c4-component-server.py`; numbered relationships are identical. All boxes described landed code at
+that point.
 
 <!-- c4-render: diagrams/c4-component-server.py -->
 

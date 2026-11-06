@@ -26,7 +26,7 @@
  *
  * Adopted 2026-10-11 from the sq-12 side quest as a standing harness (Opus 5.5 reviewed). The
  * `--schema lx02` reproduction mode from the quest was dropped on adoption; item 23 drops it when
- * adapting this harness pattern to `platform/analysis/catalog.ts`.
+ * adapting this harness pattern to `eventlog/catalog.ts`.
  */
 import { DuckDBInstance } from "@duckdb/node-api";
 import { EVENT_TABLES, EVENTLOG_DDL } from "../../core/eventlog/ddl.ts";

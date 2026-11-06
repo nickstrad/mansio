@@ -22,7 +22,7 @@ import type { SelectPlan } from "../../core/plan.ts";
 import { decodeValue } from "../../core/ir/decode.ts";
 import { canonical } from "../../core/ir/json.ts";
 import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
-import { sha256Fingerprint } from "../../platform/ir/executor.ts";
+import { fingerprintOfText } from "../../sdk/fingerprint.ts";
 import type { Request as IrRequest, SelectOp } from "../../core/ir/types.ts";
 import { createClient } from "../../sdk/client.ts";
 import { withStorage } from "../../sdk/schema.ts";
@@ -1240,7 +1240,7 @@ async function schemaFile(): Promise<VectorFile> {
     const v: J = { name: c.name, why: c.why, schema: c.schema };
     if (c.expect.ok) {
       const text = fingerprintText(schemaOf(c.schema));
-      v.expect = { ok: true, text, fingerprint: await Effect.runPromise(sha256Fingerprint(text)) };
+      v.expect = { ok: true, text, fingerprint: await fingerprintOfText(text) };
     } else v.expect = c.expect;
     vectors.push(v);
   }
@@ -2481,7 +2481,7 @@ async function executeFile(): Promise<VectorFile> {
   for (const storage of ["columns", "json"] as const) {
     for (const c of scenarios) {
       const json = c.schema ? c.schema(storage) : schemaJson(storage);
-      const fingerprint = await Effect.runPromise(sha256Fingerprint(fingerprintText(schemaOf(json))));
+      const fingerprint = await fingerprintOfText(fingerprintText(schemaOf(json)));
       const steps = c.steps.map((step) => ({
         clock: step.clock ?? 1000,
         serverIds: step.serverIds ?? [],

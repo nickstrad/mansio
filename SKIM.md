@@ -1,7 +1,9 @@
 # Skim the Effect document database
 
-These excerpts are copied from the landed source at `643b706`. Omitted sections are described in prose, not
-rewritten as alternate implementations. See [README.md](README.md) for configuration and verification.
+These excerpts are copied from the source. Omitted sections are described in prose, not rewritten as alternate
+implementations. The server is the Go code in `server/`; this tour covers the TypeScript side: the app, the
+SDK, the pure compiler and the offline event-log CLI. See [README.md](README.md) for the layout and
+verification.
 
 ## Application schema and handler
 
@@ -100,140 +102,111 @@ export function tableFor(schema: Schema, name: string): Either.Either<Table, Com
 ```
 
 `compileSelect` in the same file normalizes the plan and returns `Either<SQL, CompileError | SchemaError>`.
-The compiler returns SQL text with bound values; the platform lifts the Either into its Effect channel.
+The compiler returns SQL text with bound values. It is the oracle for the Go server's port
+(`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in `ir/vectors/`.
 `GENERATED_SQL.txt` shows actual output for both layouts and dialects.
 
-## Mutation transactions have scoped rollback
+## A mutation is recorded, then committed once
 
-Source: [platform/sqlite.ts](platform/sqlite.ts).
-
-<!-- deno-fmt-ignore -->
-```ts
-    const transaction = <A, E>(
-      queueWaitMs: number,
-      use: (tx: Tx) => Effect.Effect<A, E>,
-    ): Effect.Effect<A, E | StorageError> =>
-      Effect.acquireUseRelease(
-        Effect.suspend(() => {
-          const startedNanos = nanos();
-          try {
-            database.exec("BEGIN IMMEDIATE");
-          } catch (cause) {
-            return Effect.fail(new StorageError({ operation: "begin", detail: messageOf(cause), cause }));
-          }
-          const tx: Tx = { active: true, committed: false, operations: 0, startedNanos, queueWaitMs };
-          return Effect.succeed(tx);
-        }),
-        (tx) =>
-          Effect.flatMap(use(tx), (result) =>
-            Effect.suspend(() => {
-              // Expire in the same step as COMMIT: the release runs later, after a possible yield.
-              tx.active = false;
-              try {
-                database.exec("COMMIT");
-              } catch (cause) {
-                return Effect.fail(
-                  new StorageError({ operation: "commit", detail: messageOf(cause), cause }),
-                );
-              }
-              tx.committed = true;
-              return Effect.succeed(result);
-            })),
-        (tx, exit) =>
-          Effect.suspend(() => {
-            tx.active = false;
-            let rollbackFailure: unknown;
-            if (!tx.committed && database.isTransaction) {
-              try {
-                database.exec("ROLLBACK");
-              } catch (cause) {
-                rollbackFailure = cause;
-              }
-            }
-            const outcome: TxOutcome = tx.committed
-              ? "commit"
-              : Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)
-              ? "interrupted"
-              : "rollback";
-            const columns = Exit.isFailure(exit) ? errorColumns(exit.cause) : {};
-            const emitted = Effect.flatMap(envelope(outcome === "interrupted" ? "warn" : "info"), (env) =>
-              sink.emit(txEvent({
-                ...env,
-                engine: "sqlite",
-                outcome,
-                operations: tx.operations,
-                durationMs: msSince(tx.startedNanos),
-                queueWaitMs: tx.queueWaitMs,
-                ...columns,
-              })));
-            // A connection still inside a transaction would poison every later job: fail loudly.
-            return rollbackFailure !== undefined && database.isTransaction
-              ? Effect.zipRight(
-                emitted,
-                Effect.die(
-                  new StorageError({
-                    operation: "rollback",
-                    detail: messageOf(rollbackFailure),
-                    cause: rollbackFailure,
-                  }),
-                ),
-              )
-              : emitted;
-          }),
-      );
-```
-
-The release callback expires the context, rolls back every uncommitted exit, emits the transaction event, and
-reports rollback failures. A semaphore serializes the writer queue.
-
-## Reader resources belong to a layer
-
-Source: [platform/duckdb.ts](platform/duckdb.ts).
+Source: [sdk/recording.ts](sdk/recording.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
-export function ReaderLive(
-  app: ReaderApp,
-  driver: DuckDriver = duckDriver,
-): Layer.Layer<Reader, ReaderError, Config | EventSink> {
-  return Layer.scoped(Reader, makeReader(app, driver));
-}
+  /** The preconditions derived from this run's reads, in first-read order. */
+  preconditions(): AssertOp[] {
+    const out: AssertOp[] = [];
+    for (const entry of this.entries.values()) {
+      if (!entry.guarded || entry.base === undefined) continue;
+      out.push({
+        op: "assert",
+        table: entry.table,
+        id: entry.id,
+        expect: entry.base === null ? { exists: false } : { version: entry.base._version as number },
+      });
+    }
+    return out;
+  }
+
+  /** The mutation's operations: the derived asserts, then the buffered writes in order. */
+  mutation(): { ops: Op[]; asserts: number } {
+    const asserts = this.preconditions();
+    return { ops: [...asserts, ...this.ops], asserts: asserts.length };
+  }
 ```
+
+A `Recording` is the `db` a handler sees in the caller's process. Reads go to the server at once and are
+cached per run; writes are buffered and later reads in the same run see them. Every document a `get` observed
+becomes an `assert` at the front of the mutation, so a conflict on an op index below `asserts` is always one
+the client derived.
+
+Source: [sdk/client.ts](sdk/client.ts).
+
+<!-- deno-fmt-ignore -->
+```ts
+      for (let run = 0;; run++) {
+        const recording = new Recording<Schema>(reads(call), newId, now, true);
+        const result = yield* roundTrip(yield* runHandler(definition, recording, args));
+        const { ops, asserts } = recording.mutation();
+        if (ops.length === 0) return result; // read nothing, wrote nothing: nothing to commit
+        // (an op-limit check, failing locally with RuleError, is omitted here)
+        // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
+        const committed = yield* Effect.either(
+          Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
+        );
+        if (committed._tag === "Right") return result;
+        const error = committed.left;
+        if (!derivedConflict(error, ops, asserts) || run >= handlerRetries) return yield* error;
+        // Someone else wrote what this run read: re-run the handler on fresh reads, after a jittered pause.
+        const wait = Math.floor(random() * Math.min(250, 10 * 2 ** run));
+        if (now() + wait >= call.deadline) return yield* error;
+        yield* sleep(wait);
+      }
+```
+
+The handler runs again on a derived conflict, which is why handlers must have no effects beyond `db`. `send`
+(`sdk/transport.ts`) owns transport retries, reroutes and the retry budget; the same `requestId` on a
+transport retry lets the server answer an applied mutation as a duplicate.
+
+## The event-log CLI is a layer chain
+
+Source: [eventlog/root.ts](eventlog/root.ts).
+
+<!-- deno-fmt-ignore -->
+```ts
+/** `Config` from the environment and the CLI's own event sink, in the order of the module comment. */
+export const CliRootLive = LoggingReaderLive.pipe(Layer.provideMerge(ConfigLive));
+```
+
+Each `scripts/logs.ts` command is its own Effect program. `ingest` and `sweep` run on `CliRootLive`
+(configuration from the environment, then the CLI's own event sink) and build the event-log handle in the
+program's scope; `query` and `list` need only `Config` and the read-only `AnalysisLive`. `ConfigLive`
+(`eventlog/config.ts`) is the only module that reads the environment; it fails with a typed `ConfigError` at
+layer construction. Service tags are declared in `eventlog/services.ts`.
 
 ## Native handles register finalizers immediately
 
-Source: [platform/duckdb.ts](platform/duckdb.ts).
+Source: [eventlog/ingest.ts](eventlog/ingest.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
     const instance = yield* Effect.acquireRelease(
-      native("open", () => driver.open()),
+      attempt("inventory", () => driver.open(dbPath)),
       (handle) => close("instance", handle),
-    );
-    // Registered after the instance, so it is released before it (finalizers run LIFO).
-    const connection = yield* Effect.acquireRelease(
-      native("open", () => instance.connect()),
-      (handle) => close("connection", handle),
-    );
-    yield* native("open", () => connection.run("INSTALL sqlite"));
-    yield* native("open", () => connection.run("LOAD sqlite"));
-    yield* native(
-      "attach",
-      () => connection.run(`ATTACH ${literal(app.file)} AS "app" (TYPE SQLITE, READ_ONLY)`),
     );
 ```
 
-`makeReader` acquires the instance before the connection, so LIFO release closes the connection first. It
-attaches the live SQLite file read-only in the separate reader OS process. There is no static Promise
-constructor or throwing compiler wrapper in these paths; pure SQL compilation lives in `core/compile/`.
+The ingest opens the DuckDB instance under `acquireRelease`, then its connection, and registers the
+connection's finalizer after the instance's, so LIFO release closes the connection first.
+`eventlog/duckdb.ts`'s `drainDuckDB` forces pending N-API finalizers to run before the handles close.
 
 ## Run
 
 ```sh
 deno task explain > GENERATED_SQL.txt
-deno task ci
-deno task integration
-deno task e2e
+work-scripts/bash/deno-linux.sh 'deno task ci'
+deno task go:ci
+work-scripts/bash/e2e-linux.sh
 ```
 
-All four commands are executed in item 27; results and operational examples are in the README.
+`deno task ci` runs on Linux because the DuckDB event-log suites hang on macOS. See the README's Verification
+section.

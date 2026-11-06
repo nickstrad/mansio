@@ -159,10 +159,10 @@ export interface QueuePayload {
 }
 
 /**
- * Which producer wrote a `backup` record. `backups` (`platform/backup.ts`) writes one orchestration
- * record per phase of a run; `object-store` (`platform/object_store.ts`) writes one transfer record per
- * object PUT, whoever asked for it. The two never describe the same thing, so neither double-counts the
- * other.
+ * Which producer wrote a `backup` record. `backups` (agentd's `POST /admin/backup`; the Deno
+ * platform's backup orchestrator until IR-6) writes one orchestration record per phase of a run;
+ * `object-store` (the Deno platform's object store) wrote one transfer record per object PUT. The
+ * two never describe the same thing, so neither double-counts the other.
  */
 export type BackupEmitter = "backups" | "object-store";
 

@@ -37,9 +37,6 @@
  * `crypto.randomUUID()`), sent on every request of the call (each read, the commit, every retry). Servers
  * accept 1–128 of `[A-Za-z0-9._:-]` and replace anything else. The handler's name goes with it as
  * `X-Mansio-Handler`, so a server's event log can name the handler a request belongs to.
- *
- * `createLegacyClient` is the pre-IR client (server-side handlers on the Deno platform's
- * `/apps/:app/:kind/:name`), kept for the tests and tools that exercise that route until IR-6 deletes it.
  */
 import { Cause, Effect, Exit, Option } from "effect";
 import {
@@ -316,7 +313,7 @@ async function runPromise<A>(effect: Effect.Effect<A, ClientError>): Promise<A> 
   throw failure instanceof Error ? failure : new Error(String(failure));
 }
 
-/** The promise-shaped client, for callers that are not Effect programs (`scripts/demo.ts`). */
+/** The promise-shaped client, for callers that are not Effect programs. */
 export function createPromiseClient<F extends Functions>(options: ClientOptions<F>) {
   const client = createClient(options);
   return {
@@ -324,69 +321,5 @@ export function createPromiseClient<F extends Functions>(options: ClientOptions<
       runPromise(client.query(name, args, traceId)),
     mutation: <N extends Names<F, "mutation">>(name: N, args: ArgsOf<F[N]>, traceId?: string) =>
       runPromise(client.mutation(name, args, traceId)),
-  };
-}
-
-// ===========================================================================
-// The pre-IR client (server-side handlers). Removed with the Deno platform (IR-6).
-// ===========================================================================
-
-/** Reads whatever the server put in `error`: a bare string, or a tagged object. */
-function remoteFailure(status: number, body: unknown): RemoteError {
-  const error = (body as { error?: unknown } | null)?.error;
-  if (typeof error === "string" && error) return new RemoteError({ status, message: error });
-  if (error && typeof error === "object") {
-    const { tag, message } = error as { tag?: unknown; message?: unknown };
-    return new RemoteError({
-      status,
-      remoteTag: typeof tag === "string" ? tag : undefined,
-      message: typeof message === "string" && message ? message : `HTTP ${status}`,
-    });
-  }
-  return new RemoteError({ status, message: `HTTP ${status}` });
-}
-
-/**
- * @deprecated The pre-IR client: `POST {baseURL}/apps/{appId}/{kind}/{name}`, the handler runs on the
- * Deno server. `token` is the tenant API key in tenancy modes, or the app token with TENANCY=off. A
- * transport failure is a defect, as before IR-3. Kept for the tests of that route (trace, integration,
- * the e2e scenarios IR-4 ports) until IR-6.
- */
-export function createLegacyClient<F extends Functions>(
-  baseURL: string,
-  appId: string,
-  token: string,
-  newTraceId: () => string = () => crypto.randomUUID(),
-) {
-  function call<K extends Kind, N extends Names<F, K>>(
-    kind: K,
-    name: N,
-    args: ArgsOf<F[N]>,
-    traceId?: string,
-  ): Effect.Effect<ResultOf<F[N]>, RemoteError> {
-    const url = `${baseURL}/apps/${encodeURIComponent(appId)}/${kind}/${encodeURIComponent(name)}`;
-    return Effect.gen(function* () {
-      const response = yield* Effect.promise(() =>
-        fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${token}`,
-            "x-trace-id": traceId ?? newTraceId(),
-          },
-          body: JSON.stringify(args),
-          signal: AbortSignal.timeout(30_000),
-        })
-      );
-      const body = yield* Effect.promise(() => response.json() as Promise<{ result?: unknown }>);
-      if (!response.ok) return yield* remoteFailure(response.status, body);
-      return body.result as ResultOf<F[N]>;
-    });
-  }
-  return {
-    query: <N extends Names<F, "query">>(name: N, args: ArgsOf<F[N]>, traceId?: string) =>
-      call("query", name, args, traceId),
-    mutation: <N extends Names<F, "mutation">>(name: N, args: ArgsOf<F[N]>, traceId?: string) =>
-      call("mutation", name, args, traceId),
   };
 }

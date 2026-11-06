@@ -4,7 +4,7 @@
 -- mirrors the plan's named `trace` analysis query (§4.3, item 23).
 -- Tables: platform_events, sql_events, tx_events, http_events, k6_points (schema v2).
 -- The supported form of this query is `deno task logs:query trace --param traceId=<id>`
--- (platform/analysis/catalog.ts), which also drops the platform_events rows that
+-- (eventlog/catalog.ts), which also drops the platform_events rows that
 -- sql_events/tx_events/http_events already carry. This file lists them from both tables.
 -- Variables: $trace_id.
 --

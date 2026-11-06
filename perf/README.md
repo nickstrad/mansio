@@ -15,40 +15,79 @@ k6 version   # k6 v0.56.0 (commit/50afb99947, go1.23.4, linux/amd64)
 Pinned version: **v0.56.0**, source URL above. This recipe is also recorded in the knowledge store
 (`kb search "k6"`) since the droplet had no k6 install before this item.
 
+## How the scripts reach agentd
+
+k6 cannot run the TypeScript SDK, so `perf/lib/ir.js` sends each tic-tac-toe handler to agentd's
+`POST /v1/ops` the way `sdk/client.ts` does: a read is one query request; `makeMove` reads the game, applies
+the rules locally and commits `[assert, patch, insert]`. A rule failure or a stale `expectedVersion` fails
+locally, as in the SDK, without a request. Every request carries `X-Trace-Id: <vu>-<iter>-<run-id>`,
+`X-Mansio-Handler` and a ticket. `perf/lib/api.js` is the only module the scenarios call.
+
+A run needs a running agentd that serves `local:tic-tac-toe` (static mode) and these environment variables:
+
+| Variable                      | Meaning                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `READ_TICKET`, `WRITE_TICKET` | Tickets for `TENANT:APP_ID`, read and write permission (`sdk/ticket.ts`). |
+| `SCHEMA_FINGERPRINT`          | The app schema's fingerprint in its layout (`sdk/fingerprint.ts`).        |
+| `BASE_URL`                    | agentd's query listener; default `http://127.0.0.1:7070`.                 |
+| `APP_ID`, `TENANT`            | Defaults `tic-tac-toe` and `local`.                                       |
+| `K6_RUN_ID`                   | The run id: artifact directory and trace-id suffix; default `k6-smoke`.   |
+
+`startScratchAgent` in `tests/e2e/scratch.ts` does the whole setup for a test: an agentd in static mode with
+an event log, a fresh ticket issuer, both tickets and the fingerprint. `tests/e2e/observability_test.ts` uses
+it to run `perf/smoke.js` and join k6's latencies to agentd's event log
+(`deno run -A tests/e2e/observability_test.ts`; needs `k6` and Go). For a manual run, the same steps by hand
+(from the repository root; the tickets are valid for 50 minutes):
+
+```sh
+export MANSIO_DIR="$(mktemp -d)"
+(cd server && go build -o "$MANSIO_DIR/agentd" ./cmd/agentd)
+mkdir -p "$MANSIO_DIR/dbs" && touch "$MANSIO_DIR/dbs/local:tic-tac-toe.db"
+deno eval '
+import { schema } from "./app/schema.ts";
+import { withStorage } from "./sdk/schema.ts";
+import { schemaFingerprint } from "./sdk/fingerprint.ts";
+import { generateIssuer, mintTicket, PERM_READ, PERM_WRITE } from "./sdk/ticket.ts";
+const dir = Deno.env.get("MANSIO_DIR");
+const stored = withStorage(schema, "columns");
+await Deno.mkdir(`${dir}/schemas/tic-tac-toe`, { recursive: true });
+await Deno.writeTextFile(`${dir}/schemas/tic-tac-toe/v1.json`, JSON.stringify(stored));
+const issuer = await generateIssuer();
+await Deno.writeTextFile(`${dir}/keys.json`, issuer.keysFile);
+const iat = Math.floor(Date.now() / 1000) - 1;
+const mint = (perms: number) =>
+  mintTicket(issuer.key, {
+    kid: issuer.kid, tid: "local", dbid: "local:tic-tac-toe", vm: "vm-local",
+    epoch: 1, sub: "k6", perms, iat, exp: iat + 3000,
+  });
+console.log(`export READ_TICKET=${await mint(PERM_READ)}`);
+console.log(`export WRITE_TICKET=${await mint(PERM_WRITE)}`);
+console.log(`export SCHEMA_FINGERPRINT=${await schemaFingerprint(stored)}`);
+' >"$MANSIO_DIR/tickets.env"
+cat >"$MANSIO_DIR/agentd.json" <<'JSON'
+{ "listen": "127.0.0.1:7070", "vm": "vm-local", "db_dir": "dbs", "keys_file": "keys.json",
+  "schemas_dir": "schemas", "max_ticket_ttl": "1h", "log_file": "agentd.log" }
+JSON
+"$MANSIO_DIR/agentd" -config "$MANSIO_DIR/agentd.json" &
+. "$MANSIO_DIR/tickets.env"
+```
+
+Add `"event_log": {"dir": "logs"}` to the config to get the server-side records for `perf:ingest` and the
+`k6-vs-platform` analysis query ([docs/observability.md](../docs/observability.md)).
+
 ## `smoke.js`
 
-1 VU for 30s, replaying the same call order as `scripts/demo.ts` against the `tic-tac-toe` app: `createGame` →
-`getGame` → 5x `makeMove` → `winsByMark`. Each iteration creates a fresh game, so iterations never collide.
-Thresholds: `http_req_failed` rate < 1%, `http_req_duration` p(95) < 250ms, `checks` rate == 100%. Each
-request carries `X-Trace-Id: <vu>-<iter>-<run-id>`.
+1 VU for 30s, replaying the sample app's call order against `tic-tac-toe`: `createGame` → `getGame` → 5x
+`makeMove` → `winsByMark`. Each iteration creates a fresh game, so iterations never collide. Thresholds:
+`http_req_failed` rate < 1%, `http_req_duration` p(95) < 250ms, `checks` rate == 100%.
 
 A down or unreachable server makes every request fail (`http_req_failed` always counts connection-level
 failures, and `perf/lib/api.js`'s `http.setResponseCallback` also counts non-200 responses), which fails the
-thresholds and makes k6 exit non-zero — the script never reports a vacuous pass when it can't actually reach
-the API.
-
-## Against agentd (`BACKEND=go`)
-
-Every script runs against the Go agent with `BACKEND=go`: `perf/lib/api.js` then sends each handler as the SDK
-sends it to `POST /v1/ops` (`perf/lib/ir.js`: reads as one query; `makeMove` reads, applies the rules locally
-and commits `[assert, patch, insert]`; app conflicts fail locally, as in the SDK). It needs tickets and the
-schema fingerprint, which `tests/integration.ts`'s `startScratchAgent` mints:
-
-```sh
-BACKEND=go BASE_URL=http://127.0.0.1:7070 READ_TICKET=… WRITE_TICKET=… SCHEMA_FINGERPRINT=sha256:… \
-  k6 run perf/smoke.js
-BACKEND=go deno run -A tests/e2e/observability_test.ts   # builds agentd, mints, runs k6 smoke, joins
-```
+thresholds and makes k6 exit non-zero — the script never reports a vacuous pass when it can't reach agentd.
 
 ## Run it
 
-Start the server with a scratch data directory so test data doesn't collide with real app data:
-
-```sh
-DATA_DIR=$(mktemp -d) deno task serve
-```
-
-In another terminal, from the repo root:
+With agentd running and the variables above set, from the repository root:
 
 ```sh
 deno task perf:smoke
@@ -70,10 +109,7 @@ k6 run --out json="logs/k6/$K6_RUN_ID/raw.json" perf/smoke.js
 ```
 
 Both files land under `logs/k6/<run-id>/`, which is gitignored — this is local/CI run output, not something to
-commit. A later workstream joins these files for analysis (see `docs/adr/0003-k6-perf.md`).
-
-Override target/auth with environment variables if needed: `BASE_URL` (default `http://127.0.0.1:8000`),
-`APP_ID` (default `tic-tac-toe`), `TOKEN` (default `dev-only`, matching the server's dev default).
+commit. `deno task perf:ingest` loads `raw.json` into the `k6_points` table (see `docs/adr/0003-k6-perf.md`).
 
 ## Load scenarios
 
@@ -86,13 +122,13 @@ conflict-aware writes, artifact paths, `handleSummary`) and call the API only th
 | `deno task perf:query` | `query_load.js`    | `constant-arrival-rate` 50 rps for 2 min over 30 seeded games; `getGame`/`listGames`/`moveHistory`/`winsByMark` 4:2:2:1                       | `http_req_failed` < 1%; `http_req_duration` p(95) < 500; `checks` rate > 0.99; no dropped iterations  |
 | `deno task perf:mixed` | `mixed.js`         | `constant-arrival-rate` 50 rps for 3 min, 80% reads (same mix) / 20% writes (one move of the VU's own game, or `createGame` when it finished) | same as `perf:query`; **the default scenario for regression comparison**                              |
 
-**Conflicts are a success.** `mutation_load.js` deliberately sends a stale-`expectedVersion` move before every
-third move of a game. The server must reject it; the run records that in the custom `conflicts` counter and a
-check, and the request is declared an expected status (`400` today, `409` once the server maps
-`ConflictError`), so it does not count in `http_req_failed`. A stale write that is _accepted_ fails a check.
+**Conflicts are a success.** `mutation_load.js` deliberately attempts a stale-`expectedVersion` move before
+every third move of a game. It must be rejected with `ConflictError` (409); as in the SDK, the rejection
+happens locally after the read of the game, so no commit is sent. The run records it in the custom `conflicts`
+counter and a check. A stale write that is _accepted_ fails a check.
 
 **Seeding** happens in k6's `setup()`: `query_load.js` and `mixed.js` create 30 games (X wins, O wins, draws,
-in-progress) through the API before the timed phase, so a fresh `DATA_DIR` needs no preparation. Seed requests
+in-progress) through the API before the timed phase, so a fresh database needs no preparation. Seed requests
 appear in `raw.json` under the `::setup` group with trace id `0-0-<run-id>`.
 
 ### Running a scenario with artifacts
@@ -109,150 +145,22 @@ K6_OUT="json=logs/k6/$K6_RUN_ID/raw.json" deno task perf:mixed
 Both `logs/k6/<run-id>/raw.json` (newline-delimited JSON; `read_json_auto` reads the mixed file directly, then
 filter `WHERE type='Point'`, see `docs/haiku-experiments/findings/sq-04.md`) and `summary.json` (written by
 the scenario's `handleSummary`, with `run_id` and `scenario` added) land there. `K6_RUN_ID` also feeds the
-`X-Trace-Id` suffix, so once item 22 lands the trace ids in the server's events match the directory name. If
-you forget it the run id falls back to `k6-smoke`, which is smoke's directory — always set it.
+`X-Trace-Id` suffix, so the trace ids in agentd's event log match the directory name. If you forget it the run
+id falls back to `k6-smoke`, which is smoke's directory — always set it. Use a fresh database per run (a new
+`MANSIO_DIR` above) so runs do not see each other's games.
 
-`work-scripts/bash/k6-scenario-run.sh <perf:task> [run-id] [k6 args]` does all of the above against a
-throwaway server on a free port with a fresh scratch `DATA_DIR`:
-
-```sh
-bash work-scripts/bash/k6-scenario-run.sh perf:mixed 2026-10-10-mixed
-```
-
-Thresholds are enforced by k6: a crossed threshold makes the task exit 99 (verified by temporarily changing
-`query_load.js` to `p(95)<1`). `BASE_URL`, `APP_ID` and `TOKEN` work as for `smoke.js`.
+Thresholds are enforced by k6: a crossed threshold makes the task exit 99. The environment variables work as
+for `smoke.js`.
 
 ### What these numbers mean
 
-These scenarios measure this prototype's documented design: **one writer connection per app and one serial
-reader process** shared by every query. `perf:load` is bounded by the single writer, `perf:query` by the
-serial reader — that is the known capacity limit in the repo README, and `query_load.js` is the scenario that
-exercises it. The thresholds and the numbers they produce are for **regression detection** — compare a run to
-an earlier run of the same scenario on the same machine — not capacity claims.
-
-Reference run on the dev droplet (2026-10-10, one run each, before items 12–22 land): `perf:load` p(95) 162 ms
-with ~4k conflicts counted; `perf:query` p(95) 31 ms; `perf:mixed` p(95) 57 ms.
+The thresholds and the numbers they produce are for **regression detection** — compare a run to an earlier run
+of the same scenario on the same machine — not capacity claims. The reference numbers recorded before IR-6
+(2026-10-10: `perf:load` p(95) 162 ms, `perf:query` 31 ms, `perf:mixed` 57 ms) were measured against the
+removed Deno platform and are not comparable with agentd runs.
 
 ## Not a benchmark
 
-As the repo README states under "Deliberate limits": this is a local, trusted-application prototype with one
-writer connection per app and one shared serial reader process, "enough to expose the design, not to establish
-capacity." Treat `smoke.js` as a functional/regression check against the live HTTP surface, not as a capacity
-or performance claim about this system.
-
-## FFI production-binding harnesses
-
-Run each harness independently on a quiet host; each prints JSON and fails its acceptance gates with a nonzero
-exit. These are ports of `origin/research/fable-lang-switch:work-scripts/deno/ffi-sqlite-*.ts`, using the
-landed `Database`/`Statement` API. The read-cost and interrupt reports retain the PoC's top-level metric keys,
-with `loadavg` (1/5/15 minutes) added.
-
-```sh
-deno run -A perf/ffi_read_cost.ts
-deno run -A perf/ffi_interrupt.ts
-deno run -A perf/ffi_cap.ts
-```
-
-`ffi_read_cost.ts` measures 20,000 reused-statement point reads per path on identical 1,000-row WAL files. The
-binding and `node:sqlite` each own a separate file. Blocking rounds alternate order, and result correctness is
-checked outside the measured interval. Bind arrays and expected TEXT are precomputed; both blocking paths and
-the nonblocking path get 2,000 excluded warm-ups. Both public APIs receive the same numeric values: Statement
-takes the reused array and node:sqlite takes its spread values. Gates: blocking p50 ≤ 10.2 µs (6.8 × 1.5) and
-≤ 1.3 × same-run node p50 + 1 µs (the plan's amended parity gate); nonblocking p50 ≤ 100 µs and p99 ≤ 3,000
-µs.
-
-`ffi_interrupt.ts` runs 50 one-second unbounded counts and aborts each through the binding's signal bridge. It
-measures abort → typed `SqliteCancelled` settlement, including reset. Each sample has the PoC fields; the
-top-level sample is the slowest interrupt. The PoC's `rc` field is dropped: the binding's `SqliteCancelled`
-carries no result code, so the typed cancellation settlement is the measurement (the PoC read the step's raw
-result code, 9 = `SQLITE_INTERRUPT`; an earlier port printed that as a hard-coded constant, which measured
-nothing); every other PoC key is kept. Gates: interrupt p99 ≤ 20 ms and at least 90 ten-millisecond timer
-ticks in each window.
-
-`ffi_cap.ts` submits 32 unbounded counts in one main-thread turn, each on its own temp file and connection,
-via `Statement.allAsync(undefined, { timeoutMs: 50 })`. Every cancellation must have reason `deadline` and
-finish within 100 ms from its own submission. Cleanup awaits all connections before removing the scratch
-directory.
-
-**Gate status: the amended same-run `node:sqlite` parity gate PASSES.** The plan's FFI-06 read gate was
-originally "binding blocking p50 ≤ node:sqlite p50 in the same run". Nick approved an amendment on 2026-10-13
-(recorded in the plan, risk 19): **blocking p50 ≤ 1.3 × node:sqlite p50 + 1 µs**, the same formula FFI-01
-used. `ffi_read_cost.ts` now asserts that formula and exits 0 on a quiet host. Quiet-host blocking p50 runs
-7.35 / 7.64 / 7.57 µs against bounds of 1.3 × 6.93 + 1 = 10.01 µs, 1.3 × 7.21 + 1 = 10.37 µs and 1.3 × 7.10 +
-1 = 10.23 µs: all three PASS. They remain 3.5-6 % above `node:sqlite` itself, so the original strict gate
-would have failed; the Opus review traced that gap to the floor of four FFI crossings per read against node's
-single native call, and the PoC's "6.35 vs 8.66 µs" win to a cold, unwarmed, non-interleaved harness. Every
-other gate also passes (the PoC budget of 10.2 µs, the nonblocking budgets, the interrupt and cap gates).
-
-Measured on vm-1, Deno 2.9.5, 2026-10-14, quiet-host runs (fair harness above), 20,000 samples per path per
-run. All three runs fail the original strict parity but pass the amended gate; all three absolute blocking and
-nonblocking budgets pass.
-
-| Run | Load 1/5/15        | node p50/p99 µs | FFI blocking p50/p99 µs | FFI nonblocking p50/p99 µs | Strict parity | Amended gate (bound µs) |
-| --- | ------------------ | --------------- | ----------------------- | -------------------------- | ------------- | ----------------------- |
-| 1   | 0.50 / 1.35 / 1.76 | 6.93 / 28.00    | 7.35 / 29.97            | 43.85 / 322.94             | FAIL          | PASS (10.01)            |
-| 2   | 0.70 / 1.38 / 1.77 | 7.21 / 29.24    | 7.64 / 29.66            | 47.56 / 745.04             | FAIL          | PASS (10.37)            |
-| 3   | 0.70 / 1.38 / 1.77 | 7.10 / 29.19    | 7.57 / 31.80            | 47.80 / 480.43             | FAIL          | PASS (10.23)            |
-
-Interrupt and cap results (earlier, loaded host, load 2.09 / 2.13 / 2.79; the review re-ran both on a quiet
-host at load 0.58 with interrupt p99 4.034 ms, minimum 90 ticks, and cap max 84.5 ms):
-
-| Measurement   | Result                                       | Gate                 |
-| ------------- | -------------------------------------------- | -------------------- |
-| Interrupt p99 | 6.114 ms; minimum 92 ticks across 50 windows | Pass (50/50 windows) |
-| 32-reader cap | 32/32 deadline cancellations; max 71.050 ms  | Pass (≤ 100 ms each) |
-
-Historical read runs at higher host load (retained for the record; the quiet-host runs above are the
-representative numbers):
-
-| Run                      | Load 1/5/15        | node p50/p99 µs | FFI blocking p50/p99 µs | FFI nonblocking p50/p99 µs | Strict parity | Amended gate (bound µs) |
-| ------------------------ | ------------------ | --------------- | ----------------------- | -------------------------- | ------------- | ----------------------- |
-| First unit run (loaded)  | 1.84 / 2.08 / 2.78 | 8.28 / 34.65    | 8.96 / 37.18            | 49.52 / 419.00             | FAIL          | PASS (11.76)            |
-| Earlier continuation run | 1.38 / 1.35 / 1.39 | 6.84 / 22.48    | 7.60 / 24.01            | 42.60 / 208.36             | FAIL          | PASS (9.89)             |
-
-Every read run is retained in the evidence report; the quiet-host results supersede neither the historical
-strict-parity failures nor the amended gate's own runs.
-
-The committed research JSON (`deno-ffi-read.json`) has blocking 6.35 / 27.77 µs, node 8.66 / 34.18 µs and
-nonblocking 44.31 / 241.36 µs; its load file spans 3.30 → 4.93. `deno-ffi.json` has one interrupt at 0.408 ms
-with 95 ticks. A 50-sample tail is a different statistic from that single observation. Apart from the approved
-parity amendment (Nick, 2026-10-13; plan risk 19), no failed threshold is relaxed by these ports.
-
-`deno task integration` also drives a 50 ms deadline over real HTTP using two API-key tenants: 500,000 JSON
-games make `winsByMark`'s grouped count run past the deadline, while primary-key reads on the other tenant
-remain responsive. It asserts a flat point-read p99 < 50 ms and prints the host load average beside it. It
-uses an isolated database created on the dev Postgres (`DATABASE_URL`, default
-`postgres://mansio:mansio@localhost:5432/mansio`) and drops it on exit. After server shutdown it runs
-`logs:ingest` and `logs:query deadline-hits-per-handler-hour`, asserting the deadline rows have
-`path = 'nonblocking'`. Old JSONL without `path` projects NULL; ingest adds the column idempotently to
-existing v2 event logs.
-
-Integration runs, newest first (every recorded p99 is under the plan's flat 50 ms; the harness asserts that
-flat budget and prints the load average beside it). The `logs:query deadline-hits-per-handler-hour` result had
-the same shape every time, e.g.:
-
-```json
-{
-  "app_id": "tic-tac-toe-json",
-  "handler_kind": "query",
-  "name": "winsByMark",
-  "path": "nonblocking",
-  "deadline_hits": 20
-}
-```
-
-- Second continuation (final repaired code): 20/20 HTTP 504, 152 competing point reads, p99 **20.06 ms** at
-  load 5.63 / 5.62 / 4.13 (a heavily loaded host; it passed the flat 50 ms); `logs:ingest` 758 lines, zero
-  rejects.
-- First continuation, after the correlation repair: 20/20 HTTP 504, 181 competing point reads, p99 **16.44
-  ms** at load 2.13 / 2.38 / 2.13; ingest 874 lines, zero rejects. Its first attempt failed catalog
-  attribution (19 matched, one unmatched) because the SQL timestamp was 1 ms after the HTTP completion
-  timestamp. The join now allows the documented 1 ms rounding at both request-window boundaries. The repaired
-  query also returns all 20 matched hits against that attempt's retained database; the failure remains in the
-  evidence.
-- First unit run (pre-repair, historical): 20/20 HTTP 504, 153 competing point reads, p99 **22.10 ms** at load
-  1.79 / 2.09 / 2.81; ingest 762 lines, zero rejects.
-
-An earlier interrupt run overlapped the FFI-07 seed sweep and failed the tick gate (minimum 61 ticks); its
-latency p99 was 6.293 ms. Both runs are retained under `agent-work/items/ffi-06-evidence/`. A scratch old-v2
-migration check ran the DDL twice and preserved 165 SQL rows with NULL paths.
+One agentd on one host, one database per app, k6 on the same host: treat these scripts as functional and
+regression checks against the live `/v1/ops` surface, not as capacity claims. The Go server's own load tools
+(`sqlbench`, `frontbench`, `wbbench`) are in `server/cmd/`; see [server/README.md](../server/README.md).

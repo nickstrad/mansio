@@ -1,25 +1,26 @@
 # System Context
 
-Audited against landed main `643b706` on 2026-10-11 (item 27). Both formats are generated from
+Redrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone
+and the server is the Go server in `server/`. Both formats are generated from
 `diagrams/c4-context-document-db.py`; numbered relationships are identical. All boxes describe landed code.
 
 ```mermaid
 flowchart TB
-    subgraph platform["Document DB platform"]
-        db["Document DB platform<br/>[Software system]<br/>platform/<br/>Effect; SQLite document reads/writes; DuckDB event log and analysis"]
+    subgraph platform["Mansio"]
+        db["Mansio<br/>[Software system]<br/>server/ (Go)<br/>agentd, controld, edge; one SQLite database per (tenant, app); IR over HTTP"]
     end
-        developer["App developer<br/>[Person]<br/>app/; sdk/<br/>Declares schemas and Effect handlers"]
+        developer["App developer<br/>[Person]<br/>app/; sdk/<br/>Declares schemas and Effect handlers; the handlers run in the SDK"]
         caller["Application caller<br/>[Person]<br/>sdk/client.ts<br/>Players and authenticated tenant users"]
-        operator["Platform operator<br/>[Person]<br/>scripts/<br/>Tenants, auth, backups and log analysis"]
-        objects["Object storage<br/>[External system]<br/>S3_BASE_URL or LOCAL_OBJECT_DIR<br/>Immutable snapshots and manifests"]
-        analytics["Analytics consumer<br/>[External system]<br/>scripts/logs.ts; scripts/duckdb/<br/>Named catalog or offline SQL"]
-        k6["k6 load generator<br/>[External system]<br/>perf/*.js<br/>HTTP load and raw metric points"]
-    developer -->|"(1) Schema and named handlers (TypeScript)"| db
-    caller -->|"(2) HTTP JSON; bearer credentials; X-Trace-Id"| db
-    operator -->|"(3) Admin HTTP / CLI; tenant and backup operations"| db
-    db -->|"(4) S3 HTTPS or local files; snapshots and manifests"| objects
-    db -->|"(5) Query results; derived event-log rows"| analytics
-    k6 -->|"(6) HTTP scenarios and trace headers"| db
+        operator["Operator<br/>[Person]<br/>scripts/tenants.ts; server/cmd/dbtool<br/>Tenants, keys, placement, backups and log analysis"]
+        objects["Object storage<br/>[External system]<br/>S3 (SeaweedFS in dev)<br/>SQLite generations and manifests (durable mode)"]
+        analytics["Analytics consumer<br/>[External system]<br/>scripts/logs.ts; scripts/duckdb/<br/>Offline DuckDB event log: named catalog or SQL"]
+        k6["k6 load generator<br/>[External system]<br/>perf/*.js<br/>IR load over /v1/ops; raw metric points"]
+    developer -->|"(1) Registered schema JSON; handlers stay in the app (TypeScript SDK)"| db
+    caller -->|"(2) IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id"| db
+    operator -->|"(3) Admin HTTP and CLIs; tenants, keys, moves, backups"| db
+    db -->|"(4) S3 HTTP; write-back of SQLite generations, restore"| objects
+    db -->|"(5) JSONL event log, ingested offline into DuckDB"| analytics
+    k6 -->|"(6) IR scenarios over /v1/ops and trace headers"| db
     classDef planned stroke-dasharray: 5 3
     classDef person fill:#fff,stroke-width:2px
     classDef external fill:#f4f4f4
@@ -33,17 +34,18 @@ flowchart TB
 
 ## Relationships
 
-| # | From                 | To                   | Relationship                                     |
-| - | -------------------- | -------------------- | ------------------------------------------------ |
-| 1 | App developer        | Document DB platform | Schema and named handlers (TypeScript)           |
-| 2 | Application caller   | Document DB platform | HTTP JSON; bearer credentials; X-Trace-Id        |
-| 3 | Platform operator    | Document DB platform | Admin HTTP / CLI; tenant and backup operations   |
-| 4 | Document DB platform | Object storage       | S3 HTTPS or local files; snapshots and manifests |
-| 5 | Document DB platform | Analytics consumer   | Query results; derived event-log rows            |
-| 6 | k6 load generator    | Document DB platform | HTTP scenarios and trace headers                 |
+| # | From               | To                 | Relationship                                                                   |
+| - | ------------------ | ------------------ | ------------------------------------------------------------------------------ |
+| 1 | App developer      | Mansio             | Registered schema JSON; handlers stay in the app (TypeScript SDK)              |
+| 2 | Application caller | Mansio             | IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id |
+| 3 | Operator           | Mansio             | Admin HTTP and CLIs; tenants, keys, moves, backups                             |
+| 4 | Mansio             | Object storage     | S3 HTTP; write-back of SQLite generations, restore                             |
+| 5 | Mansio             | Analytics consumer | JSONL event log, ingested offline into DuckDB                                  |
+| 6 | k6 load generator  | Mansio             | IR scenarios over /v1/ops and trace headers                                    |
 
 ## Runtime notes
 
-Tenant identity comes from API keys or headless Better Auth session bearers when enabled. Postgres is part of
-the platform, shown at Level 2; no external identity provider is wired. No application SQL crosses the client
-boundary. This audit includes items 23, 25, 26 and MT-01 through MT-10.
+Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers run
+in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the client
+boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the system,
+shown at Level 2. No external identity provider is wired.

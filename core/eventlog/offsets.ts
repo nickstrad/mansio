@@ -1,7 +1,7 @@
 /**
  * Pure ingest planning for the JSONL → DuckDB event log (plan item 21): given one source file's
  * bytes and its `_ingest_state` row, decide what to read, which complete lines that yields, and what
- * the row becomes. `platform/eventlog/ingest.ts` does the I/O around it; the property suite in
+ * the row becomes. `eventlog/ingest.ts` does the I/O around it; the property suite in
  * `tests/property/offsets_test.ts` drives the same functions through adversarial file histories.
  *
  * This module is PURE: no imports, no I/O. Hashing is injected (`PrefixHash`) because `core/` may

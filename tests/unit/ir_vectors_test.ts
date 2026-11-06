@@ -1,35 +1,31 @@
 /**
  * The TS runner for the shared IR vectors (`ir/vectors/*.json`, format in `ir/vectors/README.md`).
  *
- * Every vector runs against the reference implementation: `core/ir/decode.ts` for decode,
- * `core/ir/semantics.ts`'s `body` for validation, `core/ir/schema.ts` (+ `compileDDL`) for schema
- * declarations, `core/compile` for compile, and `platform/ir/executor.ts` on a real SQLite file for
- * execute. The Go runner (IR-1/IR-2) reads the same files and must reach the same outcomes.
+ * The decode, validation, schema and compile vectors run against the TS implementation, which is the
+ * SDK's and the oracle's (ADR 0010): `core/ir/decode.ts` for decode, `core/ir/semantics.ts`'s `body` for
+ * validation, `core/ir/schema.ts` (+ `compileDDL`) for schema declarations, `core/compile` for compile.
+ * The Go runner (`server/`) reads the same files and must reach the same outcomes.
+ *
+ * `execute.json` runs only in Go (`server/internal/docexec`). Its TS run went with the Deno platform's
+ * reference executor and SQLite binding at IR-6; its expectations are hand-written in the generator, not
+ * produced by an executor, so the staleness check below still covers the file.
  *
  * The last two tests regenerate the corpus from `scripts/ir/gen-vectors.ts` and the compile corpus from
  * `scripts/ir/gen-compile-corpus.ts` in memory and require the committed files to match, so the JSON cannot drift from its source (or from `core/compile`).
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Cause, Clock, Effect, Either, Exit, Layer } from "effect";
+import { Either } from "effect";
 import type { Schema } from "../../core/schema.ts";
 import { compileDDL } from "../../core/compile/ddl.ts";
 import { compileSelect } from "../../core/compile/select.ts";
 import { compileDelete, compileInsert, compileReplace } from "../../core/compile/write.ts";
-import { decode } from "../../core/compile/decode.ts";
 import type { SelectPlan } from "../../core/plan.ts";
-import { decodeBody, decodeValue } from "../../core/ir/decode.ts";
+import { decodeBody } from "../../core/ir/decode.ts";
 import { type IrCause, IrFailure, toWireError } from "../../core/ir/errors.ts";
 import { canonical } from "../../core/ir/json.ts";
 import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
 import { body } from "../../core/ir/semantics.ts";
-import { openIrDatabase, sha256Fingerprint } from "../../platform/ir/executor.ts";
-import { EventSink, IdGen } from "../../platform/services.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { makeStorage } from "../../platform/sqlite.ts";
-import { Database } from "../../platform/sqlite_ffi/mod.ts";
+import { fingerprintOfText } from "../../sdk/fingerprint.ts";
 import { buildVectors } from "../../scripts/ir/gen-vectors.ts";
 import { corpus } from "../../scripts/ir/gen-compile-corpus.ts";
 
@@ -117,7 +113,7 @@ Deno.test("ir vectors: schema", async () => {
     }
     const text = fingerprintText(right(decoded, v.name));
     assert.equal(text, expect.text, v.name);
-    assert.equal(await Effect.runPromise(sha256Fingerprint(text)), expect.fingerprint, v.name);
+    assert.equal(await fingerprintOfText(text), expect.fingerprint, v.name);
   }
 });
 
@@ -147,196 +143,6 @@ Deno.test("ir vectors: compile", async () => {
   }
 });
 
-/** A clock that always reads `millis`. */
-function fixedClock(millis: number): Clock.Clock {
-  const base = Clock.make();
-  return {
-    [Clock.ClockTypeId]: Clock.ClockTypeId,
-    unsafeCurrentTimeMillis: () => millis,
-    unsafeCurrentTimeNanos: () => BigInt(millis) * 1_000_000n,
-    currentTimeMillis: Effect.succeed(millis),
-    currentTimeNanos: Effect.succeed(BigInt(millis) * 1_000_000n),
-    sleep: (duration) => base.sleep(duration),
-  };
-}
-
-/** Writes seed documents (with their `_creationTime` and `_version`) straight through `core/compile`. */
-function seed(file: string, schema: Schema, tables: Record<string, J[]>) {
-  const db = Database.open(file);
-  try {
-    for (const [table, docs] of Object.entries(tables)) {
-      for (const { _id, _creationTime, _version, ...doc } of docs) {
-        const insert = right(compileInsert(schema, table, doc, { _id, _creationTime }), "seed");
-        db.prepare(insert.text).run(insert.values);
-        db.prepare(`UPDATE "${table}" SET "_version" = ? WHERE "_id" = ?`).run([
-          _version as number,
-          _id as string,
-        ]);
-      }
-    }
-  } finally {
-    db.close();
-  }
-}
-
-/** Every row of every table, ordered by `_id`, decoded. */
-function dump(file: string, schema: Schema): Record<string, unknown> {
-  const db = Database.open(file);
-  try {
-    return Object.fromEntries(
-      Object.keys(schema).map((table) => {
-        const plan: SelectPlan = { kind: "select", table, filters: [], limit: 1000 };
-        const sql = right(compileSelect(schema, plan, "sqlite"), "dump");
-        return [table, right(decode(schema, plan, db.prepare(sql.text).all(sql.values)), "dump")];
-      }),
-    );
-  } finally {
-    db.close();
-  }
-}
-
-/** `_mansio_requests`, ordered by id, with `result` as lowercase hex. */
-function requests(file: string): unknown[] {
-  const db = Database.open(file);
-  try {
-    return db.prepare("select request_id, applied_ms, result from _mansio_requests order by request_id").all()
-      .map((row) => ({
-        request_id: row.request_id,
-        applied_ms: row.applied_ms,
-        result_hex: Array.from(row.result as Uint8Array, (b) => b.toString(16).padStart(2, "0")).join(""),
-      }));
-  } finally {
-    db.close();
-  }
-}
-
-Deno.test("ir vectors: execute", async () => {
-  for (const v of await load("execute.json")) {
-    const dir = mkdtempSync(join(tmpdir(), "ir-vectors-"));
-    const file = join(dir, "db.sqlite");
-    const schema = schemaOf(v.schema, v.name);
-    try {
-      await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
-        const db = yield* openIrDatabase({ file, schema });
-        assert.equal(db.fingerprint, v.fingerprint, `${v.name}: fingerprint`);
-        seed(file, schema, v.seed as Record<string, J[]>);
-        for (const [i, step] of (v.steps as J[]).entries()) {
-          const name = `${v.name} step ${i}`;
-          const ids = [...step.serverIds as string[]];
-          const idGen = {
-            next: Effect.sync(() => ids.shift() ?? assert.fail(`${name}: server ids exhausted`)),
-          };
-          const run = Either.isLeft(decodeValue(step.request))
-            ? Effect.fail(right(Either.flip(decodeValue(step.request)), name))
-            : db.execute(right(decodeValue(step.request), name));
-          const exit = yield* Effect.either(
-            run.pipe(Effect.provideService(IdGen, idGen), Effect.withClock(fixedClock(step.clock as number))),
-          );
-          const expect = step.expect as J;
-          if (expect.error) {
-            if (Either.isRight(exit)) {
-              assert.fail(`${name}: expected ${JSON.stringify(expect.error)}, got ok`);
-            }
-            assertError(exit.left, expect.error as J, name);
-          } else assert.deepEqual(JSON.parse(JSON.stringify(right(exit, name))), expect, name);
-          assert.deepEqual(ids, [], `${name}: serverIds not fully consumed`);
-        }
-      })));
-      const want = v.final as Record<string, unknown[]>;
-      const got = dump(file, schema);
-      if (v.finalRequests) {
-        assert.deepEqual(requests(file), v.finalRequests, `${v.name}: final requests`);
-      }
-      for (const table of Object.keys(schema)) {
-        assert.deepEqual(got[table], want[table] ?? [], `${v.name}: final ${table}`);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-});
-
-/**
- * The same execute vectors through the Deno server's writer (`Storage.ir`, the `/v1/ops` shim of IR-3):
- * the writer queue, its transaction, its `select` path (statement deadline, U+0000 probe) and its events,
- * over the same `runRequest`. The request-id table appears with the first IR mutation that commits, so a
- * file without one has no rows.
- */
-Deno.test("ir vectors: execute through Storage.ir (the Deno /v1/ops shim)", async () => {
-  for (const v of await load("execute.json")) {
-    const dir = mkdtempSync(join(tmpdir(), "ir-storage-"));
-    const file = join(dir, "db.sqlite");
-    const schema = schemaOf(v.schema, v.name);
-    const ids: string[] = [];
-    let now = 0;
-    const clock: Clock.Clock = {
-      ...fixedClock(0),
-      unsafeCurrentTimeMillis: () => now,
-      unsafeCurrentTimeNanos: () => BigInt(now) * 1_000_000n,
-      currentTimeMillis: Effect.sync(() => now),
-      currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
-    };
-    const events: string[] = [];
-    const deps = Layer.mergeAll(
-      Layer.succeed(EventSink, { emit: (event) => Effect.sync(() => void events.push(event.kind)) }),
-      Layer.succeed(IdGen, {
-        next: Effect.sync(() => ids.shift() ?? assert.fail(`${v.name}: server ids exhausted`)),
-      }),
-      ConfigTest(),
-    );
-    try {
-      await Effect.runPromise(
-        Effect.scoped(Effect.gen(function* () {
-          const storage = yield* makeStorage({ file, schema, appId: "vectors" });
-          seed(file, schema, v.seed as Record<string, J[]>);
-          for (const [i, step] of (v.steps as J[]).entries()) {
-            const name = `${v.name} step ${i} (Storage.ir)`;
-            ids.push(...step.serverIds as string[]);
-            now = step.clock as number;
-            const decoded = decodeValue(step.request);
-            const exit = yield* Effect.either(
-              Either.isLeft(decoded) ? Effect.fail(decoded.left) : storage.ir(decoded.right),
-            );
-            const expect = step.expect as J;
-            if (expect.error) {
-              if (Either.isRight(exit)) {
-                assert.fail(`${name}: expected ${JSON.stringify(expect.error)}, got ok`);
-              }
-              assert.ok(exit.left instanceof IrFailure, `${name}: ${String(exit.left)}`);
-              assertError(exit.left, expect.error as J, name);
-            } else assert.deepEqual(JSON.parse(JSON.stringify(right(exit, name))), expect, name);
-            assert.deepEqual(ids, [], `${name}: serverIds not fully consumed`);
-          }
-        })).pipe(Effect.provide(deps), Effect.withClock(clock)),
-      );
-      const want = v.final as Record<string, unknown[]>;
-      const got = dump(file, schema);
-      if (v.finalRequests) {
-        assert.deepEqual(
-          hasRequests(file) ? requests(file) : [],
-          v.finalRequests,
-          `${v.name}: final requests`,
-        );
-      }
-      for (const table of Object.keys(schema)) {
-        assert.deepEqual(got[table], want[table] ?? [], `${v.name}: final ${table} (Storage.ir)`);
-      }
-      assert.ok(events.includes("tx"), `${v.name}: the writer emitted its tx events`);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-});
-
-function hasRequests(file: string): boolean {
-  const db = Database.open(file);
-  try {
-    return db.prepare("select 1 from sqlite_master where name = '_mansio_requests'").get() !== undefined;
-  } finally {
-    db.close();
-  }
-}
-
 Deno.test("ir vectors: committed files match scripts/ir/gen-vectors.ts", async () => {
   const built = await buildVectors();
   assert.deepEqual(Object.keys(built).sort(), [...FILES].sort());
@@ -360,27 +166,4 @@ Deno.test("ir vectors: generated compile corpus matches core/compile", async () 
     lines,
     "compile-corpus.jsonl is stale: run scripts/ir/gen-compile-corpus.ts",
   );
-});
-
-Deno.test("executor: a query holding a write is a defect, even when it bypassed decode", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ir-exec-"));
-  try {
-    const schema = schemaOf({
-      t: { fields: { a: { node: { kind: "string" } } }, storage: "columns", indexes: [] },
-    }, "t");
-    const exit = await Effect.runPromiseExit(Effect.scoped(Effect.gen(function* () {
-      const db = yield* openIrDatabase({ file: join(dir, "db.sqlite"), schema });
-      return yield* db.execute({
-        v: 1,
-        db: { tenant: "t", app: "a" },
-        kind: "query",
-        schema: db.fingerprint,
-        ops: [{ op: "insert", table: "t", value: { a: "x" } }],
-      }).pipe(Effect.provideService(IdGen, { next: Effect.succeed("s1") }));
-    })));
-    assert.ok(Exit.isFailure(exit) && Cause.isDie(exit.cause), String(exit));
-    assert.deepEqual(dump(join(dir, "db.sqlite"), schema), { t: [] });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });

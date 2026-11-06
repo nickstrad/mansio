@@ -1,29 +1,33 @@
 # Container — request path
 
-Audited against landed main `643b706` on 2026-10-11 (item 27); re-checked for FFI-01 to FFI-05 at `f2bf1c9` on
-2026-10-14, and re-audited at `aa26b27` (FFI-06 and FFI-07 change no element here; FFI-08 changes none). Both
-formats are generated from `diagrams/c4-container-platform.py`; numbered relationships are identical. All
-boxes describe landed code.
+Redrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone
+and the server is the Go server in `server/`. Both formats are generated from
+`diagrams/c4-container-platform.py`; numbered relationships are identical. All boxes describe landed code.
 
 ```mermaid
 flowchart TB
-    subgraph platform["Platform host and central registry"]
-        server["Server process<br/>[Deno process]<br/>platform/server.ts<br/>HTTP auth, SQLite document reads/writes, backup and ingest timers"]
-        reader["Reader process<br/>[Deno child process]<br/>platform/reader.ts<br/>Event-log DuckDB; ingest and named analysis"]
-        files["Application documents<br/>[SQLite 3 WAL files]<br/>DATA_DIR; TENANTS_DIR<br/>Legacy app.sqlite; TENANTS_DIR/tenantId.db; one file per tenant"]
-        pg["Central registry<br/>[Postgres 17 process/store]<br/>docker-compose.yml; platform/tenants/<br/>Tenants, hashed keys, users, sessions, memberships"]
-        tenants["Tenant/auth CLI<br/>[Deno process]<br/>scripts/tenants.ts; scripts/auth.ts<br/>Tenant administration and headless email/password"]
-        migration["Migration runner<br/>[Deno process]<br/>scripts/db/migrate.ts<br/>Journaled, advisory-locked SQL migrations"]
+    subgraph platform["Mansio cluster"]
+        edge["Edge<br/>[Go process]<br/>server/cmd/edge<br/>Forwards /v1/ops to the ticket&#x27;s VM; registry from controld"]
+        agentd["Agent<br/>[Go process]<br/>server/cmd/agentd<br/>IR front (/v1/ops); one actor per database; static, tenancy or durable mode"]
+        files["Databases<br/>[SQLite 3 files]<br/>agentd db_dir<br/>One file per (tenant, app): tenant:app.db"]
+        controld["Control plane<br/>[Go process]<br/>server/cmd/controld<br/>Resolve and tickets; create, move, attest-dead, restore; tenancy admin and auth"]
+        pg["Control store<br/>[Postgres 17]<br/>schema control<br/>Placement, issuer keys, tenants, API keys, users, sessions"]
+        tools["Operator CLIs<br/>[Go and Deno processes]<br/>server/cmd/dbtool; scripts/tenants.ts<br/>Restore, import, verify; tenant and key admin"]
     end
-        client["Typed client SDK<br/>[Library in caller process]<br/>sdk/client.ts<br/>Named handlers, bearer, X-Trace-Id"]
-        objects["Object storage<br/>[External system / filesystem]<br/>S3_BASE_URL or LOCAL_OBJECT_DIR<br/>apps/appId/ snapshots and manifests"]
-    client -->|"(1) HTTP JSON + bearer + trace"| server
-    server -->|"(2) JSONL IPC ping/ingest/analysis"| reader
-    server -->|"(3) FFI binding over system libsqlite3; read-only queries and serialized mutations"| files
-    server -->|"(4) Postgres protocol; registry SQL and session auth"| pg
-    tenants -->|"(5) Postgres protocol; tenant/key or auth operations"| pg
-    migration -->|"(6) Postgres protocol; journal and migration SQL"| pg
-    server -->|"(7) Snapshot verification/hash; S3 HTTPS or local publication"| objects
+        client["Client SDK<br/>[Library in caller process]<br/>sdk/client.ts; sdk/transport.ts<br/>Runs handlers; sends IR; resolves and caches tickets"]
+        objects["Object storage<br/>[External system]<br/>S3 (SeaweedFS in dev)<br/>SQLite generations and manifests"]
+    client -->|"(1) HTTP POST /v1/resolve; API key or session; ticket and endpoint back"| controld
+    client -->|"(2) HTTP POST /v1/ops (IR); ticket; X-Trace-Id"| edge
+    edge -->|"(3) HTTP /v1/ops, routed by the ticket's VM"| agentd
+    edge -->|"(4) HTTP VM registry and ticket keys"| controld
+    agentd -->|"(5) modernc SQLite; group-committed writes and reads"| files
+    agentd -->|"(6) S3 HTTP; write-back of generations, restore on claim"| objects
+    agentd -->|"(7) HTTP ticket keys and registered schemas (keys_url, schemas_url)"| controld
+    controld -->|"(8) HTTP lifecycle: claim, release, move"| agentd
+    agentd -->|"(9) Postgres protocol; placement rows (placement_pg)"| pg
+    controld -->|"(10) Postgres protocol; placement, tenancy, issuer"| pg
+    tools -->|"(11) S3 HTTP; dbtool restore, import, verify"| objects
+    tools -->|"(12) Admin HTTP; /admin/tenants, /admin/backup"| agentd
     classDef planned stroke-dasharray: 5 3
     classDef person fill:#fff,stroke-width:2px
     classDef external fill:#f4f4f4
@@ -33,27 +37,26 @@ flowchart TB
 
 ## Relationships
 
-| # | From             | To                    | Relationship                                                                   |
-| - | ---------------- | --------------------- | ------------------------------------------------------------------------------ |
-| 1 | Typed client SDK | Server process        | HTTP JSON + bearer + trace                                                     |
-| 2 | Server process   | Reader process        | JSONL IPC ping/ingest/analysis                                                 |
-| 3 | Server process   | Application documents | FFI binding over system libsqlite3; read-only queries and serialized mutations |
-| 4 | Server process   | Central registry      | Postgres protocol; registry SQL and session auth                               |
-| 5 | Tenant/auth CLI  | Central registry      | Postgres protocol; tenant/key or auth operations                               |
-| 6 | Migration runner | Central registry      | Postgres protocol; journal and migration SQL                                   |
-| 7 | Server process   | Object storage        | Snapshot verification/hash; S3 HTTPS or local publication                      |
+| #  | From          | To             | Relationship                                                        |
+| -- | ------------- | -------------- | ------------------------------------------------------------------- |
+| 1  | Client SDK    | Control plane  | HTTP POST /v1/resolve; API key or session; ticket and endpoint back |
+| 2  | Client SDK    | Edge           | HTTP POST /v1/ops (IR); ticket; X-Trace-Id                          |
+| 3  | Edge          | Agent          | HTTP /v1/ops, routed by the ticket's VM                             |
+| 4  | Edge          | Control plane  | HTTP VM registry and ticket keys                                    |
+| 5  | Agent         | Databases      | modernc SQLite; group-committed writes and reads                    |
+| 6  | Agent         | Object storage | S3 HTTP; write-back of generations, restore on claim                |
+| 7  | Agent         | Control plane  | HTTP ticket keys and registered schemas (keys_url, schemas_url)     |
+| 8  | Control plane | Agent          | HTTP lifecycle: claim, release, move                                |
+| 9  | Agent         | Control store  | Postgres protocol; placement rows (placement_pg)                    |
+| 10 | Control plane | Control store  | Postgres protocol; placement, tenancy, issuer                       |
+| 11 | Operator CLIs | Object storage | S3 HTTP; dbtool restore, import, verify                             |
+| 12 | Operator CLIs | Agent          | Admin HTTP; /admin/tenants, /admin/backup                           |
 
 ## Runtime notes
 
-The writer and reader remain separate OS processes and native module graphs. The central Postgres connection
-is acquired lazily for registry use; TENANCY=off preserves app tokens and legacy files. Each app has a
-LocalFolderRouter over the shared TENANTS_DIR/tenantId.db path. Different physical layouts need distinct
-tenants because the schema guard rejects switching layouts. Document queries use fresh read-only connections
-in the server, opened through the FFI SQLite binding over system libsqlite3 (node:sqlite is no longer loaded),
-with authenticated tenant routing selecting the file. Unbounded SQLite reads (any select that is not a
-primary-key lookup, count, countBy) run nonblocking under a statement deadline (default 5 s) and fail HTTP 504
-when it passes; writes and point reads stay blocking (FFI-05). The DuckDB SQLite extension stays in the
-separate reader process, so the two SQLite copies never share an address space. Application documents stay in
-SQLite. Better Auth is mounted in the server at /api/auth/*; scripts/auth.ts is the headless CLI. The future
-control-plane router is not implemented. E2E uses ephemeral Postgres, distinct tenants for layouts, and fresh
-Better Auth servers per layout.
+This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs alone: static mode (a keys
+file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or sessions on
+/v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or placement_pg); then
+the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are acknowledged before
+write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts talks to whichever
+process mounts /admin/tenants (agentd or controld).

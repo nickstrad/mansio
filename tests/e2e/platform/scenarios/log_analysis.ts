@@ -1,23 +1,17 @@
 import {
-  admin,
   apps,
   assert,
-  backend,
   cleanEnv,
   cli,
   client,
   delay,
   Effect,
-  legacyClient,
   play,
-  players,
   remoteError,
-  request,
   run,
   scenarioDir,
   type Server,
   startGoAgent,
-  startServer,
   TENANT,
   test,
 } from "../harness.ts";
@@ -25,12 +19,11 @@ import { createClient } from "../../../../sdk/client.ts";
 import { withStorage } from "../../../../sdk/schema.ts";
 import { functions } from "../../../../app/functions.ts";
 import { schema } from "../../../../app/schema.ts";
-import { database } from "../postgres.ts";
 import { moves, names } from "../seed.ts";
 type Row = Record<string, unknown>;
 const stable = (rows: Row[]) => rows.map((r) => JSON.stringify(r)).sort();
 
-/** One catalog query on a backend: the Deno server's admin route, or the offline CLI over Go's JSONL. */
+/** One catalog query: the offline CLI over agentd's JSONL. */
 type Analysis = (name: string, params?: Row) => Promise<Row[]>;
 
 /** What a scenario's workload must leave in the event log. */
@@ -46,9 +39,9 @@ interface Workload {
 }
 
 /**
- * The analysis checks both backends share. Polls `ingest` and the catalog until the asynchronously flushed
- * events are all in, checks the traced read's timeline, and runs every catalog query: the same SQL over
- * either backend's events answers the same shapes. Returns `handler-throughput` for `apps[0]`.
+ * The analysis checks. Polls `ingest` and the catalog until the asynchronously flushed
+ * events are all in, checks the traced read's timeline, and runs every catalog query: the catalog answers
+ * the expected shapes. Returns `handler-throughput` for `apps[0]`.
  */
 async function analyse(
   ingest: () => Promise<unknown>,
@@ -113,7 +106,7 @@ async function catalogNames(server: Server, env: Record<string, string>) {
   return names;
 }
 
-/** The read-only CLI answers what the backend's analysis answered, and refuses an unknown query (exit 2). */
+/** The read-only CLI answers what the analysis answered, and refuses an unknown query (exit 2). */
 async function cliAgrees(server: Server, env: Record<string, string>, throughput: Row[]) {
   const args = ["query", "handler-throughput", "--param", `appId=${apps[0]}`, "--format", "json"];
   const result = await cli(server, "logs", args, env);
@@ -123,73 +116,13 @@ async function cliAgrees(server: Server, env: Record<string, string>, throughput
   assert.match(missing.stderr, /UnknownAnalysisQuery/);
 }
 
-/** Deno: handlers on the server (legacy routes); ingest and analysis through the server's admin routes. */
-const onDeno = (dir: string) =>
-  Effect.gen(function* () {
-    const url = yield* database("log_analysis");
-    const server = yield* startServer(dir, url, { TRACE_SQL: "1" });
-    yield* Effect.promise(async () => {
-      const c = legacyClient(server);
-      const game = await play(c, moves.X.slice(0, 2));
-      const traceId = `e2e-${names[9]}`;
-      await run(c.query("getGame", { gameId: game._id }, traceId));
-      await run(c.query("listGames", { status: "playing" }));
-      await run(c.query("winsByMark", {}));
-      await remoteError(
-        c.mutation("makeMove", {
-          gameId: game._id,
-          playerId: players.xPlayer,
-          cell: moves.X[2],
-          expectedVersion: 1,
-        }),
-        409,
-        "ConflictError",
-      );
-      const unknown = await request(
-        server,
-        `/apps/${apps[0]}/query/noSuchHandler`,
-        {},
-        server.env.COLUMN_APP_TOKEN,
-      );
-      assert.equal(unknown.status, 404);
-      assert.equal(unknown.body.error.tag, "UnknownHandlerError");
-      await admin(server, `/admin/backup/${apps[0]}`);
-      await analyse(
-        () => admin(server, "/admin/logs/ingest"),
-        async (name, params = {}) => await admin(server, `/admin/logs/analysis/${name}`, params) as Row[],
-        await catalogNames(server, {}),
-        {
-          traceId,
-          handlers: ["createGame", "getGame", "makeMove", "listGames", "winsByMark", "noSuchHandler"],
-          errors: [["makeMove", "ConflictError"], ["noSuchHandler", "UnknownHandlerError"]],
-          backups: true,
-        },
-      );
-      // An analysis request under a caller's trace id answers like any other.
-      const crossed = await request(
-        server,
-        "/admin/logs/analysis/handler-throughput",
-        { appId: apps[0] },
-        server.env.ADMIN_TOKEN,
-        { "x-trace-id": traceId },
-      );
-      assert.equal(crossed.status, 200, JSON.stringify(crossed.body));
-      const rejected = await request(server, "/admin/logs/analysis/noSuchQuery");
-      assert.equal(rejected.status, 404);
-      assert.equal(rejected.body.error.tag, "UnknownAnalysisQuery");
-      // DuckDB permits one writer process. Freeze the ingested snapshot before the read-only CLI opens it.
-      await server.stop();
-      await cliAgrees(server, {}, crossed.body.result as Row[]);
-    });
-  });
-
 /**
- * Go: the SDK runs the handlers; agentd writes the event log (`event_log`: JSONL under `<dir>/logs`, role
- * server); the offline CLI (`logs ingest`, `logs query`) is the ingest and the analysis, as on a Go
- * deployment. An app conflict never reaches the server (the SDK fails `makeMove` locally), so the
- * server-side failure is a schema drift: a client compiled for the other layout.
+ * The SDK runs the handlers; agentd writes the event log (`event_log`: JSONL under `<dir>/logs`, role
+ * server); the offline CLI (`scripts/logs.ts`: `ingest`, `query`) is the ingest and the analysis. An app
+ * conflict never reaches the server (the SDK fails `makeMove` locally), so the server-side failure is a
+ * schema drift: a client compiled for the other layout.
  */
-const onGo = (dir: string) =>
+const scenario = (dir: string) =>
   Effect.gen(function* () {
     const server = yield* startGoAgent(dir, { event_log: { dir: `${dir}/logs`, trace_sql: true } });
     const env = {
@@ -237,10 +170,10 @@ const onGo = (dir: string) =>
   });
 
 test(
-  "e2e/6-log-analysis: ingest, catalog, traces and the CLI agree (Deno admin routes; Go JSONL + offline CLI)",
+  "e2e/6-log-analysis: ingest, catalog, traces and the CLI agree (agentd JSONL + offline CLI)",
   () =>
     Effect.gen(function* () {
       const dir = yield* scenarioDir("log_analysis");
-      yield* backend === "go" ? onGo(dir) : onDeno(dir);
+      yield* scenario(dir);
     }),
 );

@@ -3,10 +3,9 @@
  *
  * The compiler is now *total*: every rejection is a `CompileError`, `DecodeError` or `SchemaError`
  * value, and nothing in `core/compile/` raises. So the assertions below check tags and reasons, not
- * messages — except in the last section, which pins the legacy message rendering
- * (`formatCompileError`/`formatDecodeError` in `platform/sqlite.ts`, `formatSchemaError` in
- * `sdk/schema.ts`): those strings are the pre-port `Error` messages the compatibility boundaries
- * still throw.
+ * messages — except in the last section, which pins `sdk/schema.ts`'s `formatSchemaError` rendering:
+ * those strings are the pre-port `Error` messages the SDK's compatibility boundary still throws. (The
+ * Deno platform's `formatCompileError`/`formatDecodeError` went with it at IR-6.)
  *
  * The matrix that matters most is `expression`: each node kind x each physical layout x each
  * dialect. That function decides whether `moveNumber > 3` compares numbers or strings, and it is
@@ -34,7 +33,6 @@ import { compileDelete, compileInsert, compileReplace } from "../../core/compile
 import { decode, decodeValue, safeNumber } from "../../core/compile/decode.ts";
 import type { SelectPlan as SdkSelectPlan } from "../../sdk/db.ts";
 import { formatSchemaError } from "../../sdk/schema.ts";
-import { formatCompileError, formatDecodeError } from "../../platform/sqlite.ts";
 
 const test = Deno.test;
 
@@ -545,8 +543,6 @@ test("compileDDL refuses an enum with zero values instead of emitting an unconst
   const error = expectCompile(compileDDL(empty), "empty-enum");
   assert.equal(error.field, "e");
   assert.equal(error.table, "t");
-  // The legacy renderer covers the new reason too.
-  assert.equal(formatCompileError(error).message, "Enum has no values: e");
 });
 
 test("compileDDL omits the CHECK when an enum node has no values at all", () => {
@@ -727,45 +723,7 @@ test("core/plan.ts's SelectPlan mirrors sdk/db.ts's exactly", () => {
   assert.equal(mirrored, true);
 });
 
-test("the legacy renderers reproduce the pre-port messages verbatim", () => {
-  const plan = (over: Partial<SelectPlan>): SdkSelectPlan => ({ ...base, ...over });
-  const compileCases: [Either.Either<unknown, AnyError>, string][] = [
-    [tableFor(columns, "nope"), "Unknown collection: nope"],
-    [compileSelect(columns, plan({ limit: 0 }), "sqlite"), "Invalid limit"],
-    [
-      compileSelect(columns, plan({ filters: [{ field: "nope", op: "eq", value: 1 }] }), "sqlite"),
-      "Unknown field: nope",
-    ],
-    [
-      compileSelect(columns, plan({ filters: [{ field: "arr", op: "eq", value: [] }] }), "sqlite"),
-      "Array predicates/ordering are not supported: arr",
-    ],
-    [
-      compileSelect(
-        columns,
-        plan({ filters: [{ field: "s", op: "lt" as "eq", value: "x" }] }),
-        "sqlite",
-      ),
-      "Unsupported operator",
-    ],
-    [
-      compileSelect(columns, plan({ filters: [{ field: "s", op: "gt", value: "x" }] }), "sqlite"),
-      "gt requires a non-null numeric field and value",
-    ],
-    [
-      compileSelect(columns, plan({ order: { field: "s", direction: "x" as "asc" } }), "sqlite"),
-      "Invalid ordering",
-    ],
-  ];
-  for (const [either, message] of compileCases) {
-    assert.equal(formatCompileError(expectLeft(either) as CompileError).message, message);
-  }
-  // Decode failures render through `formatDecodeError`.
-  assert.equal(
-    formatDecodeError(expectLeft(decode(columns, plan({}), [{ ...row, _version: 2n ** 70n }])) as DecodeError)
-      .message,
-    "Integer result exceeds JavaScript safe range",
-  );
+test("formatSchemaError reproduces the pre-port messages verbatim", () => {
   // Schema failures keep `sdk/schema.ts`'s rendering, unchanged.
   assert.equal(
     formatSchemaError(expectLeft(compileInsert(columns, "probe", { ...body, extra: 1 }, meta)) as SchemaError)
@@ -778,7 +736,7 @@ test("the legacy renderers reproduce the pre-port messages verbatim", () => {
   );
 });
 
-test("the Either compiler API produces SQL, and the renderers carry the tagged error as the cause", () => {
+test("the Either compiler API produces SQL, and a rejection carries the tagged error", () => {
   assert.equal(expectRight(quote("probe")), '"probe"');
   assert.equal(literal("O'Hara"), "'O''Hara'");
   assert.match(expectRight(compileSelect(columns, base, "sqlite")).text, /^SELECT /);
@@ -786,9 +744,8 @@ test("the Either compiler API produces SQL, and the renderers carry the tagged e
   assert.equal(expectRight(compileDelete(columns, "probe", "d")).text, 'DELETE FROM "probe" WHERE "_id" = ?');
   assert.equal(expectRight(compileReplace(columns, "probe", "d", body)).values.at(-1), "d");
   assert.equal((expectRight(decode(columns, base, [row])) as unknown[]).length, 1);
-  // The structured error survives as `cause`, so callers can still branch on the reason.
-  const rendered = formatCompileError(expectLeft(tableFor(columns, "nope")) as CompileError);
-  const cause = rendered.cause as CompileError;
-  assert.equal(cause._tag, "CompileError");
-  assert.equal(cause.reason, "unknown-collection");
+  // A rejection is the structured error, so callers can branch on the reason.
+  const left = expectLeft(tableFor(columns, "nope")) as CompileError;
+  assert.equal(left._tag, "CompileError");
+  assert.equal(left.reason, "unknown-collection");
 });

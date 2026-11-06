@@ -2,7 +2,7 @@
  * The app-facing document API (plan item 10).
  *
  * The intermediate representation below — `Filter`, `SelectPlan`, `Operation` — is the stable
- * contract shared by the SDK, both engines (`platform/sqlite.ts`, `platform/duckdb.ts`) and
+ * contract shared by the SDK, the compiler (`core/compile`, and its Go port in `server/`) and
  * `scripts/explain.ts`. The Effect port leaves it exactly as it was; `GENERATED_SQL.txt` is the
  * canary that proves it. There is still no SQL in the public SDK.
  *

@@ -6,13 +6,13 @@
  * or dropped — unlike `EventSinkLive`, there is no queue to overflow — so an assertion on "exactly
  * these events" is meaningful.
  *
- * The query surface is deliberately general, because later items' tests (backups, ingest, HTTP)
+ * The query surface is deliberately general, because later items' tests (ingest, retention)
  * assert on their own event kinds: `eventsOfKind("sql")` narrows to `SqlEventRecord[]`, and
  * `eventsWhere` takes any predicate.
  */
 import { Context, Effect, Layer, Ref } from "effect";
 import type { EventRecord } from "../../core/events.ts";
-import { EventSink } from "../../platform/services.ts";
+import { EventSink } from "../../eventlog/services.ts";
 
 /** Every event kind, e.g. `"sql" | "tx" | "queue" | …`. */
 export type EventKind = EventRecord["kind"];

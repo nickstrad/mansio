@@ -2,7 +2,7 @@
  * The tic-tac-toe rules, as pure functions (plan item 10, work 3).
  *
  * This module is PURE in the same sense as `core/`: it imports `effect`, the pure `RuleError`
- * class from `core/errors.ts`, and types only — no `Effect`, no `sdk/` runtime, no `platform/`,
+ * class from `core/errors.ts`, and types only — no `Effect`, no `sdk/` runtime, no server code,
  * no `Deno.*`, no I/O. Every rejection is a `RuleError` in the left channel of an `Either`, so
  * the whole game can be exercised without a database (`tests/unit/rules_test.ts`, and the
  * property suite in item 12).

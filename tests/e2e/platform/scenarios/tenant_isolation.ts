@@ -3,7 +3,7 @@ import {
   assert,
   client,
   Effect,
-  opsPath,
+  OPS_PATH,
   opsQuery,
   play,
   players,
@@ -24,7 +24,7 @@ test(
     Effect.gen(function* () {
       const dir = yield* scenarioDir("tenant_isolation");
       const url = yield* database("tenant_isolation");
-      const server = yield* startBackend(dir, url, { TENANCY: "api-key" });
+      const server = yield* startBackend(dir, url, "api-key");
       yield* Effect.promise(async () => {
         for (const [index, app] of apps.entries()) {
           const a = await tenant(server, 3 + index * 2), b = await tenant(server, 4 + index * 2);
@@ -60,7 +60,7 @@ test(
           const forge = { "x-tenant-id": a.id };
           const forged = await request(
             server,
-            opsPath(server, app),
+            OPS_PATH,
             await opsQuery(app, game._id, a.id),
             b.key,
             forge,
@@ -69,7 +69,7 @@ test(
           assert.deepEqual(forged.body.result, [null]);
           const own = await request(
             server,
-            opsPath(server, app),
+            OPS_PATH,
             await opsQuery(app, bw._id, a.id),
             b.key,
             forge,

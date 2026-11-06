@@ -1,20 +1,21 @@
 # System Context
 
-Audited against landed main `643b706` on 2026-10-11 (item 27). Both formats are generated from
+Redrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone
+and the server is the Go server in `server/`. Both formats are generated from
 `diagrams/c4-context-document-db.py`; numbered relationships are identical. All boxes describe landed code.
 
 <!-- c4-render: diagrams/c4-context-document-db.py -->
 
 ```text
-╭╌ Document DB platform ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╭╌ Mansio ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
 ╎                                                                      ╎
 ╎  ┌──────────────────────────────┐                                    ╎
-╎  │ Document DB platform         │                                    ╎
+╎  │ Mansio                       │                                    ╎
 ╎  │ [Software system]            │                                    ╎
-╎  │ platform/                    │                                    ╎
-╎  │ Effect; SQLite document      │                                    ╎
-╎  │ reads/writes; DuckDB event   │                                    ╎
-╎  │ log and analysis             │                                    ╎
+╎  │ server/ (Go)                 │                                    ╎
+╎  │ agentd, controld, edge; one  │                                    ╎
+╎  │ SQLite database per (tenant, │                                    ╎
+╎  │ app); IR over HTTP           │                                    ╎
 ╎  └──────────────────────────────┘                                    ╎
 ╎                                                                      ╎
 ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
@@ -24,40 +25,43 @@ Audited against landed main `643b706` on 2026-10-11 (item 27). Both formats are 
    │ [Person]                     │   │ [Person]                     │
    │ app/; sdk/                   │   │ sdk/client.ts                │
    │ Declares schemas and Effect  │   │ Players and authenticated    │
-   │ handlers                     │   │ tenant users                 │
-   └──────────────────────────────┘   └──────────────────────────────┘
+   │ handlers; the handlers run   │   │ tenant users                 │
+   │ in the SDK                   │   └──────────────────────────────┘
+   └──────────────────────────────┘
 
    ┌──────────────────────────────┐   ┌──────────────────────────────┐
-   │ Platform operator            │   │ Object storage               │
+   │ Operator                     │   │ Object storage               │
    │ [Person]                     │   │ [External system]            │
-   │ scripts/                     │   │ S3_BASE_URL or               │
-   │ Tenants, auth, backups and   │   │ LOCAL_OBJECT_DIR             │
-   │ log analysis                 │   │ Immutable snapshots and      │
-   └──────────────────────────────┘   │ manifests                    │
-                                      └──────────────────────────────┘
+   │ scripts/tenants.ts;          │   │ S3 (SeaweedFS in dev)        │
+   │ server/cmd/dbtool            │   │ SQLite generations and       │
+   │ Tenants, keys, placement,    │   │ manifests (durable mode)     │
+   │ backups and log analysis     │   └──────────────────────────────┘
+   └──────────────────────────────┘
 
    ┌──────────────────────────────┐   ┌──────────────────────────────┐
    │ Analytics consumer           │   │ k6 load generator            │
    │ [External system]            │   │ [External system]            │
    │ scripts/logs.ts;             │   │ perf/*.js                    │
-   │ scripts/duckdb/              │   │ HTTP load and raw metric     │
-   │ Named catalog or offline SQL │   │ points                       │
-   └──────────────────────────────┘   └──────────────────────────────┘
+   │ scripts/duckdb/              │   │ IR load over /v1/ops; raw    │
+   │ Offline DuckDB event log:    │   │ metric points                │
+   │ named catalog or SQL         │   └──────────────────────────────┘
+   └──────────────────────────────┘
 ```
 
 ## Relationships
 
-| # | From                 | To                   | Relationship                                     |
-| - | -------------------- | -------------------- | ------------------------------------------------ |
-| 1 | App developer        | Document DB platform | Schema and named handlers (TypeScript)           |
-| 2 | Application caller   | Document DB platform | HTTP JSON; bearer credentials; X-Trace-Id        |
-| 3 | Platform operator    | Document DB platform | Admin HTTP / CLI; tenant and backup operations   |
-| 4 | Document DB platform | Object storage       | S3 HTTPS or local files; snapshots and manifests |
-| 5 | Document DB platform | Analytics consumer   | Query results; derived event-log rows            |
-| 6 | k6 load generator    | Document DB platform | HTTP scenarios and trace headers                 |
+| # | From               | To                 | Relationship                                                                   |
+| - | ------------------ | ------------------ | ------------------------------------------------------------------------------ |
+| 1 | App developer      | Mansio             | Registered schema JSON; handlers stay in the app (TypeScript SDK)              |
+| 2 | Application caller | Mansio             | IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id |
+| 3 | Operator           | Mansio             | Admin HTTP and CLIs; tenants, keys, moves, backups                             |
+| 4 | Mansio             | Object storage     | S3 HTTP; write-back of SQLite generations, restore                             |
+| 5 | Mansio             | Analytics consumer | JSONL event log, ingested offline into DuckDB                                  |
+| 6 | k6 load generator  | Mansio             | IR scenarios over /v1/ops and trace headers                                    |
 
 ## Runtime notes
 
-Tenant identity comes from API keys or headless Better Auth session bearers when enabled. Postgres is part of
-the platform, shown at Level 2; no external identity provider is wired. No application SQL crosses the client
-boundary. This audit includes items 23, 25, 26 and MT-01 through MT-10.
+Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers run
+in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the client
+boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the system,
+shown at Level 2. No external identity provider is wired.

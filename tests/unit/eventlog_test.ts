@@ -36,22 +36,22 @@ import {
 } from "../../core/events.ts";
 import { EVENT_TABLES, EVENTLOG_SCHEMA_VERSION, TYPED_EVENT_TABLES } from "../../core/eventlog/ddl.ts";
 import { completeLines, decide, type IngestStateRow, parseSourceFile } from "../../core/eventlog/offsets.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { EventSink, type IngestReport } from "../../platform/services.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { EventSink, type IngestReport } from "../../eventlog/services.ts";
 import {
   type EventLogConnection,
   type EventLogDriver,
   eventLogDriver,
   type EventLogIngestOptions,
   makeEventLogIngest,
-} from "../../platform/eventlog/ingest.ts";
+} from "../../eventlog/ingest.ts";
 import {
   type EventLogSchemaStatus,
   type EventLogUpgradeReport,
   inspectEventLogSchema,
   repairLoneSurrogates,
   upgradeEventLog,
-} from "../../platform/eventlog/tables.ts";
+} from "../../eventlog/tables.ts";
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -1674,7 +1674,7 @@ const repoRoot = new URL("../../", import.meta.url);
 test("ingest.ts and tables.ts change no existing row outside _ingest_state and the temp tables", async () => {
   const mutating = /\b(UPDATE|DELETE|TRUNCATE|DROP|ALTER)\b|INSERT OR REPLACE/;
   const allowed = /_ingest_state|UPSERT_INGEST_STATE|\$\{(ROWS|STAGE)_TABLE\}/;
-  for (const file of ["platform/eventlog/ingest.ts", "platform/eventlog/tables.ts"]) {
+  for (const file of ["eventlog/ingest.ts", "eventlog/tables.ts"]) {
     const source = await Deno.readTextFile(new URL(file, repoRoot));
     const offending = source.split("\n").filter((line) => mutating.test(line) && !allowed.test(line));
     assert.deepEqual(offending, [], file);
@@ -1687,7 +1687,7 @@ test("core/eventlog is pure and the event log never loads node:sqlite", async ()
     assert.deepEqual(source.match(/^import .*$/gm) ?? [], [], file);
     assert.ok(!/\bDeno\./.test(source), `${file} touches Deno.*`);
   }
-  for (const file of ["platform/eventlog/ingest.ts", "platform/eventlog/tables.ts"]) {
+  for (const file of ["eventlog/ingest.ts", "eventlog/tables.ts"]) {
     assert.ok(!(await Deno.readTextFile(new URL(file, repoRoot))).includes("node:sqlite"), file);
   }
 });

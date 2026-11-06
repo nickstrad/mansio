@@ -67,15 +67,13 @@ export type IpcFailure =
 export type ConfigFailure = "missing" | "malformed" | "out-of-range" | "inconsistent";
 
 /** Why an object-store key was rejected. Keys are platform-generated, never caller-supplied. */
-export type KeyFailure = "illegal-character" | "parent-traversal" | "absolute-path";
-
 /** Why a restore run refused to continue. */
 export type RestoreFailure = "usage" | "would-overwrite" | "invalid-manifest" | "checksum-mismatch";
 
 /** The named queues with an enforced depth cap. */
 export type QueueName = "writer" | "reader" | "events";
 
-/** The two kinds of handler the platform routes to. Mirrors `sdk/functions.ts`'s `Kind` without importing it. */
+/** The two kinds of handler. Mirrors `sdk/functions.ts`'s `Kind` without importing it. */
 export type HandlerKind = "query" | "mutation";
 
 /** The backup phases, in the order `Backups.take` performs them (item 19). */
@@ -136,19 +134,8 @@ export class RuleError extends Data.TaggedError("RuleError")<{
 }> {}
 
 // ---------------------------------------------------------------------------
-// Routing and authentication errors (raised from `platform/http/`)
+// Routing and authentication errors (raised by the HTTP surface; the Deno platform's until IR-6)
 // ---------------------------------------------------------------------------
-
-/** The request path matched no route. */
-export class RouteNotFound extends Data.TaggedError("RouteNotFound")<{
-  readonly method: string;
-  readonly path: string;
-}> {}
-
-/** No app is registered under this id. */
-export class UnknownAppError extends Data.TaggedError("UnknownAppError")<{
-  readonly appId: string;
-}> {}
 
 /** The app exists but exports no handler by this name. */
 export class UnknownHandlerError extends Data.TaggedError("UnknownHandlerError")<{
@@ -233,14 +220,6 @@ export class SchemaDriftError extends Data.TaggedError("SchemaDriftError")<{
   readonly detail?: string;
 }> {}
 
-/**
- * A `Documents` handle was used after its transaction or query context closed — today's
- * `active` flag, now typed.
- */
-export class ContextExpiredError extends Data.TaggedError("ContextExpiredError")<{
-  readonly context: "mutation" | "query";
-}> {}
-
 /** A handler returned something `JSON.stringify` cannot transport, caught before `COMMIT`. */
 export class NonSerializableResultError extends Data.TaggedError("NonSerializableResultError")<{
   readonly appId?: string;
@@ -289,22 +268,9 @@ export class ReaderError extends Data.TaggedError("ReaderError")<{
   readonly cause?: unknown;
 }> {}
 
-/** A query handler attempted a write. A server-side invariant violation, not caller input. */
-export class QueryWriteAttemptError extends Data.TaggedError("QueryWriteAttemptError")<{
-  readonly operation: "insert" | "patch" | "delete";
-  readonly table?: string;
-}> {}
-
 // ---------------------------------------------------------------------------
 // Queues
 // ---------------------------------------------------------------------------
-
-/** A bounded queue rejected work at its cap. Shed load, not a server fault. */
-export class QueueFullError extends Data.TaggedError("QueueFullError")<{
-  readonly queue: QueueName;
-  readonly depth: number;
-  readonly cap: number;
-}> {}
 
 // ---------------------------------------------------------------------------
 // Reader IPC (parent side)
@@ -315,12 +281,6 @@ export class IpcError extends Data.TaggedError("IpcError")<{
   readonly reason: IpcFailure;
   readonly detail?: string;
   readonly cause?: unknown;
-}> {}
-
-/** The reader child process exited; every outstanding call fails with this. */
-export class ReaderExitedError extends Data.TaggedError("ReaderExitedError")<{
-  readonly code: number;
-  readonly signal?: string;
 }> {}
 
 // ---------------------------------------------------------------------------
@@ -336,12 +296,6 @@ export class ObjectStoreError extends Data.TaggedError("ObjectStoreError")<{
   readonly cause?: unknown;
 }> {}
 
-/** An object key failed validation. Keys are platform-generated, so this is an internal fault. */
-export class InvalidKeyError extends Data.TaggedError("InvalidKeyError")<{
-  readonly key: string;
-  readonly reason: KeyFailure;
-}> {}
-
 /** A backup run failed at a named phase. */
 export class BackupError extends Data.TaggedError("BackupError")<{
   readonly appId: string;
@@ -350,18 +304,7 @@ export class BackupError extends Data.TaggedError("BackupError")<{
   readonly cause?: unknown;
 }> {}
 
-/** A backup for this app is already in flight; the per-app guard rejected a second one. */
-export class BackupAlreadyRunning extends Data.TaggedError("BackupAlreadyRunning")<{
-  readonly appId: string;
-}> {}
-
-/** `PRAGMA quick_check` on a fresh snapshot returned anything other than `ok`. */
-export class SnapshotIntegrityError extends Data.TaggedError("SnapshotIntegrityError")<{
-  readonly file: string;
-  readonly detail?: string;
-}> {}
-
-/** A `scripts/restore.ts` run refused to continue. CLI-only; never reaches an HTTP response. */
+/** A restore run refused to continue (the Deno platform's restore script; unused since IR-6). CLI-only. */
 export class RestoreError extends Data.TaggedError("RestoreError")<{
   readonly reason: RestoreFailure;
   readonly detail?: string;
@@ -391,40 +334,6 @@ export class UnknownAnalysisQuery extends Data.TaggedError("UnknownAnalysisQuery
   readonly name: string;
   readonly known: readonly string[];
 }> {}
-
-// ---------------------------------------------------------------------------
-// Tenancy (MT-03)
-// ---------------------------------------------------------------------------
-
-/**
- * A tenant id that is not a strictly-parsed canonical-lowercase UUID. Raised by
- * `platform/tenants/registry.ts:parseTenantId` (and `parseApiKeyId`) on anything else:
- * uppercase, `urn:uuid:` forms, NUL, whitespace, percent-encoded forms, separators.
- * The brand on `TenantId` guarantees the parse already happened, so this never escapes
- * a parsed id.
- */
-export class MalformedTenantId extends Data.TaggedError("MalformedTenantId")<{
-  /** The offending input, verbatim. Ids are UUIDs, never secrets. */
-  readonly input: string;
-}> {}
-
-/**
- * No tenant is addressed by this id — or no usable API key hashes to one.
- * `resolveTenantByKeyHash` fails this for unknown keys, revoked keys, and inactive
- * tenants alike, so callers cannot distinguish the three (no key-guessing oracle).
- */
-export class UnknownTenant extends Data.TaggedError("UnknownTenant")<{
-  /** The tenant id that missed, when one was supplied (absent for key-hash lookups). */
-  readonly tenantId?: string;
-}> {}
-
-/** The tenant exists but is deactivated. Its keys stay revoked even if it is reactivated. */
-export class TenantDeactivated extends Data.TaggedError("TenantDeactivated")<{
-  readonly tenantId: string;
-}> {}
-
-/** Tenant domain failures, served by the admin HTTP surface (MT-05). */
-export type TenantError = MalformedTenantId | UnknownTenant | TenantDeactivated;
 
 // ---------------------------------------------------------------------------
 // Startup and client
@@ -490,10 +399,8 @@ export type MutationError =
   | RuleError
   | NotFoundError
   | ConflictError
-  | ContextExpiredError
   | NonSerializableResultError
-  | StorageError
-  | QueueFullError;
+  | StorageError;
 
 /**
  * The read path: `Reader.query`'s error channel, and the `Execute` channel inside a query (the
@@ -506,10 +413,7 @@ export type QueryError =
   | DecodeError
   | RuleError
   | NotFoundError
-  | ContextExpiredError
-  | QueryWriteAttemptError
-  | ReaderError
-  | QueueFullError;
+  | ReaderError;
 
 /**
  * The SDK seam: `Execute = (operation) => Effect<unknown, DbError>` (plan §1.4). Both SQLite paths
@@ -526,7 +430,6 @@ export type DbError = MutationError | QueryError | StatementDeadlineError;
  */
 export type RemoteReaderError =
   | QueryError
-  | UnknownAppError
   | UnknownHandlerError
   | HandlerKindMismatch
   | IngestError
@@ -535,21 +438,14 @@ export type RemoteReaderError =
 
 /** Everything that can reach an HTTP response, and therefore needs a status. */
 export type PlatformError =
-  | TenantError
   | DbError
-  | RouteNotFound
-  | UnknownAppError
   | UnknownHandlerError
   | HandlerKindMismatch
   | AuthError
   | RequestTooLarge
   | IpcError
-  | ReaderExitedError
   | ObjectStoreError
-  | InvalidKeyError
   | BackupError
-  | BackupAlreadyRunning
-  | SnapshotIntegrityError
   | IngestError
   | AnalysisError
   | UnknownAnalysisQuery;
@@ -575,15 +471,19 @@ export type AnyError = PlatformError | StartupError | CliError | ClientError;
  * narrows `error` to `never`, so adding a member to `PlatformError` without a case here is a type
  * error. `tests/errors_exhaustiveness.ts` locks that property in the `check` entry points.
  *
- * Used by item 22 and tested there; two mappings are deliberate behaviour changes against today's
- * blanket 400 — `ConflictError` → 409 and `QueueFullError` → 503 — plus `BackupAlreadyRunning` →
- * 409 and `RequestTooLarge` → 413. ADR 0002 records all four, and FFI-05's
- * `StatementDeadlineError` → 504.
+ * ADR 0002 records the deliberate mappings (`ConflictError` → 409, `RequestTooLarge` → 413) and FFI-05's
+ * `StatementDeadlineError` → 504. The SDK uses this for a failure decided in the caller's process.
+ *
+ * IR-6 deleted the classes only the Deno platform raised and nothing else used (`RouteNotFound`,
+ * `UnknownAppError`, `ContextExpiredError`, `QueryWriteAttemptError`, `QueueFullError`,
+ * `ReaderExitedError`, `InvalidKeyError`, `BackupAlreadyRunning`, `SnapshotIntegrityError` and the three
+ * tenant errors). Old event-log rows keep those names as plain `error_tag` text; decoding a JSONL line
+ * never builds an error class, so nothing here is needed to read them. The classes that remain are still
+ * used by the SDK, the compiler, the event-log CLI or the record format.
  */
 export function toHttpStatus(error: PlatformError): number {
   switch (error._tag) {
     // 400 — the request itself is wrong.
-    case "MalformedTenantId":
     case "SchemaError":
     case "CompileError":
     case "RuleError":
@@ -594,13 +494,7 @@ export function toHttpStatus(error: PlatformError): number {
     case "AuthError":
       return 401;
 
-    case "TenantDeactivated":
-      return 403;
-
     // 404 — nothing is addressed by this request.
-    case "UnknownTenant":
-    case "RouteNotFound":
-    case "UnknownAppError":
     case "UnknownHandlerError":
     case "NotFoundError":
     case "UnknownAnalysisQuery":
@@ -608,7 +502,6 @@ export function toHttpStatus(error: PlatformError): number {
 
     // 409 — the request is well-formed but conflicts with current state.
     case "ConflictError":
-    case "BackupAlreadyRunning":
       return 409;
 
     // 413 — body cap.
@@ -617,27 +510,18 @@ export function toHttpStatus(error: PlatformError): number {
 
     // 500 — this server is at fault.
     case "DecodeError":
-    case "ContextExpiredError":
     case "NonSerializableResultError":
     case "StorageError":
     case "ReaderError":
-    case "QueryWriteAttemptError":
-    case "InvalidKeyError":
     case "BackupError":
-    case "SnapshotIntegrityError":
     case "IngestError":
     case "AnalysisError":
       return 500;
 
     // 502 — a dependency this server talks to is at fault.
     case "IpcError":
-    case "ReaderExitedError":
     case "ObjectStoreError":
       return 502;
-
-    // 503 — load shedding; the caller may retry.
-    case "QueueFullError":
-      return 503;
 
     // 504 — a statement ran past its deadline and was interrupted (FFI-05).
     case "StatementDeadlineError":

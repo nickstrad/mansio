@@ -37,37 +37,25 @@ const _acceptsThePlatformUnion: (error: E.PlatformError) => number = E.toHttpSta
  * concern for item 22's tests.
  */
 const statusByTag: Record<E.PlatformError["_tag"], number> = {
-  MalformedTenantId: 400,
-  UnknownTenant: 404,
-  TenantDeactivated: 403,
   SchemaError: 400,
   CompileError: 400,
   RuleError: 400,
   HandlerKindMismatch: 400,
   AuthError: 401,
-  RouteNotFound: 404,
-  UnknownAppError: 404,
   UnknownHandlerError: 404,
   NotFoundError: 404,
   UnknownAnalysisQuery: 404,
   ConflictError: 409,
-  BackupAlreadyRunning: 409,
   RequestTooLarge: 413,
   DecodeError: 500,
-  ContextExpiredError: 500,
   NonSerializableResultError: 500,
   StorageError: 500,
   ReaderError: 500,
-  QueryWriteAttemptError: 500,
-  InvalidKeyError: 500,
   BackupError: 500,
-  SnapshotIntegrityError: 500,
   IngestError: 500,
   AnalysisError: 500,
   IpcError: 502,
-  ReaderExitedError: 502,
   ObjectStoreError: 502,
-  QueueFullError: 503,
   StatementDeadlineError: 504,
 };
 
@@ -81,15 +69,10 @@ type _StatusTableIsExact = Expect<Equals<keyof typeof statusByTag, E.PlatformErr
  * changing this list is a compile error, so the taxonomy cannot grow by accident.
  */
 type FrozenPlatformTags =
-  | "MalformedTenantId"
-  | "UnknownTenant"
-  | "TenantDeactivated"
   | "SchemaError"
   | "CompileError"
   | "DecodeError"
   | "RuleError"
-  | "RouteNotFound"
-  | "UnknownAppError"
   | "UnknownHandlerError"
   | "HandlerKindMismatch"
   | "AuthError"
@@ -97,18 +80,11 @@ type FrozenPlatformTags =
   | "NotFoundError"
   | "ConflictError"
   | "StorageError"
-  | "ContextExpiredError"
   | "NonSerializableResultError"
   | "ReaderError"
-  | "QueryWriteAttemptError"
-  | "QueueFullError"
   | "IpcError"
-  | "ReaderExitedError"
   | "ObjectStoreError"
-  | "InvalidKeyError"
   | "BackupError"
-  | "BackupAlreadyRunning"
-  | "SnapshotIntegrityError"
   | "IngestError"
   | "AnalysisError"
   | "UnknownAnalysisQuery"
@@ -154,9 +130,7 @@ type _RemoteReaderIsServed = Expect<Extends<E.RemoteReaderError, E.PlatformError
 type _WriteOnlyStaysWriteOnly = Expect<
   Equals<Extends<E.NonSerializableResultError, E.QueryError>, false>
 >;
-type _ReadOnlyStaysReadOnly = Expect<
-  Equals<Extends<E.QueryWriteAttemptError, E.MutationError>, false>
->;
+type _ReadOnlyStaysReadOnly = Expect<Equals<Extends<E.ReaderError, E.MutationError>, false>>;
 
 /**
  * The deadline is raised only by the in-process SQLite paths, never by the DuckDB reader process, so
@@ -183,7 +157,6 @@ export function documentedConstructorsCompile() {
     reason: "type-mismatch",
   });
   const compile = new E.CompileError({ reason: "unsupported-operator", field: "status" });
-  const queueFull = new E.QueueFullError({ queue: "writer", depth: 1000, cap: 1000 });
   // FFI-05's payload
   const deadline = new E.StatementDeadlineError({
     deadlineMs: 5000,
@@ -191,7 +164,7 @@ export function documentedConstructorsCompile() {
     table: "games",
     statementKind: "count",
   });
-  return [notFound, conflict, schema, compile, queueFull, deadline].map(E.toHttpStatus);
+  return [notFound, conflict, schema, compile, deadline].map(E.toHttpStatus);
 }
 
 /** Keeps the type-only assertions from being erased as unused by the compiler. */

@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { kill } from "node:process";
 import { resolve } from "node:path";
 import { Effect, Either, Exit, type Scope } from "effect";
-import { OPTIONS } from "../../../platform/config.ts";
-import { createClient, createLegacyClient, schemaFingerprint } from "../../../sdk/client.ts";
+import { createClient, schemaFingerprint } from "../../../sdk/client.ts";
 import postgres from "npm:postgres@3.4.9";
 import { functions } from "../../../app/functions.ts";
 import { schema } from "../../../app/schema.ts";
@@ -14,18 +13,9 @@ import type { ClientError } from "../../../core/errors.ts";
 import { names, players, titled } from "./seed.ts";
 export { assert, Effect, players };
 export const apps = ["tic-tac-toe", "tic-tac-toe-json"] as const;
-/** The storage layout each app is configured with (`platform/config.ts`). */
+/** The storage layout each app's database is created with (its schema under `schemas_dir`). */
 export const layoutOf = (app: string) => app === "tic-tac-toe-json" ? "json" as const : "columns" as const;
-/**
- * Which backend the scenarios run against: `deno` (the platform server; app handlers through the SDK's
- * `/v1/ops` shim) or `go` (agentd in single-node static mode). `BACKEND=go deno task e2e`.
- */
-export const backend: "deno" | "go" = (() => {
-  const value = Deno.env.get("BACKEND") ?? "deno";
-  assert.ok(value === "deno" || value === "go", `BACKEND must be deno or go, got ${value}`);
-  return value;
-})();
-/** The tenant SDK clients name. The Deno shim ignores it (credentials decide); agentd serves `local:<app>`. */
+/** The tenant SDK clients name: agentd serves `local:<app>` (with tenancy, credentials decide). */
 export const TENANT = "local";
 export const keep = Deno.env.get("E2E_KEEP") === "1";
 export const root = () => {
@@ -76,7 +66,7 @@ async function waitEmpty(group: number, ms: number): Promise<boolean> {
 }
 export async function stopGroup(group: number): Promise<void> {
   if (!(await groupPids(group)).length) return;
-  // Let the server close the reader's stdin and await it before terminating the group.
+  // Let the process leader drain and exit before terminating the group.
   try {
     Deno.kill(group, "SIGTERM");
   } catch (e) {
@@ -179,112 +169,6 @@ export function scenarioDir(name: string) {
         if (!keep) await Deno.remove(dir, { recursive: true });
       }),
   );
-}
-export function startServer(dir: string, databaseUrl: string, extra: Record<string, string> = {}) {
-  return Effect.gen(function* () {
-    const probe = Deno.listen({ hostname: "127.0.0.1", port: 0 });
-    const port = (probe.addr as Deno.NetAddr).port;
-    probe.close();
-    const base = `http://127.0.0.1:${port}`;
-    const options: Record<string, string> = {
-      PORT: String(port),
-      BIND_HOST: "127.0.0.1",
-      DATA_DIR: `${dir}/data`,
-      LOG_DIR: `${dir}/logs`,
-      LOCAL_OBJECT_DIR: `${dir}/objects`,
-      EVENTLOG_DUCKDB: `${dir}/eventlog.duckdb`,
-      S3_BASE_URL: "",
-      BACKUP_INTERVAL_MS: "0",
-      ADMIN_TOKEN: crypto.randomUUID(),
-      COLUMN_APP_TOKEN: crypto.randomUUID(),
-      JSON_APP_TOKEN: crypto.randomUUID(),
-      TENANCY: "off",
-      DATABASE_URL: databaseUrl,
-      TENANTS_DIR: `${dir}/tenants`,
-      BETTER_AUTH_SECRET: crypto.randomUUID() + crypto.randomUUID(),
-      BETTER_AUTH_URL: base,
-      ...extra,
-    };
-    const allowed = new Set<string>(OPTIONS.map((o) => o.envVar));
-    for (const key of Object.keys(options)) assert.ok(allowed.has(key), `Unknown server option ${key}`);
-    const env = { ...cleanEnv(), ...options };
-    const child = yield* processResource(["run", "-A", "platform/server.ts"], env, {
-      trackRoot: root(),
-      preserve: true,
-    });
-    let exited = false;
-    const output = child.output(); // Drain both streams throughout startup and requests.
-    yield* Effect.addFinalizer((exit) =>
-      Effect.promise(async () => {
-        if (keep) return;
-        await stopGroup(child.pid);
-        const out = await output;
-        if (Exit.isFailure(exit)) {
-          const stderr = new TextDecoder().decode(out.stderr);
-          if (stderr.trim()) console.error(`Server diagnostics: ${stderr.slice(-4000)}`);
-          if (await exists(`${env.LOG_DIR}/server`)) {
-            for await (const date of Deno.readDir(`${env.LOG_DIR}/server`)) {
-              if (!date.isDirectory) continue;
-              for await (const file of Deno.readDir(`${env.LOG_DIR}/server/${date.name}`)) {
-                if (!file.name.endsWith(".jsonl")) continue;
-                for (
-                  const line of (await Deno.readTextFile(`${env.LOG_DIR}/server/${date.name}/${file.name}`))
-                    .trim().split("\n")
-                ) {
-                  const row = JSON.parse(line);
-                  if (row.errorTag === "StorageError" || row.errorTag === "ReaderError") {
-                    console.error(
-                      `Server error: ${
-                        JSON.stringify({
-                          tag: row.errorTag,
-                          detail: row.errorDetail,
-                          name: row.name,
-                          status: row.status,
-                        })
-                      }`,
-                    );
-                  }
-                }
-              }
-            }
-          }
-        }
-      })
-    );
-    void child.status.then(() => {
-      exited = true;
-    });
-    const deadline = Date.now() + 30_000;
-    while (true) {
-      if (exited) {
-        const out = yield* Effect.promise(() => output);
-        throw new Error(`Server exited ${out.code}: ${new TextDecoder().decode(out.stderr)}`);
-      }
-      const healthy = yield* Effect.promise(async () => {
-        try {
-          const response = await fetch(`${base}/health`, { signal: AbortSignal.timeout(500) });
-          await response.body?.cancel();
-          return response.ok;
-        } catch {
-          return false;
-        }
-      });
-      if (healthy) break;
-      assert.ok(Date.now() < deadline, "Server health timeout");
-      yield* Effect.sleep("50 millis");
-    }
-    return {
-      backend: "deno" as const,
-      base,
-      env,
-      dir,
-      stop: async () => {
-        await stopGroup(child.pid);
-        const out = await output;
-        assert.equal(out.code, 0, `Server shutdown failed: ${new TextDecoder().decode(out.stderr)}`);
-      },
-    };
-  });
 }
 /** Where a Go agent is: the built `agentd` (`AGENTD_BIN`, else `go build` into the run's root once). */
 let agentd: Promise<string> | undefined;
@@ -410,24 +294,23 @@ export function startGoAgent(dir: string, extra: Record<string, unknown> = {}) {
         exp: iat + 600,
       });
     };
-    return { backend: "go" as const, base, dir, env: {} as Record<string, string>, mint };
+    return { base, dir, env: {} as Record<string, string>, mint };
   });
 }
 
-export type DenoServer = Effect.Effect.Success<ReturnType<typeof startServer>>;
 export type GoAgent = Effect.Effect.Success<ReturnType<typeof startGoAgent>>;
 export type GoTenancy = Effect.Effect.Success<ReturnType<typeof startGoTenancy>>;
-export type Server = DenoServer | GoAgent | GoTenancy;
+export type Server = GoAgent | GoTenancy;
 
-/** A tenancy mode by the Deno server's `TENANCY` name. */
-export type Tenancy = "off" | "api-key" | "better-auth";
+/** agentd's `tenancy.mode`: app tokens (`off`), tenant API keys, or API keys plus email/password sessions. */
+export type Tenancy = "off" | "api-key" | "session";
 
 /**
  * agentd with a `tenancy` section (IR-4a, ADR 0012): credentials on `/v1/ops`, `/admin/tenants*`, and in
- * session mode (`better-auth`) `/api/auth` and `/admin/users/link`. Keys, users and sessions live in the
- * scenario's Postgres database, schema `control` (the Deno platform's tables stay in `public`). `env` holds
- * the same `ADMIN_TOKEN`/`*_APP_TOKEN` names as the Deno server's, so `request`, `cli` and `client` work
- * unchanged. Databases `<tenant>:<app>` are created on first use (`create_dbs`).
+ * `session` mode `/api/auth` and `/admin/users/link`. Keys, users and sessions live in the scenario's
+ * Postgres database, schema `control`. `env` holds the admin and app tokens under the names `request`,
+ * `cli` (`ADMIN_TOKEN`) and `client` read. Databases `<tenant>:<app>` are created on first use
+ * (`create_dbs`).
  */
 export function startGoTenancy(dir: string, databaseUrl: string, mode: Tenancy) {
   return Effect.gen(function* () {
@@ -458,7 +341,7 @@ export function startGoTenancy(dir: string, databaseUrl: string, mode: Tenancy) 
     const agent = yield* startGoAgent(dir, {
       create_dbs: true,
       tenancy: {
-        mode: mode === "better-auth" ? "session" : mode,
+        mode,
         secrets_file: `${dir}/secrets/tenancy.json`,
         pg_schema: "control",
         cache_ttl: "1s",
@@ -484,27 +367,15 @@ export function startGoTenancy(dir: string, databaseUrl: string, mode: Tenancy) 
 }
 
 /**
- * The backend this run targets (`BACKEND`): the Deno server (`databaseUrl` and `extra` are its options)
- * or a Go agent: with `TENANCY` api-key or better-auth, `startGoTenancy`; otherwise tickets only.
+ * The agent a scenario runs against: with tenancy `mode` (`api-key` or `session`), `startGoTenancy` on
+ * `databaseUrl`; with no mode, a static agent that accepts minted tickets only.
  */
-export function startBackend(dir: string, databaseUrl: string, extra: Record<string, string> = {}) {
-  if (backend === "deno") return startServer(dir, databaseUrl, extra);
-  const mode = extra.TENANCY as Tenancy | undefined;
-  return mode === "api-key" || mode === "better-auth"
-    ? startGoTenancy(dir, databaseUrl, mode)
-    : startGoAgent(dir);
+export function startBackend(dir: string, databaseUrl: string, mode?: Tenancy) {
+  return mode === undefined ? startGoAgent(dir) : startGoTenancy(dir, databaseUrl, mode);
 }
 
-/** A backend in `mode` on either side (`TENANCY=off` on Go: app tokens, not tickets). */
-export function startTenancy(dir: string, databaseUrl: string, mode: Tenancy) {
-  return backend === "go"
-    ? startGoTenancy(dir, databaseUrl, mode)
-    : startServer(dir, databaseUrl, { TENANCY: mode });
-}
-
-/** Where a backend serves `/v1/ops` for `app`: agentd's one route, or the Deno shim's per-app one. */
-export const opsPath = (server: Server, app: string) =>
-  server.backend === "go" ? "/v1/ops" : `/apps/${encodeURIComponent(app)}/v1/ops`;
+/** agentd's one IR route. */
+export const OPS_PATH = "/v1/ops";
 
 /** A valid IR query body for `app` (one `get`), naming `tenant` as its database's tenant. */
 export async function opsQuery(app: string, id: string, tenant: string = TENANT) {
@@ -519,9 +390,9 @@ export async function opsQuery(app: string, id: string, tenant: string = TENANT)
 
 export type Client = ReturnType<typeof createClient<typeof functions>>;
 /**
- * An IR-3 SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. On Deno
- * the bearer is the app token (TENANCY=off) or `token` (an API key or session); on Go `token`, the app token
- * of a tenancy agent, or else a minted ticket. `tenant` is what the client claims (credentials decide).
+ * An IR-3 SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. The bearer
+ * is `token` (an API key or a session), else the app token of a tenancy agent, else a minted ticket.
+ * `tenant` is what the client claims (with tenancy, credentials decide).
  */
 export function client(
   server: Server,
@@ -535,27 +406,11 @@ export function client(
     tenant,
     app,
     timeoutMs: 15_000,
+    endpoint: server.base,
   };
-  if (server.backend === "go") {
-    const credential = token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"];
-    if (credential !== undefined) {
-      return createClient({ ...common, endpoint: server.base, token: credential });
-    }
-    return createClient({ ...common, endpoint: server.base, token: (kind) => server.mint(app, kind) });
-  }
-  return createClient({
-    ...common,
-    endpoint: `${server.base}/apps/${encodeURIComponent(app)}`,
-    token: token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"],
-  });
-}
-/** The pre-IR client (handlers run on the Deno server), for the scenarios IR-4 ports. */
-export function legacyClient(server: DenoServer, app: string = apps[0], token?: string): Client {
-  return createLegacyClient<typeof functions>(
-    server.base,
-    app,
-    token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"],
-  );
+  const credential = token ?? server.env[app === apps[0] ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"];
+  if (credential !== undefined) return createClient({ ...common, token: credential });
+  return createClient({ ...common, token: (kind) => server.mint(app, kind) });
 }
 export const run = Effect.runPromise;
 export async function remoteError<A>(effect: Effect.Effect<A, ClientError>, status: number, tag: string) {
@@ -608,7 +463,7 @@ export async function tenant(server: Server, index: number) {
   assert.match(out.stdout, /Save this API key now/);
   const id = out.stdout.match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/)?.[0];
   assert.ok(id, "tenant metadata must be printed");
-  // The key row: its id (a uuid on Deno, 16 hex digits on Go), then its tenant.
+  // The key row: its id (16 hex digits), then its tenant.
   const keyId = out.stdout.match(new RegExp(`^([0-9a-f-]{16,36})\\s+${id}\\s`, "m"))?.[1];
   assert.ok(keyId, "key metadata must be printed");
   return { id, keyId, key: keys[0] };
@@ -626,31 +481,20 @@ export async function play(c: Client, cells: readonly number[], suffix = "") {
       expectedVersion: game._version,
     }));
     game = await run(c.query("getGame", { gameId }));
-    assert.deepEqual(game, written, "read-after-write through DuckDB");
+    assert.deepEqual(game, written, "read-after-write");
     assert.ok(game);
   }
   return game;
 }
 const abort = new AbortController();
 let signals = false;
-/**
- * One scenario. `options.go` names why a scenario does not run against the Go backend yet (it is then
- * ignored, with the reason in its title, when `BACKEND=go`); `options.deno` the same for the Deno backend.
- */
-export function test(
-  name: string,
-  body: () => Effect.Effect<void, unknown, Scope.Scope>,
-  options: { go?: string; deno?: string } = {},
-) {
+/** One scenario, run in its own scope. */
+export function test(name: string, body: () => Effect.Effect<void, unknown, Scope.Scope>) {
   if (!signals) {
     for (const signal of ["SIGINT", "SIGTERM"] as const) Deno.addSignalListener(signal, () => abort.abort());
     signals = true;
   }
-  const skip = backend === "go" ? options.go : options.deno;
-  Deno.test({
-    name: skip ? `${titled(name)} [skipped on ${backend}: ${skip}]` : titled(name),
-    ignore: skip !== undefined,
-  }, async () => {
+  Deno.test(titled(name), async () => {
     abort.signal.throwIfAborted();
     await Effect.runPromise(Effect.scoped(body()), { signal: abort.signal });
   });

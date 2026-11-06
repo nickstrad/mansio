@@ -8,12 +8,12 @@ Conventions, naming and the maintenance contract: [`AGENTS.md`](AGENTS.md).
 
 ## Index
 
-| Level | Diagram                        | What it shows                                                                                                                                                                                                                                                                                                                                                  | GitHub                                         | Terminal                                           |
-| ----- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
-| 1     | System Context                 | The platform as one box: app developers, players, the operator, and the external object store, DuckDB analytics consumer and k6 load generator.                                                                                                                                                                                                                | [github](c4-context-document-db.github.md)     | [terminal](c4-context-document-db.terminal.md)     |
-| 2     | Container — request path       | The server process, the DuckDB reader child process, the per-app SQLite files and the object store; document reads stay in-process while ingest and analysis use the reader. A note records that the server opens SQLite through the FFI binding over system libsqlite3 and that unbounded reads run under a statement deadline (HTTP 504).                    | [github](c4-container-platform.github.md)      | [terminal](c4-container-platform.terminal.md)      |
-| 2     | Container — observability path | Server/reader JSONL, the reader's connected ingest-then-sweep into the derived DuckDB event log, the reader composition, live named analysis, logs CLI and k6 loader. Notes record that `sql` events persist their SQLite execution `path` and that ingest adds the nullable `sql_events.path` column.                                                         | [github](c4-container-observability.github.md) | [terminal](c4-container-observability.terminal.md) |
-| 3     | Component — server process     | The mounted HTTP/lifecycle components and services, including in-process document reads, per-app storage, backups, reader client, logging, dependencies, the FFI SQLite binding that every storage, reader, router and backup open goes through, and the statement classifier that sends each read down the blocking or the deadline-bounded nonblocking path. | [github](c4-component-server.github.md)        | [terminal](c4-component-server.terminal.md)        |
+| Level | Diagram                                 | What it shows                                                                                                                                                                       | GitHub                                         | Terminal                                           |
+| ----- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| 1     | System Context                          | Mansio as one box: app developers, application callers (the SDK runs their handlers), the operator, and the external object store, DuckDB analytics consumer and k6 load generator. | [github](c4-context-document-db.github.md)     | [terminal](c4-context-document-db.terminal.md)     |
+| 2     | Container — request path                | The SDK, the edge, agentd and its SQLite files, controld and the Postgres control store, the operator CLIs and S3 (multi-node shape; a single agentd also runs alone).              | [github](c4-container-platform.github.md)      | [terminal](c4-container-platform.terminal.md)      |
+| 2     | Container — observability path          | agentd's JSONL event log, the offline logs CLI (`eventlog/`) with its ingest-then-sweep into the derived DuckDB event log and the named catalog, and the k6 loader.                 | [github](c4-container-observability.github.md) | [terminal](c4-container-observability.terminal.md) |
+| 3     | Component — server process (historical) | The Deno platform's server process, deleted at IR-6. Kept for the plans that link it; not redrawn for agentd.                                                                       | [github](c4-component-server.github.md)        | [terminal](c4-component-server.terminal.md)        |
 
 Level 2 is split in two so neither picture is cluttered; together they cover one container set.
 
@@ -28,10 +28,16 @@ Level 2 is split in two so neither picture is cluttered; together they cover one
 glow docs/architecture/c4-context-document-db.terminal.md
 glow docs/architecture/c4-container-platform.terminal.md
 glow docs/architecture/c4-container-observability.terminal.md
-glow docs/architecture/c4-component-server.terminal.md
+glow docs/architecture/c4-component-server.terminal.md   # historical (Deno server process)
 ```
 
 ## Audited state
+
+**IR-6 (2026-11-06, `ir/06-cutover` from main `7cf4ba6`):** the Deno platform is deleted and the server is the
+Go server in `server/` (ADR 0013). The context and both container pairs are redrawn for it from the e2e
+harness (`tests/e2e/platform/harness.ts`, `cluster.ts`) and the IR-4a to IR-5a notes; the Level 3 pair is kept
+as a historical picture of the deleted Deno server process. The `pages/` datasets are unchanged and still show
+the pre-IR-6 architecture. The rest of this section is the history before IR-6.
 
 These diagrams describe landed main `643b706`, audited on 2026-10-11 for item 27, plus the FFI-01 to FFI-05
 delta at `f2bf1c9`, the FFI-07 audit at `14ef53c`, the FFI-06 delta at `5c2a499` and a full re-audit of the

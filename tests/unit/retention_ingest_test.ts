@@ -27,8 +27,8 @@ import { DuckDBInstance } from "@duckdb/node-api";
 import { Clock, Effect, Either, Layer, Ref, TestClock, TestContext } from "effect";
 import type { IngestError } from "../../core/errors.ts";
 import { type EventRecord, lifecycleEvent, toJsonLine } from "../../core/events.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { EventSink } from "../../platform/services.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { EventSink } from "../../eventlog/services.ts";
 import {
   type EventLogConnection,
   type EventLogDriver,
@@ -37,9 +37,9 @@ import {
   makeEventLogIngest,
   type RetentionBudgets,
   type RetentionCoordinatorOptions,
-} from "../../platform/eventlog/ingest.ts";
-import { eventSinkLayer } from "../../platform/logging/logger.ts";
-import type { SweepReport } from "../../platform/logging/retention.ts";
+} from "../../eventlog/ingest.ts";
+import { eventSinkLayer } from "../../eventlog/logger.ts";
+import type { SweepReport } from "../../eventlog/retention.ts";
 
 // ---------------------------------------------------------------------------
 // Harness

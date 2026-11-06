@@ -1,9 +1,9 @@
 /**
  * IR-4b: a Go agent in durable mode (databases are S3 generations behind the virtual-actor host) and the
- * `dbtool` CLI, for the scenarios that need durability on `BACKEND=go` (`backup_restore`).
+ * `dbtool` CLI, for the scenarios that need durability (`backup_restore`).
  *
  * S3 comes from the environment: `E2E_S3_ENDPOINT` (host:port, plain HTTP), `E2E_S3_ACCESS_KEY`,
- * `E2E_S3_SECRET_KEY`, `E2E_S3_BUCKET` (`work-scripts/bash/e2e-linux.sh go` starts a SeaweedFS and sets them).
+ * `E2E_S3_SECRET_KEY`, `E2E_S3_BUCKET` (`work-scripts/bash/e2e-linux.sh` starts a SeaweedFS and sets them).
  * Every agent gets its own prefix in the bucket, so runs and agents never see each other's objects.
  */
 import { Effect, Exit } from "effect";
@@ -38,7 +38,7 @@ export function s3Store(): S3Store {
     const value = Deno.env.get(name);
     assert.ok(
       value,
-      `${name} is required for durability on BACKEND=go (work-scripts/bash/e2e-linux.sh go sets it)`,
+      `${name} is required for durability (work-scripts/bash/e2e-linux.sh sets it)`,
     );
     return value;
   };
@@ -246,7 +246,6 @@ export function startDurableAgent(dir: string, store: S3Store = s3Store()) {
       });
     };
     return {
-      backend: "go" as const,
       base,
       dir,
       env: {} as Record<string, string>,

@@ -11,7 +11,7 @@
  * The fingerprint text is `JSON.stringify` of the decoded schema: members in the order they arrived,
  * no whitespace. It is what `_platform_schema.definition` stores, and the request's `schema` field is
  * `sha256:` + the hex SHA-256 of its UTF-8 bytes (hashing needs WebCrypto, so it lives in
- * `platform/ir/`).
+ * `sdk/fingerprint.ts`).
  */
 import { Either } from "effect";
 import { SchemaError } from "../errors.ts";
