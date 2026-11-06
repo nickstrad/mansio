@@ -19,6 +19,8 @@ type queries struct {
 	locate, apiKey, createAPIKey, revokeAPIKey string
 	// The app schema registry (0006, IR-2).
 	registerSchema, getSchema, appRegistered string
+	// Create-on-first-use caps (IR-5).
+	countDatabases string
 	// Tenancy and auth (0007, IR-4a).
 	tenancyCreateTenant, tenancyListTenants, tenancyGetTenant, tenancyDeactivateTenant, tenancyCreateKey, tenancyRevokeKey,
 	tenancyKeyByID, tenancyKeyByLegacyHash, tenancyCreateUser, tenancyPassword, tenancyCreateSession, tenancySessionTenant,
@@ -56,6 +58,7 @@ var q = queries{
 	registerSchema: mustQuery("register_schema"),
 	getSchema:      mustQuery("get_schema"),
 	appRegistered:  mustQuery("app_registered"),
+	countDatabases: mustQuery("count_databases"),
 
 	tenancyCreateTenant:     mustQuery("tenancy_create_tenant"),
 	tenancyListTenants:      mustQuery("tenancy_list_tenants"),

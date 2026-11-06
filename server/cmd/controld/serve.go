@@ -30,6 +30,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/parallel"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
@@ -57,6 +58,9 @@ type daemon struct {
 	keys        *keyDir
 	resolveSem  chan struct{}
 	resolveShed atomic.Int64
+
+	// Multi-node tenancy (tenancy.go): nil without a "tenancy" section.
+	tenancy *tenancy.Service
 
 	// The app schema registry (schemas.go).
 	schemas schemaStore
@@ -143,9 +147,17 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		d.close()
 		return nil, err
 	}
+	if d.tenancy, err = newTenancy(cfg, p.Tenancy()); err != nil {
+		d.close()
+		return nil, err
+	}
+	var creds locator.Credentials
+	if d.tenancy != nil {
+		creds = credentials{d.tenancy}
+	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration,
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds,
 		Limiter: ratelimit.NewSourceLimiter(lc.RateLimit.PerSecond, lc.RateLimit.Burst, lc.RateLimit.MaxSources)})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
@@ -202,7 +214,12 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, 
 	reg := metrics.NewRegistry()
 	metrics.Process(reg)
 	d.register(reg)
-	hs := &http.Server{Handler: d.routes(reg), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+	handler, err := d.routes(reg)
+	if err != nil {
+		ln.Close()
+		return rep.Report(err)
+	}
+	hs := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: d.cfg.APITimeout.Duration + 5*time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10,
 		ErrorLog: slog.NewLogLogger(d.log.Handler(), slog.LevelWarn)}
 	errc := make(chan error, 1)

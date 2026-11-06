@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/file"
+	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
 const appToken = "app-token-0123456789"
@@ -146,4 +149,66 @@ func TestCreatingHostCleansUpAFailedOpen(t *testing.T) {
 	if h.next != 0 || h.total != 0 {
 		t.Fatalf("a failed create advanced next=%d total=%d", h.next, h.total)
 	}
+}
+
+// IR-5: tenancy in single-node durable mode. A credential request runs at its database's owner-table epoch;
+// with create_dbs the claim path creates a missing database (placement row, then claim), within the caps;
+// after a restart the same credential reaches the same data (the key reconciles or is claimed again). With
+// placement_pg the section is refused: multi-node authenticates at controld.
+func TestTenancyDurableClaimCreates(t *testing.T) {
+	const notes = `{"notes":{"fields":{"text":{"node":{"kind":"string"}}},"storage":"columns","indexes":[]}}`
+	r := newDurableRig(t, `,"schemas_dir":"schemas","create_dbs":true,"max_dbs_per_tenant":1,`+
+		`"tenancy":{"mode":"off","secrets_file":"tenancy.json"}`)
+	for _, app := range []string{"notes", "other"} {
+		os.MkdirAll(filepath.Join(r.dir, "schemas", app), 0o755)
+		os.WriteFile(filepath.Join(r.dir, "schemas", app, "v1.json"), []byte(notes), 0o644)
+	}
+	sec, _ := json.Marshal(TenancySecrets{AdminToken: "admin-token-0123456789",
+		AppTokens: map[string]string{"notes": appToken, "other": appToken + "-other"}})
+	os.WriteFile(filepath.Join(r.dir, "tenancy.json"), sec, 0o600)
+	fp := schemareg.Fingerprint([]byte(notes))
+	post := func(a *running, token, app, body string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, "http://"+a.addr+"/v1/ops", strings.NewReader(
+			`{"v":1,"db":{"tenant":"forged","app":"`+app+`"},"schema":"`+fp+`",`+body+`}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	const id = "01900000-0000-7000-8000-000000000001"
+	a := r.start(t)
+	waitReady(t, a.life)
+	if code, out := post(a, appToken, "notes", `"kind":"mutation","requestId":"r1","ops":[{"op":"insert","table":"notes","id":"`+id+
+		`","value":{"text":"hi"}}]`); code != 200 {
+		t.Fatalf("first use: %d %s", code, out)
+	}
+	if code, out := post(a, appToken+"-other", "other", `"kind":"query","ops":[{"op":"get","table":"notes","id":"x"}]`); code != 429 ||
+		!strings.Contains(out, "QuotaExceeded") {
+		t.Fatalf("past max_dbs_per_tenant: %d %s", code, out)
+	}
+	pl, err := file.Open(filepath.Join(r.dir, "placement"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := pl.Get(context.Background(), "default:notes"); err != nil || p.Owner != "vm-1" || p.Epoch != 1 {
+		t.Fatalf("placement row: %+v %v", p, err)
+	}
+	if _, err := pl.Get(context.Background(), "default:other"); !errors.Is(err, owner.ErrNotFound) {
+		t.Fatalf("a refused create wrote a row: %v", err)
+	}
+	if code := a.stop(); code != exitOK {
+		t.Fatalf("stop: %d\n%s", code, a.stderr.String())
+	}
+	b := r.start(t)
+	waitReady(t, b.life)
+	waitUntil(t, func() bool {
+		code, out := post(b, appToken, "notes", `"kind":"query","ops":[{"op":"get","table":"notes","id":"`+id+`"}]`)
+		return code == 200 && strings.Contains(out, `"text":"hi"`)
+	})
+
 }

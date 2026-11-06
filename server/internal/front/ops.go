@@ -63,6 +63,11 @@ type OpsConfig struct {
 	// static mode's default_epoch).
 	Credentials     Credentials
 	CredentialEpoch uint64
+	// CredentialPlace, if set, replaces CredentialEpoch: the epoch and generation a credential request for db
+	// runs at (single-node durable mode: the owner table's, claiming or creating db first). It is called after
+	// the credential and the schema are checked. Errors are answered as they are (ErrUnknownDB, ErrUnavailable,
+	// QuotaError, ...).
+	CredentialPlace func(ctx context.Context, db string) (epoch, gen uint64, err error)
 	// Observer, if set, receives every /v1/ops request's trace from the HTTP adapter (opstrace.go).
 	Observer OpsObserver
 }
@@ -71,6 +76,7 @@ type OpsConfig struct {
 type ops struct {
 	creds    Credentials
 	epoch    uint64
+	place    func(ctx context.Context, db string) (uint64, uint64, error)
 	observer OpsObserver
 	schemas  SchemaSource
 	ids      det.IDGen
@@ -85,8 +91,8 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 	if cfg.IDs == nil {
 		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
 	}
-	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0, "front: credentials need an epoch")
-	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
+	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0 || cfg.CredentialPlace != nil, "front: credentials need an epoch")
+	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, place: cfg.CredentialPlace, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
 		cache: docexec.NewSchemas(cfg.SchemaCache)}
 }
 
@@ -243,7 +249,13 @@ func (s *Server) verifyOps(ctx context.Context, in Input, req *ir.Request, kind 
 	if e := CheckDBID(db); e != nil {
 		return ticket.Claims{}, fmt.Errorf("front: the credentials port answered tenant %q, which makes no valid database id (%v)", tenant, e) // its bug: internal
 	}
-	return ticket.Claims{TID: tenant, DBID: db, Epoch: s.ops.epoch, Sub: sub, Perms: ticket.Read | ticket.Write}, nil
+	epoch, gen := s.ops.epoch, uint64(0)
+	if s.ops.place != nil {
+		if epoch, gen, err = s.ops.place(ctx, db); err != nil {
+			return ticket.Claims{}, err
+		}
+	}
+	return ticket.Claims{TID: tenant, DBID: db, Epoch: epoch, Gen: gen, Sub: sub, Perms: ticket.Read | ticket.Write}, nil
 }
 
 // initDB creates a new database's tables from the registered schema req names (docexec.Init). Another

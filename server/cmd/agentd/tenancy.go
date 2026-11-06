@@ -22,6 +22,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/retry"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
@@ -33,8 +34,10 @@ import (
 // mode's keys and sessions), the query listener serves the admin API (/admin/tenants…) and, in session mode,
 // /api/auth sign-up and sign-in (tenancyhttp). Keys, users and sessions live in Postgres (the control plane's
 // schema, migrated here at start in the background: the "tenancy" readiness check passes once it is done).
-// Static mode only: a credential's database is <tenant>:<app> at default_epoch; create_dbs makes those files on
-// first use.
+// Single node only. Static mode: a credential's database is <tenant>:<app> at default_epoch; create_dbs makes
+// those files on first use. Durable mode with placement_dir (IR-5): the database runs at its owner-table epoch;
+// one not held here is claimed first, and with create_dbs one with no placement row is created by the claim
+// path (claimingPlace). With placement_pg the section is refused: controld authenticates and creates.
 
 // TenancyConfig is the "tenancy" section.
 type TenancyConfig struct {
@@ -66,8 +69,8 @@ func checkTenancy(c *Config, bad func(string, ...any)) {
 	if t.SecretsFile == "" {
 		bad("tenancy.secrets_file is required (the admin token, app tokens and Postgres DSN)")
 	}
-	if c.Durable() {
-		bad("tenancy is single-node static mode only (multi-node authenticates at controld's resolve)")
+	if c.Durable() && c.PlacementPG != nil {
+		bad("tenancy with placement_pg: multi-node authenticates at controld's resolve (its tenancy section); agents verify tickets")
 	}
 	if t.CacheTTL.Duration < 0 || t.SessionTTL.Duration < 0 {
 		bad("tenancy: cache_ttl and session_ttl must be >= 0")
@@ -309,4 +312,74 @@ func (a creatingAdmitter) Admit(db string, epoch uint64) (func(), error) {
 		return func() {}, nil
 	}
 	return a.Admitter.Admit(db, epoch)
+}
+
+// claimingPlace is single-node durable tenancy's front.OpsConfig.CredentialPlace: a credential request runs at
+// its database's owner-table epoch. A database not active here is claimed first (the single node's own control
+// plane: its placement row names this vm, e.g. after dbtool import -placement-dir, or after a restart's
+// reconcile left it unclaimed); with create_dbs, one that has no placement row is created first, as control.go's
+// claim create (ACTIVE(self, 1, 0)), within max_dbs and max_dbs_per_tenant (the keys this agent's table knows).
+// Claims and creates are serialized (rare, and each is a few authority calls); warm requests never lock.
+type claimingPlace struct {
+	d  *durableAgent
+	mu sync.Mutex
+}
+
+func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, error) {
+	if l := p.d.tab.State(db); l.State == owner.Active {
+		return uint64(l.Epoch), uint64(l.Gen), nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if l := p.d.tab.State(db); l.State == owner.Active {
+		return uint64(l.Epoch), uint64(l.Gen), nil
+	}
+	_, err := p.d.place.Get(ctx, db)
+	switch {
+	case errors.Is(err, owner.ErrNotFound) && !p.d.cfg.CreateDBs:
+		return 0, 0, fmt.Errorf("%w: %s has no placement row and create_dbs is off", front.ErrUnknownDB, db)
+	case errors.Is(err, owner.ErrNotFound):
+		if err := p.create(ctx, db); err != nil {
+			return 0, 0, err
+		}
+	case err != nil:
+		return 0, 0, asUnavailable(err)
+	}
+	l, err := p.d.tab.Claim(ctx, db)
+	switch {
+	case err == nil:
+		return uint64(l.Epoch), uint64(l.Gen), nil
+	case errors.Is(err, owner.ErrWrongOwner):
+		return 0, 0, fmt.Errorf("%w: %w", front.ErrWrongOwner, err)
+	case errors.Is(err, owner.ErrFenced), errors.Is(err, owner.ErrMoving):
+		return 0, 0, fmt.Errorf("%w: %w", front.ErrFenced, err)
+	}
+	return 0, 0, asUnavailable(err)
+}
+
+// create writes db's placement row ACTIVE(self, 1, 0) within the caps. The caps count the keys this agent's
+// owner table knows: single node only (placement_dir), where every database is this agent's.
+//
+//	pre: p.mu held
+func (p *claimingPlace) create(ctx context.Context, db string) error {
+	cfg := p.d.cfg
+	keys := p.d.tab.Keys()
+	tenant := tenantOf(db)
+	n := 0
+	for _, k := range keys {
+		if tenantOf(k) == tenant {
+			n++
+		}
+	}
+	switch {
+	case len(keys) >= cfg.MaxDBs:
+		return &front.QuotaError{Scope: "agent", Limit: cfg.MaxDBs}
+	case n >= cfg.MaxDBsPerTenant:
+		return &front.QuotaError{Scope: "tenant", Limit: cfg.MaxDBsPerTenant}
+	}
+	err := p.d.place.CAS(ctx, db, owner.Place{}, owner.Place{Owner: cfg.VM, Epoch: 1, State: owner.PlaceActive})
+	if errors.Is(err, owner.ErrConflict) {
+		return nil // created meanwhile: the claim reads whatever is there
+	}
+	return asUnavailable(err)
 }

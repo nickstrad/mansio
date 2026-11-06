@@ -310,6 +310,11 @@ export interface LocatorOptions {
   readonly app: string;
   /** Ask controld to create the database on first use. */
   readonly create?: boolean;
+  /**
+   * The edge's base URL (e.g. `https://edge.example:7443`): when set, every request goes there and the
+   * edge routes it by the ticket's vm; otherwise straight to the endpoint the locator answers.
+   */
+  readonly edge?: string;
   /** Scheme for endpoints answered as host:port (default http). */
   readonly scheme?: "http" | "https";
   /** One resolve's deadline, ms (default 3000). */
@@ -377,7 +382,8 @@ export function locatorRouter(options: LocatorOptions): Router {
     if (typeof out.endpoint !== "string" || typeof out.ticket !== "string" || !(ttl > 0)) {
       throw new RouteFailure(TRANSPORT, response.status, "locator answer ok without endpoint, ticket or ttl");
     }
-    const base = out.endpoint.includes("://") ? out.endpoint : `${scheme}://${out.endpoint}`;
+    const base = options.edge ??
+      (out.endpoint.includes("://") ? out.endpoint : `${scheme}://${out.endpoint}`);
     return {
       url: `${base.replace(/\/+$/, "")}/v1/ops`,
       token: out.ticket,

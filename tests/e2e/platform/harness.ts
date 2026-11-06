@@ -635,20 +635,20 @@ const abort = new AbortController();
 let signals = false;
 /**
  * One scenario. `options.go` names why a scenario does not run against the Go backend yet (it is then
- * ignored, with the reason in its title, when `BACKEND=go`).
+ * ignored, with the reason in its title, when `BACKEND=go`); `options.deno` the same for the Deno backend.
  */
 export function test(
   name: string,
   body: () => Effect.Effect<void, unknown, Scope.Scope>,
-  options: { go?: string } = {},
+  options: { go?: string; deno?: string } = {},
 ) {
   if (!signals) {
     for (const signal of ["SIGINT", "SIGTERM"] as const) Deno.addSignalListener(signal, () => abort.abort());
     signals = true;
   }
-  const skip = backend === "go" ? options.go : undefined;
+  const skip = backend === "go" ? options.go : options.deno;
   Deno.test({
-    name: skip ? `${titled(name)} [skipped on go: ${skip}]` : titled(name),
+    name: skip ? `${titled(name)} [skipped on ${backend}: ${skip}]` : titled(name),
     ignore: skip !== undefined,
   }, async () => {
     abort.signal.throwIfAborted();

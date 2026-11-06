@@ -832,3 +832,27 @@ Branch `ir/04a-auth`.
 - **owner:** Reconcile's defense-in-depth Head is folded into the reopen stamp (storage at a higher epoch ⇒ superseded);
   stamp error messages say "cannot stamp". A local ACTIVE record with gen > 0 and no manifest stays Closed.
 - Note: `knowledge/writeback/2026-11-06-pending-and-generation-numbers.md`.
+
+## 2026-11-06 — ir-5a: multi-node IR (API additions)
+
+Branch `ir/05a-multinode`. Details: `docs/knowledge/ir/2026-11-06-ir-5a-multinode.md` (repo root).
+
+- **locator:** port `Credentials` (`Authenticate(ctx, token, app) (tenant, sub, err)`, `Cached(token)`),
+  `Config.Credentials`; `Request.App`; `Request.Tenant` may be "" (the credential's); `ErrCreatable`'s route
+  names the database to create.
+- **tenancy:** `Config.AnyApp`; `Service.Cached(token)`.
+- **placement/pg:** `create_api_key.sql` refuses a deactivated tenant (`tenancy.ErrDeactivated`; the IR-4a
+  TODO); `CountDatabases(ctx, tenant)` (`count_databases.sql`).
+- **controld:** config `tenancy {mode api-key|session, apps, cache_ttl, session_ttl}` (resolve accepts legacy
+  keys and sessions for app resolves; mounts tenancyhttp), `locator.max_dbs` / `max_dbs_per_tenant` (create on
+  first use → 429 `quota_exceeded`); `routes` returns an error.
+- **edge:** forwards `POST /v1/ops` (X-Trace-Id, X-Mansio-Handler), edge-made answers there in the IR envelope.
+- **front:** `OpsConfig.CredentialPlace func(ctx, db) (epoch, gen, err)`.
+- **agentd:** `tenancy` and `create_dbs` allowed in durable mode with `placement_dir` (claim path creates);
+  refused with `placement_pg`.
+- **New:** `internal/linearize` (WGL checker); `cmd/controld` `TestJepsen` (gated `MANSIO_JEPSEN=1`),
+  `TestTenancyResolveGate`, `TestImportAdoptGate`; the gate `cluster` gained fixed agent listeners, proxied
+  addresses and `schemas`.
+- Finding: kill -9 + restart loses acknowledged writes inside the write-back window (by design, RPO).
+- Known flake (pre-existing): `TestGate` under full-package load can get 500 on concurrent first creates of a
+  new tenant (`databases_one_default`, ErrInvariant; create_database.sql says retrying is safe).

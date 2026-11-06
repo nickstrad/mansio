@@ -6,7 +6,8 @@
 # starts no Compose project), cross-compiles agentd for Linux on the host (AGENTD_BIN; the container has no Go),
 # and runs the suite in denoland/deno:2.9.5 with the checkout and its git directory mounted at their host paths
 # (main.ts checks `git status` before and after). For go it also cross-compiles dbtool (DBTOOL_BIN) and starts
-# a SeaweedFS sibling (E2E_S3_*) for the durable agents of backup_restore (tests/e2e/platform/durable.ts).
+# a SeaweedFS sibling (E2E_S3_*) for the durable agents of backup_restore (tests/e2e/platform/durable.ts), and
+# controld and the edge (CONTROLD_BIN, EDGE_BIN) for scale_out's cluster (tests/e2e/platform/cluster.ts).
 #
 # usage: work-scripts/bash/e2e-linux.sh deno|go [deno test args, e.g. --filter documents]
 set -eu
@@ -28,8 +29,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 case $(uname -m) in arm64 | aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-(cd "$root/server" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin/agentd" ./cmd/agentd &&
-  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin/dbtool" ./cmd/dbtool)
+(cd "$root/server" && for c in agentd dbtool controld edge; do
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin/$c" ./cmd/$c || exit 1
+done)
 
 docker network create "$net" >/dev/null
 docker run -d --name "$pg" --network "$net" --network-alias pg --tmpfs /var/lib/postgresql/data \
@@ -62,7 +64,8 @@ fi
 # shellcheck disable=SC2086 # $s3env is a list of flags
 docker run --rm --network "$net" -v "$root":"$root" -v "$common":"$common" \
   -v "mansio-nm-$tag":"$root/node_modules" -v mansio-deno-dir:/deno-dir -v "$bin":/e2e-bin \
-  -e DENO_DIR=/deno-dir -e BACKEND="$backend" -e AGENTD_BIN=/e2e-bin/agentd -e DBTOOL_BIN=/e2e-bin/dbtool $s3env \
+  -e DENO_DIR=/deno-dir -e BACKEND="$backend" -e AGENTD_BIN=/e2e-bin/agentd -e DBTOOL_BIN=/e2e-bin/dbtool \
+  -e CONTROLD_BIN=/e2e-bin/controld -e EDGE_BIN=/e2e-bin/edge $s3env \
   -e E2E_POSTGRES_URL=postgres://mansio:mansio@pg:5432/postgres -w "$root" denoland/deno:2.9.5 \
   sh -c 'apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq libsqlite3-0 git procps >/dev/null 2>&1;
     git config --global --add safe.directory "*"; deno task e2e "$@"' sh "$@"

@@ -62,6 +62,15 @@ type cluster struct {
 	controldAddr string
 	extra        string
 	stopCtl      func() // stops controld and waits for it (once)
+
+	// The Jepsen-style run (jepsen_test.go): fixed agent listeners (so a restarted agent comes back where the
+	// proxies point), the addresses controld and the agents are given for each other (faultnet proxies), and
+	// schemas from controld (IR requests). Zero values: the gates' defaults.
+	agentListen map[string][3]string // vm → query, health, admin listen addresses
+	agentSeen   map[string][2]string // vm → the endpoint and lifecycle host:port controld records
+	ctlSeen     string               // controld's address as the agents see it (keys_url, schemas_url)
+	schemas     bool                 // agents fetch app schemas from controld (schemas_url; needs locator)
+	agentExtra  string               // added to each agent's config (",\"key\":value...")
 }
 
 type agentProc struct {
@@ -118,13 +127,25 @@ func (c *cluster) startAgent(vm string) *agentProc {
 	os.WriteFile(filepath.Join(dir, "secrets.json"), sec, 0o600)
 	keys := `"keys_file":"../keys.json"`
 	if c.locator {
-		keys = fmt.Sprintf(`"keys_url":"http://%s/v1/keys","keys_file":"ticket-keys.json","keys_refresh":"200ms","keys_timeout":"150ms","clock_skew":"1s"`, c.controldAddr)
+		ctl := c.controldAddr
+		if c.ctlSeen != "" {
+			ctl = c.ctlSeen
+		}
+		keys = fmt.Sprintf(`"keys_url":"http://%s/v1/keys","keys_file":"ticket-keys.json","keys_refresh":"200ms","keys_timeout":"150ms","clock_skew":"1s"`, ctl)
+		if c.schemas {
+			keys += fmt.Sprintf(`,"schemas_url":"http://%s"`, ctl)
+		}
 	}
-	cfg := fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","admin_listen":"127.0.0.1:0","vm":%q,%s,"log_file":"agentd.log",
+	keys += c.agentExtra
+	listen := [3]string{"127.0.0.1:0", "127.0.0.1:0", "127.0.0.1:0"}
+	if l, ok := c.agentListen[vm]; ok {
+		listen = l
+	}
+	cfg := fmt.Sprintf(`{"listen":%q,"health_listen":%q,"admin_listen":%q,"vm":%q,%s,"log_file":"agentd.log",
 		"s3":{"endpoint":%q,"bucket":"coldload","prefix":%q},
 		"secrets_file":"secrets.json","cache_dir":"cache","owner_dir":"owner","placement_pg":{"schema":%q},
 		"default_timeout":"5s","max_timeout":"10s","lifecycle_timeout":"20s",
-		"maintenance":{"interval":"50ms","write_back_every":"200ms"}}`, vm, keys, c.s3, c.prefix, c.schema)
+		"maintenance":{"interval":"50ms","write_back_every":"200ms"}}`, listen[0], listen[1], listen[2], vm, keys, c.s3, c.prefix, c.schema)
 	os.WriteFile(filepath.Join(dir, "agentd.json"), []byte(cfg), 0o644)
 	addrFile := filepath.Join(dir, "addr")
 	os.Remove(addrFile)
@@ -171,7 +192,11 @@ func (c *cluster) startControld() {
 	var agents []string
 	for _, vm := range []string{"vm-a", "vm-b"} {
 		a := c.agents[vm]
-		agents = append(agents, fmt.Sprintf(`{"vm":%q,"endpoint":%q,"lifecycle":"http://%s"}`, vm, a.query, a.life))
+		endpoint, life := a.query, a.life
+		if seen, ok := c.agentSeen[vm]; ok {
+			endpoint, life = seen[0], seen[1]
+		}
+		agents = append(agents, fmt.Sprintf(`{"vm":%q,"endpoint":%q,"lifecycle":"http://%s"}`, vm, endpoint, life))
 	}
 	sec, _ := json.Marshal(Secrets{PGDSN: c.dsn, ControlToken: controlToken, AdminToken: adminToken, S3AccessKey: "gc", S3SecretKey: "gc-secret-dev",
 		EdgeToken: edgeToken})

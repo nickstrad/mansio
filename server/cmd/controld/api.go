@@ -22,6 +22,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
 // The control API (Authorization: Bearer <admin_token>). Every call runs under api_timeout, at most
@@ -35,14 +36,16 @@ import (
 //	-------------+--------+---------------------------------------------------------------------------
 //	bad_request  | 400    | malformed body, tenant, name or key
 //	too_large    | 413    | a schema registration over its body cap
-//	unauthorized | 401    | missing or wrong admin token; resolve: unknown, malformed or revoked api key
+//	unauthorized | 401    | missing or wrong admin token; resolve: unknown, malformed or revoked credential
 //	forbidden    | 403    | resolve: the api key belongs to another tenant
 //	not_found    | 404    | no such database or vm
 //	suspended    | 409    | resolve: the database is suspended
 //	moving       | 503    | resolve: the database is moving or being created; resolve again after Retry-After
 //	             |        | (the body's retry_after_ms is the precise hint: ~50 ms while a new owner's claim lands)
 //	shed         | 503    | resolve: too many unknown api key ids from this source; retry after Retry-After
-//	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation
+//	conflict     | 409    | not allowed in the database's state, a dropped name, a restore without attestation,
+//	             |        | an api key for a deactivated tenant
+//	quota_exceeded | 429  | resolve: create on first use past locator.max_dbs_per_tenant or max_dbs
 //	no_capacity  | 503    | no live vm under the policy's caps
 //	unavailable  | 503    | Postgres, S3 or an agent cannot do it now; the flow is recorded and resumes; Retry-After
 //	timeout      | 504    | api_timeout passed; the flow is recorded and resumes (call again to follow it)
@@ -52,8 +55,11 @@ const maxBody = 4 << 10
 // maxAgents bounds GET /v1/agents (Release It B6): more VMs than any deployment of this design.
 const maxAgents = 10_000
 
-func (d *daemon) routes(reg *metrics.Registry) http.Handler {
+func (d *daemon) routes(reg *metrics.Registry) (http.Handler, error) {
 	mux := http.NewServeMux()
+	if err := d.tenancyRoutes(mux); err != nil {
+		return nil, err
+	}
 	mux.Handle("GET /metrics", reg.Handler())
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
@@ -136,7 +142,7 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 		}
 		return map[string]any{"code": "ok", "moved": rep.Moved, "skipped": rep.Skipped, "failed": failed}, nil
 	}))
-	return mux
+	return mux, nil
 }
 
 // apiError is an answer other than ok.
@@ -238,6 +244,8 @@ func classify(err error) *apiError {
 		return &apiError{"suspended", http.StatusConflict, "the database is suspended", false}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return &apiError{"timeout", http.StatusGatewayTimeout, "deadline passed; the flow is recorded and resumes; call again to follow it", false}
+	case errors.Is(err, tenancy.ErrDeactivated):
+		return &apiError{"conflict", http.StatusConflict, "the tenant is deactivated", false}
 	case errors.Is(err, owner.ErrInvalid):
 		return &apiError{"bad_request", http.StatusBadRequest, "invalid tenant, name, key or vm", false}
 	case errors.Is(err, owner.ErrNotFound), errors.Is(err, pg.ErrUnknownVM):
@@ -249,6 +257,7 @@ func classify(err error) *apiError {
 	case errors.Is(err, control.ErrNoCapacity):
 		return &apiError{"no_capacity", http.StatusServiceUnavailable, "no live vm under the policy's caps", false}
 	case errors.Is(err, pg.ErrUnavailable), errors.Is(err, agenthttp.ErrUnavailable), errors.Is(err, owner.ErrUnavailable),
+		errors.Is(err, tenancy.ErrUnavailable),
 		errors.Is(err, control.ErrNoAgent), objstore.Classify(err) == objstore.Transient:
 		return &apiError{"unavailable", http.StatusServiceUnavailable, "a dependency cannot do it now; the flow is recorded and resumes: " + err.Error(), false}
 	}

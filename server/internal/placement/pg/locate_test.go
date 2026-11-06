@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
 func TestLocate(t *testing.T) {
@@ -70,6 +72,18 @@ func TestAPIKeyRegistry(t *testing.T) {
 	}
 	if err := p.RevokeAPIKey(ctx, "ffffffffffffffff"); !errors.Is(err, owner.ErrNotFound) {
 		t.Fatalf("revoke missing key: %v", err)
+	}
+
+	// A deactivated tenant gets no new key (IR-5; tenancy_create_key.sql has the same rule).
+	if _, err := p.Tenancy().DeactivateTenant(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	k2 := APIKey{ID: "fedcba9876543210", Tenant: "acme", Principal: "late", Perms: 3, Hash: [32]byte{4}}
+	if err := p.CreateAPIKey(ctx, k2); !errors.Is(err, tenancy.ErrDeactivated) {
+		t.Fatalf("deactivated tenant: %v", err)
+	}
+	if _, err := p.GetAPIKey(ctx, k2.ID); !errors.Is(err, owner.ErrNotFound) {
+		t.Fatalf("a key was stored for a deactivated tenant: %v", err)
 	}
 }
 
@@ -234,6 +248,29 @@ func TestParsePayload(t *testing.T) {
 		key, epoch, ok := parsePayload(tc.in)
 		if key != tc.key || epoch != tc.epoch || ok != tc.ok {
 			t.Errorf("%q: %q %d %v", tc.in, key, epoch, ok)
+		}
+	}
+}
+
+// Concurrent key creations for one new tenant all succeed (a run that cannot see the concurrently created tenant
+// row is re-run).
+func TestConcurrentAPIKeysForANewTenant(t *testing.T) {
+	p, _ := newPlacement(t, nil)
+	for round := range 5 {
+		var wg sync.WaitGroup
+		errc := make(chan error, 8)
+		for i := range 8 {
+			wg.Go(func() {
+				errc <- p.CreateAPIKey(ctx, APIKey{ID: fmt.Sprintf("%08x%08x", round, i), Tenant: fmt.Sprintf("newt%d", round),
+					Principal: "p", Perms: 3, Hash: [32]byte{byte(i)}})
+			})
+		}
+		wg.Wait()
+		close(errc)
+		for err := range errc {
+			if err != nil {
+				t.Fatalf("round %d: %v", round, err)
+			}
 		}
 	}
 }

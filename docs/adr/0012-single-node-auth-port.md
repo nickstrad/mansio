@@ -69,8 +69,14 @@
 
 - Revocation is seen at once by the process that made it (local changes clear the credential cache) and within
   `cache_ttl` (1 s) by any other process sharing the store.
-- Tenancy is static-mode only for now (`create_dbs` creates `<tenant>:<app>.db` on first use at
-  `default_epoch`); durable single-node mode would need the claim path to create databases (IR-5).
+- Tenancy was static-mode only at first (`create_dbs` creates `<tenant>:<app>.db` on first use at
+  `default_epoch`). IR-5a: durable single-node mode (`placement_dir`) runs a credential at its owner-table
+  epoch and the claim path creates databases; with `placement_pg`, agents only verify tickets.
+- **Multi-node (IR-5a):** controld authenticates at resolve with the same `internal/tenancy` service (new and
+  legacy keys, sessions) and issues the ticket; the tenant always comes from the credential. A legacy key or a
+  session reaches, by an app resolve, any database `tenant:<name>` of its own tenant, including raw databases
+  an operator made with `POST /v1/databases` under a name that is not an app (ADR 0011: apps and raw names
+  share one namespace per tenant). That is the tenant's own data, never another tenant's.
 - Not ported: Better Auth's other endpoints (sign-out, session refresh/rolling expiry, email verification,
   OAuth), `PATCH /admin/tenants/:id`. Expired sessions are reaped per user at that user's next sign-in.
 - `scripts/auth.ts users link` still writes Postgres directly on Deno; on Go the e2e uses

@@ -32,7 +32,10 @@ type Config struct {
 	// Limiter, if set, is charged Request.Source once for each API key id not in the key cache, before the
 	// store is read: unknown ids are never cached, so without it every garbage key costs a primary read.
 	Limiter *ratelimit.SourceLimiter
-	Clock   det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
+	// Credentials, if set, authenticates app resolves (Request.App) whose bearer is not an API key of this
+	// package's form (legacy keys, sessions). nil: API keys only.
+	Credentials Credentials
+	Clock       det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
 }
 
 func (c *Config) normalize() {
@@ -58,9 +61,14 @@ func (c *Config) normalize() {
 
 // Request is one resolve.
 type Request struct {
+	// Tenant is the database's tenant; "" takes the credential's (the tenant always comes from the credential:
+	// a different one is ErrForbidden).
 	Tenant string
-	Name   string // the database's name inside the tenant; the key is Tenant ":" Name
-	APIKey string
+	Name   string // the database's name inside the tenant; the key is tenant ":" Name
+	// App says Name is an app (the database tenant ":" app, ADR 0011): only then may Config.Credentials
+	// authenticate the bearer.
+	App    bool
+	APIKey string // the bearer: an API key, or (App) any credential Config.Credentials accepts
 	// Source is who sent it (the remote address, host:port; ratelimit.SourceKey keys it): charged by
 	// Config.Limiter.
 	Source string
@@ -140,20 +148,25 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 
 // Resolve authenticates r.APIKey, reads the database's placement and mints a ticket for its owner.
 //
-//	post: err == nil ⇒ the ticket names r.Tenant ":" r.Name, the row's VM, epoch and generation, and the
-//	      key's principal and permissions, and expires TicketTTL from now
-//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound (and ErrCreatable, with r.Create), ErrMoving or
-//	      ErrRateLimited (with a RetryAfter hint), ErrSuspended, the ctx's error, or the store's own error
+//	post: err == nil ⇒ the ticket names tenant ":" r.Name (tenant: r.Tenant, or the credential's when that is
+//	      ""), the row's VM, epoch and generation, and the key's principal and permissions, and expires
+//	      TicketTTL from now
+//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound (and ErrCreatable, with r.Create: the
+//	      route's DB and Tenant then name the database to create), ErrMoving or ErrRateLimited (with a
+//	      RetryAfter hint), ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
 		return Route{}, errs.Wrap(module, err, "cannot resolve %q", key)
 	}
-	k, err := l.authenticate(ctx, r.APIKey, r.Source)
+	k, err := l.authenticate(ctx, r)
 	if err != nil {
 		return fail(err)
 	}
-	if k.Tenant != r.Tenant {
+	switch {
+	case r.Tenant == "":
+		r.Tenant, key = k.Tenant, k.Tenant+":"+r.Name
+	case k.Tenant != r.Tenant:
 		return fail(ErrForbidden)
 	}
 	pl, err := l.locate(ctx, key, r.MinEpoch)
@@ -162,7 +175,8 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	}
 	switch {
 	case !pl.Found && pl.Intent == "" && r.Create && k.Perms&ticket.Write != 0:
-		return fail(creatable{})
+		_, err := fail(creatable{})
+		return Route{DB: key, Tenant: r.Tenant}, err
 	case pl.Intent == control.StateDropping || pl.Intent == control.StateDropped || !pl.Found && pl.Intent == "":
 		return fail(ErrNotFound)
 	case pl.Intent == control.StateSuspended:
@@ -195,10 +209,32 @@ func claimPending(pl Placement) bool {
 	return pl.Intent == control.StateCreating || pl.Intent == control.StateMoving && pl.VM == pl.Target
 }
 
-// authenticate checks an API key: its id names a row, the secret's hash matches in constant time, and it is
+// authenticate checks r's bearer: an API key (authenticateKey), or for an app resolve any credential
+// Config.Credentials accepts, which may read and write. An uncached credential first costs r.Source a token of
+// the Limiter, as an uncached key id does.
+func (l *Locator) authenticate(ctx context.Context, r Request) (StoredKey, error) {
+	if _, _, ok := ParseAPIKey(r.APIKey); ok || l.cfg.Credentials == nil || !r.App {
+		return l.authenticateKey(ctx, r.APIKey, r.Source)
+	}
+	if !l.cfg.Credentials.Cached(r.APIKey) && l.cfg.Limiter != nil {
+		if ok, wait := l.cfg.Limiter.Allow(ratelimit.SourceKey(r.Source), l.cfg.Clock.Now()); !ok {
+			l.mu.Lock()
+			l.stats.RateLimited++
+			l.mu.Unlock()
+			return StoredKey{}, limited{wait}
+		}
+	}
+	tenant, sub, err := l.cfg.Credentials.Authenticate(ctx, r.APIKey, r.Name)
+	if err != nil {
+		return StoredKey{}, err
+	}
+	return StoredKey{Tenant: tenant, Principal: sub, Perms: ticket.Read | ticket.Write}, nil
+}
+
+// authenticateKey checks an API key: its id names a row, the secret's hash matches in constant time, and it is
 // not revoked. Rows are cached for AuthTTL; unknown ids are not, so an id not in the cache first costs src a
 // token of the Limiter (a known id's refresh is free).
-func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey, error) {
+func (l *Locator) authenticateKey(ctx context.Context, raw, src string) (StoredKey, error) {
 	id, hash, ok := ParseAPIKey(raw)
 	if !ok {
 		return StoredKey{}, ErrUnauthorized

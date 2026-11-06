@@ -184,6 +184,8 @@ type backend struct {
 	host     *vactor.Host
 	// backup forces a key's write-back and answers its manifest (POST /admin/backup, backup.go); nil in static mode.
 	backup func(ctx context.Context, key string) (backupAnswer, error)
+	// credentialPlace is durable mode's front.OpsConfig.CredentialPlace (tenancy.go); nil in static mode.
+	credentialPlace func(ctx context.Context, db string) (epoch, gen uint64, err error)
 }
 
 // newAgent wires the pipeline. Databases open (static) or reconcile (durable) in the background once serve
@@ -233,7 +235,8 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 			be.breakers["tenancy"] = ten.breaker
 		}
 	}
-	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache, Credentials: ten.creds, CredentialEpoch: cfg.DefaultEpoch}
+	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache, Credentials: ten.creds, CredentialEpoch: cfg.DefaultEpoch,
+		CredentialPlace: be.credentialPlace}
 	if events != nil {
 		ops.Observer = opsObserver(events, cfg.EventLog.TraceSQL)
 	}

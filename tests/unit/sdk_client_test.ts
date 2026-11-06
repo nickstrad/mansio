@@ -455,6 +455,38 @@ Deno.test("sdk: the locator route re-resolves with min_epoch after wrong_owner a
   ]);
 });
 
+Deno.test("sdk: with an edge, the locator route sends every request to the edge with the ticket", async () => {
+  const model = new Model();
+  model.seed("games", [game("g1", 1)]);
+  const seen: string[] = [];
+  const fetchFn: typeof fetch = ((url: string, init: RequestInit) => {
+    if (url === "http://controld.test/v1/resolve") {
+      return Promise.resolve(Response.json({
+        code: "ok",
+        db: "acme:tic-tac-toe",
+        vm: "vm-a",
+        endpoint: "agent-a.test:7070",
+        epoch: 1,
+        ticket: "ticket-a",
+        ttl_ms: 60_000,
+      }));
+    }
+    seen.push(`${url} ${new Headers(init.headers).get("authorization")}`);
+    return modelFetch(model)(url, init);
+  }) as typeof fetch;
+  const client = createClient({
+    functions,
+    schema,
+    tenant: "acme",
+    app: "tic-tac-toe",
+    locator: { url: "http://controld.test", apiKey: "mansio_k", edge: "https://edge.test/" },
+    fetch: fetchFn,
+    sleep: () => Effect.void,
+  });
+  assert.equal((await Effect.runPromise(client.query("getGame", { gameId: "g1" })))?._id, "g1");
+  assert.deepEqual(seen, ["https://edge.test/v1/ops Bearer ticket-a"]);
+});
+
 Deno.test("sdk: createPromiseClient rejects with the ClientError itself", async () => {
   const model = new Model();
   const client = createPromiseClient({

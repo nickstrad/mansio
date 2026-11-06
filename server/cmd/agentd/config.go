@@ -236,8 +236,8 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.Tenancy != nil {
 		checkTenancy(&c, bad)
 	}
-	if c.CreateDBs && c.Durable() {
-		bad("create_dbs is static mode only")
+	if c.CreateDBs && c.Durable() && c.PlacementPG != nil {
+		bad("create_dbs with placement_pg: creating databases is controld's job (resolve with create on first use)")
 	}
 	if c.CreateDBs && c.SchemasDir == "" {
 		bad("create_dbs needs schemas_dir: a database is only created for a registered schema")

@@ -162,3 +162,16 @@ agent-work/
 agent-work/*
 !agent-work/event-log.md
 !agent-work/events/
+
+# ---------------------------------------------------------------------------
+# Go command binaries built in place (`go build` inside server/cmd/<name>)
+# ---------------------------------------------------------------------------
+server/cmd/*/agentctl
+server/cmd/*/agentd
+server/cmd/*/coldload
+server/cmd/*/controld
+server/cmd/*/dbtool
+server/cmd/*/edge
+server/cmd/*/frontbench
+server/cmd/*/sqlbench
+server/cmd/*/wbbench
