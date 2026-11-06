@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// UnavailableCauses are the dependency sentinels that mean "a dependency cannot serve this request now; nothing
+// unavailableCauses are the dependency sentinels that mean "a dependency cannot serve this request now; nothing
 // ran". The front answers them 503 unavailable + Retry-After and logs them at WARN, sampled — never internal
 // (Release It F2, plan RI-04). Adding a dependency is one line here:
 //
@@ -29,15 +29,15 @@ import (
 //
 // A bare context.DeadlineExceeded is deliberately NOT listed, because it also means "the caller's deadline
 // passed" (expired); vactor wraps its own activation deadline in ErrBusy.
-var UnavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, vactor.ErrInDoubt, durable.ErrUnavailable, pg.ErrUnavailable}
+var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, vactor.ErrInDoubt, durable.ErrUnavailable, pg.ErrUnavailable}
 
-// AsUnavailable wraps err with front.ErrUnavailable when it is one of UnavailableCauses, keeping the chain (and
+// AsUnavailable wraps err with front.ErrUnavailable when it is one of unavailableCauses, keeping the chain (and
 // any retry hint) for the log; any other error is returned unchanged.
 func AsUnavailable(err error) error {
 	if err == nil || errors.Is(err, front.ErrUnavailable) {
 		return err
 	}
-	for _, c := range UnavailableCauses {
+	for _, c := range unavailableCauses {
 		if errors.Is(err, c) {
 			return fmt.Errorf("%w: %w", front.ErrUnavailable, err)
 		}

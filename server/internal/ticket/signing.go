@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // The issuer's side of key rotation (control-plane plan CP-5). The issuer holds a ring of Ed25519 signing
@@ -173,7 +174,7 @@ func Rotate(s KeyStore, signer *Signer, p RotationPolicy, now time.Time) (create
 		r = PlanRotation(ages, now, p)
 	}
 	if err := signer.Set(r.Sign, privs, r.Publish); err != nil {
-		return created, nil, fmt.Errorf("ticket: cannot install the key ring (a bug): %w", err)
+		return created, nil, errs.Wrap("ticket", err, "cannot install the key ring (a bug); the signer keeps its old ring")
 	}
 	for _, kid := range r.Remove {
 		if err := s.Remove(kid); err != nil {
