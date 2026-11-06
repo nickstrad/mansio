@@ -6,11 +6,13 @@
  *   per handler run: a second `get` of the same document answers from the cache.
  * - **Writes are buffered.** `insert` draws a client id (UUIDv7) and answers it at once; `patch` and
  *   `delete` answer nothing. Later reads in the same run see them (read-your-writes): a `get` answers the
- *   local state, and a `find` corrects the server's answer with `sdk/overlay.ts`.
+ *   local state, and a `find` corrects the server's answer with `sdk/overlay.ts` (one query request:
+ *   the widened select plus a `get` of each document the run patched or deleted).
  * - **Preconditions are derived from the reads.** Every document a handler `get` observed on the server
  *   becomes an `assert` at the front of the mutation: `{version: v}` if it existed, `{exists: false}` if
- *   it did not. A `find` is unguarded in v1 (a range assert is v1.1): the documents it returns are not
- *   asserted, so a decision that depends on "no row matches" is not protected.
+ *   it did not. A `find` is unguarded in v1 (a range assert is v1.1): neither its answer nor the documents
+ *   it returns are asserted, so a decision that depends on what a `find` saw ("no row matches") is not
+ *   protected. Use `get` for documents a decision depends on.
  *
  * Asserts go first, before every write, so a conflict on op index `i < asserts` is always one of ours
  * (derived) and the client may re-run the handler; an app-raised `ConflictError` never reaches the
@@ -25,12 +27,13 @@
  * Handlers may run more than once (on a derived conflict), so they must have no effects beyond `db`.
  */
 import { Effect } from "effect";
-import { type DbError, NotFoundError } from "../core/errors.ts";
+import { type DbError, NotFoundError, RuleError } from "../core/errors.ts";
 import { type AssertOp, type GetOp, MAX_OPS, type Op, type SelectOp } from "../core/ir/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
 import type { IdSource } from "./ids.ts";
 import { type Doc, overlay, widenedLimit } from "./overlay.ts";
+import { MAX_LIMIT } from "../core/plan.ts";
 
 /**
  * Sends one query request (1–64 `get`/`select` ops) and answers its results, in op order. A failure is
@@ -98,22 +101,10 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     return entry.base !== undefined || entry.writes[0]?.op === "insert";
   }
 
-  /** Fetches the bases of `entries` that have none, in requests of at most `MAX_OPS` gets. */
-  private fetchBases(entries: Entry[]): Effect.Effect<void> {
-    const missing = entries.filter((entry) => entry.base === undefined);
-    return Effect.gen(this, function* () {
-      for (let i = 0; i < missing.length; i += MAX_OPS) {
-        const chunk = missing.slice(i, i + MAX_OPS);
-        const results = yield* this.reads(chunk.map(({ table, id }) => ({ op: "get", table, id })));
-        chunk.forEach((entry, j) => entry.base = results[j] as Doc | null);
-      }
-    });
-  }
-
   get<K extends keyof S & string>(table: K, id: string): Effect.Effect<Document<S, K> | null, DbError> {
     const entry = this.entry(table, id);
     return Effect.gen(this, function* () {
-      if (!this.known(entry)) yield* this.fetchBases([entry]);
+      if (!this.known(entry)) entry.base = (yield* this.reads([{ op: "get", table, id }]))[0] as Doc | null;
       // Guard what the server told this run, not what the run wrote itself.
       if (entry.base !== undefined && entry.writes[0]?.op !== "insert") entry.guarded = true;
       return (yield* this.view(entry)) as Document<S, K> | null;
@@ -144,20 +135,34 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     return Effect.gen(this, function* () {
       const touched = [...this.entries.values()].filter((e) => e.table === plan.table && e.writes.length > 0);
       if (touched.length === 0) return (yield* this.reads([op]))[0];
-      // Bases for local views (consistent with earlier reads of this run), then, in one snapshot, the
-      // widened select and the touched documents' current server state.
-      yield* this.fetchBases(touched.filter((entry) => !this.known(entry)));
+      // Only patched or deleted documents can displace a server row; an insert's fresh id has none.
+      const displaced = touched.filter((entry) => entry.writes[0].op !== "insert");
+      if (1 + displaced.length > MAX_OPS) {
+        return yield* new RuleError({
+          rule: "ir-op-limit",
+          detail: `find on ${plan.table} after writes to ${displaced.length} of its documents needs ` +
+            `${1 + displaced.length} reads in one request; the IR limit is ${MAX_OPS}`,
+        });
+      }
+      // One snapshot: the widened select and the displaced documents' current server state. A document
+      // this run has not read yet takes that state as its base, so its local view is from the same snapshot.
+      const requested = widenedLimit(op, displaced.length);
+      const [server, ...current] = yield* this.reads([
+        { ...op, limit: requested },
+        ...displaced.map(({ table, id }): GetOp => ({ op: "get", table, id })),
+      ]);
+      displaced.forEach((entry, i) => entry.base ??= current[i] as Doc | null);
       const after = new Map<string, Doc | null>();
       for (const entry of touched) after.set(entry.id, yield* this.view(entry));
-      const gets: GetOp[] = touched.map(({ table, id }) => ({ op: "get", table, id }));
-      const widened = { ...op, limit: widenedLimit(op, touched.length) };
-      const head = gets.slice(0, MAX_OPS - 1);
-      const [server, ...current] = yield* this.reads([widened, ...head]);
-      for (let i = head.length; i < gets.length; i += MAX_OPS) {
-        current.push(...yield* this.reads(gets.slice(i, i + MAX_OPS)));
-      }
-      const before = new Map(touched.map((entry, i) => [entry.id, current[i] as Doc | null]));
-      return overlay(op, server, before, after);
+      const before = new Map(displaced.map((entry, i) => [entry.id, current[i] as Doc | null]));
+      const out = overlay(op, server, requested, before, after);
+      if (out) return out.value;
+      return yield* new RuleError({
+        rule: "find-limit",
+        detail:
+          `find(...).limit(${plan.limit}) on ${plan.table} after writes to ${displaced.length} of its ` +
+          `documents cannot be answered exactly (limit + written documents > ${MAX_LIMIT}); lower the limit`,
+      });
     });
   }
 

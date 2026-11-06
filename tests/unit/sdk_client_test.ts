@@ -521,3 +521,78 @@ Deno.test("sdk: UUIDv7 ids are canonical and ordered, within a millisecond and a
   assert.deepEqual([...ids].sort(), ids);
   assert.equal(new Set(ids).size, ids.length);
 });
+
+Deno.test("sdk: a find whose widened limit hits MAX_LIMIT is exact or refused loudly; > 64 ops fail locally", async () => {
+  const model = new Model();
+  model.seed(
+    "moves",
+    Array.from({ length: 1005 }, (_, i) => ({
+      _id: `d${String(i).padStart(5, "0")}`,
+      _creationTime: 1,
+      _version: 1,
+      gameId: "g",
+      playerId: "p",
+      mark: "X",
+      cell: 0,
+      moveNumber: i,
+    })),
+  );
+  const { mutation } = (await import("../../sdk/functions.ts")).defineFunctions(schema);
+  const client = createClient({
+    functions: {
+      trim: mutation({
+        args: {},
+        handler: ({ db }) =>
+          Effect.gen(function* () {
+            yield* db.delete("moves", "d00000");
+            return (yield* db.find("moves").limit(1000).collect()).map((m) => m._id);
+          }),
+      }),
+      wide: mutation({
+        args: {},
+        handler: ({ db }) =>
+          Effect.gen(function* () {
+            for (let i = 0; i < 10; i++) {
+              yield* db.patch("moves", `d${String(i).padStart(5, "0")}`, { cell: 1 });
+            }
+            return (yield* db.find("moves").sort("moveNumber", "desc").limit(1000).collect()).length;
+          }),
+      }),
+      many: mutation({
+        args: {},
+        handler: ({ db }) =>
+          Effect.gen(function* () {
+            for (let i = 0; i < 65; i++) yield* db.insert("games", game("x", 1) as never);
+          }),
+      }),
+    },
+    schema,
+    tenant: "acme",
+    app: "tic-tac-toe",
+    endpoint: "http://agent.test",
+    token: "t",
+    fetch: modelFetch(model),
+  });
+  // Delete one of 1005, then find().limit(1000): the server can answer at most 1000 rows and there is no
+  // cursor, so the 1000th untouched row is unknown. Refused, never answered short (was 999 rows).
+  const trim = await either(client.mutation("trim", {}));
+  assert.ok(Either.isLeft(trim) && trim.left instanceof RemoteError);
+  assert.deepEqual([trim.left.status, trim.left.remoteTag], [400, "RuleError"]);
+  assert.match(trim.left.message, /cannot be answered exactly/);
+  // Descending with 10 patched: the 1000 highest are untouched rows plus the cap check holds.
+  assert.equal(await Effect.runPromise(client.mutation("wide", {})), 1000);
+  const many = await either(client.mutation("many", {}));
+  assert.ok(Either.isLeft(many) && many.left instanceof RemoteError);
+  assert.deepEqual([many.left.status, many.left.remoteTag], [400, "RuleError"]);
+  assert.match(many.left.message, /65 operations/);
+});
+
+Deno.test("sdk: nothing is sent once the call's deadline has passed", async () => {
+  // The first reading sets the deadline (0 + 10 ms); every later one is past it.
+  let readings = 0;
+  const late = setup(undefined, { now: () => (readings++ === 0 ? 0 : 1_000), timeoutMs: 10 });
+  const result = await either(late.client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));
+  assert.ok(Either.isLeft(result) && result.left instanceof Unavailable);
+  assert.deepEqual([result.left.code, result.left.mayHaveApplied], ["deadline", false]);
+  assert.equal(late.model.log.length, 0);
+});

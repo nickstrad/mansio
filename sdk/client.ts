@@ -18,7 +18,8 @@
  *   reads go out at once, writes are buffered, and on return one mutation request carries the derived
  *   preconditions (`assert` ops, first) and the writes. A `ConflictError` on a derived precondition
  *   re-runs the handler (bounded by `handlerRetries`, with jitter, within the call's deadline), under a
- *   new `requestId` unless the op list is byte-identical to the last attempt's. An app-raised
+ *   new `requestId` (transport retries of one commit keep theirs). A commit holds at most 64 ops
+ *   (derived asserts + writes); more fails locally with `RuleError` `ir-op-limit`. An app-raised
  *   `ConflictError` (e.g. `makeMove`'s `expectedVersion`) fails the handler locally and goes to the
  *   caller; it never reaches the server. **Handlers may run more than once: no side effects beyond
  *   `db`** (no email, no external calls, no clocks or randomness the result depends on).
@@ -44,13 +45,13 @@ import {
   type ClientError,
   type PlatformError,
   RemoteError,
+  RuleError,
   SchemaError,
   toHttpStatus,
   Unavailable,
 } from "../core/errors.ts";
-import { fingerprintText } from "../core/ir/schema.ts";
-import type { Kind as IrKind, Op, Request } from "../core/ir/types.ts";
-import { canonical } from "../core/ir/json.ts";
+import { schemaFingerprint } from "./fingerprint.ts";
+import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
 import { type Reads, Recording } from "./recording.ts";
@@ -67,6 +68,7 @@ import {
 } from "./transport.ts";
 
 export type { TokenSource } from "./transport.ts";
+export { schemaFingerprint } from "./fingerprint.ts";
 
 export interface ClientOptions<F extends Functions> {
   /** The functions object (`defineFunctions(...)` handlers): the client runs them. */
@@ -105,13 +107,6 @@ export interface ClientOptions<F extends Functions> {
   readonly now?: () => number;
   readonly random?: () => number;
   readonly sleep?: (ms: number) => Effect.Effect<void>;
-}
-
-/** `sha256:` + hex SHA-256 of the schema's fingerprint text (`ir/spec/v1.md` §2). */
-export async function schemaFingerprint(schema: Schema): Promise<string> {
-  const bytes = new TextEncoder().encode(fingerprintText(schema));
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** A read failure, carried out of the handler as a defect so `DbError` stays the handler's channel. */
@@ -256,17 +251,23 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
   const mutation = (name: string, args: unknown, call: CallContext) =>
     Effect.gen(function* () {
       const definition = yield* lookup("mutation", name);
-      let previous: { text: string; requestId: string } | undefined;
       for (let run = 0;; run++) {
         const recording = new Recording<Schema>(reads(call), newId, now, true);
         const result = yield* roundTrip(yield* runHandler(definition, recording, args));
         const { ops, asserts } = recording.mutation();
         if (ops.length === 0) return result; // read nothing, wrote nothing: nothing to commit
-        const text = canonical(ops);
-        const requestId = previous?.text === text ? previous.requestId : newRequestId();
-        previous = { text, requestId };
+        if (ops.length > MAX_OPS) {
+          return yield* localFailure(
+            new RuleError({
+              rule: "ir-op-limit",
+              detail: `${name} needs ${ops.length} operations (${asserts} derived asserts + ` +
+                `${ops.length - asserts} writes); one IR mutation holds at most ${MAX_OPS}`,
+            }),
+          );
+        }
+        // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
         const committed = yield* Effect.either(
-          Effect.flatMap(request("mutation", ops, requestId), (req) => send(req, call)),
+          Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
         );
         if (committed._tag === "Right") return result;
         const error = committed.left;
@@ -301,9 +302,6 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       >,
   };
 }
-
-/** Tenant-key spelling of `createClient`; identical. */
-export const createTenantClient = createClient;
 
 /** Runs an effect as a promise that rejects with the `ClientError` itself. */
 async function runPromise<A>(effect: Effect.Effect<A, ClientError>): Promise<A> {

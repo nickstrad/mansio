@@ -16,7 +16,7 @@ import fc from "fast-check";
 import { Effect, Either } from "effect";
 import type { SelectOp } from "../../core/ir/types.ts";
 import type { Filter } from "../../core/plan.ts";
-import { Unavailable } from "../../core/errors.ts";
+import { RuleError, Unavailable } from "../../core/errors.ts";
 import { createClient } from "../../sdk/client.ts";
 import { defineFunctions } from "../../sdk/functions.ts";
 import { defineSchema, defineTable, v } from "../../sdk/schema.ts";
@@ -283,3 +283,104 @@ Deno.test(titled("sdk property: concurrent read-modify-write retries converge un
     { numRuns: 100 },
   );
 });
+
+Deno.test(
+  titled("sdk property: find near MAX_LIMIT after writes is exact or refused, never silently short"),
+  async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 990, max: 1010 }),
+        fc.array(
+          fc.tuple(
+            fc.constantFrom("delete" as const, "patch" as const, "insert" as const),
+            fc.nat(),
+            fc.nat(50),
+          ),
+          { maxLength: 8 },
+        ),
+        fc.integer({ min: 990, max: 1000 }),
+        fc.option(fc.constantFrom("asc" as const, "desc" as const), { nil: undefined }),
+        fc.constantFrom("rows" as const, "count" as const, "countBy" as const),
+        async (size, writes, limit, direction, shape) => {
+          const model = new Model();
+          const ids = Array.from({ length: size }, (_, i) => `d${String(i).padStart(5, "0")}`);
+          model.seed(
+            "items",
+            ids.map((id, i) => ({ _id: id, _creationTime: 1, _version: 1, tag: "a", rank: i, note: null })),
+          );
+          const shadow = model.clone();
+          const select: SelectOp = {
+            op: "select",
+            table: "items",
+            filters: [],
+            limit,
+            ...(direction ? { order: { field: "rank", direction } } : {}),
+            ...(shape === "count"
+              ? { aggregate: { kind: "count" as const } }
+              : shape === "countBy"
+              ? { aggregate: { kind: "countBy" as const, field: "rank" } }
+              : {}),
+          };
+          const displaced = new Set<string>();
+          let answer: unknown;
+          let n = 0;
+          const handler = mutation({
+            args: {},
+            handler: ({ db }) =>
+              Effect.gen(function* () {
+                for (const [kind, pick, rank] of writes) {
+                  const live = [...shadow.table("items").keys()].sort();
+                  if (kind === "insert") {
+                    const id = yield* db.insert("items", { tag: "b", rank, note: null });
+                    shadow.table("items").set(id, {
+                      _id: id,
+                      _creationTime: 1000,
+                      _version: 1,
+                      tag: "b",
+                      rank,
+                      note: null,
+                    });
+                    continue;
+                  }
+                  const id = live[pick % live.length];
+                  if (id.startsWith("d")) displaced.add(id);
+                  if (kind === "delete") {
+                    yield* db.delete("items", id);
+                    shadow.table("items").delete(id);
+                  } else {
+                    yield* db.patch("items", id, { rank });
+                    const doc = shadow.table("items").get(id)!;
+                    shadow.table("items").set(id, { ...doc, rank, _version: doc._version + 1 });
+                  }
+                }
+                answer = yield* Effect.either(find(db, select) as Effect.Effect<unknown, unknown>);
+              }),
+          });
+          const client = createClient({
+            functions: { handler },
+            schema,
+            tenant: "t",
+            app: "a",
+            endpoint: "http://agent.test",
+            token: "t",
+            fetch: modelFetch(model),
+            newId: () => `n${String(++n).padStart(2, "0")}`,
+            now: () => 1000,
+          });
+          await Effect.runPromise(client.mutation("handler", {}));
+          const result = answer as Either.Either<unknown, unknown>;
+          if (Either.isRight(result)) {
+            assert.deepEqual(result.right, evalSelect(shadow.table("items").values(), select));
+          } else {
+            assert.ok(
+              result.left instanceof RuleError && result.left.rule === "find-limit",
+              String(result.left),
+            );
+            assert.ok(limit + displaced.size > 1000, "refused only when the widened limit was capped");
+          }
+        },
+      ),
+      { numRuns: 60 },
+    );
+  },
+);

@@ -210,6 +210,13 @@ export function makeTransport(options: TransportOptions): Send {
           last = { code, status: failure.status, retryAfterMs: hint, message: failure.message };
         } else {
           target = routed.right;
+          // Never send with no time left: nothing has been sent for this attempt, so it cannot have applied.
+          if (now() >= call.deadline) {
+            return yield* unavailable(
+              "deadline",
+              `the call's deadline passed before sending; last ${last?.code ?? "none"}`,
+            );
+          }
           const answer = yield* attempt(target, body, call);
           last = answer;
           hint = answer.retryAfterMs;
