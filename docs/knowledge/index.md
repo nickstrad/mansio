@@ -29,18 +29,32 @@ One folder per part of the system, one dated entry per thread that explained it.
     order, placeholder numbering, per-dialect field access, and refusals.
   - [2026-11-05 SQLite-only simplification](compiler/2026-11-05-sqlite-only-simplification.md): DuckDB app
     queries are dead code; the event log is what keeps DuckDB.
-- [ir/](ir/README.md): the IR protocol (`/v1/ops`), its spec, vectors and reference executor.
+- [ir/](ir/README.md): the IR protocol (`/v1/ops`), its spec and vectors; the Go server runs every execute
+  vector (the TS reference executor was deleted in IR-6,
+  [ADR 0013](../adr/0013-go-server-replaces-deno-platform.md)).
   - [2026-11-06 IR-4a tenancy and auth](ir/2026-11-06-ir-4a-tenancy-auth.md): agentd's auth port, admin and
     sign-in API, Better Auth scrypt, `controld import-mansio`.
   - [2026-11-05 IR-3 SDK](ir/2026-11-05-ir-3-sdk.md): handlers run in the SDK, derived preconditions and
-    handler retry, the Deno `/v1/ops` shim, e2e on `BACKEND=deno|go`.
-  - [2026-11-05 IR-0 reference executor](ir/2026-11-05-ir-0-reference-executor.md): what changes versus
-    today's mutation path, wire-tag reuse, and running SQLite tests from Apple silicon.
+    handler retry, e2e on Go (historical: the Deno `/v1/ops` shim and `BACKEND=deno` went in IR-6).
+  - [2026-11-05 IR-0 reference executor](ir/2026-11-05-ir-0-reference-executor.md) (historical; deleted in
+    IR-6): what changes versus the old mutation path, wire-tag reuse, and running SQLite tests from Apple
+    silicon.
+
+- [scale-out/](scale-out/README.md): what limits mansio past one process and machine, and the options.
+  - [2026-11-05 mansio-server comparison](scale-out/2026-11-05-mansio-server-comparison.md): scaling issues
+    mapped to the Go actor PoC's measurements; handlers-in-transaction is the constraint.
+  - [Go greenfield proposal](../architecture/scale-out-go-greenfield.md): option 4 on mansio-server's actors;
+    gate is the handler engine.
 
 ## Where the project stands
 
-- `docs/plans/ffi-implementation.md` — the FFI statement execution layer: FFI-01 to FFI-08, including FFI-04b,
-  all landed on `main` (FFI-08 merge `0b82504`; the plan record landed at `2d30330`). Decision record:
+- IR plan complete (`docs/plans/ir-protocol.md`): IR-0 to IR-6 and DST-0 to DST-3 landed; the Deno platform is
+  deleted and the Go server (`server/`) is the only backend
+  ([ADR 0013](../adr/0013-go-server-replaces-deno-platform.md)). S3 backup work is paused
+  ([open issues](../../server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md)).
+- `docs/plans/ffi-implementation.md` (historical; the FFI layer was deleted with the platform in IR-6) — the
+  FFI statement execution layer: FFI-01 to FFI-08, including FFI-04b, all landed on `main` (FFI-08 merge
+  `0b82504`; the plan record landed at `2d30330`). Decision record:
   `docs/adr/0008-statement-execution-via-ffi.md`.
 - `pages/` — the architecture diagrams site (PG-01 landed 2026-10-15 as `b789441`; PG-02 landed as `f52c817`,
   completing the proposed dataset and rendering all seven C4 kinds): current and proposed C4 views side by
