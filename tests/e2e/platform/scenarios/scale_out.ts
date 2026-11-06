@@ -108,7 +108,9 @@ test("scale_out", () =>
         const from = (await ownerOf()).vm;
         phase(`move ${move} from ${from}; ${ledger.acked.size} acked`);
         const before = ledger.acked.size;
-        const moved = await cluster.must("POST", `/v1/databases/${encodeURIComponent(key)}/move`, { to: other(from) });
+        const moved = await cluster.must("POST", `/v1/databases/${encodeURIComponent(key)}/move`, {
+          to: other(from),
+        });
         assert.equal(moved.State ?? moved.state, "active", `move ${move}: ${JSON.stringify(moved)}`);
         const now = await ownerOf();
         assert.equal(now.vm, other(from), `move ${move}: owner`);
@@ -123,7 +125,9 @@ test("scale_out", () =>
       assert.deepEqual(ledger.failed, [], "a definite failure during the moves");
       assert.ok(ledger.acked.size >= 20, `only ${ledger.acked.size} writes acknowledged under load`);
       const n = await check(c, ledger, "after the moves");
-      console.log(`scale_out: moves: ${ledger.acked.size} acked, ${ledger.ambiguous.size} in doubt, ${n} stored`);
+      console.log(
+        `scale_out: moves: ${ledger.acked.size} acked, ${ledger.ambiguous.size} in doubt, ${n} stored`,
+      );
     });
 
     // 2. The locator down: running traffic goes on (cached route, ticket, edge registry, keys).

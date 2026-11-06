@@ -60,14 +60,21 @@ async function waitOk(url: string, what: string, ms = 30_000) {
 /** One managed process of the cluster: started in the caller's scope, stoppable and killable early. */
 function daemon(name: string, bin: string, args: string[], dir: string, log: string) {
   return Effect.gen(function* () {
-    const child = yield* processResource(args, cleanEnv(), { command: bin, trackRoot: root(), preserve: true, cwd: dir });
+    const child = yield* processResource(args, cleanEnv(), {
+      command: bin,
+      trackRoot: root(),
+      preserve: true,
+      cwd: dir,
+    });
     const output = child.output();
     let exited = false;
     void child.status.then(() => void (exited = true));
     const diagnostics = async () => {
       const out = await output;
       const text = await Deno.readTextFile(log).catch(() => "");
-      return `${name} exit ${out.code}: ${new TextDecoder().decode(out.stderr).slice(-2000)}${text.slice(-4000)}`;
+      return `${name} exit ${out.code}: ${new TextDecoder().decode(out.stderr).slice(-2000)}${
+        text.slice(-4000)
+      }`;
     };
     yield* Effect.addFinalizer((exit) =>
       Effect.promise(async () => {
@@ -236,7 +243,9 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
         yield* Effect.promise(() => waitOk(`${api}/readyz`, "controld"));
         yield* Effect.promise(async () => { // the placement listener: the locator's cache is in use
           const deadline = Date.now() + 15_000;
-          while (!/^controld_locator_listening 1$/m.test(await fetch(`${api}/metrics`).then((r) => r.text()))) {
+          while (
+            !/^controld_locator_listening 1$/m.test(await fetch(`${api}/metrics`).then((r) => r.text()))
+          ) {
             assert.ok(Date.now() < deadline, "controld's placement listener never connected");
             await new Promise((r) => setTimeout(r, 50));
           }
@@ -256,7 +265,13 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
           keys_file: "edge-ticket-keys.json",
           keys_refresh: "500ms",
           keys_timeout: "400ms",
-          registry: { url: `${api}/v1/agents`, token_file: "edge-token", refresh: "300ms", timeout: "250ms", agent_scheme: "http" },
+          registry: {
+            url: `${api}/v1/agents`,
+            token_file: "edge-token",
+            refresh: "300ms",
+            timeout: "250ms",
+            agent_scheme: "http",
+          },
           rate_limit: { verifies_per_second: 1000, burst: 1000 },
           default_timeout: "5s",
           max_timeout: "30s",
@@ -331,10 +346,13 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
       },
       /** Writes `key` back on its owner now (`POST /admin/backup`): the generation S3 holds. */
       backup: async (vm: VM, key: string) => {
-        const response = await fetch(`http://${agents.get(vm)!.admin}/admin/backup?key=${encodeURIComponent(key)}`, {
-          method: "POST",
-          signal: AbortSignal.timeout(20_000),
-        });
+        const response = await fetch(
+          `http://${agents.get(vm)!.admin}/admin/backup?key=${encodeURIComponent(key)}`,
+          {
+            method: "POST",
+            signal: AbortSignal.timeout(20_000),
+          },
+        );
         const out = await response.json();
         assert.equal(response.status, 200, `backup ${key} on ${vm}: ${JSON.stringify(out)}`);
         return out;
