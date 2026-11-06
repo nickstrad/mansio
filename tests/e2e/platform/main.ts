@@ -43,8 +43,13 @@ const onGo = [
   "admin_lifecycle",
   "backup_restore",
   "log_analysis",
+  "scale_out",
 ];
-const skipped = backend === "go" ? order.filter((name) => !onGo.includes(name)) : [];
+/** Scenarios that run on the Go backend only (multi-node: controld, the edge, several agents). */
+const goOnly = ["scale_out"];
+const skipped = backend === "go"
+  ? order.filter((name) => !onGo.includes(name))
+  : order.filter((name) => goOnly.includes(name));
 function forwarded(keys: string[]): Record<string, string> {
   return Object.fromEntries(keys.flatMap((key) => {
     const value = Deno.env.get(key);
@@ -106,6 +111,8 @@ try {
           // Durability on Go (durable.ts): dbtool and the S3 the durable agents use.
           ...forwarded([
             "DBTOOL_BIN",
+            "CONTROLD_BIN",
+            "EDGE_BIN",
             "E2E_S3_ENDPOINT",
             "E2E_S3_BUCKET",
             "E2E_S3_ACCESS_KEY",

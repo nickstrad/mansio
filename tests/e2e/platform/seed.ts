@@ -10,6 +10,7 @@ export const scenarios = [
   "auth",
   "log_analysis",
   "admin_lifecycle",
+  "scale_out",
 ] as const;
 export const order = fc.sample(
   fc.shuffledSubarray([...scenarios], {
