@@ -5,6 +5,8 @@ go 1.26.4
 require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/minio/minio-go/v7 v7.4.1
+	golang.org/x/crypto v0.57.0
+	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.61.1
 )
 
@@ -28,11 +30,9 @@ require (
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
