@@ -57,8 +57,9 @@ type cdbModel struct {
 	marks         map[string]*cmark
 	regOps        []linearize.Op[regIn, regOut]
 	bankOps       []linearize.Op[bankIn, bankOut]
-	crashes       []int64   // the owner's kills (ns since the start): segment boundaries
-	unjudged      time.Time // the earliest owner kill since the last restore
+	crashes       []int64    // the owner's kills (ns since the start): segment boundaries
+	crashStarts   [][]string // per crash: the marks of the generation the next owner started from
+	unjudged      time.Time  // the earliest owner kill since the last restore
 	hasUnjudged   bool
 	durableBefore time.Time
 	gen, epoch    uint64
@@ -365,6 +366,9 @@ func (m *cmodel) restored(key, vm string, epoch owner.Epoch, man durable.Manifes
 		m.violate(key, "the generation %d %s starts from cannot be read: %v", man.Generation, vm, err)
 		return
 	}
+	for len(d.crashStarts) < len(d.crashes) { // the first start after a crash: the next segment's state
+		d.crashStarts = append(d.crashStarts, marks)
+	}
 	m.judge(d, marks, fmt.Sprintf("%s starting at epoch %d from generation %d", vm, epoch, man.Generation), d.hasUnjudged, d.unjudged)
 }
 
@@ -455,6 +459,7 @@ type regIn struct {
 	key   int
 	write bool
 	value int64
+	rid   string // a write's request id (its mark)
 }
 
 type regOut struct{ value int64 }
@@ -488,6 +493,7 @@ type bankIn struct {
 	vFrom, vTo     int64
 	newFrom, newTo int64
 	accounts       []int
+	rid            string // a transfer's request id (its mark)
 }
 
 type bankOut struct{ balances, versions []int64 }
@@ -608,9 +614,14 @@ func (m *cmodel) linearizable(d *cdbModel) {
 		for seg, ops := range segments(all, crashes, func(in regIn) bool { return in.write }) {
 			allowed := map[int64]bool{0: true}
 			if seg > 0 {
-				for _, o := range all {
-					if o.Input.write && o.Call < crashes[seg-1] {
-						allowed[o.Input.value] = true
+				start, ok := startOf(d, seg)
+				if ok { // the register's value in the generation the owner restarted from: its last write there
+					allowed, ops = map[int64]bool{lastIn(all, start, func(in regIn) (string, int64) { return in.rid, in.value }, 0): true}, unapplied(ops, start, func(in regIn) string { return in.rid })
+				} else {
+					for _, o := range all {
+						if o.Input.write && o.Call < crashes[seg-1] {
+							allowed[o.Input.value] = true
+						}
 					}
 				}
 			}
@@ -626,7 +637,21 @@ func (m *cmodel) linearizable(d *cdbModel) {
 		for i := range allowed {
 			allowed[i] = map[account]bool{{balance0, 1}: true}
 		}
-		if seg > 0 {
+		if start, ok := startOf(d, seg); seg > 0 && ok {
+			// Each account's balance and version in the generation the owner restarted from: its last transfer there.
+			ops = unapplied(ops, start, func(in bankIn) string { return in.rid })
+			for i := range allowed {
+				allowed[i] = map[account]bool{lastIn(d.bankOps, start, func(in bankIn) (string, account) {
+					switch i {
+					case in.from:
+						return in.rid, account{in.newFrom, in.vFrom + 1}
+					case in.to:
+						return in.rid, account{in.newTo, in.vTo + 1}
+					}
+					return "", account{}
+				}, account{balance0, 1}): true}
+			}
+		} else if seg > 0 {
 			for _, o := range d.bankOps {
 				if in := o.Input; in.transfer && o.Call < crashes[seg-1] {
 					allowed[in.from][account{in.newFrom, in.vFrom + 1}] = true
@@ -640,6 +665,41 @@ func (m *cmodel) linearizable(d *cdbModel) {
 				len(res.Longest), len(ops), around(ops, res.Longest, showBank))
 		}
 	}
+}
+
+// startOf is the marks of the generation segment seg (> 0) started from: the first owner start after the crash
+// that opened it. ok is false when no owner started before the run ended.
+func startOf(d *cdbModel, seg int) (map[string]int, bool) {
+	if seg == 0 || seg > len(d.crashStarts) {
+		return nil, false
+	}
+	pos := make(map[string]int, len(d.crashStarts[seg-1]))
+	for i, rid := range d.crashStarts[seg-1] {
+		pos[rid] = i
+	}
+	return pos, true
+}
+
+// lastIn is the value of the write (of ops, in start's commit order) applied last in start, or none if no
+// write of ops is there. of names an op's mark ("" for an op that does not write this value) and value.
+func lastIn[I, O, V any](ops []linearize.Op[I, O], start map[string]int, of func(I) (string, V), none V) V {
+	best, v := -1, none
+	for _, o := range ops {
+		rid, val := of(o.Input)
+		if p, ok := start[rid]; rid != "" && ok && p > best {
+			best, v = p, val
+		}
+	}
+	return v
+}
+
+// unapplied drops the writes already in start (carried over from before the crash with an unknown outcome):
+// they are part of the start state, and the request id makes a retry a duplicate, not a second apply.
+func unapplied[I, O any](ops []linearize.Op[I, O], start map[string]int, rid func(I) string) []linearize.Op[I, O] {
+	return slices.DeleteFunc(slices.Clone(ops), func(o linearize.Op[I, O]) bool {
+		_, in := start[rid(o.Input)]
+		return o.Return == linearize.Unknown && rid(o.Input) != "" && in
+	})
 }
 
 // segments splits a history at the crash times (the IR-5a Jepsen run's rule): an operation called and answered

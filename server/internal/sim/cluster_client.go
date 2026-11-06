@@ -304,7 +304,7 @@ func (c *cclient) writeRegister(ctx context.Context) {
 	a := c.send(octx, true, rid, []map[string]any{
 		{"op": "patch", "table": "registers", "id": regID(k), "value": map[string]any{"value": v}}, logOp(rid)})
 	cancel()
-	op := linearize.Op[regIn, regOut]{Call: call, Return: c.now(), Input: regIn{key: k, write: true, value: v}}
+	op := linearize.Op[regIn, regOut]{Call: call, Return: c.now(), Input: regIn{key: k, write: true, value: v, rid: rid}}
 	switch {
 	case a.ok():
 	case a.unknown || c.w.model.uncertain(c.db.key, rid):
@@ -388,6 +388,7 @@ func (c *cclient) transfer(ctx context.Context) {
 	in := bankIn{transfer: true, from: from, to: to, amount: amount, vFrom: seen.versions[0], vTo: seen.versions[1],
 		newFrom: seen.balances[0] - amount, newTo: seen.balances[1] + amount}
 	rid := c.rid()
+	in.rid = rid
 	ops := []map[string]any{
 		{"op": "patch", "table": "accounts", "id": acctID(from), "value": map[string]any{"balance": in.newFrom}, "expect": map[string]any{"version": in.vFrom}},
 		{"op": "patch", "table": "accounts", "id": acctID(to), "value": map[string]any{"balance": in.newTo}, "expect": map[string]any{"version": in.vTo}},
