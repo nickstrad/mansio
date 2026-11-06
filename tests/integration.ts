@@ -36,7 +36,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { Effect, Exit, Layer, type Scope } from "effect";
-import { createClient } from "../sdk/client.ts";
+import { createLegacyClient } from "../sdk/client.ts";
 import type { functions } from "../app/functions.ts";
 import type { ResultOf } from "../sdk/functions.ts";
 import { sha256 } from "../platform/object_store.ts";
@@ -350,7 +350,7 @@ const program = Effect.gen(function* () {
     const { base } = server;
     const games: Record<string, string> = {};
     for (const appId of APP_IDS) {
-      const client = createClient<typeof functions>(base, appId, DEV_TOKEN, nextTraceId);
+      const client = createLegacyClient<typeof functions>(base, appId, DEV_TOKEN, nextTraceId);
       const { gameId } = yield* client.mutation("createGame", { xPlayer: "alice", oPlayer: "bob" });
       games[appId] = gameId;
       let game = yield* client.query("getGame", { gameId });
@@ -380,7 +380,7 @@ const program = Effect.gen(function* () {
       assert.equal(yield* Effect.promise(() => sha256(snapshot)), manifest.sha256);
       snapshots.push(manifest);
     }
-    const client = createClient<typeof functions>(base, "tic-tac-toe-json", DEV_TOKEN, nextTraceId);
+    const client = createLegacyClient<typeof functions>(base, "tic-tac-toe-json", DEV_TOKEN, nextTraceId);
     assert.equal(
       yield* client.query("getGame", { gameId: games["tic-tac-toe"] }),
       null,

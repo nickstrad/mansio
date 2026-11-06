@@ -1,26 +1,28 @@
 import {
   apps,
   assert,
+  backend,
   client,
   Effect,
   players,
   remoteError,
   run,
   scenarioDir,
-  startServer,
+  startBackend,
   tenant,
   test,
 } from "../harness.ts";
 import { database } from "../postgres.ts";
 import { moves } from "../seed.ts";
 
-test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts and auth modes", () =>
+test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts and auth modes (SDK, /v1/ops)", () =>
   Effect.gen(function* () {
     const dir = yield* scenarioDir("documents");
     const url = yield* database("documents");
-    for (const mode of ["off", "api-key"]) {
+    // The Go agent has no tenancy modes yet (IR-4): it runs the off-mode half with minted tickets.
+    for (const mode of backend === "go" ? ["off"] : ["off", "api-key"]) {
       yield* Effect.scoped(Effect.gen(function* () {
-        const server = yield* startServer(`${dir}/${mode}`, url, { TENANCY: mode });
+        const server = yield* startBackend(`${dir}/${mode}`, url, { TENANCY: mode });
         yield* Effect.promise(async () => {
           for (const [index, app] of apps.entries()) {
             // A tenant file has one layout; exercise each app with a fresh tenant.

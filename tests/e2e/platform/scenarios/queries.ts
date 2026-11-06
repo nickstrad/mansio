@@ -1,4 +1,4 @@
-import { apps, assert, client, Effect, play, run, scenarioDir, startServer, test } from "../harness.ts";
+import { apps, assert, client, Effect, play, run, scenarioDir, startBackend, test } from "../harness.ts";
 import { database } from "../postgres.ts";
 import { workloads } from "../seed.ts";
 
@@ -19,11 +19,11 @@ function normalize(rows: readonly Record<string, unknown>[]) {
     .sort((a, b) => String(a.xPlayer).localeCompare(String(b.xPlayer)));
 }
 
-test("e2e/2-queries: status, history and countBy match an independent seeded reference", () =>
+test("e2e/2-queries: status, history and countBy match an independent seeded reference (SDK, /v1/ops)", () =>
   Effect.gen(function* () {
     const dir = yield* scenarioDir("queries");
     const url = yield* database("queries");
-    const server = yield* startServer(dir, url);
+    const server = yield* startBackend(dir, url);
     yield* Effect.promise(async () => {
       const results: unknown[] = [];
       for (const app of apps) {

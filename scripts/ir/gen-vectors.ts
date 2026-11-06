@@ -23,6 +23,11 @@ import { decodeValue } from "../../core/ir/decode.ts";
 import { canonical } from "../../core/ir/json.ts";
 import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
 import { sha256Fingerprint } from "../../platform/ir/executor.ts";
+import type { Request as IrRequest, SelectOp } from "../../core/ir/types.ts";
+import { createClient } from "../../sdk/client.ts";
+import { withStorage } from "../../sdk/schema.ts";
+import { functions as appFunctions } from "../../app/functions.ts";
+import { schema as appSchema } from "../../app/schema.ts";
 
 type J = Record<string, unknown>;
 type ErrorExpect = { tag: string; status: number; op?: number; fields?: J };
@@ -1503,7 +1508,15 @@ function compileFile(): VectorFile {
 // ---------------------------------------------------------------------------
 
 type Step = { clock?: number; serverIds?: string[]; request: J; expect: J };
-type Scenario = { name: string; why: string; seed?: J; steps: Step[]; final?: J };
+type Scenario = {
+  name: string;
+  why: string;
+  seed?: J;
+  steps: Step[];
+  final?: J;
+  /** The scenario's own schema (registered form) per layout; default the vector schema. */
+  schema?: (storage: Storage) => J;
+};
 
 const m = (ops: unknown[], requestId = "r1"): J => ({
   v: 1,
@@ -2296,12 +2309,179 @@ function finalOf(final: J): J {
   return tables;
 }
 
+// ---------------------------------------------------------------------------
+// execute.json: SDK-generated scenarios (IR-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Requests the SDK's recording executor (`sdk/client.ts`) sends for the sample app's handlers: the
+ * handler runs here against `seed` (its reads answered by a minimal evaluator: `get`, and `select` with
+ * `eq` filters in `_id` order, all the sample app uses), and every request it sends becomes a step. The
+ * query steps expect what the handler was answered; the commit's result and the final rows are written by
+ * hand below. Both runners then check, on real SQLite and on agentd's docexec, that what the SDK sends is
+ * accepted and does what the handler meant.
+ */
+async function recordSdk(
+  seed: Record<string, J[]>,
+  calls: { name: string; args: J }[],
+  ids: string[],
+): Promise<IrRequest[]> {
+  const sent: IrRequest[] = [];
+  const answer = (request: IrRequest): unknown[] =>
+    request.ops.map((op) => {
+      const rows = seed[op.table] ?? [];
+      if (op.op === "get") return rows.find((d) => d._id === op.id) ?? null;
+      const select = op as SelectOp;
+      return rows
+        .filter((d) => select.filters.every((f) => f.op === "eq" && (d[f.field] ?? null) === f.value))
+        .sort((a, b) => String(a._id) < String(b._id) ? -1 : 1)
+        .slice(0, select.limit);
+    });
+  let next = 0;
+  const client = createClient({
+    functions: appFunctions,
+    schema: appSchema,
+    tenant: "acme",
+    app: "tic-tac-toe",
+    transport: (request) =>
+      Effect.sync(() => {
+        sent.push({ ...request, schema: FP });
+        return { result: request.kind === "query" ? answer(request) : [] };
+      }),
+    newId: () => ids[next++],
+    newRequestId: () => `sdk-r${sent.filter((r) => r.kind === "mutation").length + 1}`,
+    now: () => 1000,
+  });
+  for (const call of calls) {
+    const name = call.name as keyof typeof appFunctions;
+    const run: Effect.Effect<unknown, unknown> = appFunctions[name].kind === "query"
+      ? client.query(name as "getGame", call.args as never)
+      : client.mutation(name as "createGame", call.args as never);
+    await Effect.runPromise(Effect.either(run));
+  }
+  return sent;
+}
+
+const tttSchema = (storage: Storage) => JSON.parse(JSON.stringify(withStorage(appSchema, storage))) as J;
+const BOARD = Array(9).fill(null);
+const G1 = {
+  _id: "g1",
+  _creationTime: 500,
+  _version: 1,
+  xPlayer: "ada",
+  oPlayer: "bob",
+  board: BOARD,
+  turn: "X",
+  status: "playing",
+  winner: null,
+};
+const moveDoc = (id: string, gameId: string, cell: number, moveNumber: number, creation = 600): J => ({
+  _id: id,
+  _creationTime: creation,
+  _version: 1,
+  gameId,
+  playerId: moveNumber % 2 ? "ada" : "bob",
+  mark: moveNumber % 2 ? "X" : "O",
+  cell,
+  moveNumber,
+});
+
+async function sdkScenarios(): Promise<Scenario[]> {
+  const steps = (requests: IrRequest[], expects: J[], clocks: number[] = []): Step[] =>
+    requests.map((request, i) => ({
+      clock: clocks[i],
+      request: request as unknown as J,
+      expect: expects[i],
+    }));
+  const created = await recordSdk({}, [{ name: "createGame", args: { xPlayer: "ada", oPlayer: "bob" } }], [
+    U1,
+  ]);
+  const moved = await recordSdk(
+    { games: [G1] },
+    [{ name: "makeMove", args: { gameId: "g1", playerId: "ada", cell: 4, expectedVersion: 1 } }],
+    [U1],
+  );
+  const board4 = BOARD.map((_, i) => i === 4 ? "X" : null);
+  const G1moved = { ...G1, _version: 2, board: board4, turn: "O" };
+  const deleted = await recordSdk(
+    { games: [G1], moves: [moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2), moveDoc("m3", "g2", 1, 1)] },
+    [{ name: "deleteGame", args: { gameId: "g1" } }],
+    [],
+  );
+  const other = m([{ op: "patch", table: "games", id: "g1", value: { turn: "X" } }], "other-r1");
+  return [
+    {
+      name: "sdk: createGame",
+      why: "the SDK's commit for createGame: one insert with a client UUIDv7, no reads, no asserts",
+      schema: tttSchema,
+      steps: steps(created, [res(U1)]),
+      final: {
+        games: [{ ...G1, _id: U1, _creationTime: 1000 }],
+        requests: [{ request_id: "sdk-r1", applied_ms: 1000, result: [U1] }],
+      },
+    },
+    {
+      name: "sdk: makeMove",
+      why: "makeMove's get is a query; the commit asserts the version it read, patches, inserts the move",
+      schema: tttSchema,
+      seed: { games: [G1] },
+      steps: steps(moved, [res(G1), res(null, { _version: 2 }, U1)]),
+      final: {
+        games: [G1moved],
+        moves: [{ ...moveDoc(U1, "g1", 4, 1, 1000) }],
+        requests: [{ request_id: "sdk-r1", applied_ms: 1000, result: [null, { _version: 2 }, U1] }],
+      },
+    },
+    {
+      name: "sdk: makeMove after a concurrent write conflicts at the derived assert",
+      why:
+        "the game changed between the SDK's read and its commit: ConflictError at op 0 (derived), nothing applied",
+      schema: tttSchema,
+      seed: { games: [G1] },
+      steps: [
+        steps(moved, [res(G1)])[0],
+        { request: other, expect: res({ _version: 2 }) },
+        steps(moved.slice(1), [
+          conflict({ table: "games", id: "g1", check: "version", expected: 1, actual: 2 }, 0),
+        ])[0],
+      ],
+      final: {
+        games: [{ ...G1, _version: 2 }],
+        requests: [{ request_id: "other-r1", applied_ms: 1000, result: [{ _version: 2 }] }],
+      },
+    },
+    {
+      name: "sdk: deleteGame",
+      why: "deleteGame reads the game (asserted) and its moves (a select: unguarded), then deletes them",
+      schema: tttSchema,
+      seed: {
+        games: [G1],
+        moves: [moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2), moveDoc("m3", "g2", 1, 1)],
+      },
+      steps: steps(deleted, [
+        res(G1),
+        res([moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
+        res(null, { deleted: true }, { deleted: true }, { deleted: true }),
+      ]),
+      final: {
+        moves: [moveDoc("m3", "g2", 1, 1)],
+        requests: [{
+          request_id: "sdk-r1",
+          applied_ms: 1000,
+          result: [null, { deleted: true }, { deleted: true }, { deleted: true }],
+        }],
+      },
+    },
+  ];
+}
+
 async function executeFile(): Promise<VectorFile> {
   const vectors: J[] = [];
+  const scenarios = [...SCENARIOS, ...await sdkScenarios()];
   for (const storage of ["columns", "json"] as const) {
-    const json = schemaJson(storage);
-    const fingerprint = await Effect.runPromise(sha256Fingerprint(fingerprintText(schemaOf(json))));
-    for (const c of SCENARIOS) {
+    for (const c of scenarios) {
+      const json = c.schema ? c.schema(storage) : schemaJson(storage);
+      const fingerprint = await Effect.runPromise(sha256Fingerprint(fingerprintText(schemaOf(json))));
       const steps = c.steps.map((step) => ({
         clock: step.clock ?? 1000,
         serverIds: step.serverIds ?? [],

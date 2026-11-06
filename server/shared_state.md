@@ -730,3 +730,22 @@ Branch `dst/1-single-node` (rebased on main 12047d4).
   newer acknowledged writes. Repro: `MANSIO_SIM_ZOMBIES=1 MANSIO_SIM_SEED=180 go test ./internal/sim -run
   TestSeeds -v`. Suggested fix: re-stamp on reopen, or reopen at a new epoch.
 - **Before DST-2:** lift `cmd/agentd/glue.go` + `unavailable.go` into a package shared with `internal/sim`.
+
+## 2026-11-05 — ir-3: the TS SDK on `/v1/ops` (no Go changes)
+
+Branch `ir/03-sdk`. Details: `docs/knowledge/ir/2026-11-05-ir-3-sdk.md` (repo root).
+
+- The SDK (`sdk/client.ts`) now sends IR to agentd: mutations are `[assert…(derived from the handler's gets), writes…]`
+  with client UUIDv7 insert ids and a fresh `requestId` per handler run (same body, same id on transport retries);
+  queries are 1–64 `get`/`select`. A `ConflictError` with `op < asserts` (or `check: "exists"` on an insert) makes
+  the SDK re-run the handler. Keep `op` and `fields.check` on `ConflictError` stable.
+- Client behavior mirrors `internal/client`: retries `shed`/`unavailable`/`aborted`/`expired` (Retry-After,
+  windowed budget), reroutes `wrong_owner`/`fenced` (`min_epoch`), `ticket_invalid`, no answer; locator body
+  `{"tenant","app"[,"create"][,"min_epoch"]}`.
+- e2e: `BACKEND=go` boots `cmd/agentd` in static mode per scenario (TS-minted tickets via `sdk/ticket.ts`, a byte-
+  identical port of `ticket.Mint`). `work-scripts/bash/e2e-linux.sh go` cross-compiles agentd for Linux.
+- `ir/vectors/execute.json` gained 8 SDK-generated vectors (`sdk: …`, on the tic-tac-toe schema): green in
+  `TestExecuteVectors`.
+- For IR-4: the e2e scenarios `auth`, `tenant_isolation`, `admin_lifecycle`, `backup_restore`, `log_analysis` are
+  skipped on Go (`{ go: "<reason>" }` in each scenario's `test(...)`); port them by removing the option and giving
+  `startGoAgent` the needed config.

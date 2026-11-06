@@ -173,22 +173,31 @@ export const functions = {
 };
 ```
 
-The typed client infers names, argument types and results from a type-only handler import. Calls return
-Effects; run them at your program's boundary. Run this module with `deno run --allow-net --allow-env` after
-the next section starts the server. It creates and reads a game, then deliberately exercises a rule failure.
-`Effect.catchTag` handles the client's typed `RemoteError`; inspect `remoteTag` for the server error tag.
-Network failures and the client's 30-second timeout are defects, not `RemoteError`.
+The typed client takes the functions object and the schema as values: it runs each handler in your process and
+sends the handler's reads and its one atomic commit to the server (`POST /apps/:app/v1/ops` on this server,
+the IR protocol). Calls return Effects; run them at your program's boundary. Run this module with
+`deno run --allow-net --allow-env` after the next section starts the server. It creates and reads a game, then
+deliberately exercises a rule failure. `Effect.catchTag` handles the client's typed `RemoteError`; inspect
+`remoteTag` for the error tag. A server that cannot be reached, or keeps answering "retry later" past the
+retry budget, fails with `Unavailable`.
+
+Handlers may run more than once: when another writer changes a document a mutation handler read, the client
+re-runs the handler on fresh reads. Keep handlers free of side effects beyond `db`.
 
 ```ts
 import { Effect } from "effect";
 import { createClient } from "./sdk/client.ts";
-import type { functions } from "./app/functions.ts";
+import { functions } from "./app/functions.ts";
+import { schema } from "./app/schema.ts";
 
-const client = createClient<typeof functions>(
-  `http://127.0.0.1:${Deno.env.get("PORT") ?? "8000"}`,
-  "tic-tac-toe",
-  Deno.env.get("COLUMN_APP_TOKEN") || "dev-only",
-);
+const client = createClient({
+  functions,
+  schema,
+  tenant: "local",
+  app: "tic-tac-toe",
+  endpoint: `http://127.0.0.1:${Deno.env.get("PORT") ?? "8000"}/apps/tic-tac-toe`,
+  token: Deno.env.get("COLUMN_APP_TOKEN") || "dev-only",
+});
 const program = Effect.gen(function* () {
   const { gameId } = yield* client.mutation("createGame", {
     xPlayer: "alice",

@@ -187,34 +187,56 @@ application values are included only when `LOG_INCLUDE_BIND_VALUES` is also set.
 
 ## App-facing client
 
-```ts
-import { createClient } from "./sdk/client.ts";
-import type { functions } from "./app/functions.ts";
+Since IR-3 the handlers run **in the caller's process**: the client takes the functions object and the schema
+as values, runs a query or mutation handler locally, and sends its database work to the backend as IR requests
+(`POST /v1/ops`, [`ir/spec/v1.md`](ir/spec/v1.md)).
 
-const client = createClient<typeof functions>(
-  "http://127.0.0.1:8000",
-  "tic-tac-toe",
-  "dev-only",
+```ts
+import { Effect } from "effect";
+import { createClient } from "./sdk/client.ts";
+import { functions } from "./app/functions.ts";
+import { schema } from "./app/schema.ts";
+
+// Single node: the Deno server's shim (app token), or agentd with a ticket (`token` may be a function).
+const client = createClient({
+  functions,
+  schema, // in the database's layout: withStorage(schema, "json") for tic-tac-toe-json
+  tenant: "local",
+  app: "tic-tac-toe",
+  endpoint: "http://127.0.0.1:8000/apps/tic-tac-toe", // agentd: "http://127.0.0.1:7070"
+  token: "dev-only",
+  // Multi-node instead of endpoint/token: locator: { url: "http://controld:7080", apiKey: "mansio_…" },
+});
+const { gameId } = await Effect.runPromise(
+  client.mutation("createGame", { xPlayer: "alice", oPlayer: "bob" }),
 );
-const { gameId } = await client.mutation("createGame", {
-  xPlayer: "alice",
-  oPlayer: "bob",
-});
-const game = await client.query("getGame", { gameId });
-await client.mutation("makeMove", {
-  gameId,
-  playerId: "alice",
-  cell: 0,
-  expectedVersion: game!._version,
-});
-const stats = await client.query("winsByMark", {});
+const game = await Effect.runPromise(client.query("getGame", { gameId }));
+await Effect.runPromise(
+  client.mutation("makeMove", { gameId, playerId: "alice", cell: 0, expectedVersion: game!._version }),
+);
 ```
 
-`import type` does not send server handlers or database libraries to the client. Handler names, argument
-types, and result types are inferred. There is no code-generation step in this small example.
+Call sites keep the shape `client.query(name, args)` / `client.mutation(name, args)`; names, argument and
+result types are inferred from the functions object. `createPromiseClient` takes the same options and returns
+promises.
 
-Every request carries an `X-Trace-Id`: the `traceId` argument to `client.query`/`client.mutation` if given,
-otherwise a generated UUID. See "Trace propagation" below for what the server does with it.
+How a mutation runs: reads go out at once as query requests; writes are buffered (inserts get client-side
+UUIDv7 ids; later reads in the same handler see the buffered writes); when the handler returns, one atomic
+mutation request carries the writes plus **preconditions derived from the reads** (`get` → the version it saw,
+or `exists: false`; a `find` is not guarded in v1). If another writer changed something the handler read, the
+server answers `ConflictError` on a derived precondition and the client **re-runs the handler** (bounded, with
+jitter). So **handlers must have no side effects beyond `db`**: no email, no external calls — they may run
+more than once. One commit holds at most 64 operations (derived asserts + writes), else the call fails locally
+with `RuleError`. App-raised errors (`makeMove`'s own `ConflictError` on a stale `expectedVersion`, a
+`RuleError`) fail the handler locally and reach the caller as `RemoteError` with the status and tag the server
+would have used; transport trouble that outlasts the retry policy and budget is `Unavailable`. Details:
+`sdk/client.ts`, `sdk/recording.ts`, `sdk/transport.ts`.
+
+Every call carries one `X-Trace-Id` on all its requests: the `traceId` argument if given, otherwise a
+generated UUID. See "Trace propagation" below for what the server does with it.
+
+`createLegacyClient(baseURL, appId, token)` is the pre-IR client (handlers run on the Deno server,
+`/apps/:app/:kind/:name`); it stays until the Deno platform is removed (IR-6).
 
 ## Query language and semantics
 

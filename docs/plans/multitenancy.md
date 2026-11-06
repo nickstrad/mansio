@@ -374,6 +374,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
      flood of unauthenticated `x-tenant-id` requests must not fill `LOG_DIR`).
   3. `sdk/client.ts`: document that `token` is now the tenant API key; add
      `createTenantClient(baseURL, appId, apiKey)` as a named alias for discoverability. No wire-format change.
+     (2026-11-06, IR-3: the alias is removed; the IR `createClient` takes the API key as `token`.)
 - **Acceptance criteria:**
   - Tenant A's key reading tenant B's document id returns not-found (indistinguishable from missing) — test
     with two CLI-created tenants.

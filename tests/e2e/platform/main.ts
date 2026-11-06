@@ -28,16 +28,33 @@ const gitStatus = async () => {
   assert.equal(out.code, 0, out.stderr);
   return out.stdout;
 };
-console.log(`order=${order.join(",")} seed=${SEED}`);
+/**
+ * A Postgres the caller already runs (`E2E_POSTGRES_URL`, e.g. `work-scripts/bash/e2e-linux.sh`'s sibling
+ * container): no Compose project is started, and the Docker hermeticity checks are skipped.
+ */
+const external = Deno.env.get("E2E_POSTGRES_URL") || undefined;
+const backend = Deno.env.get("BACKEND") ?? "deno";
+/** Scenarios IR-3 runs on the Go backend; the rest are skipped there with a reason (harness.ts `test`). */
+const onGo = ["documents", "queries"];
+const skipped = backend === "go" ? order.filter((name) => !onGo.includes(name)) : [];
+function forwarded(keys: string[]): Record<string, string> {
+  return Object.fromEntries(keys.flatMap((key) => {
+    const value = Deno.env.get(key);
+    return value === undefined ? [] : [[key, value]];
+  }));
+}
+console.log(`order=${order.join(",")} seed=${SEED} backend=${backend}`);
 console.log(`players=${JSON.stringify(players)} tenant-slugs=${names.slice(2).join(",")}`);
 try {
   beforeStatus = await gitStatus();
   beforePaths = await Promise.all(defaultPaths.map(exists));
-  try {
-    beforeContainers = await docker(["ps", "-a", "-q", "--filter", "name=mansio-e2e-"]);
-    dockerReady = true;
-  } catch (error) {
-    throw new Error(`Docker dependency missing or unhealthy: ${error}`);
+  if (!external) {
+    try {
+      beforeContainers = await docker(["ps", "-a", "-q", "--filter", "name=mansio-e2e-"]);
+      dockerReady = true;
+    } catch (error) {
+      throw new Error(`Docker dependency missing or unhealthy: ${error}`);
+    }
   }
   await Effect.runPromise(
     Effect.scoped(Effect.gen(function* () {
@@ -61,7 +78,7 @@ try {
           }),
       );
       yield* Effect.promise(() => Deno.mkdir(`${temp}/pids`));
-      const url = yield* startPostgres();
+      const url = external ?? (yield* startPostgres());
       const args = Deno.args[0] === "--" ? Deno.args.slice(1) : Deno.args;
       // Reject flags that can silently execute zero scenarios while claiming acceptance.
       assert.ok(
@@ -76,6 +93,8 @@ try {
           E2E_POSTGRES_URL: url,
           PROP_SEED: String(SEED),
           E2E_KEEP: keep ? "1" : "0",
+          // The backend under test and how to get a Go agent (harness.ts `startBackend`).
+          ...forwarded(["BACKEND", "AGENTD_BIN", "GOPATH", "GOCACHE", "GOMODCACHE", "GOFLAGS"]),
         },
         { inherit: true, trackRoot: temp },
       );
@@ -134,6 +153,9 @@ try {
 }
 if (interrupted) failed = true;
 console.log(`E2E duration=${((performance.now() - started) / 1000).toFixed(2)}s`);
-if (failed) console.error(`Replay: PROP_SEED=${SEED} deno task e2e`);
-console.log(`E2E ${failed ? "FAIL" : "PASS"} seed=${SEED} scenarios=7 skipped=none`);
+if (failed) console.error(`Replay: PROP_SEED=${SEED} BACKEND=${backend} deno task e2e`);
+console.log(
+  `E2E ${failed ? "FAIL" : "PASS"} seed=${SEED} backend=${backend} scenarios=${order.length} ` +
+    `skipped=${skipped.length ? skipped.join(",") : "none"}`,
+);
 Deno.exitCode = failed ? 1 : 0;

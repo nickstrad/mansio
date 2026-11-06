@@ -55,6 +55,8 @@ import { authenticateAdmin, withAppAuthentication } from "./auth.ts";
 import { TenantContext } from "../tenants/routing.ts";
 import { parseApiKeyId, parseTenantId } from "../tenants/registry.ts";
 import { currentTraceContext, newSpanId, withChildSpan } from "./trace.ts";
+import { decodeBody } from "../../core/ir/decode.ts";
+import { IrFailure, toWireError } from "../../core/ir/errors.ts";
 
 /** What a handler may read from the request. */
 export interface RequestContext {
@@ -64,6 +66,22 @@ export interface RequestContext {
    * (`SchemaError` → 400). An absent or empty body is `{}`. Reads the stream once; run it once.
    */
   readonly body: Effect.Effect<unknown, RequestTooLarge | SchemaError>;
+  /** The raw body bytes under the route's cap (the ops route decodes these itself). Run it once. */
+  readonly bytes: Effect.Effect<Uint8Array, RequestTooLarge>;
+}
+
+/**
+ * A handler result that is the whole response: `status` and `body` as given, not `{ result }`. The
+ * ops route answers with the IR wire form (`ir/spec/v1.md` §8), which carries `op`, `fields` and
+ * `duplicate`; `tag` names a failure for the `http` event.
+ */
+export class RawReply {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+    readonly tag?: string,
+    readonly headers?: Readonly<Record<string, string>>,
+  ) {}
 }
 
 /** Every service a handler may use. */
@@ -318,4 +336,93 @@ function requiredText(body: Record<string, unknown>, field: string): Effect.Effe
     : Effect.fail(
       new SchemaError({ reason: "type-mismatch", path: field, expected: "nonempty string without NUL" }),
     );
+}
+
+/** The longest `X-Timeout-Ms` accepted (mansio-server: 1 h). */
+const MAX_TIMEOUT_MS = 3_600_000;
+
+/**
+ * `POST /apps/:appId/v1/ops`: one IR request (`ir/spec/v1.md`) on the app's own database — the Deno shim
+ * of IR-3, so the SDK runs against this backend as against agentd's `/v1/ops`.
+ *
+ * Auth is the app route's, before the body is read: an app token with TENANCY=off, a tenant API key or
+ * session otherwise. The credentials decide the database, as on the handler routes: `db.app` must name
+ * this route's app (else `SchemaError` at `db.app`), and `db.tenant` is not used — with TENANCY=off the
+ * app has one file, with tenancy the key's tenant file is the database. Then the body is decoded strictly
+ * (size, UTF-8, JSON, envelope, operations: `core/ir/decode.ts`) and run by `Storage.ir` on the writer.
+ * `X-Timeout-Ms` (1..3 600 000) bounds the wait and the run; past it the answer is `expired` (504), with
+ * `fields.ambiguous: true` for a mutation: the deadline may land after COMMIT, so the client retries with
+ * the same `requestId` (a commit that landed answers `duplicate`). Queries share the writer queue with
+ * mutations (they do not use the reader process), so heavy writes can make them `shed` (503,
+ * `Retry-After: 1`) too; that is the shim's limit until IR-6 removes it.
+ */
+export function ops(context: RequestContext, appId: string): Handler {
+  const reply = (failure: IrFailure) => {
+    const wire = toWireError(failure);
+    return new RawReply(wire.status, wire.body, wire.body.error.tag);
+  };
+  const mansio = (status: number, tag: string, message: string, headers?: Record<string, string>) =>
+    new RawReply(status, { error: { tag, message } }, tag, headers);
+  return inSpan(Effect.gen(function* () {
+    const stack = yield* (yield* AppServices).get(appId);
+    const header = context.headers.get("x-timeout-ms");
+    const timeoutMs = header === null ? undefined : Number(header);
+    if (
+      header !== null &&
+      (!/^\d+$/.test(header) || !Number.isSafeInteger(timeoutMs) || timeoutMs! < 1 ||
+        timeoutMs! > MAX_TIMEOUT_MS)
+    ) {
+      return reply(
+        new IrFailure({
+          cause: new SchemaError({
+            reason: "type-mismatch",
+            path: "header:X-Timeout-Ms",
+            expected: `an integer 1..${MAX_TIMEOUT_MS}`,
+          }),
+        }),
+      );
+    }
+    return yield* withAppAuthentication(
+      context.headers,
+      stack.app,
+      context.bytes,
+      (bytes) =>
+        Effect.gen(function* () {
+          const request = yield* decodeBody(bytes as Uint8Array);
+          if (request.db.app !== appId) {
+            return yield* new IrFailure({
+              cause: new SchemaError({
+                reason: "type-mismatch",
+                path: "db.app",
+                expected: appId,
+                actual: request.db.app,
+              }),
+            });
+          }
+          const run = stack.storage.ir(request);
+          if (timeoutMs === undefined) return new RawReply(200, yield* run);
+          const answered = yield* Effect.timeoutOption(run, timeoutMs);
+          if (answered._tag === "Some") return new RawReply(200, answered.value);
+          // The deadline can land after COMMIT and before the answer: a mutation may have applied.
+          return new RawReply(
+            504,
+            {
+              error: {
+                tag: "expired",
+                message: "the request's deadline passed",
+                ...(request.kind === "mutation" ? { fields: { ambiguous: true } } : {}),
+              },
+            },
+            "expired",
+          );
+        }),
+    ).pipe(
+      Effect.catchTags({
+        IrFailure: (failure) => Effect.succeed(reply(failure)),
+        RequestTooLarge: (cause) => Effect.succeed(reply(new IrFailure({ cause }))),
+        QueueFullError: () =>
+          Effect.succeed(mansio(503, "shed", "the writer queue is full", { "retry-after": "1" })),
+      }),
+    );
+  }));
 }

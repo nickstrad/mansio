@@ -35,6 +35,8 @@ import type {
   UnknownAppError,
 } from "../core/errors.ts";
 import type { EventRecord, Level as EventLevel, Role } from "../core/events.ts";
+import type { IrFailure } from "../core/ir/errors.ts";
+import type { Request as IrRequest, Response as IrResponse } from "../core/ir/types.ts";
 import type { Schema } from "../sdk/schema.ts";
 import type { AnyDefinition, Functions } from "../sdk/functions.ts";
 import type { TenantRegistryService } from "./tenants/registry.ts";
@@ -352,6 +354,12 @@ export interface StorageService {
   ): Effect.Effect<unknown, MutationError | StatementDeadlineError>;
   /** `VACUUM INTO` a standalone, WAL-consistent copy. Serializes with mutations. */
   snapshot(path: string): Effect.Effect<void, StorageError>;
+  /**
+   * Run one decoded IR request (`ir/spec/v1.md`; the `/v1/ops` shim of IR-3) on this writer, in one
+   * transaction through the writer queue: the fingerprint check, then `platform/ir/executor.ts`'s
+   * `runRequest`. Queries run here too (not on the reader), so they serialize with writes.
+   */
+  ir(request: IrRequest): Effect.Effect<IrResponse, IrFailure | QueueFullError | StorageError>;
 }
 
 /**

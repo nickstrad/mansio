@@ -17230,6 +17230,1172 @@
       "finalRequests": []
     },
     {
+      "name": "sdk: createGame [columns]",
+      "why": "the SDK's commit for createGame: one insert with a client UUIDv7, no reads, no asserts",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+      "seed": {},
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "games",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "X",
+                  "status": "playing",
+                  "winner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ]
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b2230313839306135642d616339362d373734622d626363652d623330323039396138303537225d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: makeMove [columns]",
+      "why": "makeMove's get is a query; the commit asserts the version it read, patches, inserts the move",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    "X",
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "O",
+                  "status": "playing",
+                  "winner": null
+                }
+              },
+              {
+                "op": "insert",
+                "table": "moves",
+                "value": {
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              {
+                "_version": 2
+              },
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ]
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 2,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              "X",
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "O",
+            "status": "playing",
+            "winner": null
+          }
+        ],
+        "moves": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 4,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b6e756c6c2c7b225f76657273696f6e223a327d2c2230313839306135642d616339362d373734622d626363652d623330323039396138303537225d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: makeMove after a concurrent write conflicts at the derived assert [columns]",
+      "why": "the game changed between the SDK's read and its commit: ConflictError at op 0 (derived), nothing applied",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "other-r1",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "turn": "X"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_version": 2
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    "X",
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "O",
+                  "status": "playing",
+                  "winner": null
+                }
+              },
+              {
+                "op": "insert",
+                "table": "moves",
+                "value": {
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "games",
+                "id": "g1",
+                "check": "version",
+                "expected": 1,
+                "actual": 2
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 2,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "other-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b7b225f76657273696f6e223a327d5d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: deleteGame [columns]",
+      "why": "deleteGame reads the game (asserted) and its moves (a select: unguarded), then deletes them",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ],
+        "moves": [
+          {
+            "_id": "m1",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 4,
+            "moveNumber": 1
+          },
+          {
+            "_id": "m2",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "bob",
+            "mark": "O",
+            "cell": 0,
+            "moveNumber": 2
+          },
+          {
+            "_id": "m3",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g2",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 1,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "select",
+                "table": "moves",
+                "filters": [
+                  {
+                    "field": "gameId",
+                    "op": "eq",
+                    "value": "g1"
+                  }
+                ],
+                "limit": 9
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              [
+                {
+                  "_id": "m1",
+                  "_creationTime": 600,
+                  "_version": 1,
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                {
+                  "_id": "m2",
+                  "_creationTime": 600,
+                  "_version": 1,
+                  "gameId": "g1",
+                  "playerId": "bob",
+                  "mark": "O",
+                  "cell": 0,
+                  "moveNumber": 2
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:b0c329765e977f59bd599cc357dc84076c89c0a394708c845baee9a3a4f3ecd8",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "delete",
+                "table": "moves",
+                "id": "m1"
+              },
+              {
+                "op": "delete",
+                "table": "moves",
+                "id": "m2"
+              },
+              {
+                "op": "delete",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              {
+                "deleted": true
+              },
+              {
+                "deleted": true
+              },
+              {
+                "deleted": true
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "moves": [
+          {
+            "_id": "m3",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g2",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 1,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b6e756c6c2c7b2264656c65746564223a747275657d2c7b2264656c65746564223a747275657d2c7b2264656c65746564223a747275657d5d"
+        }
+      ]
+    },
+    {
       "name": "insert with a server id [json]",
       "why": "no client id: the server draws one",
       "schema": {
@@ -34454,6 +35620,1172 @@
         ]
       },
       "finalRequests": []
+    },
+    {
+      "name": "sdk: createGame [json]",
+      "why": "the SDK's commit for createGame: one insert with a client UUIDv7, no reads, no asserts",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+      "seed": {},
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "games",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "X",
+                  "status": "playing",
+                  "winner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ]
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b2230313839306135642d616339362d373734622d626363652d623330323039396138303537225d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: makeMove [json]",
+      "why": "makeMove's get is a query; the commit asserts the version it read, patches, inserts the move",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    "X",
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "O",
+                  "status": "playing",
+                  "winner": null
+                }
+              },
+              {
+                "op": "insert",
+                "table": "moves",
+                "value": {
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              {
+                "_version": 2
+              },
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ]
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 2,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              "X",
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "O",
+            "status": "playing",
+            "winner": null
+          }
+        ],
+        "moves": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 4,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b6e756c6c2c7b225f76657273696f6e223a327d2c2230313839306135642d616339362d373734622d626363652d623330323039396138303537225d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: makeMove after a concurrent write conflicts at the derived assert [json]",
+      "why": "the game changed between the SDK's read and its commit: ConflictError at op 0 (derived), nothing applied",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "other-r1",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "turn": "X"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_version": 2
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "games",
+                "id": "g1",
+                "value": {
+                  "xPlayer": "ada",
+                  "oPlayer": "bob",
+                  "board": [
+                    null,
+                    null,
+                    null,
+                    null,
+                    "X",
+                    null,
+                    null,
+                    null,
+                    null
+                  ],
+                  "turn": "O",
+                  "status": "playing",
+                  "winner": null
+                }
+              },
+              {
+                "op": "insert",
+                "table": "moves",
+                "value": {
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "games",
+                "id": "g1",
+                "check": "version",
+                "expected": 1,
+                "actual": 2
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 2,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "other-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b7b225f76657273696f6e223a327d5d"
+        }
+      ]
+    },
+    {
+      "name": "sdk: deleteGame [json]",
+      "why": "deleteGame reads the game (asserted) and its moves (a select: unguarded), then deletes them",
+      "schema": {
+        "games": {
+          "fields": {
+            "xPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "oPlayer": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "board": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "enum",
+                  "values": [
+                    "X",
+                    "O"
+                  ],
+                  "nullable": true
+                },
+                "length": 9
+              }
+            },
+            "turn": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "status": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "playing",
+                  "won",
+                  "draw"
+                ]
+              }
+            },
+            "winner": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ],
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_status",
+              "fields": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "moves": {
+          "fields": {
+            "gameId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "playerId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "mark": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "X",
+                  "O"
+                ]
+              }
+            },
+            "cell": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "moveNumber": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_game",
+              "fields": [
+                "gameId",
+                "moveNumber"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+      "seed": {
+        "games": [
+          {
+            "_id": "g1",
+            "_creationTime": 500,
+            "_version": 1,
+            "xPlayer": "ada",
+            "oPlayer": "bob",
+            "board": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null
+            ],
+            "turn": "X",
+            "status": "playing",
+            "winner": null
+          }
+        ],
+        "moves": [
+          {
+            "_id": "m1",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 4,
+            "moveNumber": 1
+          },
+          {
+            "_id": "m2",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g1",
+            "playerId": "bob",
+            "mark": "O",
+            "cell": 0,
+            "moveNumber": 2
+          },
+          {
+            "_id": "m3",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g2",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 1,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "get",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_id": "g1",
+                "_creationTime": 500,
+                "_version": 1,
+                "xPlayer": "ada",
+                "oPlayer": "bob",
+                "board": [
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null,
+                  null
+                ],
+                "turn": "X",
+                "status": "playing",
+                "winner": null
+              }
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "query",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "select",
+                "table": "moves",
+                "filters": [
+                  {
+                    "field": "gameId",
+                    "op": "eq",
+                    "value": "g1"
+                  }
+                ],
+                "limit": 9
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              [
+                {
+                  "_id": "m1",
+                  "_creationTime": 600,
+                  "_version": 1,
+                  "gameId": "g1",
+                  "playerId": "ada",
+                  "mark": "X",
+                  "cell": 4,
+                  "moveNumber": 1
+                },
+                {
+                  "_id": "m2",
+                  "_creationTime": 600,
+                  "_version": 1,
+                  "gameId": "g1",
+                  "playerId": "bob",
+                  "mark": "O",
+                  "cell": 0,
+                  "moveNumber": 2
+                }
+              ]
+            ]
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "tic-tac-toe"
+            },
+            "kind": "mutation",
+            "requestId": "sdk-r1",
+            "schema": "sha256:a95f0851f04f58c2152dd4b4fb4ffbdcb4755354d44109d702e850e6282b871f",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "games",
+                "id": "g1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "delete",
+                "table": "moves",
+                "id": "m1"
+              },
+              {
+                "op": "delete",
+                "table": "moves",
+                "id": "m2"
+              },
+              {
+                "op": "delete",
+                "table": "games",
+                "id": "g1"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              {
+                "deleted": true
+              },
+              {
+                "deleted": true
+              },
+              {
+                "deleted": true
+              }
+            ]
+          }
+        }
+      ],
+      "final": {
+        "moves": [
+          {
+            "_id": "m3",
+            "_creationTime": 600,
+            "_version": 1,
+            "gameId": "g2",
+            "playerId": "ada",
+            "mark": "X",
+            "cell": 1,
+            "moveNumber": 1
+          }
+        ]
+      },
+      "finalRequests": [
+        {
+          "request_id": "sdk-r1",
+          "applied_ms": 1000,
+          "result_hex": "025b6e756c6c2c7b2264656c65746564223a747275657d2c7b2264656c65746564223a747275657d2c7b2264656c65746564223a747275657d5d"
+        }
+      ]
     }
   ]
 }

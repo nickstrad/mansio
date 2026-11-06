@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Cause, Clock, Effect, Either, Exit } from "effect";
+import { Cause, Clock, Effect, Either, Exit, Layer } from "effect";
 import type { Schema } from "../../core/schema.ts";
 import { compileDDL } from "../../core/compile/ddl.ts";
 import { compileSelect } from "../../core/compile/select.ts";
@@ -26,7 +26,9 @@ import { canonical } from "../../core/ir/json.ts";
 import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
 import { body } from "../../core/ir/semantics.ts";
 import { openIrDatabase, sha256Fingerprint } from "../../platform/ir/executor.ts";
-import { IdGen } from "../../platform/services.ts";
+import { EventSink, IdGen } from "../../platform/services.ts";
+import { ConfigTest } from "../../platform/config.ts";
+import { makeStorage } from "../../platform/sqlite.ts";
 import { Database } from "../../platform/sqlite_ffi/mod.ts";
 import { buildVectors } from "../../scripts/ir/gen-vectors.ts";
 import { corpus } from "../../scripts/ir/gen-compile-corpus.ts";
@@ -253,6 +255,87 @@ Deno.test("ir vectors: execute", async () => {
     }
   }
 });
+
+/**
+ * The same execute vectors through the Deno server's writer (`Storage.ir`, the `/v1/ops` shim of IR-3):
+ * the writer queue, its transaction, its `select` path (statement deadline, U+0000 probe) and its events,
+ * over the same `runRequest`. The request-id table appears with the first IR mutation that commits, so a
+ * file without one has no rows.
+ */
+Deno.test("ir vectors: execute through Storage.ir (the Deno /v1/ops shim)", async () => {
+  for (const v of await load("execute.json")) {
+    const dir = mkdtempSync(join(tmpdir(), "ir-storage-"));
+    const file = join(dir, "db.sqlite");
+    const schema = schemaOf(v.schema, v.name);
+    const ids: string[] = [];
+    let now = 0;
+    const clock: Clock.Clock = {
+      ...fixedClock(0),
+      unsafeCurrentTimeMillis: () => now,
+      unsafeCurrentTimeNanos: () => BigInt(now) * 1_000_000n,
+      currentTimeMillis: Effect.sync(() => now),
+      currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+    };
+    const events: string[] = [];
+    const deps = Layer.mergeAll(
+      Layer.succeed(EventSink, { emit: (event) => Effect.sync(() => void events.push(event.kind)) }),
+      Layer.succeed(IdGen, {
+        next: Effect.sync(() => ids.shift() ?? assert.fail(`${v.name}: server ids exhausted`)),
+      }),
+      ConfigTest(),
+    );
+    try {
+      await Effect.runPromise(
+        Effect.scoped(Effect.gen(function* () {
+          const storage = yield* makeStorage({ file, schema, appId: "vectors" });
+          seed(file, schema, v.seed as Record<string, J[]>);
+          for (const [i, step] of (v.steps as J[]).entries()) {
+            const name = `${v.name} step ${i} (Storage.ir)`;
+            ids.push(...step.serverIds as string[]);
+            now = step.clock as number;
+            const decoded = decodeValue(step.request);
+            const exit = yield* Effect.either(
+              Either.isLeft(decoded) ? Effect.fail(decoded.left) : storage.ir(decoded.right),
+            );
+            const expect = step.expect as J;
+            if (expect.error) {
+              if (Either.isRight(exit)) {
+                assert.fail(`${name}: expected ${JSON.stringify(expect.error)}, got ok`);
+              }
+              assert.ok(exit.left instanceof IrFailure, `${name}: ${String(exit.left)}`);
+              assertError(exit.left, expect.error as J, name);
+            } else assert.deepEqual(JSON.parse(JSON.stringify(right(exit, name))), expect, name);
+            assert.deepEqual(ids, [], `${name}: serverIds not fully consumed`);
+          }
+        })).pipe(Effect.provide(deps), Effect.withClock(clock)),
+      );
+      const want = v.final as Record<string, unknown[]>;
+      const got = dump(file, schema);
+      if (v.finalRequests) {
+        assert.deepEqual(
+          hasRequests(file) ? requests(file) : [],
+          v.finalRequests,
+          `${v.name}: final requests`,
+        );
+      }
+      for (const table of Object.keys(schema)) {
+        assert.deepEqual(got[table], want[table] ?? [], `${v.name}: final ${table} (Storage.ir)`);
+      }
+      assert.ok(events.includes("tx"), `${v.name}: the writer emitted its tx events`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+function hasRequests(file: string): boolean {
+  const db = Database.open(file);
+  try {
+    return db.prepare("select 1 from sqlite_master where name = '_mansio_requests'").get() !== undefined;
+  } finally {
+    db.close();
+  }
+}
 
 Deno.test("ir vectors: committed files match scripts/ir/gen-vectors.ts", async () => {
   const built = await buildVectors();

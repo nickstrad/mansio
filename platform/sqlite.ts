@@ -140,6 +140,9 @@ import {
 } from "./sqlite_ffi/mod.ts";
 import { classify } from "./sqlite_ffi/classify.ts";
 import { Config, EventSink, type EventSinkService, IdGen, Storage, type StorageService } from "./services.ts";
+import { type IrConnection, REQUEST_TABLE_DDL, runRequest } from "./ir/executor.ts";
+import { schemaFingerprint } from "../sdk/fingerprint.ts";
+import { FingerprintMismatch, IrFailure } from "../core/ir/errors.ts";
 
 import { TenantContext, type TenantId, TenantStorageRouter } from "./tenants/routing.ts";
 
@@ -945,7 +948,64 @@ function makeSingleStorage(
         }
       }));
 
+    /**
+     * The IR shim's connection (IR-3): `runRequest`'s statements on this writer, inside `tx`, through the
+     * same `statement` / `select` paths as a handler's — `sql` events, the mutation-context guard, and the
+     * statement deadline for unbounded selects. A guard refusal cannot happen while `tx` runs the
+     * request, so it is a defect here.
+     */
+    const irConnection = (tx: Tx): IrConnection => {
+      const expired = <A, E>(effect: Effect.Effect<A, E | ContextExpiredError>) =>
+        Effect.catchIf(effect, (e): e is ContextExpiredError => e instanceof ContextExpiredError, Effect.die);
+      return {
+        select: (plan) => Effect.suspend(() => (tx.operations++, expired(select(plan, tx)))),
+        write: (kind, table, sql) =>
+          Effect.suspend(() => (tx.operations++, expired(write(kind, table, sql, live(tx))))),
+        requests: (request) =>
+          Effect.suspend(() => {
+            tx.operations++;
+            const sql = request as unknown as SQL; // the result blob is a BindValue the binding takes
+            return sql.text.startsWith("insert")
+              ? statement("insert", "_mansio_requests", sql, (s) => (s.run(sql.values), []), () => 1)
+              : statement("select", "_mansio_requests", sql, (s) =>
+                s.all(sql.values) as Row[], (r) =>
+                r.length);
+          }),
+      };
+    };
+    const irFingerprint = yield* Effect.promise(() => schemaFingerprint(schema));
+    /** `_mansio_requests` exists in this file: set once an IR mutation that ran its DDL committed. */
+    let requestsTable = false;
+
     const service: StorageService = {
+      ir: (request) =>
+        request.schema !== irFingerprint
+          ? Effect.fail(
+            new IrFailure({
+              cause: new FingerprintMismatch({ expected: irFingerprint, actual: request.schema }),
+            }),
+          )
+          : exclusive((queueWaitMs) =>
+            transaction(queueWaitMs, (tx) =>
+              Effect.gen(function* () {
+                const now = yield* clock.currentTimeMillis;
+                // The request-id table is created by the first IR mutation (once per Storage, kept only if
+                // it commits), so files no IR mutation touched keep exactly today's tables.
+                const create = request.kind === "mutation" && !requestsTable;
+                if (create) {
+                  for (const ddl of REQUEST_TABLE_DDL) yield* exec("ddl", "_mansio_requests", ddl);
+                }
+                const response = yield* runRequest(schema, irConnection(tx), request, now).pipe(
+                  Effect.provideService(IdGen, idGen),
+                );
+                return { response, create };
+              })).pipe(
+                Effect.map(({ response, create }) => {
+                  if (create) requestsTable = true; // the transaction committed
+                  return response;
+                }),
+              )
+          ),
       mutation: (definition: AnyDefinition, args: unknown) =>
         definition.kind !== "mutation"
           ? Effect.die(new Error("Expected a mutation"))
@@ -1138,6 +1198,7 @@ export function makeStorage(
         })
       );
     return {
+      ir: (request) => use((storage) => storage.ir(request)),
       mutation: (definition, args) => use((storage) => storage.mutation(definition, args)),
       snapshot: (path) => use((storage) => storage.snapshot(path)),
     };
