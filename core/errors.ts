@@ -136,7 +136,7 @@ export class RuleError extends Data.TaggedError("RuleError")<{
 }> {}
 
 // ---------------------------------------------------------------------------
-// Routing and authentication errors (raised from `platform/http/`)
+// Routing and authentication errors (raised by the HTTP surface; the Deno platform's until IR-6)
 // ---------------------------------------------------------------------------
 
 /** The request path matched no route. */
@@ -398,7 +398,7 @@ export class UnknownAnalysisQuery extends Data.TaggedError("UnknownAnalysisQuery
 
 /**
  * A tenant id that is not a strictly-parsed canonical-lowercase UUID. Raised by
- * `platform/tenants/registry.ts:parseTenantId` (and `parseApiKeyId`) on anything else:
+ * the Deno platform's `parseTenantId` (and `parseApiKeyId`; removed at IR-6) on anything else:
  * uppercase, `urn:uuid:` forms, NUL, whitespace, percent-encoded forms, separators.
  * The brand on `TenantId` guarantees the parse already happened, so this never escapes
  * a parsed id.

@@ -21,15 +21,15 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { Cause, Duration, Effect, Exit, Logger, LogLevel, TestClock, TestContext } from "effect";
 import { type EventRecord, handlerEvent, type Level, lifecycleEvent, type Role } from "../../core/events.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { EventSink, type LoggingConfig } from "../../platform/services.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { EventSink, type LoggingConfig } from "../../eventlog/services.ts";
 import {
   eventSink,
   eventSinkLayer,
   type EventSinkRecordService,
   loggingLayer,
   recordFromLogEntry,
-} from "../../platform/logging/logger.ts";
+} from "../../eventlog/logger.ts";
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -426,7 +426,7 @@ test("drop reports are written even when the level gate would suppress a warning
 test("an unwritable LOG_DIR degrades instead of failing emit or shutdown", async () => {
   await withTempDir(async (dir) => {
     // A regular file where the log root should be: every mkdir under it fails. The one stderr line
-    // this prints is the documented degradation path (platform/logging/logger.ts: noteFailure).
+    // this prints is the documented degradation path (eventlog/logger.ts: noteFailure).
     const blocked = join(dir, "blocked");
     await Deno.writeTextFile(blocked, "not a directory\n");
 

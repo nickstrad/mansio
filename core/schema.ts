@@ -2,7 +2,7 @@
  * Schema descriptors and **total** validation (plan item 04).
  *
  * This module is PURE, per the `core/` rule in `docs/adr/0001-effect-port.md`: it imports `effect`
- * and `./errors.ts`, and nothing else — no `platform/`, no `sdk/`, no `node:*`, no `npm:*`, no
+ * and `./errors.ts`, and nothing else — no `eventlog/`, no `sdk/`, no `node:*`, no `npm:*`, no
  * `Deno.*`. Nothing in here raises. Every rejection is a `SchemaError` in the left channel of an
  * `Either`, carrying the structured `path`/`expected`/`actual` fields rather than a formatted
  * message; rendering a human string is the caller's job (`sdk/schema.ts`'s `formatSchemaError`).

@@ -2,9 +2,9 @@
  * DDL for the append-only DuckDB event log (plan items 21 and 35, §4.1): the typed event tables, the
  * `_ingest_state` offset table and the `_eventlog_schema` version table, as pure strings.
  *
- * This module is PURE: no imports at all. `platform/eventlog/ingest.ts` runs `EVENTLOG_DDL` on every
+ * This module is PURE: no imports at all. `eventlog/ingest.ts` runs `EVENTLOG_DDL` on every
  * connection to the persistent event-log file (`Config.eventLog.duckdbPath`), which is separate from
- * the per-app `:memory:` instances the `Reader` service opens.
+ * anything else.
  *
  * Three kinds of table, with different rules:
  *
@@ -33,7 +33,7 @@
  * A v2 build never reuses a v1 file's tables under the v2 mappings. `EVENTLOG_DDL` starts with two
  * guards that fail the connection — before any statement touches the file — when it holds an
  * unversioned (v1) schema, or a version this build does not know. A v1 file stays exactly as it was
- * until `upgradeEventLog` (`platform/eventlog/tables.ts`) rebuilds it from the retained JSONL and proves
+ * until `upgradeEventLog` (`eventlog/tables.ts`) rebuilds it from the retained JSONL and proves
  * the rebuild holds every v1 event.
  */
 
@@ -152,7 +152,7 @@ export const UNVERSIONED_GUARD = `SELECT CASE
   WHEN EXISTS (SELECT 1 FROM ${OWN_TABLES} AND table_name IN (${V1_TABLES}))
    AND NOT EXISTS (SELECT 1 FROM ${OWN_TABLES} AND table_name = '${SCHEMA_TABLE}')
   THEN error('event-log schema v1 (unversioned) found; this build reads v${EVENTLOG_SCHEMA_VERSION} and never reuses ' ||
-    'v1 tables under v${EVENTLOG_SCHEMA_VERSION} mappings. Run upgradeEventLog (platform/eventlog/tables.ts) to ' ||
+    'v1 tables under v${EVENTLOG_SCHEMA_VERSION} mappings. Run upgradeEventLog (eventlog/tables.ts) to ' ||
     'rebuild it from the retained JSONL; the v1 file is left unchanged (ADR 0006)')
 END AS schema_guard`;
 

@@ -6,7 +6,7 @@
  * or a `SchemaError` (a filter value does not match its node, or a name is not an identifier) in
  * the left channel of an `Either`.
  *
- * The SQL this module emits is byte-for-byte what the pre-port `platform/compiler.ts` emitted, with
+ * The SQL this module emits is byte-for-byte what the pre-port compiler (the Deno platform's `compiler.ts`) emitted, with
  * one intentional exception (plan item 30): SQLite reads a `json`-layout `number` field through
  * `CAST(... AS REAL)` (see `expression`). `deno task explain` regenerating `GENERATED_SQL.txt` is
  * the safety net for the rest. The order in which it checks things is also preserved, so a plan

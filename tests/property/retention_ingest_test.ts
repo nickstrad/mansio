@@ -5,7 +5,7 @@
  * failure, interruption, reader restart and gzip-crash leftovers — against a real `LOG_DIR`, the
  * real `EventLogIngestLive` coordinator (`makeEventLogIngest(...).ingestThenSweep`) and a real DuckDB file.
  *
- * The model is the writers' protocol `platform/logging/file_sink.ts` documents: each writer appends
+ * The model is the writers' protocol `eventlog/file_sink.ts` documents: each writer appends
  * whole lines to its current file, rolls to a fresh `seq` (or, on a day change, a fresh dated
  * directory), and abandons a file after a torn write. A late append to a closed file breaks that
  * protocol on purpose; the gate must still lose nothing. Every case runs one reader "process" at a
@@ -33,8 +33,8 @@ import { gzipSync } from "node:zlib";
 import fc from "fast-check";
 import { Clock, Effect, Exit, Layer, Scope } from "effect";
 import { type EventRecord, lifecycleEvent, toJsonLine } from "../../core/events.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { EventSink } from "../../platform/services.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { EventSink } from "../../eventlog/services.ts";
 import {
   type EventLogConnection,
   type EventLogDriver,
@@ -42,7 +42,7 @@ import {
   type EventLogIngestControl,
   type IngestThenSweepReport,
   makeEventLogIngest,
-} from "../../platform/eventlog/ingest.ts";
+} from "../../eventlog/ingest.ts";
 import { titled } from "./arbitraries.ts";
 
 const CASES = 20;

@@ -1,29 +1,29 @@
 /**
- * `deno task logs:*` — the operator CLI for the event log (plan item 23).
+ * `deno task logs:*` — the operator CLI for the event log (plan item 23): agentd writes the JSONL
+ * (`event_log` in its config, `server/internal/eventlog`); this ingests and analyses it offline.
  *
  *   logs:ingest                                  ingest closed and growing JSONL into the DuckDB event log
  *   logs:query <name> [--param k=v]... [--format table|json|csv]
  *   logs:list                                    the catalog's names and the question each answers
  *   logs:sweep [--dry-run]                       ingest, seal torn tails, then the retention sweep
  *
- * Each command is its own Effect program. `ingest` and `sweep` run on the reader-side root
- * (`platform/reader_layers.ts`: `Config`, the reader's logging sink, `IdGen`) and build the event-log
- * handle in the program's scope; `query` and `list` need only `Config` and the read-only `AnalysisLive`.
- * None of them starts the server or touches the write path.
+ * Each command is its own Effect program. `ingest` and `sweep` run on the CLI root
+ * (`eventlog/root.ts`: `Config` and the CLI's own logging sink) and build the event-log handle in the
+ * program's scope; `query` and `list` need only `Config` and the read-only `AnalysisLive`.
  *
- * The DuckDB file has a single writer: while the reader process (or another `logs:ingest`) holds it,
- * these commands fail with a lock error rather than waiting.
+ * The DuckDB file has a single writer: while another `logs:ingest` holds it, these commands fail with a
+ * lock error rather than waiting.
  *
  * Exit codes: 0 success; 1 an operational failure (`IngestError`, `AnalysisError`, bad arguments);
  * 2 `UnknownAnalysisQuery`, which also lists the valid names.
  */
 import { Cause, Effect, Exit, Option } from "effect";
 import { AnalysisError, UnknownAnalysisQuery } from "../core/errors.ts";
-import { AnalysisLive, CATALOG } from "../platform/analysis/catalog.ts";
-import { ConfigLive } from "../platform/config.ts";
-import { makeEventLogIngest } from "../platform/eventlog/ingest.ts";
-import { ownOpenLogPaths, ReaderRootLive } from "../platform/reader_layers.ts";
-import { Analysis, Config, type Row } from "../platform/services.ts";
+import { AnalysisLive, CATALOG } from "../eventlog/catalog.ts";
+import { ConfigLive } from "../eventlog/config.ts";
+import { makeEventLogIngest } from "../eventlog/ingest.ts";
+import { CliRootLive, ownOpenLogPaths } from "../eventlog/root.ts";
+import { Analysis, Config, type Row } from "../eventlog/services.ts";
 
 // ---------------------------------------------------------------------------
 // Arguments
@@ -144,10 +144,10 @@ const ingest = Effect.scoped(Effect.gen(function* () {
     retention: { openPaths: ownOpenLogPaths(config.logging.dir, Deno.pid) },
   });
   return JSON.stringify(yield* control.ingest, null, 2);
-})).pipe(Effect.provide(ReaderRootLive));
+})).pipe(Effect.provide(CliRootLive));
 
 /**
- * `ingestThenSweep({ dryRun })` — the coordinator in `platform/eventlog/ingest.ts`. With `--dry-run` it
+ * `ingestThenSweep({ dryRun })` — the coordinator in `eventlog/ingest.ts`. With `--dry-run` it
  * plans the sweep from the already-committed `_ingest_state` and changes nothing: no ingest, no
  * sealing, no file touched.
  */
@@ -161,7 +161,7 @@ const sweep = (dryRun: boolean) =>
       ? yield* control.ingestThenSweep({ dryRun: true })
       : yield* control.ingestThenSweep();
     return JSON.stringify(report, null, 2);
-  })).pipe(Effect.provide(ReaderRootLive));
+  })).pipe(Effect.provide(CliRootLive));
 
 // ---------------------------------------------------------------------------
 // Entry

@@ -8,7 +8,7 @@ import type { Filter } from "../plan.ts";
 
 /** Most operations one request may carry. */
 export const MAX_OPS = 64;
-/** The body cap, in bytes of UTF-8. The same 64 KiB as the HTTP surface's default (`platform/config.ts`). */
+/** The body cap, in bytes of UTF-8. The same 64 KiB as the HTTP surface's default. */
 export const MAX_BODY_BYTES = 65_536;
 /** Longest `requestId`, in bytes (mansio-server `front.MaxRequestID`). */
 export const MAX_ID_BYTES = 64;

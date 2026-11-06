@@ -1,6 +1,6 @@
 /**
  * Unit tests for the retention sweeper (plan items 24 and 36), run directly against
- * `platform/logging/retention.ts` — not through the `logs:sweep` CLI, which needs item 23's
+ * `eventlog/retention.ts` — not through the `logs:sweep` CLI, which needs item 23's
  * `scripts/logs.ts`.
  *
  * Since item 36 a sweep needs an ingest ledger. These tests are about the file contract, so most of
@@ -31,7 +31,7 @@ import {
   type RotationPolicy,
 } from "../../core/logging/rotation.ts";
 import type { EventRecord } from "../../core/events.ts";
-import { ConfigTest } from "../../platform/config.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
 import {
   applyPlan,
   applySafetyRails,
@@ -44,7 +44,7 @@ import {
   syncDir,
   validatePlan,
   type VerifiedSource,
-} from "../../platform/logging/retention.ts";
+} from "../../eventlog/retention.ts";
 import { events } from "../layers/index.ts";
 import { runEffect } from "../helpers/run.ts";
 

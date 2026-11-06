@@ -3,7 +3,7 @@
  * arbitrary interleavings of appends, truncations, rewrites, deletions and ingest runs.
  *
  * The suite drives a small simulated log tree. Each ingest run is the same composition
- * `platform/eventlog/ingest.ts` performs — `planFile` per source file in order, then insert,
+ * `eventlog/ingest.ts` performs — `planFile` per source file in order, then insert,
  * dedupe flagged lines (against what is in, and earlier lines of the same run, as `rowsSql` does),
  * quarantine, and move the row — with DuckDB replaced by in-memory sets. The
  * planner is the real one; only the storage is simulated.
@@ -67,14 +67,14 @@ import { dirname, join } from "node:path";
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, type Scope } from "effect";
 import type { IngestError } from "../../core/errors.ts";
 import { lifecycleEvent, toJsonLine } from "../../core/events.ts";
-import { ConfigTest } from "../../platform/config.ts";
-import { type EventLogIngestService, EventSink, type IngestReport } from "../../platform/services.ts";
+import { ConfigTest } from "../../eventlog/config.ts";
+import { type EventLogIngestService, EventSink, type IngestReport } from "../../eventlog/services.ts";
 import {
   type EventLogConnection,
   type EventLogDriver,
   eventLogDriver,
   makeEventLogIngest,
-} from "../../platform/eventlog/ingest.ts";
+} from "../../eventlog/ingest.ts";
 import { check, NUM_RUNS, replayCommand, SEED, titled } from "./arbitraries.ts";
 
 const FILES = [

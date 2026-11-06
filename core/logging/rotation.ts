@@ -4,7 +4,7 @@
  * This module is PURE: no platform globals, no built-in runtime modules, no filesystem access. It
  * only computes paths and plans against a policy; the risky part — actually gzipping or deleting
  * files on disk — is left to the sweeper that executes a `RetentionPlan`
- * (`platform/logging/retention.ts`). Item 36 adds the gate that sweeper applies first:
+ * (`eventlog/retention.ts`). Item 36 adds the gate that sweeper applies first:
  * `retentionBlock` decides, from facts the sweeper gathered, whether a file is closed, settled and
  * fully accounted for by committed ingest, and `plan`'s `pinned` set keeps every file that is not.
  *

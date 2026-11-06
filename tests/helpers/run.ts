@@ -8,7 +8,7 @@
  * `Cause` rendered, so a typed error that has no `message` is still readable.
  *
  * Per-test services go in `options.layer`, built on top of `TestLayer` (so they may require any of
- * its services), e.g. `{ layer: StorageTest({ schema }) }`. The layer's outputs are inferred from
+ * its services), e.g. a layer over `ConfigTest`. The layer's outputs are inferred from
  * `options.layer` only, so an effect that needs a service nobody provided is a type error, not a
  * runtime "service not found".
  */

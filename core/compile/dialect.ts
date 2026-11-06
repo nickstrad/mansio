@@ -5,9 +5,9 @@
  * PURE, per the `core/` rule in `docs/adr/0001-effect-port.md`: `effect`, `../errors.ts` and
  * `../schema.ts` only. Nothing in `core/compile/` raises — item 09's acceptance criteria grep this
  * directory for raise sites and expect none — so `quote` returns an `Either` rather than rejecting
- * a bad identifier the way the pre-port `platform/compiler.ts` did. Callers that need the legacy
- * `Error` render it from the tagged error (`platform/sqlite.ts`'s `legacyError`); item 26 deleted
- * the throwing compatibility wrappers.
+ * a bad identifier the way the pre-port compiler (the Deno platform's `compiler.ts`) did. Callers that
+ * need the legacy `Error` render it from the tagged error; item 26 deleted the throwing compatibility
+ * wrappers.
  *
  * Deviation from the plan's suggested layout, which has `quote` "total, no Either needed": `quote`
  * cannot be both total and identifier-checking, and dropping the check is exactly the injection bug

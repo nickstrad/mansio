@@ -6,14 +6,11 @@
 # Test credentials (DEV ONLY, public, not secrets; defined in docker-compose.yml):
 #   access key id:      mansiodevkey
 #   secret access key:  mansiodevsecret
-#   region:             us-east-1   (SeaweedFS ignores it, but the platform requires one)
+#   region:             us-east-1   (SeaweedFS ignores it)
 #   bucket:             mansio-test   (created by `make s3-init`)
 #
-# Point the platform at it with exactly these env vars (see platform/config.ts):
-#   S3_BASE_URL=http://localhost:8333
-#   AWS_ACCESS_KEY_ID=mansiodevkey
-#   AWS_SECRET_ACCESS_KEY=mansiodevsecret
-#   AWS_REGION=us-east-1
+# The Go server's durable agents and dbtool take the endpoint, bucket and keys in their config
+# (server/README.md); the e2e suite starts its own SeaweedFS (work-scripts/bash/e2e-linux.sh).
 #
 # Requires Docker with Compose v2 (`docker compose`). `make s3-init` also needs the AWS CLI and
 # installs it when missing (pip, falling back to apt).
@@ -31,7 +28,7 @@ S3_REGION     := us-east-1
 
 UP_TIMEOUT_SECONDS := 60
 
-.PHONY: help up down restart ps logs clean s3-init db-shell db-migrate
+.PHONY: help up down restart ps logs clean s3-init db-shell
 
 help: ## Show this help
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -96,12 +93,6 @@ s3-init: ## Create the mansio-test bucket and print endpoint + test credentials
 	@echo "Access key id:      $(S3_ACCESS_KEY)   (dev-only test credential)"
 	@echo "Secret access key:  $(S3_SECRET_KEY)   (dev-only test credential)"
 	@echo "Region:             $(S3_REGION)"
-	@echo
-	@echo "Platform env:"
-	@echo "  export S3_BASE_URL=$(S3_ENDPOINT)"
-	@echo "  export AWS_ACCESS_KEY_ID=$(S3_ACCESS_KEY)"
-	@echo "  export AWS_SECRET_ACCESS_KEY=$(S3_SECRET_KEY)"
-	@echo "  export AWS_REGION=$(S3_REGION)"
 
 # Same dev defaults as the postgres service in docker-compose.yml (DEV ONLY).
 POSTGRES_USER ?= mansio
@@ -109,17 +100,3 @@ POSTGRES_DB   ?= mansio
 
 db-shell: ## Open an interactive psql shell in the postgres service
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
-
-# `make db-migrate down`: when db-migrate is the first goal, any further goals are runner
-# arguments, not make targets. (A real `down` target stops the stack; this shadow applies ONLY
-# when db-migrate leads, so plain `make down` is unaffected. The explicit noop rule wins over
-# the real `down` target for this invocation with an "overriding recipe" warning on stderr.)
-ifeq (db-migrate,$(firstword $(MAKECMDGOALS)))
-  MIGRATE_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
-  ifneq ($(strip $(MIGRATE_ARGS)),)
-    $(MIGRATE_ARGS): ; @:
-  endif
-endif
-
-db-migrate: ## Apply pending Postgres migrations (no-op when current). `make db-migrate down` rolls back the latest.
-	deno task db:migrate $(MIGRATE_ARGS)

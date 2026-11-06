@@ -1,6 +1,6 @@
 /**
  * What does DuckDB's JSON reader do with large integers, integral doubles, and timestamps with an
- * offset? Prints one line per probe. Backs the "Large integers" note in `platform/eventlog/tables.ts`
+ * offset? Prints one line per probe. Backs the "Large integers" note in `eventlog/tables.ts`
  * (item 21; the concern came from the item-13 review of SQLite's `json_extract`).
  *
  * Opens an in-memory DuckDB only: no filesystem, no network.

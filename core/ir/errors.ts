@@ -89,7 +89,7 @@ function payload(cause: IrCause): Record<string, unknown> {
 
 /**
  * The wire form of a failure. 4xx bodies carry `fields`, the cause's structured payload; 5xx bodies
- * carry only the tag, as `platform/http/router.ts` does, because their detail is about the server.
+ * carry only the tag, because their detail is about the server (it goes to the server's log).
  */
 export function toWireError(failure: IrFailure): WireError {
   const { cause, op } = failure;

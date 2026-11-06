@@ -8,7 +8,7 @@
  * `normalise` is the single place two rules live that used to be spread across the tree:
  *
  * 1. **The limit rule.** `1..1000`, integer. It was duplicated in `sdk/db.ts`'s `Find.limit`
- *    (rejecting early, with a caller-facing message) and in `platform/compiler.ts`'s
+ *    (rejecting early, with a caller-facing message) and in the pre-port compiler's
  *    `compileSelect` (rejecting late, defending the SQL). `compileSelect` now gets the rule from
  *    here, so the compiler and the SDK can never drift apart on what a legal limit is.
  * 2. **Aggregates have no ordering.** `Find.count`/`Find.countBy` hand-build `order: undefined`
