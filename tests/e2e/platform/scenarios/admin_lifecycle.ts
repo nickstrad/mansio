@@ -1,14 +1,11 @@
-import { ConfigTest } from "../../../../platform/config.ts";
-import { Config } from "../../../../platform/services.ts";
 import {
   apps,
   assert,
-  backend,
   cli,
   client,
   delay,
   Effect,
-  opsPath,
+  OPS_PATH,
   opsQuery,
   play,
   request,
@@ -26,12 +23,9 @@ test(
     Effect.gen(function* () {
       const dir = yield* scenarioDir("admin_lifecycle");
       const url = yield* database("admin_lifecycle");
-      const server = yield* startBackend(dir, url, { TENANCY: "api-key" });
-      // Deno: this baseline does not expose its optional TTL in OPTIONS (the live layer supplies a default).
-      // Local CLI mutations invalidate synchronously, so without a configured TTL enforce 1 s. Go: the agent's
-      // cache_ttl (startGoTenancy: 1 s); its admin API invalidates synchronously too.
-      const config = yield* Config.pipe(Effect.provide(ConfigTest()));
-      const ttl = backend === "go" ? 1_000 : config.tenancy.tenantKeyCacheTtlMs ?? 0;
+      const server = yield* startBackend(dir, url, "api-key");
+      // The agent's key cache_ttl (startGoTenancy: 1 s); its admin API invalidates synchronously too.
+      const ttl = 1_000;
       yield* Effect.promise(async () => {
         for (const [index, app] of apps.entries()) {
           const first = await tenant(server, 10 + index);
@@ -43,7 +37,7 @@ test(
           const second = keys[0];
           await play(client(server, app, second), moves.O.slice(0, 2));
           const status = async (key: string, app: string) =>
-            (await request(server, opsPath(server, app), await opsQuery(app, "any-game"), key)).status;
+            (await request(server, OPS_PATH, await opsQuery(app, "any-game"), key)).status;
           const refused = async (key: string) => {
             const end = Date.now() + ttl + 1_000;
             while (await status(key, app) !== 401) {

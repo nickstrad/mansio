@@ -2,26 +2,23 @@ import {
   admin,
   apps,
   assert,
-  backend,
-  cli,
   client,
   Effect,
-  exists,
-  opsPath,
+  OPS_PATH,
   opsQuery,
   play,
   request,
   run,
   scenarioDir,
   type Server,
-  startTenancy,
+  startGoTenancy,
   tenant,
   test,
 } from "../harness.ts";
 import { database } from "../postgres.ts";
 import { moves, names } from "../seed.ts";
 
-/** A Better Auth email/password call as plain HTTP (what its client sends). */
+/** An email/password auth call as plain HTTP (the Better Auth client's wire shape). */
 async function authCall(server: Server, path: string, body: Record<string, string>) {
   const response = await fetch(`${server.base}/api/auth/${path}`, {
     method: "POST",
@@ -32,10 +29,9 @@ async function authCall(server: Server, path: string, body: Record<string, strin
   return { status: response.status, body: await response.json() };
 }
 
-/** `scripts/auth.ts users link` on Deno (it writes Postgres directly); the admin API on Go. */
+/** Links a session user to a tenant through the admin API. */
 async function link(server: Server, email: string, tenantId: string) {
-  if (backend === "go") await admin(server, "/admin/users/link", { email, tenantId });
-  else await cli(server, "auth", ["users", "link", email, tenantId]);
+  await admin(server, "/admin/users/link", { email, tenantId });
 }
 
 test(
@@ -45,25 +41,25 @@ test(
       const dir = yield* scenarioDir("auth");
       const url = yield* database("auth");
       yield* Effect.scoped(Effect.gen(function* () {
-        const server = yield* startTenancy(`${dir}/off`, url, "off");
+        const server = yield* startGoTenancy(`${dir}/off`, url, "off");
         yield* Effect.promise(async () => {
           for (const [i, app] of apps.entries()) {
             const wrong = server.env[i === 0 ? "JSON_APP_TOKEN" : "COLUMN_APP_TOKEN"];
-            const response = await request(server, opsPath(server, app), await opsQuery(app, "x"), wrong);
-            assert.equal(response.status, 401, "tokens must be app-specific in TENANCY=off");
+            const response = await request(server, OPS_PATH, await opsQuery(app, "x"), wrong);
+            assert.equal(response.status, 401, "tokens must be app-specific in tenancy mode off");
             assert.equal(response.body.error.tag, "AuthError");
             const right = server.env[i === 0 ? "COLUMN_APP_TOKEN" : "JSON_APP_TOKEN"];
             assert.equal(
-              (await request(server, opsPath(server, app), await opsQuery(app, "x"), right)).status,
+              (await request(server, OPS_PATH, await opsQuery(app, "x"), right)).status,
               200,
             );
           }
         });
       }));
       yield* Effect.scoped(Effect.gen(function* () {
-        const server = yield* startTenancy(`${dir}/keys`, url, "api-key");
+        const server = yield* startGoTenancy(`${dir}/keys`, url, "api-key");
         yield* Effect.promise(async () => {
-          for (const path of [opsPath(server, apps[0]), "/admin/logs/ingest"]) {
+          for (const path of [OPS_PATH, "/admin/logs/ingest"]) {
             const body = path.startsWith("/admin") ? {} : await opsQuery(apps[0], "x");
             for (
               const authorization of [
@@ -86,12 +82,10 @@ test(
           }
         });
       }));
-      assert.ok(yield* Effect.promise(() => exists("scripts/auth.ts")), "MT-08 auth gate must remain open");
-      assert.ok(yield* Effect.promise(() => exists("platform/auth")), "MT-08 auth gate must remain open");
-      // Fresh processes also isolate Better Auth's shared per-path rate-limit bucket.
+      // Fresh processes also isolate the auth routes' per-path rate-limit bucket.
       for (const [index, app] of apps.entries()) {
         yield* Effect.scoped(Effect.gen(function* () {
-          const server = yield* startTenancy(`${dir}/sessions-${index}`, url, "better-auth");
+          const server = yield* startGoTenancy(`${dir}/sessions-${index}`, url, "session");
           yield* Effect.promise(async () => {
             const a = await tenant(server, 5 + index * 2), b = await tenant(server, 6 + index * 2);
             const email = `${names[7]}-${index}@example.test`, password = "E2e-password-" + names[8];

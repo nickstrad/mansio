@@ -11,8 +11,6 @@
  * 3. A VM restored after an operator attestation: the owner is written back and killed (kill -9), attested
  *    dead and restored; the other agent serves every acknowledged write, and the same client writes again
  *    once the edge drops the dead VM.
- *
- * Go only: the Deno platform has no multi-node mode.
  */
 import { Effect, Either } from "effect";
 import { Unavailable } from "../../../../core/errors.ts";
@@ -173,4 +171,4 @@ test("scale_out", () =>
       const n = await check(c, ledger, "after the restore");
       console.log(`scale_out: restored ${key} from ${dead} to ${live}; ${n} stored`);
     });
-  }), { deno: "multi-node (controld, the edge, two agents) is Go only" });
+  }));
