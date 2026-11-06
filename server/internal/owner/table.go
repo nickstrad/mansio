@@ -423,7 +423,12 @@ func (t *Table) Claim(ctx context.Context, key string) (Local, error) {
 	return l, nil
 }
 
-// stamp writes p.Epoch into the manifest and returns the generation it stamped.
+// errStorageNewer marks a stamp refused because storage carries an epoch above p.Epoch (with ErrUnavailable):
+// Claim refuses, Reconcile supersedes the key.
+var errStorageNewer = errors.New("owner: storage has a newer epoch")
+
+// stamp writes p.Epoch into the manifest and returns the generation it stamped. It refuses, admitting nothing,
+// if storage shows a newer epoch (errStorageNewer) or a generation behind p.Gen (no manifest counts as 0).
 func (t *Table) stamp(ctx context.Context, key string, p Place) (Generation, error) {
 	var last error
 	for range t.cfg.StampRetries {
@@ -432,24 +437,24 @@ func (t *Table) stamp(ctx context.Context, key string, p Place) (Generation, err
 		case errors.Is(err, ErrNoManifest):
 			m = Manifest{}
 		case err != nil:
-			return 0, errs.Wrap(module, fmt.Errorf("%w: %w", ErrUnavailable, err), "cannot claim %q: manifest unreadable; nothing changed, safe to retry", key)
+			return 0, errs.Wrap(module, fmt.Errorf("%w: %w", ErrUnavailable, err), "cannot stamp %q: manifest unreadable; nothing changed, safe to retry", key)
 		}
 		if m.Epoch > p.Epoch {
-			return 0, errs.Wrap(module, ErrUnavailable, "cannot claim %q: storage has epoch %d, newer than the authority's %d; not admitting", key, m.Epoch, p.Epoch)
+			return 0, errs.Wrap(module, fmt.Errorf("%w: %w", ErrUnavailable, errStorageNewer), "cannot stamp %q: storage has epoch %d, newer than ours %d; not admitting", key, m.Epoch, p.Epoch)
 		}
 		if m.Gen < p.Gen {
-			return 0, errs.Wrap(module, ErrUnavailable, "cannot claim %q: storage generation %d is behind the authority's %d; not admitting", key, m.Gen, p.Gen)
+			return 0, errs.Wrap(module, ErrUnavailable, "cannot stamp %q: storage generation %d is behind the known %d; not admitting", key, m.Gen, p.Gen)
 		}
 		err = t.cfg.WriteBack.Stamp(ctx, key, p.Epoch, m.Gen)
 		if err == nil {
 			return m.Gen, nil
 		}
 		if !errors.Is(err, ErrStale) {
-			return 0, errs.Wrap(module, err, "cannot claim %q: stamp failed; not admitting, safe to retry", key)
+			return 0, errs.Wrap(module, err, "cannot stamp %q: stamp failed; not admitting, safe to retry", key)
 		}
 		last = err
 	}
-	return 0, errs.Wrap(module, last, "cannot claim %q: the manifest kept changing during %d stamps; not admitting, safe to retry", key, t.cfg.StampRetries)
+	return 0, errs.Wrap(module, last, "cannot stamp %q: the manifest kept changing during %d stamps; not admitting, safe to retry", key, t.cfg.StampRetries)
 }
 
 // drainWait waits until no permit is outstanding.
@@ -544,7 +549,10 @@ func (t *Table) fencedResult(ctx context.Context, s *slot, l Local) (Ack, error)
 
 // Reconcile settles a key loaded as Closed with the authority (reconcile table) and storage: reopen it (after
 // re-stamping the manifest at the local epoch), keep it stopped for a move in progress, or fence it. If either
-// cannot be read, or the reopen stamp fails, the key stays Closed.
+// cannot be read, or the reopen stamp fails, the key stays Closed. Storage at a higher epoch than the local one
+// supersedes the key even if the authority says reopen (defense in depth against a stale or broken authority
+// read). A local record with generation > 0 whose manifest is missing (or behind it) stays Closed: the stamp
+// refuses to start from less than this process knows was published.
 // Keys in any other state are left alone.
 //
 //	post: err != nil ⇒ the key admits nothing
@@ -574,23 +582,19 @@ func (t *Table) Reconcile(ctx context.Context, key string) error {
 		return nil
 	}
 	if ev.Kind == EvReopen {
-		// Defense in depth: a stale or broken authority read cannot reopen a key storage shows superseded.
-		m, err := t.cfg.WriteBack.Head(ctx, key)
-		switch {
-		case errors.Is(err, ErrNoManifest):
-		case err != nil:
-			return errs.Wrap(module, fmt.Errorf("%w: %w", ErrUnavailable, err), "cannot reconcile %q: manifest unreadable; stays closed, safe to retry", key)
-		case m.Epoch > l.Epoch:
-			ev = Event{Kind: EvSupersede}
-		}
-	}
-	if ev.Kind == EvReopen {
 		// Re-stamp at our own epoch before admitting anything: the stamp is a new manifest version, so every
 		// publish the crashed incarnation still has in flight (conditional on an older version) fails, and one
 		// that landed already is the generation we start from. Without it such a publish could land after we
 		// read the manifest, and our next publish would take it for another writer's (DST-1, zombie
-		// publishes). Conditional and fenced like any stamp: a higher stored epoch refuses it.
-		if _, err := t.stamp(ctx, key, Place{Owner: t.cfg.Self, Epoch: l.Epoch, Gen: l.Gen, State: PlaceActive}); err != nil {
+		// publishes). Conditional and fenced like any stamp: its Head is also the defense-in-depth check, so a
+		// higher stored epoch (a stale or broken authority read) supersedes the key instead.
+		// The stamped generation (>= l.Gen, checked) is not recorded: l.Gen stays the floor CheckActivation
+		// enforces, and the host activates from the manifest itself.
+		_, err := t.stamp(ctx, key, Place{Owner: t.cfg.Self, Epoch: l.Epoch, Gen: l.Gen, State: PlaceActive})
+		switch {
+		case errors.Is(err, errStorageNewer):
+			ev = Event{Kind: EvSupersede}
+		case err != nil:
 			return errs.Wrap(module, err, "cannot reconcile %q: the reopen stamp failed; stays closed, safe to retry", key)
 		}
 	}

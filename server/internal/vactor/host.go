@@ -55,6 +55,9 @@ var (
 	// Get fails at once), or the activation did not finish within its deadline (Options.ActivationTimeout).
 	// Nothing was cached; retry later. agentd answers it 503 unavailable (Release It B1, F2).
 	ErrBusy = errors.New("vactor: busy")
+	// ErrInDoubt: a write-back sent nothing because maxPending publishes of ours are in doubt and may still
+	// land (none is older than Options.GC.Grace yet). Safe to retry; the database stays warm.
+	ErrInDoubt = errors.New("vactor: too many publishes in doubt")
 
 	errShed              = fmt.Errorf("%w: the fetch queue is full", ErrBusy)    // shed: nothing attempted, no tombstone
 	errActivationTimeout = fmt.Errorf("%w: activation deadline passed", ErrBusy) // the activation ctx's own cause
@@ -169,7 +172,8 @@ type Options struct {
 	WriteBackTimeout time.Duration
 	// GC is owner-side retention (object-storage guide GC1, GC2): after each publish the host deletes the
 	// generations it published more than GC.Keep publishes ago (default 2; negative: keep none but the
-	// current). GC.Grace is unused here: it is the orphan sweeper's (durable.Sweep). Durable mode only.
+	// current). GC.Grace also bounds how long a publish whose outcome is unknown may still land: the host keeps it
+	// pending that long (maxPending); use the sweeper's (durable.Sweep) grace. Durable mode only.
 	GC durable.GCPolicy
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int

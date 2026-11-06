@@ -71,8 +71,10 @@ Related rules:
 **I2. Never reuse a number you tried.**
 - Why: an upload whose outcome is unknown may exist. Reusing its number would either collide or name
   different bytes.
-- Example: `e.lastGen = gen // never reuse a number we tried` (`vactor/writeback.go:210`). Since OS-05, the
-  epoch in the name also rules out collisions between owners.
+- Example: `e.lastGen = gen // never reuse a number we tried` (`vactor/writeback.go`). Since OS-05, the
+  epoch in the name also rules out collisions between owners. An earlier activation of ours (before a
+  restart) may have tried numbers this one does not know: on `ErrExists` for an object that is not ours,
+  `skipTaken` HEADs past the run at doubling strides. No LIST.
 
 **I3. Write data first, publish it second, and trust only the published pointer.**
 - Why: S3 has no transactions across objects. Only a conditional write to one object makes a set of
@@ -156,6 +158,9 @@ anything else.**
   ```
   Stamp follows the same pattern (OS-02). For create-only uploads, compare the HEAD's `sha256` metadata
   with our digest.
+- A re-read that still shows the old version says "not applied *yet*": a request in flight may land later.
+  Keep it as ours (`e.pending`) until one of ours applies or the grace window (GC3) passes. Never drop it
+  because a re-read found nothing.
 
 **R4. Set a sticky "stale" or "superseded" state only after a re-read shows another writer.**
 - Why: a false "stale" leaves the real owner unable to become durable.

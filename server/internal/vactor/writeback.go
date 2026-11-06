@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -77,10 +78,10 @@ type durableState struct {
 	wb      wbLock
 	man     durable.Manifest
 	ver     durable.Version
-	lastGen uint64 // highest generation this host tried to upload for the key
+	lastGen uint64 // highest generation this host tried to upload for the key, or skipped (taken by an orphan)
 	// pending are the publishes and stamps of ours that failed and might still apply, or might have, oldest
 	// first. All are conditional on ver, so at most one of them applied (or ever will).
-	pending  []durable.Manifest
+	pending  []pendingPub
 	stranded bool // passivation's write-back failed and the file could not be reopened
 	// published are the generation objects this entry saw published, oldest first: the current one and the
 	// ones owner-side retention has not deleted yet (guide GC2).
@@ -92,6 +93,12 @@ type durableState struct {
 	stale      atomic.Bool // a re-read after a failed publish or stamp showed another writer (guide R4)
 	lastUsed   atomic.Int64
 	lastWB     atomic.Int64
+}
+
+// pendingPub is a publish or stamp of ours whose outcome is unknown, and when it was sent.
+type pendingPub struct {
+	m    durable.Manifest
+	sent time.Time
 }
 
 func (d *durableState) touch(now time.Time) { d.lastUsed.Store(now.UnixNano()) }
@@ -285,6 +292,12 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		if !errors.Is(err, durable.ErrExists) || try == 7 {
 			break
 		}
+		// Taken by an orphan we did not upload: a crashed incarnation of ours tried it (lastGen restarts at the
+		// manifest's generation) and may have tried the next ones too. Skip past them with HEADs, doubling the
+		// stride, rather than one upload per taken number (guide I2: any number above every tried one will do).
+		if err = h.skipTaken(ctx, key, e, gen); err != nil {
+			break
+		}
 	}
 	gen := next.Generation
 	res.Upload = h.since(t)
@@ -320,6 +333,27 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	return res, nil
 }
 
+// skipTaken raises e.lastGen past a run of taken generation numbers starting at gen (taken: its object
+// exists), probing gen+1, gen+2, gen+4, ... with StatGeneration (HEAD, not LIST: guide K2), so the next try
+// uses the first number found free. Numbers in between may stay unused: generations need only rise (W3).
+//
+//	pre: e.wb is held; the object of gen exists
+func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64) error {
+	epoch := e.epoch.Load()
+	for stride := uint64(1); stride < 1<<40; stride *= 2 {
+		_, err := h.opts.Store.StatGeneration(ctx, durable.GenObject(key, gen+stride, epoch))
+		switch {
+		case errors.Is(err, durable.ErrNotFound):
+			e.lastGen = max(e.lastGen, gen+stride-1)
+			return nil
+		case err != nil:
+			return errs.Wrap(module, err, "generation %d of %s is taken and probing past it failed", gen, key)
+		}
+		e.lastGen = max(e.lastGen, gen+stride) // taken too: never try it
+	}
+	return fmt.Errorf("vactor: generation %d of %s: no free number found", gen, key)
+}
+
 // retain is owner-side retention (object-storage guide GC2), right after obj was published: it deletes the
 // generations this entry published more than K publishes ago (durable.PlanRetention), by computed name with no
 // LIST. It runs under e.wb, the publish serialization, so it never races a publish of the key and a fence
@@ -351,8 +385,13 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 	return err == nil && info.Holds(d)
 }
 
-// maxPending bounds e.pending (S1: everything that accumulates has a reaper): with that many in doubt, publish
-// settles them by a re-read before it sends another.
+// maxPending bounds e.pending (S1: everything that accumulates has a reaper). A pending publish leaves it only
+// when it can no longer apply: a publish of ours conditional on e.ver succeeded or one of them was adopted
+// (the version moved: every other one is refused), or it was sent more than Options.GC.Grace ago (the bound on
+// delayed requests the orphan sweeper also relies on, guide GC3). A re-read that still shows e.ver proves
+// nothing: a request in flight may land after it. With maxPending in doubt, publish first re-reads (one of them
+// may have applied: adopt it), then drops the ones older than the grace window; if it is still full, it sends
+// nothing and fails, safe to retry (at the latest once the oldest is past the grace window).
 const maxPending = 8
 
 // publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
@@ -400,6 +439,7 @@ func (h *Host) publishOnce(ctx context.Context, key string, e *entry, build func
 			return durable.Manifest{}, err
 		}
 	}
+	now := h.opts.Clock.Now()
 	for try := 0; ; try++ {
 		var cur *durable.Manifest
 		if e.ver != durable.NoVersion {
@@ -423,7 +463,7 @@ func (h *Host) publishOnce(ctx context.Context, key string, e *entry, build func
 		switch {
 		case rerr != nil && !errors.Is(rerr, durable.ErrNoManifest):
 			if sent {
-				e.pending = append(e.pending, next)
+				e.pending = append(e.pending, pendingPub{next, now})
 			}
 			return durable.Manifest{}, unknownOutcome(key, err, rerr)
 		case rerr == nil && sent && stored.Same(next):
@@ -436,17 +476,20 @@ func (h *Host) publishOnce(ctx context.Context, key string, e *entry, build func
 			return durable.Manifest{}, errs.Wrap(module, errors.Join(durable.ErrStale, err),
 				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", stored.Key, stored.Generation, stored.Epoch)
 		case sent: // the re-read still shows ver: not applied, yet (it may still land)
-			e.pending = append(e.pending, next)
+			e.pending = append(e.pending, pendingPub{next, now})
 		}
 		return durable.Manifest{}, unknownOutcome(key, err, nil)
 	}
 }
 
-// settlePending re-reads the manifest to settle e.pending before anything more is sent: one of them applied
-// (adopt it), none did (the stored version is still e.ver: drop them), or another writer moved the manifest
-// (e.stale, ErrStale). A failed re-read sends nothing and keeps them.
+// settlePending makes room in a full e.pending before anything more is sent (maxPending): it re-reads the
+// manifest, and one of them applied (adopt it: none of the others can now), or another writer moved it
+// (e.stale, ErrStale), or none applied yet: then only the ones sent more than the grace window ago are
+// dropped, and if none was, it fails without sending (safe to retry). A failed re-read sends nothing and
+// keeps them.
 //
-//	pre: e.wb is held
+//	pre:  e.wb is held
+//	post: err == nil ⇒ len(e.pending) < maxPending
 func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 	stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
 	switch {
@@ -455,7 +498,13 @@ func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 			key, len(e.pending))
 	case rerr == nil && e.adoptPending(stored, sv):
 	case !e.otherWriter(stored, sv, rerr):
-		e.pending = nil // none applied
+		// None applied yet, but any may still land: keep each until the grace window bounds it (guide GC3).
+		horizon := h.opts.Clock.Now().Add(-h.opts.GC.Grace)
+		e.pending = slices.DeleteFunc(e.pending, func(p pendingPub) bool { return p.sent.Before(horizon) })
+		if len(e.pending) >= maxPending {
+			return errs.Wrap(module, ErrInDoubt, "cannot publish %s: %d earlier publishes of ours are in doubt and may still land; nothing sent, safe to retry once the oldest (sent %v) is past the grace window of %v",
+				key, len(e.pending), e.pending[0].sent, h.opts.GC.Grace)
+		}
 	default:
 		e.stale.Store(true)
 		return errs.Wrap(module, durable.ErrStale, "the re-read manifest of %s (generation %d, epoch %d) was written by another writer", key, stored.Generation, stored.Epoch)
@@ -479,7 +528,7 @@ func unknownOutcome(key string, err, cause error) error {
 // adoptPending adopts the re-read manifest (stored, sv) if it is one of e.pending, and reports whether it was.
 func (e *durableState) adoptPending(stored durable.Manifest, sv durable.Version) bool {
 	for _, p := range e.pending {
-		if stored.Same(p) {
+		if stored.Same(p.m) {
 			e.man, e.ver, e.pending = stored, sv, nil // the others were conditional on the old version: none can apply now
 			e.raiseEpoch(stored.Epoch)                // a pending stamp may have raised it
 			return true
@@ -494,7 +543,7 @@ func (e *durableState) otherWriter(stored durable.Manifest, sv durable.Version, 
 	if rerr != nil {
 		return e.ver != durable.NoVersion
 	}
-	return sv != e.ver && !slices.ContainsFunc(e.pending, stored.Same)
+	return sv != e.ver && !slices.ContainsFunc(e.pending, func(p pendingPub) bool { return stored.Same(p.m) })
 }
 
 // Passivate drops key's database. In durable mode it first closes the database (so nothing more can be

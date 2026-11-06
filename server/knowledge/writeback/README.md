@@ -7,6 +7,9 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-06 [publishes in doubt and generation numbers](2026-11-06-pending-and-generation-numbers.md): a
+  publish in doubt is kept until one of ours applies or the grace window passes (`ErrInDoubt` at
+  `maxPending`); uploads skip generation numbers taken by orphans with HEADs at doubling strides (I2).
 - 2026-11-05 (CP-4 agent side): [scoped S3 identities, TLS, -dev](2026-11-05-s3-scoped-identities.md): `agent` (Read+Write, no LIST, no bucket creation), `gc`, `bench` in `s3.json`; X12 passes on SeaweedFS 4.47; agentd needs nothing more than `agent`; plain-HTTP S3 needs `-dev` (OS-11).
 - 2026-11-05 (CP-8): [snapshot with the backup API](2026-11-05-backup-api-snapshot.md): on a reader in WAL
   mode, the write stall during a write-back drops from the snapshot time (149 ms at 128 MiB, 589 ms at 512 MiB)

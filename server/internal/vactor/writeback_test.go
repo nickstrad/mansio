@@ -543,6 +543,85 @@ func TestLatePendingPublishIsStillOurs(t *testing.T) {
 	}
 }
 
+// MaxPending publishes stay in flight; the next write-back's re-read still shows our version, which proves
+// nothing: it sends nothing (ErrInDoubt) and keeps them all. The oldest then lands, and the next write-back adopts
+// it instead of taking it for another writer's. Once every one is past the grace window, the host may forget
+// them and write back again.
+func TestPendingPublishesInDoubtAreKeptUntilGrace(t *testing.T) {
+	const grace = 10 * time.Minute
+	r := newDurable(t, func(o *vactor.Options) { o.GC = durable.GCPolicy{Keep: 2, Grace: grace} })
+	clk := r.clk.(*clock)
+	r.s.UseClock(clk)
+	r.put("t/a", "v0")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	r.s.SetFaults(durabletest.Faults{LandLate: time.Minute})
+	for i := range vactor.MaxPending {
+		r.put("t/a", fmt.Sprintf("p%d", i))
+		if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+			t.Fatalf("in-flight publish %d: %v; want an unknown outcome", i, err)
+		}
+		clk.Advance(time.Second) // they land one second apart: the first one wins
+	}
+	r.s.SetFaults(durabletest.Faults{})
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); !errors.Is(err, vactor.ErrInDoubt) {
+		t.Fatalf("write-back with %d in doubt: %v; want ErrInDoubt, nothing sent", vactor.MaxPending, err)
+	}
+	clk.Advance(time.Minute) // p0 lands; the others, conditional on the same version, are refused
+	if got := r.published("t/a"); got != "p0" {
+		t.Fatalf("published %q after the landings, want p0", got)
+	}
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v1" {
+		t.Fatalf("write-back after p0 landed = %+v, %v (published %q); want p0 adopted and v1 published", res, err, r.published("t/a"))
+	}
+
+	// None lands this time (FailPublish): past the grace window they are dropped, and the write-back goes on.
+	r.s.SetFaults(durabletest.Faults{FailPublish: true})
+	for i := range vactor.MaxPending {
+		r.put("t/a", fmt.Sprintf("q%d", i))
+		r.h.WriteBack(ctx, "t/a")
+	}
+	r.s.SetFaults(durabletest.Faults{})
+	r.put("t/a", "v2")
+	if _, err := r.h.WriteBack(ctx, "t/a"); !errors.Is(err, vactor.ErrInDoubt) {
+		t.Fatalf("write-back inside the grace window: %v; want ErrInDoubt", err)
+	}
+	clk.Advance(grace + time.Second)
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v2" {
+		t.Fatalf("write-back past the grace window = %+v, %v (published %q)", res, err, r.published("t/a"))
+	}
+}
+
+// Generation numbers a lost incarnation of this key tried are taken (orphans at our epoch): after a restart
+// lastGen starts at the manifest's generation again. The upload skips past them with HEADs, however many there
+// are, instead of failing after a fixed number of create-only PUTs (guide I2).
+func TestUploadSkipsGenerationsTakenByOrphans(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := r.s.Manifest("t/a")
+	for g := m.Generation + 1; g <= m.Generation+40; g++ { // a crashed incarnation's orphans
+		path := filepath.Join(t.TempDir(), "orphan")
+		data := []byte(fmt.Sprintf("orphan%d", g))
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.s.PutGeneration(ctx, durable.NextManifest("t/a", g, m.Epoch, durabletest.DigestOf(data), time.Now()), path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.restart()
+	r.put("t/a", "v2")
+	res, err := r.h.WriteBack(ctx, "t/a")
+	if err != nil || !res.Wrote || r.published("t/a") != "v2" || res.Generation <= m.Generation+40 {
+		t.Fatalf("write-back over 40 orphans = %+v, %v (published %q); want a generation above them", res, err, r.published("t/a"))
+	}
+}
+
 func TestHigherEpochMakesWriteBackStale(t *testing.T) {
 	r := newDurable(t, nil)
 	r.s.Seed("t/a", 1, []byte("v1"))

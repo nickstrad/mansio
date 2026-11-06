@@ -774,3 +774,12 @@ Branch `ir/04b-durability`. Details: `docs/knowledge/ir/2026-11-06-ir-4b-durabil
 - **sim:** `Config.Zombies` replaced by `Config.NoZombies` (zombies land by default); env `MANSIO_SIM_ZOMBIES`
   removed. Seeds 180/232 pass.
 - Note: `knowledge/fencing/2026-11-06-reopen-restamp.md`.
+
+## 2026-11-06 01:09 — dst-1: pending publishes and generation numbers (fix/pending-gens)
+
+- **vactor:** a publish in doubt is kept until a publish of ours applies or `Options.GC.Grace` passes (set it to the
+  sweeper's grace). With `maxPending` in doubt, a write-back/stamp sends nothing and fails with new
+  `vactor.ErrInDoubt` (safe to retry; still warm). Uploads skip generation numbers taken by orphans (HEAD probes).
+- **owner:** Reconcile's defense-in-depth Head is folded into the reopen stamp (storage at a higher epoch ⇒ superseded);
+  stamp error messages say "cannot stamp". A local ACTIVE record with gen > 0 and no manifest stays Closed.
+- Note: `knowledge/writeback/2026-11-06-pending-and-generation-numbers.md`.
