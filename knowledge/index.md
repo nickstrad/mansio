@@ -4,6 +4,7 @@ One line per topic folder or key note. Newest first within a section. Rules: `AG
 
 ## Topics
 
+- [determinism/](determinism/README.md): DST-0 seams in `internal/det` (`Clock`, `Rand`, `IDGen`; `dettest.Clock` manual clock with clock-aware context deadlines), where they are threaded, the lint banning wall clock / global rand / ctx timeouts in 14 simulated packages, and what is still non-deterministic for DST-1. Owner: DST builder.
 - [coding style](../docs/coding-style.md): one-page rules for all code, summarizing the guides in [docs/books/](../docs/books/README.md) (Release It!, Art of PostgreSQL, Object Storage, plus testing and concurrency here). Read before planning. Owner: coordinator.
 - [control-plane plan](../docs/control-plane-plan.md): 2026-11-05 standing after writeback/fencing/front landed, the three flows (route, new db, place+warm cold db), and the build order to a client that reaches the right process. Owner: coordinator.
 - [front/](front/README.md): the agent's network front: Ed25519 tickets, per-tenant/per-db admission, `Admitter`/`Executor` ports, wire codes; pipeline −7% vs in-process actor, loopback HTTP ~7× slower; ticket verify 26 µs (cached 53 ns). Owner: front agent.

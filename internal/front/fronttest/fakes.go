@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/front"
 )
 
@@ -81,16 +82,19 @@ func (a *Admitter) Counts() (admits, open, doubles int) {
 	return a.admits, a.open, a.doubles
 }
 
-// Clock is a settable clock.
+// Clock is a det.Clock whose Now is set by hand while its timers and deadlines run on the system clock: tests
+// move ticket and admission time without waiting, and timeouts still fire in real time. For fully simulated
+// time use dettest.Clock.
 type Clock struct {
-	mu  sync.Mutex
-	now time.Time
+	det.Clock // timers and deadlines: det.System()
+	mu        sync.Mutex
+	now       time.Time
 }
 
 // NewClock starts at t.
-func NewClock(t time.Time) *Clock { return &Clock{now: t} }
+func NewClock(t time.Time) *Clock { return &Clock{Clock: det.System(), now: t} }
 
-// Now reads the clock; use (*Clock).Now as a front.Clock.
+// Now reads the clock.
 func (c *Clock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()

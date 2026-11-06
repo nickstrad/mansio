@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 )
 
@@ -37,7 +38,7 @@ type routes struct {
 	root    context.Context
 	timeout time.Duration
 	max     int
-	now     func() time.Time
+	clock   det.Clock
 	place   func(fetched time.Time, ttl time.Duration) time.Time // refreshAt, with the jitter drawn
 
 	mu sync.Mutex
@@ -59,9 +60,9 @@ type flight struct {
 	p        *panicx.Panic
 }
 
-func newRoutes(root context.Context, load loader, timeout time.Duration, max int, now func() time.Time,
+func newRoutes(root context.Context, load loader, timeout time.Duration, max int, clock det.Clock,
 	place func(time.Time, time.Duration) time.Time) *routes {
-	return &routes{load: load, root: root, timeout: timeout, max: max, now: now, place: place, m: map[string]*slot{}}
+	return &routes{load: load, root: root, timeout: timeout, max: max, clock: clock, place: place, m: map[string]*slot{}}
 }
 
 // get returns db's route, at an epoch >= the one the last drop asked for (until the primary answers). hit reports that it came from the cache without waiting. A
@@ -71,7 +72,7 @@ func (c *routes) get(ctx context.Context, db string) (r Route, hit bool, err err
 		c.mu.Lock()
 		s := c.slot(db)
 		need := s.minEpoch
-		now := c.now()
+		now := c.clock.Now()
 		if s.r != nil && s.r.Epoch >= need && now.Before(s.r.until) {
 			if !now.Before(s.r.refreshAt) && s.f == nil {
 				s.f = c.start(db, 0)
@@ -149,8 +150,8 @@ func (c *routes) start(db string, minEpoch uint64) *flight {
 				c.finish(db, f)
 			}
 		}()
-		sent := c.now()
-		ctx, cancel := context.WithTimeout(c.root, c.timeout)
+		sent := c.clock.Now()
+		ctx, cancel := det.WithTimeout(c.root, c.clock, c.timeout)
 		r, err := c.load(ctx, db, minEpoch)
 		cancel()
 		if err == nil {

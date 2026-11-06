@@ -18,7 +18,7 @@ import (
 // (Release It T1, plan RI-02).
 func TestActivationTimesOutAndIsRetryable(t *testing.T) {
 	const timeout = 100 * time.Millisecond
-	r := newDurable(t, func(o *vactor.Options) { o.ActivationTimeout = timeout })
+	r := newDurableRealTime(t, func(o *vactor.Options) { o.ActivationTimeout = timeout })
 	r.s.Seed("k", 0, []byte("v1"))
 	r.s.SetFaults(durabletest.Faults{Delay: 10 * timeout})
 
@@ -53,7 +53,7 @@ func TestActivationTimesOutAndIsRetryable(t *testing.T) {
 // The deadline grows with the generation's size (size/MinThroughput), so a large database is not cut off
 // for being large: here 1 KiB at 10 KiB/s adds 100 ms to a 50 ms ActivationTimeout.
 func TestActivationDeadlineAllowsForSize(t *testing.T) {
-	r := newDurable(t, func(o *vactor.Options) {
+	r := newDurableRealTime(t, func(o *vactor.Options) {
 		o.ActivationTimeout, o.MinThroughput = 50*time.Millisecond, 10<<10
 	})
 	r.s.Seed("k", 0, make([]byte, 1<<10))

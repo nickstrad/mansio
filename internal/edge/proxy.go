@@ -2,7 +2,6 @@ package edge
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/logx"
@@ -58,8 +58,8 @@ type Config struct {
 	BodyReadTimeout time.Duration // the whole request body
 	MaxBody         int           // request body bytes (agent limits.max_body)
 
-	Log *slog.Logger     // ERROR lines for bugs (with a log ID); default: discard
-	Now func() time.Time // default time.Now
+	Log   *slog.Logger // ERROR lines for bugs (with a log ID); default: discard
+	Clock det.Clock    // deadlines, breaker time, latency; default det.System()
 }
 
 // Edge is the proxy: an http.Handler for POST /v1/query.
@@ -111,9 +111,7 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	if cfg.Now == nil {
-		cfg.Now = time.Now
-	}
+	cfg.Clock = det.Or(cfg.Clock)
 	return &Edge{cfg: cfg, verify: make(chan struct{}, cfg.VerifySlots), ups: map[string]*upstream{},
 		latency: metrics.NewLatency(nil)}, nil
 }
@@ -129,13 +127,13 @@ func (e *Edge) InFlight() int64 { return e.st.inFlight.Load() }
 
 // ServeHTTP handles one request: every path except POST /v1/query is answered here.
 func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	start := e.cfg.Now()
+	start := e.cfg.Clock.Now()
 	n := e.st.inFlight.Add(1)
 	for h := e.st.inFlightHigh.Load(); n > h && !e.st.inFlightHigh.CompareAndSwap(h, n); h = e.st.inFlightHigh.Load() {
 	}
 	defer func() {
 		e.st.inFlight.Add(-1)
-		e.latency.Observe(e.cfg.Now().Sub(start))
+		e.latency.Observe(e.cfg.Clock.Now().Sub(start))
 	}()
 	defer func() { // a bug: answer internal with a log ID if we still can
 		if p := panicx.From(recover()); p != nil {
@@ -240,7 +238,7 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 		e.st.bulkheadFull.Add(1)
 		return answer{code: front.Shed, msg: "too many requests in flight to this agent; nothing ran"}, false
 	}
-	now := e.cfg.Now()
+	now := e.cfg.Clock.Now()
 	p, wait, ok := up.b.Allow(now)
 	if !ok {
 		e.st.open.Add(1)
@@ -252,7 +250,7 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 		return answer{code: front.Expired, msg: "deadline passed at the edge; nothing ran"}, false
 	}
 	// The agent answers expired at the deadline; Grace lets that answer arrive. Past it the agent is stuck.
-	ctx, cancel := context.WithDeadline(r.Context(), deadline.Add(e.cfg.Grace))
+	ctx, cancel := det.WithDeadline(r.Context(), e.cfg.Clock, deadline.Add(e.cfg.Grace))
 	defer cancel()
 	var wrote atomic.Bool
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) }})
@@ -274,7 +272,7 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 		if r.Context().Err() != nil { // the client left: says nothing about the agent
 			o = breaker.Ignore
 		}
-		up.b.Done(p, e.cfg.Now(), o)
+		up.b.Done(p, e.cfg.Clock.Now(), o)
 		e.st.transportErrs.Add(1)
 		if wrote.Load() { // the agent may have run it
 			return answer{code: front.Expired, ambiguous: true, msg: "no answer from the agent; a write may have committed: retry with the same request_id"}, false
@@ -282,7 +280,7 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 		return answer{code: front.Unavailable, msg: "agent unreachable; nothing ran"}, false
 	}
 	defer res.Body.Close()
-	up.b.Done(p, e.cfg.Now(), breaker.Success)
+	up.b.Done(p, e.cfg.Clock.Now(), breaker.Success)
 	e.st.agent[min(res.StatusCode/100, 5)].Add(1)
 	h := w.Header()
 	for _, k := range relayHeaders {

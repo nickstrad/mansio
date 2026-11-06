@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/parallel"
 	"github.com/nickstrad/ts-db-go/internal/retry"
@@ -19,6 +20,8 @@ type ReconcileOptions struct {
 	// Backoff between rounds of ReconcileUntilDone: exponential from Base to Max, equal jitter. Defaults
 	// 100 ms and 5 s.
 	Backoff retry.Policy
+	Clock   det.Clock // per-key deadlines, round timing and the backoff wait; default det.System()
+	Rand    det.Rand  // backoff jitter; default det.SystemRand()
 }
 
 func (o *ReconcileOptions) normalize() {
@@ -36,6 +39,7 @@ func (o *ReconcileOptions) normalize() {
 		o.Backoff.Max = 5 * time.Second
 	}
 	_ = o.Backoff.Normalize() // cannot fail: every field it checks is set above
+	o.Clock, o.Rand = det.Or(o.Clock), det.RandOr(o.Rand)
 }
 
 // ReconcileReport says what one reconcile round did.
@@ -54,7 +58,7 @@ type ReconcileReport struct {
 //	post: rep.Failed == 0 ⇔ err == nil
 func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (ReconcileReport, error) {
 	o.normalize()
-	start := time.Now()
+	start := o.Clock.Now()
 	var keys []string
 	for _, k := range t.Keys() {
 		if t.State(k).State == Closed {
@@ -64,7 +68,7 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 	var first error
 	failed := 0
 	for _, err := range parallel.ForEach(ctx, len(keys), o.Workers, func(ctx context.Context, i int) error {
-		kctx, cancel := context.WithTimeout(ctx, o.PerKey)
+		kctx, cancel := det.WithTimeout(ctx, o.Clock, o.PerKey)
 		defer cancel()
 		return t.Reconcile(kctx, keys[i])
 	}) {
@@ -73,7 +77,7 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 			first = cmp.Or(first, err)
 		}
 	}
-	rep := ReconcileReport{Round: 1, Tried: len(keys), Failed: failed, Took: time.Since(start)}
+	rep := ReconcileReport{Round: 1, Tried: len(keys), Failed: failed, Took: det.Since(o.Clock, start)}
 	if first != nil {
 		return rep, errs.Wrap(module, first, "%d of %d key(s) stay closed after reconcile; safe to retry", rep.Failed, rep.Tried)
 	}
@@ -87,7 +91,7 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 //	post: err == nil ⇒ the last round reconciled every key; otherwise err wraps ctx.Err()
 func (t *Table) ReconcileUntilDone(ctx context.Context, o ReconcileOptions, report func(ReconcileReport, error)) error {
 	o.normalize()
-	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+	rng := rand.New(o.Rand)
 	var prev time.Duration
 	for round := 1; ; round++ {
 		rep, err := t.ReconcileAll(ctx, o)
@@ -99,10 +103,8 @@ func (t *Table) ReconcileUntilDone(ctx context.Context, o ReconcileOptions, repo
 			return nil
 		}
 		prev = o.Backoff.Delay(rng, round+1, prev)
-		select {
-		case <-ctx.Done():
-			return errs.Wrap(module, ctx.Err(), "reconcile stopped after %d round(s); %d key(s) stay closed", round, rep.Failed)
-		case <-time.After(prev):
+		if err := det.Sleep(ctx, o.Clock, prev); err != nil {
+			return errs.Wrap(module, err, "reconcile stopped after %d round(s); %d key(s) stay closed", round, rep.Failed)
 		}
 	}
 }

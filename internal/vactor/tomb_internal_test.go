@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 )
 
@@ -13,7 +14,8 @@ import (
 // doubling, capped at 5 s (on point n=7, far past it n=1000).
 func TestTombstoneBackoff(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
-	h, err := NewHost(nil, nil, Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: durabletest.NewStore(), Now: func() time.Time { return now }})
+	clk := dettest.NewClock(now)
+	h, err := NewHost(nil, nil, Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: durabletest.NewStore(), Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +38,8 @@ func TestTombstoneBackoff(t *testing.T) {
 // then (Release It S1).
 func TestTombstoneCountsResetsAndIsReaped(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
-	h, err := NewHost(nil, nil, Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: durabletest.NewStore(), Now: func() time.Time { return now }})
+	clk := dettest.NewClock(now)
+	h, err := NewHost(nil, nil, Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: durabletest.NewStore(), Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,13 +56,13 @@ func TestTombstoneCountsResetsAndIsReaped(t *testing.T) {
 		t.Fatalf("second failure in a row n=%d", n)
 	}
 	until := h.tombs["k"].until
-	now = until.Add(h.opts.MaxFailBackoff) // on point: still "recent"
-	h.pruneTombs(now)
+	clk.Advance(until.Add(h.opts.MaxFailBackoff).Sub(now)) // on point: still "recent"
+	h.pruneTombs(clk.Now())
 	if _, ok := h.tombs["k"]; !ok {
 		t.Fatal("reaped on the boundary")
 	}
-	now = now.Add(1) // off point: long past
-	h.pruneTombs(now)
+	clk.Advance(1) // off point: long past
+	h.pruneTombs(clk.Now())
 	if _, ok := h.tombs["k"]; ok {
 		t.Fatal("not reaped once long past")
 	}

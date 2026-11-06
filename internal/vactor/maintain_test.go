@@ -27,7 +27,7 @@ func (s hangingStore) PutGeneration(ctx context.Context, m durable.Manifest, pat
 
 func newHungRig(t *testing.T) *drig {
 	t.Helper()
-	r := newDurable(t, func(o *vactor.Options) {
+	r := newDurableRealTime(t, func(o *vactor.Options) {
 		o.WriteBackTimeout = 100 * time.Millisecond
 		o.Policy = vactor.Policy{WriteBackCommits: 1, IdleAfter: 30 * time.Second}
 		o.Store = hangingStore{Store: o.Store, key: "hung"}

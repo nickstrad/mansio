@@ -56,7 +56,7 @@ func TestS3OutageCallsBounded(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					o.Store = durable.WithBreaker(count, b, nil, o.Now)
+					o.Store = durable.WithBreaker(count, b, nil, o.Clock.Now)
 				}
 			})
 			fake := r.s
@@ -101,7 +101,7 @@ func TestS3OutageCallsBounded(t *testing.T) {
 func TestNoTombstoneForShedOrOpenBreaker(t *testing.T) {
 	r := newDurable(t, func(o *vactor.Options) {
 		b, _ := breaker.New(breaker.Config{MinCalls: 1, FailureRate: 1})
-		o.Store = durable.WithBreaker(o.Store, b, nil, o.Now)
+		o.Store = durable.WithBreaker(o.Store, b, nil, o.Clock.Now)
 	})
 	fake := r.s
 	fake.SetFaults(durabletest.Faults{Down: true})

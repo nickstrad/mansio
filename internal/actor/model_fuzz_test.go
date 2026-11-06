@@ -15,7 +15,7 @@ import (
 func idList(t *testing.T, a *Actor, c context.Context) string {
 	t.Helper()
 	r := &Request{SQL: `SELECT coalesce(group_concat(request_id, ','), '') FROM (SELECT request_id FROM _tsdb_requests ORDER BY 1)`, MaxRows: 1}
-	r.boundBy(c)
+	r.boundBy(c, time.Now())
 	if err := a.Submit(r); err != nil {
 		t.Fatal(err)
 	}

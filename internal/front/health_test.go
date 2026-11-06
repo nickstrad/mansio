@@ -140,7 +140,7 @@ func TestReadinessProbe(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := front.NewReadiness(20*time.Millisecond, time.Minute, clk.Now, ok, tc.check)
+			r := front.NewReadiness(20*time.Millisecond, time.Minute, clk, ok, tc.check)
 			st := r.Probe(context.Background())
 			if st.Ready != (tc.failed == "") || (tc.failed != "" && st.Failed[tc.failed] == "") {
 				t.Fatalf("state %+v", st)
@@ -148,7 +148,7 @@ func TestReadinessProbe(t *testing.T) {
 		})
 	}
 	// A result older than maxAge is not trusted: on point (= maxAge) still ready, off point not.
-	r := front.NewReadiness(time.Second, time.Minute, clk.Now, ok)
+	r := front.NewReadiness(time.Second, time.Minute, clk, ok)
 	r.Probe(context.Background())
 	clk.Advance(time.Minute)
 	if !r.State().Ready {

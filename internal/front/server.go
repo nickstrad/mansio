@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
@@ -72,7 +73,7 @@ type Server struct {
 	admitter Admitter
 	adm      *Admission
 	exec     Executor
-	clock    Clock
+	clock    det.Clock
 
 	mu         sync.Mutex
 	draining   bool
@@ -85,11 +86,10 @@ type Server struct {
 	latency  *metrics.LatencyHistogram
 }
 
-// NewServer wires the pipeline. clock may be nil (time.Now).
-func NewServer(cfg Config, tickets TicketVerifier, admitter Admitter, exec Executor, clock Clock) *Server {
-	if clock == nil {
-		clock = time.Now
-	}
+// NewServer wires the pipeline. clock may be nil (det.System()); it stamps ticket checks, request deadlines and
+// timings.
+func NewServer(cfg Config, tickets TicketVerifier, admitter Admitter, exec Executor, clock det.Clock) *Server {
+	clock = det.Or(clock)
 	cfg = cfg.WithDefaults()
 	adm := newAdmission(cfg.Admission, clock)
 	return &Server{cfg: cfg, tickets: tickets, admitter: admitter, adm: adm, exec: exec,
@@ -148,9 +148,9 @@ type Output struct {
 //	post: every Admitter release and admission slot taken is released before Handle returns
 //	post: the answer is counted in Stats (by code, and its latency)
 func (s *Server) Handle(ctx context.Context, in Input) Output {
-	t0 := time.Now()
+	t0 := s.clock.Now()
 	out := s.handle(ctx, in)
-	s.latency.Observe(time.Since(t0))
+	s.latency.Observe(det.Since(s.clock, t0))
 	amb := 0
 	if out.Resp.Ambiguous {
 		amb = 1
@@ -179,9 +179,9 @@ func (s *Server) handle(ctx context.Context, in Input) (out Output) {
 	if err != nil {
 		return s.answer(req, nil, err)
 	}
-	now := s.clock()
+	now := s.clock.Now()
 	deadline := now.Add(s.cfg.timeout(in.Timeout))
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
 	defer cancel()
 
 	claims, err := s.tickets.Verify(in.Ticket, now, ticket.Want{DB: req.DB, Perm: req.Kind.Perm()})
@@ -195,17 +195,17 @@ func (s *Server) handle(ctx context.Context, in Input) (out Output) {
 	assert.That(release != nil, "Admitter.Admit returned no error and no release")
 	defer release()
 
-	t0 := time.Now()
+	t0 := s.clock.Now()
 	slot, err := s.adm.Acquire(ctx, claims.TID, req.DB)
 	if err != nil {
 		return s.answer(req, &claims, err)
 	}
 	defer slot()
-	t1 := time.Now()
-	stmt := min(s.cfg.StmtTimeout, max(deadline.Sub(s.clock()), time.Millisecond))
+	t1 := s.clock.Now()
+	stmt := min(s.cfg.StmtTimeout, max(deadline.Sub(s.clock.Now()), time.Millisecond))
 	reply, err := s.exec.Exec(ctx, Call{Tenant: claims.TID, DB: req.DB, Epoch: claims.Epoch, Gen: claims.Gen, RequestID: req.RequestID, Kind: req.Kind,
 		SQL: req.SQL, Args: req.Args, Deadline: deadline, StmtTimeout: stmt, MaxRows: s.cfg.Limits.MaxRows})
-	t2 := time.Now()
+	t2 := s.clock.Now()
 	out = s.answer(req, &claims, err)
 	out.Resp.Timing = &Timing{AdmitUS: t1.Sub(t0).Microseconds(), ExecUS: t2.Sub(t1).Microseconds()}
 	if err != nil {

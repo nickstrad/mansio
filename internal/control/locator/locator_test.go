@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/ratelimit"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
@@ -86,24 +87,12 @@ func (s *fakeStore) counts() (replica, primary int) {
 	return s.locates[false], s.locates[true]
 }
 
-type clock struct {
-	mu  sync.Mutex
-	now time.Time
-}
-
-func (c *clock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
-func (c *clock) add(d time.Duration) {
-	c.mu.Lock()
-	c.now = c.now.Add(d)
-	c.mu.Unlock()
-}
-
 var iss = tickettest.NewIssuer("k1")
 
 type fixture struct {
 	st  *fakeStore
 	l   *Locator
-	clk *clock
+	clk *dettest.Clock
 	key string // an API key of tenant "acme", principal "app", read|write
 }
 
@@ -116,8 +105,8 @@ func newFixture(t *testing.T, cfg Config) *fixture {
 	}
 	st.keys[id] = StoredKey{Tenant: "acme", Principal: "app", Perms: ticket.Read | ticket.Write, Hash: hash}
 	st.set("acme:db", Placement{Intent: "active", Found: true, VM: "vm-a", Endpoint: "10.0.0.1:7070", Epoch: 3, Gen: 9})
-	clk := &clock{now: time.Unix(1_800_000_000, 0)}
-	cfg.Now = clk.Now
+	clk := dettest.NewClock(time.Unix(1_800_000_000, 0))
+	cfg.Clock = clk
 	return &fixture{st: st, l: New(st, signer{}, cfg), clk: clk, key: key}
 }
 
@@ -250,12 +239,12 @@ func TestCacheTTL(t *testing.T) {
 	f := newFixture(t, Config{CacheTTL: time.Minute})
 	f.l.Reset()
 	f.resolve(t, "db", 0)
-	f.clk.add(time.Minute - time.Nanosecond) // off point: still fresh
+	f.clk.Advance(time.Minute - time.Nanosecond) // off point: still fresh
 	f.resolve(t, "db", 0)
 	if r, _ := f.st.counts(); r != 1 {
 		t.Fatalf("%d loads before the TTL, want 1", r)
 	}
-	f.clk.add(time.Nanosecond) // on point: expired
+	f.clk.Advance(time.Nanosecond) // on point: expired
 	f.resolve(t, "db", 0)
 	if r, _ := f.st.counts(); r != 2 {
 		t.Fatalf("%d loads at the TTL, want 2", r)
@@ -344,7 +333,7 @@ func TestUnknownKeyIDsAreRateLimitedPerSource(t *testing.T) {
 			t.Fatalf("%s: %v", src, err)
 		}
 	}
-	f.clk.add(time.Second) // one token back
+	f.clk.Advance(time.Second) // one token back
 	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: "tsdb_ffffffffffffffff_" + f.key[len("tsdb_")+17:],
 		Source: "evil"}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("after refill: %v", err)
@@ -450,8 +439,19 @@ func TestACallerGivingUpDoesNotCancelTheLoad(t *testing.T) {
 func TestLoadTimeoutBoundsALoadNobodyWaitsFor(t *testing.T) {
 	f := newFixture(t, Config{LoadTimeout: 20 * time.Millisecond})
 	f.st.block = make(chan struct{}) // never released
-	_, err := f.resolve(t, "db", 0)
-	if !errors.Is(err, context.DeadlineExceeded) {
+	done := make(chan error, 1)
+	go func() { _, err := f.resolve(t, "db", 0); done <- err }()
+	if !f.clk.AwaitPending(1) {
+		t.Fatal("the load armed no deadline")
+	}
+	f.clk.Advance(19 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("ended before LoadTimeout: %v", err)
+	default:
+	}
+	f.clk.Advance(time.Millisecond) // the deadline fires in simulated time
+	if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -494,11 +494,11 @@ func TestRevocationTakesAuthTTL(t *testing.T) {
 	k.Revoked = true
 	f.st.keys[id] = k
 	f.st.mu.Unlock()
-	f.clk.add(10*time.Second - time.Nanosecond)
+	f.clk.Advance(10*time.Second - time.Nanosecond)
 	if _, err := f.resolve(t, "db", 0); err != nil {
 		t.Fatalf("inside the auth TTL: %v", err)
 	}
-	f.clk.add(time.Nanosecond)
+	f.clk.Advance(time.Nanosecond)
 	if _, err := f.resolve(t, "db", 0); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("after the auth TTL: %v", err)
 	}

@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/det"
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/errs"
@@ -22,24 +24,41 @@ import (
 	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
 )
 
-// clock is a settable time source for Options.Now.
-type clock struct {
-	mu sync.Mutex
-	t  time.Time
+// clock is the simulated Options.Clock: time moves only by Add. Tests that need deadlines to fire in real time
+// set Options.Clock to det.System().
+type clock struct{ *dettest.Clock }
+
+func newClock() *clock {
+	return &clock{dettest.NewClock(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))}
+}
+func (c *clock) Add(d time.Duration) { c.Advance(d) }
+
+// shifted is the system clock moved forward by Add: real timers, deadlines and timings, plus jumps past a
+// backoff or an idle age. For tests whose stores or networks take real time.
+type shifted struct {
+	det.Clock
+	off atomic.Int64
 }
 
-func (c *clock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
-func (c *clock) Add(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
+func newShifted() *shifted { return &shifted{Clock: det.System()} }
+
+func (c *shifted) Now() time.Time      { return time.Now().Add(time.Duration(c.off.Load())) }
+func (c *shifted) Add(d time.Duration) { c.off.Add(int64(d)) }
+func (c *shifted) WithDeadlineCause(ctx context.Context, t time.Time, cause error) (context.Context, context.CancelFunc) {
+	return context.WithDeadlineCause(ctx, t.Add(-time.Duration(c.off.Load())), cause)
+}
+
+// testClock is a rig's clock: simulated (clock) or shifted.
+type testClock interface {
+	det.Clock
+	Add(d time.Duration)
 }
 
 type drig struct {
 	h     *vactor.Host
 	s     *durabletest.Store
 	o     *vactortest.Opener
-	clk   *clock
+	clk   testClock
 	dir   string
 	opts  vactor.Options
 	t     *testing.T
@@ -48,9 +67,20 @@ type drig struct {
 
 func newDurable(t *testing.T, mod func(*vactor.Options)) *drig {
 	t.Helper()
-	r := &drig{s: durabletest.NewStore(), o: &vactortest.Opener{}, clk: &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)},
+	return newDurableOn(t, newClock(), mod)
+}
+
+// newDurableRealTime is newDurable on a shifted clock, for tests whose deadlines must fire in real time.
+func newDurableRealTime(t *testing.T, mod func(*vactor.Options)) *drig {
+	t.Helper()
+	return newDurableOn(t, newShifted(), mod)
+}
+
+func newDurableOn(t *testing.T, clk testClock, mod func(*vactor.Options)) *drig {
+	t.Helper()
+	r := &drig{s: durabletest.NewStore(), o: &vactortest.Opener{}, clk: clk,
 		dir: filepath.Join(t.TempDir(), "cache"), t: t}
-	r.opts = vactor.Options{CacheDir: r.dir, Store: r.s, CreateMissing: true, Now: r.clk.Now}
+	r.opts = vactor.Options{CacheDir: r.dir, Store: r.s, CreateMissing: true, Clock: r.clk}
 	if mod != nil {
 		mod(&r.opts)
 	}
@@ -607,13 +637,22 @@ func TestRunMaintenanceStopsAndReports(t *testing.T) {
 			}
 		})
 	}()
-	deadline := time.After(5 * time.Second)
-	for r.published("t/a") != "v1" {
-		select {
-		case <-got:
-		case <-deadline:
-			t.Fatal("maintenance never wrote back")
+	// Simulated time: nothing ticks until the clock moves one interval, then exactly one tick runs.
+	clk := r.clk.(*clock)
+	if !clk.AwaitPending(1) {
+		t.Fatal("RunMaintenance armed no ticker")
+	}
+	if r.published("t/a") != "" {
+		t.Fatal("wrote back before the first interval")
+	}
+	clk.Add(time.Millisecond)
+	select {
+	case tr := <-got:
+		if len(tr.WroteBack) != 1 || tr.Took != 0 || r.published("t/a") != "v1" {
+			t.Fatalf("tick %+v; published %q", tr, r.published("t/a"))
 		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("maintenance never wrote back")
 	}
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
@@ -624,7 +663,12 @@ func TestRunMaintenanceStopsAndReports(t *testing.T) {
 	}
 	r.h.Close()
 	r.ended = true
-	if err := r.h.RunMaintenance(ctx, time.Millisecond, nil); !errors.Is(err, vactor.ErrClosed) {
+	go func() { done <- r.h.RunMaintenance(ctx, time.Millisecond, nil) }()
+	if !clk.AwaitPending(1) {
+		t.Fatal("RunMaintenance after Close armed no ticker")
+	}
+	clk.Add(time.Millisecond) // its first tick finds the host closed
+	if err := <-done; !errors.Is(err, vactor.ErrClosed) {
 		t.Fatalf("RunMaintenance after Close = %v", err)
 	}
 }

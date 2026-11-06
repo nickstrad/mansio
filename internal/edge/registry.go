@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/ticket"
@@ -28,6 +29,7 @@ type RegistryConfig struct {
 	Client                 *http.Client // default: a fresh client (the system roots)
 	Breaker                breaker.Config
 	Log                    *slog.Logger
+	Clock                  det.Clock // poll cadence, fetch deadlines, breaker time; default det.System()
 }
 
 // MaxRegistryBody bounds GET /v1/agents' answer (Release It B6).
@@ -57,6 +59,7 @@ func NewRegistryRoutes(cfg RegistryConfig) (*RegistryRoutes, error) {
 	if cfg.MinGap <= 0 {
 		cfg.MinGap = time.Second
 	}
+	cfg.Clock = det.Or(cfg.Clock)
 	if cfg.Client == nil {
 		cfg.Client = &http.Client{}
 	}
@@ -98,24 +101,21 @@ func (r *RegistryRoutes) Len() int {
 // Run fetches every Every, or sooner when Agent missed (but never within MinGap of the last fetch), until ctx
 // ends; a fetch never overlaps the next (Release It S1). Failures are counted and logged on the transition only.
 func (r *RegistryRoutes) Run(ctx context.Context) {
-	t := time.NewTicker(r.cfg.Every)
+	clk := r.cfg.Clock
+	t := clk.NewTicker(r.cfg.Every)
 	defer t.Stop()
-	last := time.Now()
+	last := clk.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-t.C():
 		case <-r.kick:
-			if wait := r.cfg.MinGap - time.Since(last); wait > 0 {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(wait):
-				}
+			if det.Sleep(ctx, clk, r.cfg.MinGap-det.Since(clk, last)) != nil {
+				return
 			}
 		}
-		last = time.Now()
+		last = clk.Now()
 		t.Reset(r.cfg.Every) // a tick that queued during an early fetch does not fetch again at once
 		if err := r.Fetch(ctx); err != nil {
 			if ctx.Err() != nil {
@@ -138,7 +138,7 @@ func (r *RegistryRoutes) fail(err error) {
 
 // Fetch GETs the registry once (under Timeout and the breaker) and installs the map if it parses.
 func (r *RegistryRoutes) Fetch(ctx context.Context) error {
-	p, wait, ok := r.br.Allow(time.Now())
+	p, wait, ok := r.br.Allow(r.cfg.Clock.Now())
 	if !ok {
 		return errs.Wrap(module, breaker.ErrOpen, "agent registry breaker open; next try in %v; the last routes stay", wait)
 	}
@@ -150,11 +150,11 @@ func (r *RegistryRoutes) Fetch(ctx context.Context) error {
 	case err != nil:
 		outcome = breaker.Failure
 	}
-	r.br.Done(p, time.Now(), outcome)
+	r.br.Done(p, r.cfg.Clock.Now(), outcome)
 	if err != nil {
 		return err
 	}
-	r.lastOK.Store(time.Now().UnixNano())
+	r.lastOK.Store(r.cfg.Clock.Now().UnixNano())
 	if old := r.routes.Load(); old == nil || !maps.Equal(*old, m) {
 		r.routes.Store(&m)
 		r.cfg.Log.Info("agent routes updated", "event", "EDGE.REGISTRY_UPDATED", "agents", len(m))
@@ -163,7 +163,7 @@ func (r *RegistryRoutes) Fetch(ctx context.Context) error {
 }
 
 func (r *RegistryRoutes) fetch(ctx context.Context) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.cfg.Timeout)
+	ctx, cancel := det.WithTimeout(ctx, r.cfg.Clock, r.cfg.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.cfg.URL, nil)
 	if err != nil {
@@ -208,7 +208,7 @@ func (r *RegistryRoutes) Register(reg *metrics.Registry) {
 	reg.Add("edge_registry_age_seconds", "Seconds since the last successful registry fetch (-1: never).", metrics.Gauge, func(e *metrics.Emit) {
 		v := -1.0
 		if t := r.lastOK.Load(); t != 0 {
-			v = time.Since(time.Unix(0, t)).Seconds()
+			v = det.Since(r.cfg.Clock, time.Unix(0, t)).Seconds()
 		}
 		e.Value(nil, v)
 	})

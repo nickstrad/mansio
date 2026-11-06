@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
 	"github.com/nickstrad/ts-db-go/internal/vactor"
 	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
@@ -18,7 +19,7 @@ import (
 func TestConcurrentWriteBackAndPassivateLoseNoAcknowledgedWrite(t *testing.T) {
 	r := newDurable(t, func(o *vactor.Options) {
 		o.Policy = vactor.Policy{WriteBackCommits: 3}
-		o.Now = time.Now
+		o.Clock = det.System()
 	})
 	const key = "t/hot"
 	var lastAcked atomic.Int64

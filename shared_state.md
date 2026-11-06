@@ -604,3 +604,17 @@ Branch `cp/fin-loc`. Details: `knowledge/front/2026-11-05-locator-followups.md`.
   `edge.RegistryRoutes`), exclusive with `agents`.
 - **Moved / new shared packages:** `edge.SourceLimiter` → `internal/ratelimit`; `internal/fsx` (`WriteAtomic`,
   `SyncDir`); `logx.Reporter`, `logx.Open`, `logx.Levels`; `tlsx.Files`, `tlsx.HTTPClient`; `keyfetch.Config.CAFile`.
+
+## 2026-11-05 — DST builder: DST-0 determinism seams (`internal/det`), API changes
+
+Branch `dst/0-hygiene`. Details: `knowledge/determinism/README.md`.
+
+- **New:** `internal/det` (`Clock`, `Rand`, `IDGen`; `System()`, `SystemRand()`, `SystemIDs`, `NewRand(seed)`,
+  `NewIDs`; `WithTimeout`/`WithDeadline`/`Sleep`/`Since`/`Until`) and `internal/det/dettest.Clock` (manual clock).
+- **Rule + lint:** simulated packages (list in `internal/det/lint_test.go`) must not call `time.Now/Since/Until/
+  After/NewTimer/NewTicker/Sleep`, `context.WithTimeout/WithDeadline`, math/rand globals, crypto/rand or uuid.
+- **Signature changes:** `vactor.Options.Now` → `Options.Clock` (+ `Options.Rand`); `front.Clock` type removed,
+  `front.NewServer`/`NewReadiness` take a `det.Clock`; `locator.Config.Now` → `Config.Clock`; `edge.Config.Now`
+  → `Config.Clock`. New optional fields (nil = real): `actor.Config.Clock`, `client.Config.Clock/Rand/IDs`,
+  `owner.ReconcileOptions.Clock/Rand`, `control.Controller.Clock`, `edge.RegistryConfig.Clock`,
+  `keyfetch.Config.Clock`. `fronttest.Clock` is now a `det.Clock`.

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
@@ -38,7 +39,7 @@ type TickReport struct {
 //	post: err != nil only if the host is closed
 //	post: every planned key is either done or in r.Errors
 func (h *Host) Tick(ctx context.Context) (TickReport, error) {
-	now := h.opts.Now()
+	now := h.opts.Clock.Now()
 	h.pruneTombs(now)
 	h.mu.Lock()
 	if h.closed {
@@ -79,7 +80,7 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		cands[i] = c
 	}
 	r := TickReport{Plan: PlanTick(now, cands, h.opts.Policy), Errors: map[string]error{}, OldestDirtyAge: oldestDirtyAge(now, cands)}
-	t0 := time.Now()
+	t0 := h.opts.Clock.Now()
 
 	var jobs []string
 	passivate := map[string]bool{}
@@ -93,7 +94,7 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		epochs[keys[i]] = e.epoch.Load()
 	}
 	h.parallel(jobs, h.opts.Workers, func(k string) error {
-		ctx, cancel := context.WithTimeout(ctx, h.opts.WriteBackTimeout)
+		ctx, cancel := det.WithTimeout(ctx, h.opts.Clock, h.opts.WriteBackTimeout)
 		defer cancel()
 		do := func(ctx context.Context) error {
 			if passivate[k] {
@@ -124,7 +125,7 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		return nil
 	})
 	slices.Sort(r.TimedOut)
-	r.Took = time.Since(t0)
+	r.Took = h.since(t0)
 	return r, nil
 }
 
@@ -150,13 +151,13 @@ func (h *Host) RunMaintenance(ctx context.Context, every time.Duration, report f
 	if every <= 0 {
 		return errs.Wrap(module, nil, "cannot run maintenance: interval %v must be > 0", every)
 	}
-	t := time.NewTicker(every)
+	t := h.opts.Clock.NewTicker(every)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return errs.Wrap(module, ctx.Err(), "maintenance stopped")
-		case <-t.C:
+		case <-t.C():
 		}
 		r, err := h.Tick(ctx)
 		if err != nil {

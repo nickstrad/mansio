@@ -60,13 +60,13 @@ func TestDoWithDeadlineNeverRunsAnExpiredRequest(t *testing.T) {
 // Off point: no deadline leaves both unset (the statement runs unbounded, as before).
 func TestBoundByWithoutDeadlineSetsNothing(t *testing.T) {
 	var r Request
-	r.boundBy(context.Background())
+	r.boundBy(context.Background(), time.Now())
 	if !r.Deadline.IsZero() || r.StmtTimeout != 0 {
 		t.Fatalf("%+v", r)
 	}
 	c, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-	r.boundBy(c)
+	r.boundBy(c, time.Now())
 	if r.StmtTimeout != time.Millisecond || r.Deadline.IsZero() {
 		t.Fatalf("past deadline: %+v", r)
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/control"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 	"github.com/nickstrad/ts-db-go/internal/ratelimit"
@@ -31,7 +32,7 @@ type Config struct {
 	// Limiter, if set, is charged Request.Source once for each API key id not in the key cache, before the
 	// store is read: unknown ids are never cached, so without it every garbage key costs a primary read.
 	Limiter *ratelimit.SourceLimiter
-	Now     func() time.Time
+	Clock   det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
 }
 
 func (c *Config) normalize() {
@@ -52,9 +53,7 @@ func (c *Config) normalize() {
 	if c.AuthMax <= 0 {
 		c.AuthMax = 10_000
 	}
-	if c.Now == nil {
-		c.Now = time.Now
-	}
+	c.Clock = det.Or(c.Clock)
 }
 
 // Request is one resolve.
@@ -167,7 +166,7 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	case claimPending(pl):
 		return fail(moving{l.cfg.ClaimRetry})
 	}
-	now := l.cfg.Now()
+	now := l.cfg.Clock.Now()
 	c := ticket.Claims{TID: r.Tenant, DBID: key, VM: pl.VM, Epoch: pl.Epoch, Gen: pl.Gen, Sub: k.Principal, Perms: k.Perms,
 		IAT: now.Unix(), EXP: now.Add(l.cfg.TicketTTL).Unix()}
 	tok, err := l.signer.Mint(c)
@@ -205,7 +204,7 @@ func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey,
 		// A new id would start a store read: charge its source first, outside l.mu (a full limiter sweeps its
 		// buckets). Callers joining a load in flight cost nothing; a race here costs at most an extra token.
 		l.mu.Unlock()
-		ok, wait := l.cfg.Limiter.Allow(ratelimit.SourceKey(src), l.cfg.Now())
+		ok, wait := l.cfg.Limiter.Allow(ratelimit.SourceKey(src), l.cfg.Clock.Now())
 		l.mu.Lock()
 		if !ok {
 			l.stats.RateLimited++
@@ -213,7 +212,7 @@ func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey,
 			return StoredKey{}, limited{wait}
 		}
 	}
-	now := l.cfg.Now()
+	now := l.cfg.Clock.Now()
 	var k StoredKey
 	var err error
 	e, known := l.keys[id]
@@ -227,7 +226,7 @@ func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey,
 				delete(l.keyLoads, id)
 				if f.ok() {
 					evictOne(l.keys, id, l.cfg.AuthMax)
-					l.keys[id] = keyEntry{f.val, l.cfg.Now()}
+					l.keys[id] = keyEntry{f.val, l.cfg.Clock.Now()}
 				}
 			})
 			l.keyLoads[id] = f
@@ -250,7 +249,7 @@ func (l *Locator) authenticate(ctx context.Context, raw, src string) (StoredKey,
 // otherwise from a load shared with every concurrent caller (the primary for minEpoch > 0 or a tombstone).
 func (l *Locator) locate(ctx context.Context, key string, minEpoch uint64) (Placement, error) {
 	l.mu.Lock()
-	now := l.cfg.Now()
+	now := l.cfg.Clock.Now()
 	e := l.routes[key]
 	if e != nil && now.Sub(e.at) >= l.cfg.CacheTTL {
 		e = nil
@@ -292,7 +291,7 @@ func (l *Locator) keep(key string, f *flight[Placement]) {
 		return
 	}
 	evictOne(l.routes, key, l.cfg.CacheMax)
-	l.routes[key] = &entry{pl: f.val, at: l.cfg.Now()}
+	l.routes[key] = &entry{pl: f.val, at: l.cfg.Clock.Now()}
 	assert.That(len(l.routes) <= l.cfg.CacheMax, "route cache over its bound: %d > %d", len(l.routes), l.cfg.CacheMax)
 }
 
@@ -330,7 +329,7 @@ func (l *Locator) invalidate(key string) {
 		f.stale = true
 	}
 	if e := l.routes[key]; e != nil {
-		*e = entry{dirty: true, at: l.cfg.Now()}
+		*e = entry{dirty: true, at: l.cfg.Clock.Now()}
 	}
 }
 
@@ -397,7 +396,7 @@ func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish 
 			l.mu.Unlock()
 			close(f.done)
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), l.cfg.LoadTimeout)
+		ctx, cancel := det.WithTimeout(context.Background(), l.cfg.Clock, l.cfg.LoadTimeout)
 		defer cancel()
 		f.val, f.err = load(ctx)
 	}()

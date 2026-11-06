@@ -37,7 +37,7 @@ func newRig(t testing.TB, cfg front.Config) *rig {
 		iss: iss, ring: ring, clock: clock}
 	v := ticket.Verifier{Keys: ring, VM: vm, Skew: 5 * time.Second, MaxTTL: time.Hour}
 	r.tv = ticket.NewCache(v, 128)
-	r.s = front.NewServer(cfg, r.tv, r.adm, r.ex, clock.Now)
+	r.s = front.NewServer(cfg, r.tv, r.adm, r.ex, clock)
 	return r
 }
 

@@ -3,8 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,9 +13,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/outcome"
@@ -71,6 +69,10 @@ type Config struct {
 	RefreshJitter  float64       // … ± this fraction, so clients do not refresh together
 
 	Hooks Hooks
+
+	Clock det.Clock // call deadlines, backoff waits and route expiry; default det.System()
+	Rand  det.Rand  // backoff and refresh jitter; default det.SystemRand()
+	IDs   det.IDGen // write request ids; default det.SystemIDs("c")
 }
 
 // Hooks observe the client (benchmarks, tests). They run on the calling goroutine and must be cheap and safe for
@@ -163,11 +165,9 @@ type Client struct {
 	http   *http.Client
 	routes *routes
 	budget *retry.Budget
-	idBase string
-	idSeq  atomic.Uint64
 	stop   context.CancelFunc
 
-	rng *mrand.Rand // over the runtime's lock-free generator: safe for concurrent use
+	rng *mrand.Rand // over cfg.Rand, which is safe for concurrent use
 
 	sleep func(ctx context.Context, d time.Duration) error // tests replace it
 }
@@ -215,16 +215,18 @@ func New(cfg Config) (*Client, error) {
 			return nil, err
 		}
 	}
-	b := make([]byte, 6)
-	rand.Read(b)
-	c := &Client{cfg: cfg, http: hc, budget: cfg.Budget, idBase: "c" + hex.EncodeToString(b) + "-",
-		rng: mrand.New(globalSource{}), sleep: sleepCtx}
+	cfg.Clock, cfg.Rand = det.Or(cfg.Clock), det.RandOr(cfg.Rand)
+	if cfg.IDs == nil {
+		cfg.IDs = det.SystemIDs("c")
+	}
+	c := &Client{cfg: cfg, http: hc, budget: cfg.Budget, rng: mrand.New(cfg.Rand),
+		sleep: func(ctx context.Context, d time.Duration) error { return det.Sleep(ctx, cfg.Clock, d) }}
 	if c.budget == nil {
 		c.budget = &retry.Budget{Ratio: DefaultBudgetRatio}
 	}
 	root, stop := context.WithCancel(context.Background())
 	c.stop = stop
-	c.routes = newRoutes(root, c.resolve, cfg.ResolveTimeout, cfg.MaxRoutes, time.Now, func(at time.Time, ttl time.Duration) time.Time {
+	c.routes = newRoutes(root, c.resolve, cfg.ResolveTimeout, cfg.MaxRoutes, cfg.Clock, func(at time.Time, ttl time.Duration) time.Time {
 		return refreshAt(at, ttl, cfg.RefreshAhead, cfg.RefreshJitter, c.rng.Float64())
 	})
 	return c, nil
@@ -261,11 +263,6 @@ func (c *Client) Close() {
 // Budget is the retry budget the client spends.
 func (c *Client) Budget() *retry.Budget { return c.budget }
 
-// globalSource draws from math/rand/v2's per-thread generator, so one *rand.Rand over it is safe to share.
-type globalSource struct{}
-
-func (globalSource) Uint64() uint64 { return mrand.Uint64() }
-
 // Do runs req at the database's owner and returns the final answer. The loop (control-plane plan §2):
 //
 //	route (cached; resolved single-flight) → POST /v1/query with the route's ticket and X-Timeout-Ms
@@ -285,15 +282,15 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 		return res, errs.Wrap(module, &Error{Op: "query", Code: "bad_request", Message: "db is required"}, "invalid request; nothing was sent")
 	}
 	if req.Kind == front.KindWrite && req.RequestID == "" {
-		req.RequestID = c.idBase + strconv.FormatUint(c.idSeq.Add(1), 36)
+		req.RequestID = c.cfg.IDs.NewID()
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, c.cfg.Timeout)
+		ctx, cancel = det.WithTimeout(ctx, c.cfg.Clock, c.cfg.Timeout)
 		defer cancel()
 	}
 	deadline, _ := ctx.Deadline()
-	first := time.Now()
+	first := c.cfg.Clock.Now()
 	c.budget.First()
 
 	var (
@@ -308,10 +305,10 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 	}
 	for {
 		// 1. The route.
-		t0 := time.Now()
+		t0 := c.cfg.Clock.Now()
 		r, hit, err := c.routes.get(ctx, req.DB) // a reroute's min_epoch lives in the cache (drop)
 		if h := c.cfg.Hooks.Resolve; h != nil {
-			h(ResolveEvent{DB: req.DB, Hit: hit, Wait: time.Since(t0), Err: err})
+			h(ResolveEvent{DB: req.DB, Hit: hit, Wait: det.Since(c.cfg.Clock, t0), Err: err})
 		}
 		var a answer
 		var st step
@@ -375,13 +372,13 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 			}
 		case stepRetry:
 			var ok bool
-			d, ok = c.cfg.Retry.Decide(c.rng, retry.Attempt{N: retries + 1, Outcome: oc, Elapsed: time.Since(first), Prev: prev, ServerHint: a.RetryAfter})
+			d, ok = c.cfg.Retry.Decide(c.rng, retry.Attempt{N: retries + 1, Outcome: oc, Elapsed: det.Since(c.cfg.Clock, first), Prev: prev, ServerHint: a.RetryAfter})
 			if !ok || !c.budget.TryRetry() {
 				return fail(last)
 			}
 			retries++
 		}
-		if !time.Now().Add(d).Before(deadline) {
+		if !c.cfg.Clock.Now().Add(d).Before(deadline) {
 			return fail(last) // the wait would end past the call's deadline (RI T4)
 		}
 		if h := c.cfg.Hooks.Retry; h != nil {
@@ -402,20 +399,6 @@ func (c *Client) deadlineError(ctx context.Context, last *Error) *Error {
 		e.MayHaveApplied = last.MayHaveApplied
 	}
 	return e
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err()
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // encode is the query body for database key db. It is built once per call: every attempt sends the same bytes,
@@ -448,7 +431,7 @@ func (c *Client) send(ctx context.Context, r Route, body []byte, deadline time.T
 	}
 	hr.Header.Set("Authorization", r.auth)
 	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set(front.TimeoutHeader, strconv.FormatInt(timeoutHeader(time.Until(deadline)), 10))
+	hr.Header.Set(front.TimeoutHeader, strconv.FormatInt(timeoutHeader(det.Until(c.cfg.Clock, deadline)), 10))
 	hres, err := c.http.Do(hr)
 	if err != nil {
 		return answer{Code: codeTransport}, front.Response{}, err

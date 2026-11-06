@@ -183,7 +183,7 @@ func (h *httpHandler) write(w http.ResponseWriter, r *http.Request, out Output) 
 		}
 		h.log.LogAttrs(context.Background(), slog.LevelError, "request failed (internal)", attrs...)
 	} else if out.Resp.Code == Unavailable {
-		if ok, suppressed := h.unavailable.allow(h.s.clock()); ok {
+		if ok, suppressed := h.unavailable.allow(h.s.clock.Now()); ok {
 			attrs := []slog.Attr{slog.String("event", "FRONT.UNAVAILABLE"), slog.String("request_id", out.Resp.RequestID),
 				slog.Int("suppressed", suppressed)}
 			if out.Err != nil {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 )
 
@@ -34,8 +35,8 @@ const (
 // included: the canary has its own actor, so a shed there means it is closed or stuck. A wedged actor shows as
 // expired or no reply.
 func (s *Server) Canary(ctx context.Context, db string, timeout time.Duration) error {
-	deadline := s.clock().Add(timeout)
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	deadline := s.clock.Now().Add(timeout)
+	ctx, cancel := det.WithDeadline(ctx, s.clock, deadline)
 	defer cancel()
 	slot, err := s.adm.Acquire(ctx, CanaryTenant, db)
 	if errors.Is(err, ErrShed) {
@@ -69,19 +70,16 @@ type Readiness struct {
 	checks  []Check
 	timeout time.Duration // per probe
 	maxAge  time.Duration // a result older than this is not trusted (the prober itself is stuck)
-	now     Clock
+	clock   det.Clock
 
 	mu   sync.Mutex
 	last ReadyState
 }
 
 // NewReadiness returns a prober whose result is "not ready" until its first probe. timeout bounds each probe;
-// a result older than maxAge reads as not ready. now may be nil (time.Now).
-func NewReadiness(timeout, maxAge time.Duration, now Clock, checks ...Check) *Readiness {
-	if now == nil {
-		now = time.Now
-	}
-	return &Readiness{checks: checks, timeout: timeout, maxAge: maxAge, now: now,
+// a result older than maxAge reads as not ready. clock may be nil (det.System()).
+func NewReadiness(timeout, maxAge time.Duration, clock det.Clock, checks ...Check) *Readiness {
+	return &Readiness{checks: checks, timeout: timeout, maxAge: maxAge, clock: det.Or(clock),
 		last: ReadyState{Failed: map[string]string{"probe": "not probed yet"}}}
 }
 
@@ -89,7 +87,7 @@ func NewReadiness(timeout, maxAge time.Duration, now Clock, checks ...Check) *Re
 // panics fails (the panic is a bug in the check; it is reported as its error, not re-raised, so readiness
 // keeps running).
 func (r *Readiness) Probe(ctx context.Context) ReadyState {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	ctx, cancel := det.WithTimeout(ctx, r.clock, r.timeout)
 	defer cancel()
 	type result struct {
 		name string
@@ -125,7 +123,7 @@ collect:
 			break collect
 		}
 	}
-	st.At = r.now()
+	st.At = r.clock.Now()
 	r.mu.Lock()
 	r.last = st
 	r.mu.Unlock()
@@ -134,7 +132,7 @@ collect:
 
 // Run probes at once and then every interval until ctx ends. Probes never overlap.
 func (r *Readiness) Run(ctx context.Context, every time.Duration, report func(prev, cur ReadyState)) {
-	t := time.NewTicker(every)
+	t := r.clock.NewTicker(every)
 	defer t.Stop()
 	for {
 		prev := r.State()
@@ -145,7 +143,7 @@ func (r *Readiness) Run(ctx context.Context, every time.Duration, report func(pr
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-t.C():
 		}
 	}
 }
@@ -155,7 +153,7 @@ func (r *Readiness) State() ReadyState {
 	r.mu.Lock()
 	st := r.last
 	r.mu.Unlock()
-	if st.Ready && r.maxAge > 0 && r.now().Sub(st.At) > r.maxAge {
+	if st.Ready && r.maxAge > 0 && r.clock.Now().Sub(st.At) > r.maxAge {
 		st.Ready, st.Failed = false, map[string]string{"probe": "last probe is too old; the prober is stuck"}
 	}
 	return st
