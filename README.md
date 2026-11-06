@@ -226,7 +226,8 @@ mutation request carries the writes plus **preconditions derived from the reads*
 or `exists: false`; a `find` is not guarded in v1). If another writer changed something the handler read, the
 server answers `ConflictError` on a derived precondition and the client **re-runs the handler** (bounded, with
 jitter). So **handlers must have no side effects beyond `db`**: no email, no external calls — they may run
-more than once. App-raised errors (`makeMove`'s own `ConflictError` on a stale `expectedVersion`, a
+more than once. One commit holds at most 64 operations (derived asserts + writes), else the call fails locally
+with `RuleError`. App-raised errors (`makeMove`'s own `ConflictError` on a stale `expectedVersion`, a
 `RuleError`) fail the handler locally and reach the caller as `RemoteError` with the status and tag the server
 would have used; transport trouble that outlasts the retry policy and budget is `Unavailable`. Details:
 `sdk/client.ts`, `sdk/recording.ts`, `sdk/transport.ts`.

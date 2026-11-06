@@ -350,8 +350,11 @@ const MAX_TIMEOUT_MS = 3_600_000;
  * this route's app (else `SchemaError` at `db.app`), and `db.tenant` is not used — with TENANCY=off the
  * app has one file, with tenancy the key's tenant file is the database. Then the body is decoded strictly
  * (size, UTF-8, JSON, envelope, operations: `core/ir/decode.ts`) and run by `Storage.ir` on the writer.
- * `X-Timeout-Ms` (1..3 600 000) bounds the wait and the run; past it the answer is `expired` (504) and the
- * transaction has rolled back. A full writer queue is `shed` (503, `Retry-After: 1`).
+ * `X-Timeout-Ms` (1..3 600 000) bounds the wait and the run; past it the answer is `expired` (504), with
+ * `fields.ambiguous: true` for a mutation: the deadline may land after COMMIT, so the client retries with
+ * the same `requestId` (a commit that landed answers `duplicate`). Queries share the writer queue with
+ * mutations (they do not use the reader process), so heavy writes can make them `shed` (503,
+ * `Retry-After: 1`) too; that is the shim's limit until IR-6 removes it.
  */
 export function ops(context: RequestContext, appId: string): Handler {
   const reply = (failure: IrFailure) => {
@@ -397,8 +400,21 @@ export function ops(context: RequestContext, appId: string): Handler {
             });
           }
           const run = stack.storage.ir(request);
-          const bounded = timeoutMs === undefined ? run : Effect.timeout(run, timeoutMs);
-          return yield* Effect.map(bounded, (response) => new RawReply(200, response));
+          if (timeoutMs === undefined) return new RawReply(200, yield* run);
+          const answered = yield* Effect.timeoutOption(run, timeoutMs);
+          if (answered._tag === "Some") return new RawReply(200, answered.value);
+          // The deadline can land after COMMIT and before the answer: a mutation may have applied.
+          return new RawReply(
+            504,
+            {
+              error: {
+                tag: "expired",
+                message: "the request's deadline passed",
+                ...(request.kind === "mutation" ? { fields: { ambiguous: true } } : {}),
+              },
+            },
+            "expired",
+          );
         }),
     ).pipe(
       Effect.catchTags({
@@ -406,7 +422,6 @@ export function ops(context: RequestContext, appId: string): Handler {
         RequestTooLarge: (cause) => Effect.succeed(reply(new IrFailure({ cause }))),
         QueueFullError: () =>
           Effect.succeed(mansio(503, "shed", "the writer queue is full", { "retry-after": "1" })),
-        TimeoutException: () => Effect.succeed(mansio(504, "expired", "the request's deadline passed")),
       }),
     );
   }));

@@ -207,7 +207,8 @@ export function withAppAuthentication<A, E, R, E2, R2>(
     const tenantId = yield* resolveRequestTenant(headers, app.id);
     return yield* Effect.gen(function* () {
       const args = yield* body;
-      if (args !== null && typeof args === "object" && !Array.isArray(args)) {
+      // Raw bytes (the ops route) are not an argument object: nothing to strip.
+      if (args !== null && typeof args === "object" && !Array.isArray(args) && !ArrayBuffer.isView(args)) {
         const fields = ["tenant", "tenantId", "tenant_id"];
         if (fields.some((field) => Object.hasOwn(args, field))) {
           yield* warnTenantIdentity(yield* TenantRegistry);

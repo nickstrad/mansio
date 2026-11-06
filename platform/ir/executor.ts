@@ -33,6 +33,7 @@ import { fingerprintText } from "../../core/ir/schema.ts";
 import { body, checkExpect, type Doc, resolve, resolveId } from "../../core/ir/semantics.ts";
 import { type Op, READ_OPS, type Request, type Response } from "../../core/ir/types.ts";
 import { IdGen } from "../services.ts";
+import { fingerprintOfText } from "../../sdk/fingerprint.ts";
 import { Database, prepareCached } from "../sqlite_ffi/mod.ts";
 
 /** mansio-server's request-id table (`internal/actor/reqid.go`), byte for byte. */
@@ -62,10 +63,7 @@ export interface IrDatabaseOptions {
 
 /** `sha256:` + lowercase hex of SHA-256 over the UTF-8 bytes of `text`. */
 export function sha256Fingerprint(text: string): Effect.Effect<string> {
-  return Effect.promise(async () => {
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
-    return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
-  });
+  return Effect.promise(() => fingerprintOfText(text));
 }
 
 /**

@@ -140,7 +140,8 @@ import {
 } from "./sqlite_ffi/mod.ts";
 import { classify } from "./sqlite_ffi/classify.ts";
 import { Config, EventSink, type EventSinkService, IdGen, Storage, type StorageService } from "./services.ts";
-import { type IrConnection, REQUEST_TABLE_DDL, runRequest, sha256Fingerprint } from "./ir/executor.ts";
+import { type IrConnection, REQUEST_TABLE_DDL, runRequest } from "./ir/executor.ts";
+import { schemaFingerprint } from "../sdk/fingerprint.ts";
 import { FingerprintMismatch, IrFailure } from "../core/ir/errors.ts";
 
 import { TenantContext, type TenantId, TenantStorageRouter } from "./tenants/routing.ts";
@@ -972,7 +973,9 @@ function makeSingleStorage(
           }),
       };
     };
-    const irFingerprint = yield* sha256Fingerprint(JSON.stringify(schema));
+    const irFingerprint = yield* Effect.promise(() => schemaFingerprint(schema));
+    /** `_mansio_requests` exists in this file: set once an IR mutation that ran its DDL committed. */
+    let requestsTable = false;
 
     const service: StorageService = {
       ir: (request) =>
@@ -986,15 +989,22 @@ function makeSingleStorage(
             transaction(queueWaitMs, (tx) =>
               Effect.gen(function* () {
                 const now = yield* clock.currentTimeMillis;
-                // The request-id table is created on first use, so files no IR mutation touched keep
-                // exactly today's tables.
-                if (request.kind === "mutation") {
+                // The request-id table is created by the first IR mutation (once per Storage, kept only if
+                // it commits), so files no IR mutation touched keep exactly today's tables.
+                const create = request.kind === "mutation" && !requestsTable;
+                if (create) {
                   for (const ddl of REQUEST_TABLE_DDL) yield* exec("ddl", "_mansio_requests", ddl);
                 }
-                return yield* runRequest(schema, irConnection(tx), request, now).pipe(
+                const response = yield* runRequest(schema, irConnection(tx), request, now).pipe(
                   Effect.provideService(IdGen, idGen),
                 );
-              }))
+                return { response, create };
+              })).pipe(
+                Effect.map(({ response, create }) => {
+                  if (create) requestsTable = true; // the transaction committed
+                  return response;
+                }),
+              )
           ),
       mutation: (definition: AnyDefinition, args: unknown) =>
         definition.kind !== "mutation"
