@@ -47,6 +47,10 @@ export function startPostgres() {
     return `postgres://mansio:mansio@${address}/postgres`;
   });
 }
+/**
+ * A fresh, empty database `name` on the run's Postgres. agentd's tenancy migrates its own schema
+ * (`control`, `startGoTenancy`) and controld its placement tables; nothing is installed here.
+ */
 export function database(name: string) {
   return Effect.gen(function* () {
     assert.match(name, /^[a-z_]+$/);
@@ -59,22 +63,6 @@ export function database(name: string) {
     yield* Effect.promise(() => sql.unsafe(`CREATE DATABASE "${name}"`));
     const url = new URL(base);
     url.pathname = "/" + name;
-    const result = yield* Effect.promise(() =>
-      command(Deno.execPath(), ["run", "-A", "scripts/db/migrate.ts"], {
-        ...cleanEnv(),
-        DATABASE_URL: url.href,
-      })
-    );
-    assert.equal(result.code, 0, result.stderr);
-    // MT-08 is open: the normal migration runner must actually install its staged artifacts.
-    if (name === "auth") {
-      const auth = yield* Effect.acquireRelease(
-        Effect.sync(() => postgres(url.href, { max: 1, onnotice() {} })),
-        (sql) => Effect.promise(() => sql.end()),
-      );
-      const rows = yield* Effect.promise(() => auth`SELECT to_regclass('public.session') AS name`);
-      assert.equal(rows[0].name, "session", "MT-08 migration was not applied by scripts/db/migrate.ts");
-    }
     return url.href;
   });
 }
