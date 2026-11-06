@@ -4,6 +4,7 @@ One line per topic folder or key note. Newest first within a section. Rules: `AG
 
 ## Topics
 
+- [ir/](ir/README.md): the IR protocol in Go. IR-1 (2026-11-05): `internal/ir` (strict decode, canonical JSON), `internal/docschema`, `internal/doccompile` (SQLite) match the TS oracle on every vector, the 2000-case corpus, `GENERATED_SQL.txt` and 1M differential cases (8 s); TS quirks reproduced; notes for IR-2. Owner: IR builders.
 - [determinism/](determinism/README.md): DST-0 seams in `internal/det` (`Clock`, `Rand`, `IDGen`; `dettest.Clock` manual clock with clock-aware context deadlines), where they are threaded, the lint banning wall clock / global rand / ctx timeouts in 14 simulated packages, and what is still non-deterministic for DST-1. Owner: DST builder.
 - [coding style](../docs/coding-style.md): one-page rules for all code, summarizing the guides in [docs/books/](../docs/books/README.md) (Release It!, Art of PostgreSQL, Object Storage, plus testing and concurrency here). Read before planning. Owner: coordinator.
 - [control-plane plan](../docs/control-plane-plan.md): 2026-11-05 standing after writeback/fencing/front landed, the three flows (route, new db, place+warm cold db), and the build order to a client that reaches the right process. Owner: coordinator.
