@@ -91,7 +91,8 @@ type Config struct {
 		// MaxDBs and MaxDBsPerTenant cap create on first use (a resolve with "create"; Release It S, B6): past
 		// either, live databases (not dropped) in the registry, the answer is quota_exceeded (429) and nothing
 		// is created. Defaults 10 000 and 100, as agentd's single-node create_dbs. Explicit creates are not
-		// capped (the operator decides). Concurrent first uses may pass a cap by up to locator.concurrency.
+		// capped (the operator decides). The check is not atomic with the create: concurrent first uses may pass a
+		// cap by up to locator.concurrency × the number of controld instances.
 		MaxDBs          int `json:"max_dbs"`
 		MaxDBsPerTenant int `json:"max_dbs_per_tenant"`
 	} `json:"locator"`

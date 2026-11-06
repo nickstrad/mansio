@@ -121,6 +121,9 @@ func TestTenancyResolveGate(t *testing.T) {
 	if code := post("/v1/resolve", newKey, map[string]any{"app": "chess", "create": true}, &refused); code != 429 || refused.Code != "quota_exceeded" {
 		t.Fatalf("past the cap: %d %+v", code, refused)
 	}
+	if code, _ := resolve(newKey, map[string]any{"app": "ghost", "create": true}); code != 404 {
+		t.Fatalf("an unregistered app past the cap: %d, want 404 (checked before the caps)", code)
+	}
 	if code := c.call("GET", "/v1/databases/"+tenant+":chess", nil, nil); code != 404 {
 		t.Fatalf("a refused create left a row: %d", code)
 	}

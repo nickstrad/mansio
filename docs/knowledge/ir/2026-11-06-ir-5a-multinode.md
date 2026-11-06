@@ -39,7 +39,7 @@ Create on first use: `locator.ErrCreatable` now carries the credential's tenant 
 checks `locator.max_dbs_per_tenant` (100) and `locator.max_dbs` (10 000) over live registry rows
 (`count_databases.sql`) → 429 `quota_exceeded`, then the registered-schema check, then `Controller.Create`.
 The cap check is not atomic with the create (concurrent first uses may pass it by up to
-`locator.concurrency`); explicit creates are not capped. `tenancy.apps`, when set, limits every credential's
+`locator.concurrency` × controld instances); explicit creates are not capped. `tenancy.apps`, when set, limits every credential's
 app resolves (404).
 
 ## Create and move for (tenant, app)

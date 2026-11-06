@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -247,6 +248,29 @@ func TestParsePayload(t *testing.T) {
 		key, epoch, ok := parsePayload(tc.in)
 		if key != tc.key || epoch != tc.epoch || ok != tc.ok {
 			t.Errorf("%q: %q %d %v", tc.in, key, epoch, ok)
+		}
+	}
+}
+
+// Concurrent key creations for one new tenant all succeed (a run that cannot see the concurrently created tenant
+// row is re-run).
+func TestConcurrentAPIKeysForANewTenant(t *testing.T) {
+	p, _ := newPlacement(t, nil)
+	for round := range 5 {
+		var wg sync.WaitGroup
+		errc := make(chan error, 8)
+		for i := range 8 {
+			wg.Go(func() {
+				errc <- p.CreateAPIKey(ctx, APIKey{ID: fmt.Sprintf("%08x%08x", round, i), Tenant: fmt.Sprintf("newt%d", round),
+					Principal: "p", Perms: 3, Hash: [32]byte{byte(i)}})
+			})
+		}
+		wg.Wait()
+		close(errc)
+		for err := range errc {
+			if err != nil {
+				t.Fatalf("round %d: %v", round, err)
+			}
 		}
 	}
 }

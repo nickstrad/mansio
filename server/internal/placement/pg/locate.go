@@ -100,17 +100,23 @@ func (p *Placement) CreateAPIKey(ctx context.Context, k APIKey) error {
 			tenantPattern, PrincipalPattern)
 	}
 	return p.call(ctx, "create api key", k.ID, retryWrite, func(ctx context.Context) error {
-		var status, id *string
-		if err := p.pool.QueryRow(ctx, q.createAPIKey, k.ID, k.Tenant, k.Principal, k.Hash[:], int16(k.Perms)).Scan(&status, &id); err != nil {
-			return err
+		// Two runs at most: a run that sees no tenant row lost a race with a concurrent statement creating the
+		// tenant (inserted nothing; its snapshot cannot see the new row); the second run's snapshot can.
+		for attempt := 0; ; attempt++ {
+			var status, id *string
+			if err := p.pool.QueryRow(ctx, q.createAPIKey, k.ID, k.Tenant, k.Principal, k.Hash[:], int16(k.Perms)).Scan(&status, &id); err != nil {
+				return err
+			}
+			switch {
+			case id != nil:
+				return nil
+			case status == nil && attempt == 0:
+				continue
+			case status == nil:
+				return fmt.Errorf("%w: tenant created concurrently; retry", owner.ErrConflict)
+			}
+			return tenancy.ErrDeactivated // nothing stored
 		}
-		switch {
-		case id != nil:
-			return nil
-		case status == nil: // the tenant was created by a concurrent statement this one's snapshot cannot see
-			return fmt.Errorf("%w: tenant created concurrently; retry", owner.ErrConflict)
-		}
-		return tenancy.ErrDeactivated // nothing stored
 	})
 }
 

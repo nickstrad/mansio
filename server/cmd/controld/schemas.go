@@ -135,25 +135,37 @@ func (d *daemon) createAppDatabase(ctx context.Context, tenant, app string) (con
 	if !pg.ValidTenant(tenant) || !pg.ValidName(app) {
 		return control.Database{}, errBadRequest("tenant must be a tenant id and app a database name")
 	}
-	ok, err := d.schemas.AppRegistered(ctx, app)
-	if err != nil {
+	if err := d.checkRegistered(ctx, app); err != nil {
 		return control.Database{}, err
-	}
-	if !ok {
-		return control.Database{}, &apiError{"not_found", http.StatusNotFound, "app " + app + " has no registered schema: PUT /v1/apps/" + app + "/schema first", false}
 	}
 	return d.ctl.Create(ctx, tenant, app)
 }
 
+// checkRegistered answers not_found unless app has registered a schema.
+func (d *daemon) checkRegistered(ctx context.Context, app string) error {
+	ok, err := d.schemas.AppRegistered(ctx, app)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &apiError{"not_found", http.StatusNotFound, "app " + app + " has no registered schema: PUT /v1/apps/" + app + "/schema first", false}
+	}
+	return nil
+}
+
 // resolveApp is resolve for (tenant, app) with create on first use: when the locator says the credential may
-// create the missing database (locator.ErrCreatable, naming the credential's tenant), it is created
-// (createAppDatabase) within the caps (checkCaps) and resolved again from the primary. Creating runs under the
+// create the missing database (locator.ErrCreatable, naming the credential's tenant), the app must have a
+// registered schema (404 otherwise, before any count), the caps must allow (checkCaps), and then it is created
+// (createAppDatabase) and resolved again from the primary. Creating runs under the
 // resolve deadline; if that passes, the create is recorded and resumes (the lifecycle controller finishes
 // pending creates), and the client's next resolve follows it.
 func (d *daemon) resolveApp(ctx context.Context, req locator.Request) (locator.Route, error) {
 	rt, err := d.loc.Resolve(ctx, req)
 	if !req.Create || !errors.Is(err, locator.ErrCreatable) {
 		return rt, err
+	}
+	if err := d.checkRegistered(ctx, req.Name); err != nil {
+		return locator.Route{}, err
 	}
 	if err := d.checkCaps(ctx, rt.Tenant); err != nil {
 		return locator.Route{}, err
