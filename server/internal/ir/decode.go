@@ -17,9 +17,9 @@ var (
 	// tenantRE and appRE are the control plane's registry domains (0002_registry.sql tenant_id and
 	// database_name), narrower than wire ids: the database is stored under the placement key tenant ":" app
 	// (spec §4, ADR 0011).
-	tenantRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
-	appRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,55}$`)
-	opIndexRE   = regexp.MustCompile(`^ops\[(\d+)\]`)
+	tenantRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	appRE     = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,55}$`)
+	opIndexRE = regexp.MustCompile(`^ops\[(\d+)\]`)
 )
 
 var opNames = []string{"select", "get", "insert", "patch", "delete", "assert"}
