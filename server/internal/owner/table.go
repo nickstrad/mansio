@@ -535,6 +535,12 @@ func (t *Table) Fence(ctx context.Context, key string) (Ack, error) {
 		if err := lock(ctx, s.pub); err != nil {
 			return Ack{}, errs.Wrap(module, err, "cannot fence %q: cancelled before write-back; admission stays stopped, retry Fence", key)
 		}
+		// Re-read under pub: a periodic publish admitted after the drain (the key is Fencing) may have raised
+		// Gen, or found a higher epoch, before we got pub; the write-back below must be checked against that.
+		if l = s.view.Load().l; l.State == Fenced {
+			unlock(s.pub)
+			return t.fencedResult(ctx, s, l)
+		}
 		gen, err := t.cfg.WriteBack.Publish(ctx, key, l.Epoch)
 		if err == nil && gen >= l.Gen {
 			s.finalGen = gen

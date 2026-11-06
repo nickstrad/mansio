@@ -649,3 +649,76 @@ func TestPublishWhileAFenceIsPending(t *testing.T) {
 	_, err = a.Publish(ctx, "k", 1, func(context.Context) (owner.Generation, error) { return 0, nil })
 	mustIs(t, err, owner.ErrFenced)
 }
+
+// A periodic publish that gets the publish lock between a retried Fence's drain and its write-back raises
+// Gen; the fence must judge its write-back against that Gen (re-read under the lock), not the one it read
+// before: a lower generation is refused (ErrInvalid, still Fencing), never installed as FENCED.
+func TestFenceRereadsGenUnderThePublishLock(t *testing.T) {
+	w := newWorld(t, "a")
+	w.place("k", "a")
+	a := w.tab("a")
+	must(t, w.write("a", "k", 1, "w1"))
+	w.objs.SetDown(true)
+	if _, err := a.Fence(ctx, "k"); err == nil {
+		t.Fatal("Fence with storage down succeeded")
+	}
+	w.objs.SetDown(false)
+	// P1 holds the publish lock and a permit, so the retried Fence drains on it; P2 queues on the lock before
+	// the Fence reaches it, and publishes a generation far above anything the fence's write-back returns.
+	inP1, releaseP1 := make(chan struct{}), make(chan struct{})
+	p1 := make(chan error, 1)
+	go func() {
+		_, err := a.Publish(ctx, "k", 1, func(context.Context) (owner.Generation, error) {
+			close(inP1)
+			<-releaseP1
+			return a.State("k").Gen, nil
+		})
+		p1 <- err
+	}()
+	<-inP1
+	p2 := make(chan error, 1)
+	go func() {
+		_, err := a.Publish(ctx, "k", 1, func(context.Context) (owner.Generation, error) { return 1000, nil })
+		p2 <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // P2 waits on the lock
+	fence := make(chan error, 1)
+	go func() { _, err := a.Fence(ctx, "k"); fence <- err }()
+	time.Sleep(20 * time.Millisecond) // the Fence waits on P1's permit
+	close(releaseP1)
+	must(t, <-p1)
+	must(t, <-p2)
+	err := <-fence
+	l := a.State("k")
+	switch {
+	case err == nil && l.State == owner.Fenced && l.Gen >= 1000:
+	case errors.Is(err, owner.ErrInvalid) && l.State == owner.Fencing && l.Gen == 1000:
+	default:
+		t.Fatalf("Fence = %v, state %s; want an ack at gen ≥ 1000 or ErrInvalid while fencing", err, l)
+	}
+}
+
+// A fence whose write-back published but whose FENCED record failed stays Fencing; from then on no periodic
+// publish of that epoch runs (the fence's generation is the last), and the retried Fence acks it.
+func TestNoPublishAfterAFenceWriteBack(t *testing.T) {
+	w := newWorld(t, "a")
+	w.place("k", "a")
+	a := w.tab("a")
+	must(t, w.write("a", "k", 1, "w1"))
+	w.procs["a"].store.Set(func(m *ownertest.MemStore) { m.FailPut = true })
+	if _, err := a.Fence(ctx, "k"); err == nil {
+		t.Fatal("Fence with the record store down succeeded")
+	}
+	if l := a.State("k"); l.State != owner.Fencing {
+		t.Fatalf("State = %s, want fencing", l)
+	}
+	calls := w.procs["a"].wb.Calls
+	_, err := a.Publish(ctx, "k", 1, func(c context.Context) (owner.Generation, error) { return w.procs["a"].wb.Publish(c, "k", 1) })
+	mustIs(t, err, owner.ErrMoving)
+	w.procs["a"].store.Set(func(m *ownertest.MemStore) { m.FailPut = false })
+	ack, err := a.Fence(ctx, "k")
+	must(t, err)
+	if w.procs["a"].wb.Calls != calls || a.State("k").State != owner.Fenced || ack.Gen != a.State("k").Gen {
+		t.Fatalf("retried Fence: ack %+v, state %s, write-backs %d → %d (want none)", ack, a.State("k"), calls, w.procs["a"].wb.Calls)
+	}
+}
