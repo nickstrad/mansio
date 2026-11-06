@@ -41,7 +41,7 @@ test("e2e/5-auth: 5a API-key refusals and 5b headless Better Auth tenant session
       yield* Effect.promise(async () => {
         for (const path of ["/apps/tic-tac-toe/query/listGames", "/admin/logs/ingest"]) {
           for (
-            const authorization of [undefined, "Bearer", "Bearer tsdb_unknown", "Bearer wrong-admin-token"]
+            const authorization of [undefined, "Bearer", "Bearer mansio_unknown", "Bearer wrong-admin-token"]
           ) {
             const response = await fetch(server.base + path, {
               method: "POST",

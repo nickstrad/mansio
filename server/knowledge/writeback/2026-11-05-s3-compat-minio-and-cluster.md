@@ -10,12 +10,12 @@ answer is the server's first). Single-node SeaweedFS 4.47 results:
   linux/arm64). `minio/minio` and `quay.io/minio/minio` refused anonymous pulls on 2026-11-05 (MinIO stopped
   publishing community images); Bitnami's frozen legacy image is the MinIO server binary. Single node, one
   drive.
-- **Rig:** `docker run -d --name tsdb-minio -p 9010:9000 -e MINIO_ROOT_USER=coldload
+- **Rig:** `docker run -d --name mansio-minio -p 9010:9000 -e MINIO_ROOT_USER=coldload
   -e MINIO_ROOT_PASSWORD=coldload-secret bitnamilegacy/minio:latest` (left running).
-- **Scoped identity for X12:** `mc admin user add local tsdb-agent tsdb-agent-secret` with a policy allowing
+- **Scoped identity for X12:** `mc admin user add local mansio-agent mansio-agent-secret` with a policy allowing
   only `s3:GetObject` and `s3:PutObject` on `arn:aws:s3:::coldload/*`.
 - **Command:** `COLDLOAD_S3=localhost:9010 S3_BACKEND=minio-2025-05-24 go test -count=1 -v -run TestS3Compat
-  ./internal/objstore` (X12 run with `S3_AGENT_ACCESS_KEY=tsdb-agent S3_AGENT_SECRET_KEY=tsdb-agent-secret`).
+  ./internal/objstore` (X12 run with `S3_AGENT_ACCESS_KEY=mansio-agent S3_AGENT_SECRET_KEY=mansio-agent-secret`).
 
 | # | Result | Detail |
 |---|---|---|

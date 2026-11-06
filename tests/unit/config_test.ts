@@ -73,7 +73,7 @@ test("defaults: every option's documented default produces the matching ConfigSe
     // MT-02
     assert.deepEqual(config.tenancy, {
       mode: "off",
-      databaseUrl: "postgres://tsdb:tsdb@localhost:5432/tsdb",
+      databaseUrl: "postgres://mansio:mansio@localhost:5432/mansio",
       tenantsDir: resolve("./data", "tenants"),
       router: "local",
       betterAuthSecret: undefined,

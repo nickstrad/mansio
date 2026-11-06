@@ -9,6 +9,6 @@
 set -eu
 root=$(git rev-parse --show-toplevel)
 tag=$(basename "$root" | tr -c 'A-Za-z0-9_.\n-' '-')
-exec docker run --rm -v "$root":/work -v "tsdb-nm-$tag":/work/node_modules -v tsdb-deno-dir:/deno-dir \
+exec docker run --rm -v "$root":/work -v "mansio-nm-$tag":/work/node_modules -v mansio-deno-dir:/deno-dir \
   -e DENO_DIR=/deno-dir -w /work denoland/deno:2.9.5 \
   sh -c "apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq libsqlite3-0 >/dev/null 2>&1; $1"

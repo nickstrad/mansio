@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
 )
 
 // CP-2 / PG-09: request ids. Spec tests for the pure parts, fault tests for the statement order, and
@@ -115,7 +115,7 @@ const bump = `UPDATE kv SET v = v + 1 WHERE id = 1`
 
 func idRows(t testing.TB, a *Actor) int64 {
 	t.Helper()
-	return readInt(t, a, `SELECT count(*) FROM _tsdb_requests`)
+	return readInt(t, a, `SELECT count(*) FROM _mansio_requests`)
 }
 
 func TestRequestIDAppliesOnce(t *testing.T) {
@@ -178,7 +178,7 @@ func TestFailedWriteLeavesNoRequestID(t *testing.T) {
 		if r := doID(t, a, "ok", bump); r.Err != nil { // creates the table if the failure rolled it back
 			t.Fatal(r.Err)
 		}
-		if n := readInt(t, a, `SELECT count(*) FROM _tsdb_requests WHERE request_id = 'f'`); n != 0 {
+		if n := readInt(t, a, `SELECT count(*) FROM _mansio_requests WHERE request_id = 'f'`); n != 0 {
 			t.Fatalf("failed write left %d id rows", n)
 		}
 		if r := doID(t, a, "f", `INSERT INTO kv (id, v) VALUES (2, 0)`); r.Err != nil || r.Duplicate {
@@ -196,7 +196,7 @@ func TestFailedWriteLeavesNoRequestID(t *testing.T) {
 		if r := doID(t, a, "mate", bump); r.Err != nil || r.Duplicate {
 			t.Fatalf("retry of the aborted batch-mate: %+v", r)
 		}
-		if n := readInt(t, a, `SELECT count(*) FROM _tsdb_requests WHERE request_id = 'ends'`); n != 0 {
+		if n := readInt(t, a, `SELECT count(*) FROM _mansio_requests WHERE request_id = 'ends'`); n != 0 {
 			t.Fatalf("rolled-back write left %d id rows", n)
 		}
 	})
@@ -219,7 +219,7 @@ func TestFailedWriteLeavesNoRequestID(t *testing.T) {
 // Gate: an applied write survives a crash with its id, so the retry after restart does not apply again. The
 // child process applies the write and exits without closing anything (no checkpoint, the WAL left behind).
 func TestRequestIDAfterCrash(t *testing.T) {
-	if path := os.Getenv("TSDB_ACTOR_CRASH_DB"); path != "" {
+	if path := os.Getenv("MANSIO_ACTOR_CRASH_DB"); path != "" {
 		a := New(0, path, Config{})
 		if err := a.Start(true); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -233,7 +233,7 @@ func TestRequestIDAfterCrash(t *testing.T) {
 	}
 	path := seededKV(t, Config{}, 1)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestRequestIDAfterCrash$")
-	cmd.Env = append(os.Environ(), "TSDB_ACTOR_CRASH_DB="+path)
+	cmd.Env = append(os.Environ(), "MANSIO_ACTOR_CRASH_DB="+path)
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 7 {
@@ -299,7 +299,7 @@ func TestRequestIDRetention(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 	// 2500 more expired ids: three sweeps of at most sweepBatch.
-	if r := a.Do(ctx(t), `INSERT INTO _tsdb_requests (request_id, applied_ms)
+	if r := a.Do(ctx(t), `INSERT INTO _mansio_requests (request_id, applied_ms)
   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2500) SELECT 'bulk-' || i, 0 FROM n`, true); r.Err != nil {
 		t.Fatal(r.Err)
 	}

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/outcome"
 )
 
 // Every wire code (front.Codes) has a row: a new code fails here until the client knows what to do with it.

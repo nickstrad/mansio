@@ -41,7 +41,7 @@ describe("C4 kinds", () => {
   });
 });
 
-describe.each(["tsdb-lanes-proposal", "tsdb-planes-proposal", "tsdb-planes-fable"])(
+describe.each(["mansio-lanes-proposal", "mansio-planes-proposal", "mansio-planes-fable"])(
   "dynamic views of %s",
   (dataset) => {
     const proposed = all.find(({ id }) => id === dataset)!.bundle;
@@ -53,7 +53,7 @@ describe.each(["tsdb-lanes-proposal", "tsdb-planes-proposal", "tsdb-planes-fable
 
     it("draws the four key flows", () => {
       for (
-        const id of (dataset === "tsdb-planes-proposal" || dataset === "tsdb-planes-fable"
+        const id of (dataset === "mansio-planes-proposal" || dataset === "mansio-planes-fable"
           ? [
             "flow-create-database",
             "flow-query-right-node",
@@ -134,7 +134,7 @@ describe.each(["tsdb-lanes-proposal", "tsdb-planes-proposal", "tsdb-planes-fable
 );
 
 describe("the proposed deployment", () => {
-  const proposed = all.find(({ id }) => id === "tsdb-lanes-proposal")!.bundle;
+  const proposed = all.find(({ id }) => id === "mansio-lanes-proposal")!.bundle;
   const elements = new Map(proposed.model.elements.map((e) => [e.id, e]));
   const deployments = proposed.diagrams.filter((
     d,
@@ -181,7 +181,7 @@ describe("the proposed deployment", () => {
 });
 
 describe("the current code view", () => {
-  const current = all.find(({ id }) => id === "tsdb-current")!.bundle;
+  const current = all.find(({ id }) => id === "mansio-current")!.bundle;
   const elements = new Map(current.model.elements.map((e) => [e.id, e]));
   const code = current.diagrams.filter((d): d is DiagramOf<"code"> => d.kind === "code");
 
@@ -208,7 +208,7 @@ describe("the current code view", () => {
 });
 
 describe("database-scoped planes proposal", () => {
-  const proposed = all.find(({ id }) => id === "tsdb-planes-proposal")!.bundle;
+  const proposed = all.find(({ id }) => id === "mansio-planes-proposal")!.bundle;
   const elements = new Map(proposed.model.elements.map((e) => [e.id, e]));
   const deployment = proposed.diagrams.find((d) => d.kind === "deployment")!;
 
@@ -301,7 +301,7 @@ describe("database-scoped planes proposal", () => {
 });
 
 describe("the Fable revision of the planes proposal (DP-02, M1–M8)", () => {
-  const fable = all.find(({ id }) => id === "tsdb-planes-fable")!.bundle;
+  const fable = all.find(({ id }) => id === "mansio-planes-fable")!.bundle;
   const elements = new Map(fable.model.elements.map((e) => [e.id, e]));
   const documents = new Map(fable.documents.map((d) => [d.id, d]));
   const diagramIds = fable.diagrams.map((d) => d.id);

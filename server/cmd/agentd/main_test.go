@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 var iss = tickettest.NewIssuer("k1")

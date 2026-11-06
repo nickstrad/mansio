@@ -1,6 +1,6 @@
 # docs/knowledge/ — rules for agents
 
-Several agents and sessions work in ts-db, and context gets cleared. This folder keeps what they learned, so
+Several agents and sessions work in mansio, and context gets cleared. This folder keeps what they learned, so
 the next agent does not have to work it out again. The maintenance convention in [`index.md`](index.md) still
 applies; this file adds topic folders and thread capture.
 

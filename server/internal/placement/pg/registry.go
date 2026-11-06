@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // The control plane's registries (schema 0002, CP-4): tenants, databases and the VM registry's heartbeats.

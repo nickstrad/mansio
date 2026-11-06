@@ -320,7 +320,7 @@ export async function cli(
 }
 export async function tenant(server: Server, index: number) {
   const out = await cli(server, "tenants", ["create", names[index], "--slug", names[index]]);
-  const keys = out.stdout.match(/tsdb_[A-Za-z0-9_-]+/g) ?? [];
+  const keys = out.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
   assert.equal(keys.length, 1, "create must print the plaintext key exactly once");
   assert.match(out.stdout, /Save this API key now/);
   const ids = out.stdout.match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g)!;

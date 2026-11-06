@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // The Go name checks use the very patterns the migration's domains do.

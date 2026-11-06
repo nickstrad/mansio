@@ -1,16 +1,16 @@
 {
-  "name": "tsdb-architecture-pages",
+  "name": "mansio-architecture-pages",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "ts-db architecture diagrams site: N architectures from a dropdown, built on the c4-sdk npm package",
+  "description": "mansio architecture diagrams site: N architectures from a dropdown, built on the c4-sdk npm package",
   "engines": {
     "node": "22.23.2"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build --base /ts-db/",
-    "preview": "vite preview --base /ts-db/",
+    "build": "vite build --base /mansio/",
+    "preview": "vite preview --base /mansio/",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:browser": "playwright test",

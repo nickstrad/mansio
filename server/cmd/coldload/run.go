@@ -9,11 +9,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // run executes every planned level and writes activations.csv, levels.csv and run.json to OutDir.

@@ -1,4 +1,4 @@
-# Agent instructions for C4 diagram work in `ts-db`
+# Agent instructions for C4 diagram work in `mansio`
 
 Standing conventions for every architecture diagram in this repo. Read this before creating or editing
 anything under `docs/architecture/`. For the orchestration protocol that says _when_ diagrams get updated, see

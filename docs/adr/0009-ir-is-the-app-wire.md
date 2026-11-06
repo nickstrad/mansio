@@ -12,8 +12,8 @@
 
 The SDK already describes every database access as a small IR (`SelectPlan`, `insert`, `patch`, `delete`;
 `sdk/db.ts`, `core/plan.ts`). Today the Deno server runs the handler that produces it, so any backend must
-embed a TypeScript runtime. The Go backend (ts-db-go) has actors, routing, durability and request-id dedupe,
-but no TypeScript.
+embed a TypeScript runtime. The Go backend (mansio-server) has actors, routing, durability and request-id
+dedupe, but no TypeScript.
 
 ## Decision
 

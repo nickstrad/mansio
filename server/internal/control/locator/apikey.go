@@ -9,11 +9,11 @@ import (
 	"strings"
 )
 
-// API keys: "tsdb_" + id (16 hex digits, the row's primary key) + "_" + secret (32 random bytes, base64url).
+// API keys: "mansio_" + id (16 hex digits, the row's primary key) + "_" + secret (32 random bytes, base64url).
 // The store keeps only SHA-256(secret): the secret has 256 bits of entropy, so a slow hash adds nothing, and a
 // leaked table yields no usable key.
 const (
-	apiKeyPrefix = "tsdb_"
+	apiKeyPrefix = "mansio_"
 	idLen        = 16
 	secretLen    = 32
 )

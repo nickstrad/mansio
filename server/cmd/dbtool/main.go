@@ -25,10 +25,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/objstore"
 )
 
 const (

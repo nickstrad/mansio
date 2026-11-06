@@ -27,7 +27,7 @@ import {
   schemaAndPlan,
 } from "../../tests/property/compiler_arbitraries.ts";
 
-export const FORMAT = "ts-db/ir-compile-corpus";
+export const FORMAT = "mansio/ir-compile-corpus";
 
 type Case = { schema: Schema; plan: SelectPlan };
 

@@ -1,6 +1,6 @@
 # FFI-01 — production FFI SQLite binding (brief)
 
-Status: built, awaiting review · Branch: `item/ffi-binding` · Worktree: `/root/Software/tsdb-work/ffi-binding`
+Status: built, awaiting review · Branch: `item/ffi-binding` · Worktree: `/root/Software/mansio-work/ffi-binding`
 · Base: `main` at `dedef4f` · Builder: Claude Opus 5.5 (`claude-ffi-binding`) · Date: 2026-10-13 · Task: Nick,
 `/root/ffi-build-task.md`.
 
@@ -72,7 +72,7 @@ Reproduce with `work-scripts/deno/ffi-binding-bench.ts`.
 
 Astra's review of `acdef43` (`agent-work/items/ffi-binding/review-astra.md` on `review/ffi-01-astra`) returned
 FAIL with three blocking defects. The repair agent was Claude Opus 5.5 (`opus-ffi-01-fix`, worktree
-`/root/Software/tsdb-work/ffi01-fix`). It made these fixes in `platform/sqlite_ffi/database.ts`:
+`/root/Software/mansio-work/ffi01-fix`). It made these fixes in `platform/sqlite_ffi/database.ts`:
 
 1. **Cancel race in the dispatch-to-entry window.** A cancelled async execution with a step outstanding calls
    `sqlite3_interrupt` at once and again every 1 ms until that step's promise settles. The timer is cleared
@@ -103,7 +103,7 @@ call can miss a step that is still being dispatched, and it cannot carry over to
 
 Astra's re-review of `9eec83b` (`agent-work/items/ffi-binding/rereview-astra.md` on
 `review/ffi-01-astra-rereview`) returned FAIL with two defects in async signal cleanup. The second repair was
-made by Claude Opus 5.5 (`opus-ffi-01-fix2`, worktree `/root/Software/tsdb-work/ffi01-fix2`), commit
+made by Claude Opus 5.5 (`opus-ffi-01-fix2`, worktree `/root/Software/mansio-work/ffi01-fix2`), commit
 `e45b2ae`:
 
 1. 2026-10-13: **Native reads after caller cleanup.** Async cleanup now resets the statement and builds the

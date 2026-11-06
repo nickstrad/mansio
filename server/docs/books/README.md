@@ -1,4 +1,4 @@
-# Books applied to ts-db-go
+# Books applied to mansio-server
 
 Each book has a guide (rules to follow from now on) and, for the newer ones, a plan (refactor items with
 evidence). The one-page summary of all of them is [../coding-style.md](../coding-style.md); read that first.

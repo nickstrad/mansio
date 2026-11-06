@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/outcome"
 )
 
 const ms = time.Millisecond

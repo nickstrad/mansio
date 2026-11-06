@@ -1,7 +1,7 @@
 """Author DP-02 only: the Fable revision of the planes dataset.
 
 Part A below is the DP-01 generator (agent-work/items/dp-01-planes/build-dataset.py) verbatim except for the
-dataset identity, output paths and source pins; run on its own it reproduces tsdb-planes-proposal byte for byte
+dataset identity, output paths and source pins; run on its own it reproduces mansio-planes-proposal byte for byte
 after deno fmt, which is how "carried over unchanged" is kept honest. Part B applies modifications M1–M8 from
 docs/architecture/scale-out-comparison-fable.md. Part C orders, links, trailers and writes the bundle and the
 inventory. Run from the repository root; format outputs with deno fmt --config deno.json.
@@ -13,8 +13,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-BUNDLE = ROOT / 'pages/public/architectures/tsdb-planes-fable.json'
-CONTENT = ROOT / 'pages/content/tsdb-planes-fable'
+BUNDLE = ROOT / 'pages/public/architectures/mansio-planes-fable.json'
+CONTENT = ROOT / 'pages/content/mansio-planes-fable'
 # Every carried-over source is re-pinned to main at 3d25004 (Fable's comparison commit); every path exists there.
 BASE = '3d25004d43406519571ce51ad534ec0e92a54d7e'
 BRIEF = BASE
@@ -29,7 +29,7 @@ SOURCES = []
 
 def source(id, path, title, rev=BASE, notes=None):
     s = dict(id=id, title=title, path=path, revision=rev,
-             url=f'https://github.com/nickstrad/ts-db/blob/{rev}/{path}')
+             url=f'https://github.com/nickstrad/mansio/blob/{rev}/{path}')
     if notes:
         s['notes'] = notes
     SOURCES.append(s)
@@ -39,15 +39,15 @@ source('src-brief', 'agent-work/items/dp-01-planes/brief.md', 'DP-01 authorized 
 source('src-addendum', 'agent-work/items/dp-01-planes/addendum-1.md',
        'DP-01 addendum 1: VM agents and control-plane routing / placement')
 source('src-review', 'agent-work/items/dp-01-planes/review-astra.md', 'DP-01 independent review and repair requirements')
-source('src-lanes', 'pages/public/architectures/tsdb-lanes-proposal.json', 'Preserved scale-out dataset')
-source('src-lanes-inventory', 'pages/content/tsdb-lanes-proposal/inventory.md', 'Scale-out decisions P1–P17')
+source('src-lanes', 'pages/public/architectures/mansio-lanes-proposal.json', 'Preserved scale-out dataset')
+source('src-lanes-inventory', 'pages/content/mansio-lanes-proposal/inventory.md', 'Scale-out decisions P1–P17')
 source('src-router', 'platform/tenants/routing.ts', 'Landed TenantStorageRouter seam; future ControlPlaneRouter')
 source('src-classifier', 'platform/sqlite_ffi/classify.ts', 'Landed operation-IR classifier')
 source('src-ffi', 'platform/sqlite_ffi/effect.ts', 'Landed scoped FFI and cancellation wrappers')
 source('src-storage', 'platform/sqlite.ts', 'Landed Storage, connection gate and deadlines')
 source('src-decisions', 'docs/knowledge/decisions.md', 'Router seam and Postgres handwritten SQL decisions')
 
-b = dict(schemaVersion=1, id='tsdb-planes-fable',
+b = dict(schemaVersion=1, id='mansio-planes-fable',
          title='Fable revision: control/data planes with route grants (M1–M8 applied)',
          revision='dp-02-fable-2026-10-20', defaultDiagramId='planes-context',
          model=dict(elements=[], relationships=[]), diagrams=[], documents=[], sources=SOURCES, terms=[])
@@ -696,15 +696,15 @@ for obj in b['diagrams'] + b['model']['elements']:
 # =====================================================================================================
 source('src-dp02-brief', 'agent-work/items/dp-02-fable-planes/brief.md', 'DP-02 brief: build the Fable revision as its own dataset', DP02_BRIEF)
 source('src-comparison', 'docs/architecture/scale-out-comparison-fable.md', 'Fable comparison and pick; modifications M1–M8 (§4)')
-source('src-planes', 'pages/public/architectures/tsdb-planes-proposal.json', 'Base dataset this revision patches (DP-01, landed eb5df16)')
-source('src-planes-inventory', 'pages/content/tsdb-planes-proposal/inventory.md', 'DP-01 decisions A1–A4, DP1–DP13 and repair dispositions')
+source('src-planes', 'pages/public/architectures/mansio-planes-proposal.json', 'Base dataset this revision patches (DP-01, landed eb5df16)')
+source('src-planes-inventory', 'pages/content/mansio-planes-proposal/inventory.md', 'DP-01 decisions A1–A4, DP1–DP13 and repair dispositions')
 source('src-rereview', 'agent-work/items/dp-01-planes/review-astra-rereview.md', 'DP-01 re-review: accepted deferrals 6 and 7, residual nit on fresh decisions')
 source('src-dp01-report', 'agent-work/items/dp-01-planes/report.md', 'DP-01 builder report')
 source('src-backup', 'platform/backup.ts', 'Landed backup pipeline: VACUUM INTO on the writer queue, quick_check, SHA-256, immutable PUT, manifest, latest.json')
 FABLE = ['src-dp02-brief', 'src-comparison', 'src-planes']
 M = {n: f'src-comparison §4 M{n}' for n in range(1, 9)}
 FABLE_SHIFT = ('Fable revision (DP-02): the planes proposal with modifications M1–M8 from docs/architecture/scale-out-comparison-fable.md '
-               'applied. Everything an M-number does not name is carried over from tsdb-planes-proposal unchanged. This is a proposal, not landed behavior.')
+               'applied. Everything an M-number does not name is carried over from mansio-planes-proposal unchanged. This is a proposal, not landed behavior.')
 STE_FABLE_SHIFT = ('This is the Fable revision of the planes proposal. It applies modifications M1 to M8 from the comparison document. '
                    'All other parts are the same as the planes proposal. This is a proposal. It is not landed behavior.')
 
@@ -1315,8 +1315,8 @@ instance_steps = {d['id']: d.pop('steps') for d in b['diagrams'] if 'steps' in d
 CONTENT.mkdir(parents=True, exist_ok=True)
 BUNDLE.write_text(json.dumps(b, ensure_ascii=False, indent=2) + '\n')
 
-lines = ['# DP-02 inventory: `tsdb-planes-fable`', '',
-         'Date: 2026-10-20. Builder: `claude-fable` (Claude Fable 5.1). Proposal only; no runtime code is changed. This dataset is `tsdb-planes-proposal` (DP-01, landed `eb5df16`) with modifications M1–M8 from `docs/architecture/scale-out-comparison-fable.md` §4 applied. Generated by `agent-work/items/dp-02-fable-planes/build-dataset.py`, whose Part A is the DP-01 generator (it reproduces the planes bundle byte for byte), so every element, relationship, step and document an M-number does not name is carried over unchanged.', '',
+lines = ['# DP-02 inventory: `mansio-planes-fable`', '',
+         'Date: 2026-10-20. Builder: `claude-fable` (Claude Fable 5.1). Proposal only; no runtime code is changed. This dataset is `mansio-planes-proposal` (DP-01, landed `eb5df16`) with modifications M1–M8 from `docs/architecture/scale-out-comparison-fable.md` §4 applied. Generated by `agent-work/items/dp-02-fable-planes/build-dataset.py`, whose Part A is the DP-01 generator (it reproduces the planes bundle byte for byte), so every element, relationship, step and document an M-number does not name is carried over unchanged.', '',
          SHIFT, '', FABLE_SHIFT, '',
          '## Sources', '', '| Source ID | Commit-pinned path | Use |', '| --- | --- | --- |']
 for s in SOURCES:
@@ -1335,7 +1335,7 @@ lines += ['', '## Fable modifications (the patch)', '',
           '- **F10 — mixed-tier edge numbers.** Fable flows that mix container-tier `c-` and component-tier `cp-` relationships (backup and recovery) show a container edge as 100 + its container number so per-diagram display numbers stay unique while remaining model references; `c-node-backup` is also drawn that way in the control-plane view. Carried-over diagrams keep DP-01\'s numbers.',
           '- **F11 — what did not change.** Registries, epoch-checked and per-database serialised lifecycle commands, the trust boundary, bounded scheduling keyed by database with tenant/VM ceilings, the offline move protocol and its fencing rule, drop/tombstone semantics, status marking (`existing` classifier/execution, `mixed` deadline/placement-router, all processes `planned`) and the illustrative deployment are carried over unchanged. The three existing datasets and their content trees are byte-identical to `main`.',
           '', '## Decisions carried over from DP-01 (A1–A4, DP1–DP13)', '',
-          'These stand as recorded in `pages/content/tsdb-planes-proposal/inventory.md`, with these amendments: A3 gains the F8 candidate rule (still OPEN); DP4 gains the F4 selection surface and migration; DP6 and DP7\'s admission contract is the F1 grant table instead of single-use decisions; DP8 and DP10 lose their tweak 6 deferral (F5, F6); DP7 loses its tweak 7 companion deferral (F7); DP9 gains the lane view, tenant-affine assignment and pinning (F3). The DP-01 repair dispositions for tweaks 1, 3, 4, 5 and 8 are unchanged.',
+          'These stand as recorded in `pages/content/mansio-planes-proposal/inventory.md`, with these amendments: A3 gains the F8 candidate rule (still OPEN); DP4 gains the F4 selection surface and migration; DP6 and DP7\'s admission contract is the F1 grant table instead of single-use decisions; DP8 and DP10 lose their tweak 6 deferral (F5, F6); DP7 loses its tweak 7 companion deferral (F7); DP9 gains the lane view, tenant-affine assignment and pinning (F3). The DP-01 repair dispositions for tweaks 1, 3, 4, 5 and 8 are unchanged.',
           '', '## Elements', '', '| ID | Kind / status | Source IDs | Document IDs | Grounding / design |', '| --- | --- | --- | --- | --- |']
 for e in b['model']['elements']:
     lines.append(f'| `{e["id"]}` | {e["kind"]} / {e["status"]} | ' + ', '.join('`' + s + '`' for s in e['sourceIds']) + ' | ' + ', '.join('`' + s + '`' for s in e['docIds']) + ' | ' + provenance[e['id']].replace('|', '/') + ' |')

@@ -46,7 +46,7 @@ test(
   "server process (spawned; DuckDB): SIGTERM mid-mutations drains, stops the reader, and logs shutdown last",
   { timeout: 120_000 },
   async () => {
-    const root = await Deno.makeTempDir({ prefix: "ts-db-http-sigterm-" });
+    const root = await Deno.makeTempDir({ prefix: "mansio-http-sigterm-" });
     const port = freePort();
     const base = `http://127.0.0.1:${port}`;
     const env = {
@@ -57,7 +57,7 @@ test(
       PORT: String(port),
       ADMIN_TOKEN: ADMIN,
       TENANCY: "off",
-      DATABASE_URL: "postgres://tsdb:tsdb@127.0.0.1:1/unavailable?connect_timeout=1",
+      DATABASE_URL: "postgres://mansio:mansio@127.0.0.1:1/unavailable?connect_timeout=1",
       COLUMN_APP_TOKEN: COLUMNS.token,
       JSON_APP_TOKEN: JSON_APP.token,
       S3_BASE_URL: "",
@@ -222,7 +222,7 @@ test(
   "server process (spawned): killing the reader child leaves document reads up while ingest waits for restart",
   { timeout: 180_000 },
   async () => {
-    const root = await Deno.makeTempDir({ prefix: "ts-db-reader-restart-" });
+    const root = await Deno.makeTempDir({ prefix: "mansio-reader-restart-" });
     const port = freePort();
     const base = `http://127.0.0.1:${port}`;
     const env = {
@@ -233,7 +233,7 @@ test(
       PORT: String(port),
       ADMIN_TOKEN: ADMIN,
       TENANCY: "off",
-      DATABASE_URL: "postgres://tsdb:tsdb@127.0.0.1:1/unavailable?connect_timeout=1",
+      DATABASE_URL: "postgres://mansio:mansio@127.0.0.1:1/unavailable?connect_timeout=1",
       COLUMN_APP_TOKEN: COLUMNS.token,
       JSON_APP_TOKEN: JSON_APP.token,
       S3_BASE_URL: "",

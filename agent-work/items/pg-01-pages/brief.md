@@ -1,9 +1,9 @@
 # PG-01 — Pages scaffold, interim c4-sdk copy, viewer, first datasets (brief)
 
 Unit: build item PG-01 of `docs/plans/pages-diagrams.md` (on branch `plan/c4-react`; read it at
-`/root/Software/tsdb-work/c4react/docs/plans/pages-diagrams.md`, read-only — do not edit that worktree). Builder:
+`/root/Software/mansio-work/c4react/docs/plans/pages-diagrams.md`, read-only — do not edit that worktree). Builder:
 Claude Opus 5.5, actor `opus-pg-01`. Branch `item/pg-01-pages` off `main` `2d30330`. Worktree
-`/root/Software/tsdb-work/pg01` (already created). Reviewer afterwards: Codex Astra (cross-family). Date: 2026-10-15.
+`/root/Software/mansio-work/pg01` (already created). Reviewer afterwards: Codex Astra (cross-family). Date: 2026-10-15.
 Authorization: Nick's go `/root/fable-c4-docs-go.md` and delegation `/root/fable-c4-docs-delegate-opus.md` (read both).
 
 ## Orientation (read first, in this order)
@@ -15,14 +15,14 @@ Authorization: Nick's go `/root/fable-c4-docs-go.md` and delegation `/root/fable
    `tests/package/consumer/app.tsx.template` (how a bundler consumer wires styles, worker, decode),
    `fixtures/seven-types.json` and `public/catalog.json` (shapes), `sdk-build.mjs` (what the npm build does to
    the source so the swap is understood), `package.json` (versions).
-4. ts-db sources to convert: `docs/architecture/AGENTS.md` (C4 conventions), `docs/architecture/README.md`
+4. mansio sources to convert: `docs/architecture/AGENTS.md` (C4 conventions), `docs/architecture/README.md`
    (audited state and inventory), the four current diagram pairs and their `diagrams/*.py` sources on `main`;
    `git show origin/docs/ffi-c4:docs/plans/ffi/README.md` and the three proposed pairs on that branch (do NOT
    merge that branch; read with `git show`); `docs/architecture/lang-switch-fable.md`;
    `docs/plans/ffi-implementation.md` (what landed: FFI-01..08).
 
 Environment: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$HOME/.deno/bin:$PATH"` (node 22.23.2, npm 10.9.8,
-deno 2.9.5). The network is available for `npm install`. Do not run ts-db test suites concurrently with
+deno 2.9.5). The network is available for `npm install`. Do not run mansio test suites concurrently with
 another agent's suites (check `ps -eo pid,args | grep -E "deno (test|task)"` first); you only need
 `deno task fmt:check`, `deno task lint`, `deno task check` here.
 
@@ -45,27 +45,27 @@ mirrors it), and `docs/knowledge/{index,decisions,gotchas}.md` entries. Edit not
    `src/lib/utils.ts`, demos, tests or configs.
 2. **npm project** `pages/package.json` + lockfile (`npm install` once, commit `package-lock.json`), pinned to
    c4-sdk's versions (plan §1), `"engines": {"node": "22.23.2"}`, scripts at least: `dev`, `build`
-   (`vite build --base /ts-db/`), `typecheck`, `test`, `check` (= typecheck + test + build + `vendor/c4-sdk/sync.sh --check`).
+   (`vite build --base /mansio/`), `typecheck`, `test`, `check` (= typecheck + test + build + `vendor/c4-sdk/sync.sh --check`).
    Vite + TS aliases: `c4-sdk` → `vendor/c4-sdk/src/index.ts`, `c4-sdk/core` → `vendor/c4-sdk/src/core/index.ts`,
    `c4-sdk/styles.css` → `vendor/c4-sdk/src/lib/c4/styles/c4.css`. Nothing in `pages/src` may import a
    `vendor/...` path directly; all SDK wiring (imports, layout port, route port, loader) lives in ONE module
    `pages/src/sdk.ts`. Keep the app shell small; plain CSS is fine (no Tailwind/shadcn needed).
 3. **Viewer** (`pages/index.html`, `pages/src/**`): hash routing via `createHashRoutePort`, catalog at
-   `public/catalog.json` with entries `tsdb-current` and `tsdb-ffi-proposal` (entry id = bundle id). Modes:
+   `public/catalog.json` with entries `mansio-current` and `mansio-ffi-proposal` (entry id = bundle id). Modes:
    Current · Proposed · **Side by side** (current and proposed diagrams of the same C4 level rendered next to
    each other, each with its own provider; the second viewer needs a non-URL route port — implement a small
    in-memory `RoutePort` in `sdk.ts` using the exported type; use only the public API of `c4-sdk`/`c4-sdk/core`).
    Deep links reload correctly; a missing diagram shows Not Found, never a silent fallback. Keyboard reachable.
-   Site title "ts-db architecture", a one-paragraph purpose line (used when designing features: current vs
+   Site title "mansio architecture", a one-paragraph purpose line (used when designing features: current vs
    proposed), and a link back to the repo's `docs/architecture/` Markdown diagrams.
 4. **Datasets** (`public/architectures/*.json`, formatted with `deno fmt`):
-   - `tsdb-current.json`: all four current pairs (context, platform containers, observability containers,
+   - `mansio-current.json`: all four current pairs (context, platform containers, observability containers,
      server components) as `context`, two `container`, one `component` diagrams; every element/relationship
      `existing`; `detail` targets chain context → container → component; every node and edge from the source
      appears (edge `displayNumber` = the source's edge number); legends mirror the source keys; documents give a
      `plain` and an `ste` text (ASD-STE100 Issue 9, `reviewStatus: draft`) per diagram and per element where the
      source has prose; `sources` are commit-pinned GitHub URLs (`main` `2d30330`).
-   - `tsdb-ffi-proposal.json`: the proposed **context** and **container (data node with lanes)** diagrams from
+   - `mansio-ffi-proposal.json`: the proposed **context** and **container (data node with lanes)** diagrams from
      `docs/ffi-c4` `81d9936`. Status per element: lanes, placement table, forwarder, lane supervisor, WAL frames
      → `planned`; elements that exist on `main` today → `existing`; existing elements gaining planned duties →
      `mixed` with `plannedNotes`. The FFI binding, statement classifier and deadline/interrupt path are LANDED
@@ -82,14 +82,14 @@ mirrors it), and `docs/knowledge/{index,decisions,gotchas}.md` entries. Edit not
    enable it (human gate) — note it in `pages/README.md`.
 6. **Tests** `pages/tests/`: a Node test (vitest or `node:test`) that decodes both bundles and the catalog with
    `decodeArchitecture` from `c4-sdk/core` and fails on any error diagnostic or on a catalog id that does not
-   match its bundle id; a test that every `sources[].url` is an `https://github.com/nickstrad/ts-db/blob/<40-hex>/…`
+   match its bundle id; a test that every `sources[].url` is an `https://github.com/nickstrad/mansio/blob/<40-hex>/…`
    URL. Optional if feasible without a network browser download: a Playwright smoke against `vite preview`
    that the context diagram renders and side-by-side shows two canvases (c4-sdk has Chromium installed under
    its `node_modules`; if you cannot reuse it offline, skip and say so).
 7. **Docs**: `pages/README.md` (purpose, run, build, how datasets are authored and verified, the exact npm swap
    checklist: delete `vendor/c4-sdk`, drop the aliases, `npm install c4-sdk@0.1.0`, worker factory from
    `c4-sdk/layout-worker.js?url` in `sdk.ts`, re-run `npm run check`); root `README.md` section linking
-   `pages/` and the future `https://nickstrad.github.io/ts-db/`.
+   `pages/` and the future `https://nickstrad.github.io/mansio/`.
 
 ## Acceptance (run all; paste outputs in your report)
 - `cd pages && npm ci && npm run check` green; `npm run build` emits under `pages/dist/` (gitignored, not committed).

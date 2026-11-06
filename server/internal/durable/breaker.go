@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // ErrUnavailable: the store cannot serve now. Either its circuit breaker is open (nothing was sent; the error

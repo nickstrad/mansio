@@ -18,11 +18,11 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/objstore"
 )
 
-// TestS3Compat records, for one S3 backend and version, every S3 behavior ts-db-go relies on (object-storage
+// TestS3Compat records, for one S3 backend and version, every S3 behavior mansio-server relies on (object-storage
 // guide §7, plan OS-03). Run it before using a backend or version, and record the table it prints in
 // knowledge/writeback/<date>-s3-compat-<backend>.md. A failure in X1–X5 fails the test (it blocks the
 // backend); X6–X11 are recorded as pass / fail / skip and fail nothing.

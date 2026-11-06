@@ -1,7 +1,7 @@
 # Docs follow-up for PG-02 (C4 audit row + knowledge hand-offs) — brief
 
 Unit: docs-only follow-up after PG-02 landed on `main` as merge `f52c817` (item `item/pg-02-content` @ 412a616).
-Branch `docs/c4-pg-02` · Worktree `/root/Software/tsdb-work/c4pg02` (created from main) · Builder: Claude Sonnet (actor
+Branch `docs/c4-pg-02` · Worktree `/root/Software/mansio-work/c4pg02` (created from main) · Builder: Claude Sonnet (actor
 `claude-sonnet-c4-pg-02`) · Date: 2026-10-15. Rules: AGENTS.md "Diagram maintenance", `docs/architecture/AGENTS.md`.
 Docs-only: only `docs/architecture/**` and `docs/knowledge/**`. `export PATH="$HOME/.deno/bin:$PATH"`; run `deno fmt --check`
 from the repo root with no path arguments.

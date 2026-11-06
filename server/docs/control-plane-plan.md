@@ -1,9 +1,9 @@
 # From client to the Go process that holds the database: control-plane plan
 
 Status: plan, revised after the book adoption · Date: 2026-11-05 · Baseline: `books/adoption` at `9178d4c`
-(first version at `main` `61ddfbe`/`bbf184b`). Design source: ts-db option 4
-(`/Users/nick/Software/ts-db/docs/architecture/scale-out-direct-actors.md`) and the greenfield proposal
-(`/Users/nick/Software/ts-db/docs/architecture/scale-out-go-greenfield.md` §8). Rules: [coding-style.md](coding-style.md)
+(first version at `main` `61ddfbe`/`bbf184b`). Design source: mansio option 4
+(`/Users/nick/Software/mansio/docs/architecture/scale-out-direct-actors.md`) and the greenfield proposal
+(`/Users/nick/Software/mansio/docs/architecture/scale-out-go-greenfield.md` §8). Rules: [coding-style.md](coding-style.md)
 and the book guides, cited as `RI` ([release-it](books/release-it/guide.md)), `OS`
 ([object-storage](books/object-storage/guide.md)) and `SQL` ([art-of-postgresql](books/art-of-postgresql/guide.md)).
 Open book items (`RI-NN`, `PG-NN`, `OS-NN`) are folded into the steps below; their plans hold the detail.
@@ -24,7 +24,7 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Network front | `front`, `ticket`, `cmd/agentd` | Done. 11 wire codes incl. **`unavailable`** (503 + computed `Retry-After`; `cmd/agentd/unavailable.go`). HTTP body/write deadlines, VM-wide admission cap (RI-09). `/livez`, `/readyz` (canary), `/metrics` on the lifecycle listener (RI-07, RI-11). Phased shutdown under one budget (`cmd/agentd/lifecycle.go`). **agentd still runs `front.StaticHost` + `startupAdmitter{epochs(...)}`**: no vactor, no owner, no S3 config, no Claim/Fence endpoints. CP-1 wiring points are marked in `cmd/agentd/main.go` (`newAgent`, `serve`). |
 | Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
 | Client retry | `internal/retry` | Done (RI-10: full jitter, windowed budget, `Attempt.ServerHint`); wired in CP-6: `internal/client` passes Retry-After, `outcome.Unavailable` retried by default, `internal/bench` passes `retry.HintOf`. |
-| Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `TSDB_PG_URL`). Not wired yet (CP-4). |
+| Placement authority (Postgres) | `internal/placement/pg` | Done (CP-3): schema `0001`, one query per method, RI §P pool + breaker, contract suite, faults and PG-04 gate pass on Postgres 17 (`deploy/postgres`, `MANSIO_PG_URL`). Not wired yet (CP-4). |
 | Control plane | `cmd/controld`, `internal/control` | Done (CP-4): registries (0002), M8 policy, create/move/suspend/drop/M5 restore, resumer from table scans; agentd on `placement_pg`; RI-16 admin + `agentctl`; OS-11 scoped identities, TLS. |
 | Locator, issuer | `internal/control/locator`, `cmd/controld` | Done (CP-5): `POST /v1/resolve` (API keys), notified cache (0003), key ring + `GET /v1/keys`, agentd `keys_url`. |
 | Client | `internal/client` | Done (CP-6): locator-routed, cached routes, re-resolve on wrong_owner/fenced/ticket_invalid/no answer, Retry-After + windowed budget, `X-Timeout-Ms`, one request id per write; `frontbench locator`. |
@@ -53,7 +53,7 @@ the next request re-warms. The placement row doesn't change.
 
 Each step ends with a gate. Every new adapter passes its contract suite three ways (`RI H4`): against the fake,
 the real service, and the real service through `faultnet`/`s3test` with the H4 fault table. Env gates:
-`COLDLOAD_S3` (SeaweedFS in Docker), `TSDB_PG_URL` (`docker compose` Postgres).
+`COLDLOAD_S3` (SeaweedFS in Docker), `MANSIO_PG_URL` (`docker compose` Postgres).
 
 ### CP-1. Wire agentd on one node — **Done** (747abf3; deferred: per-actor queue metrics in durable mode, `ownerAdmitter` per-request `p.Done` allocation, a shared atomic-file helper for owner + placement/file, vactor `CheckActivation` taking a ctx, discard-on-release driven by owner transitions; notes in `knowledge/front/2026-11-05-agentd-durable-mode.md`)
 
@@ -101,7 +101,7 @@ The glue every agent report specified. No new service: a file-backed `Placement`
 
 ### CP-2. Request ids (PG-09) — **Done** (d7c921d; the HTTP kill -9 form of the gate waits for CP-1's wiring — actor-level crash/move tests cover the database half)
 
-A `_tsdb_requests` table (`STRICT, WITHOUT ROWID`; DDL in [art-of-postgresql plan §5.3](books/art-of-postgresql/plan.md))
+A `_mansio_requests` table (`STRICT, WITHOUT ROWID`; DDL in [art-of-postgresql plan §5.3](books/art-of-postgresql/plan.md))
 in each tenant database, so it travels with snapshots. `insert … on conflict (request_id) do nothing returning`
 inside the write's savepoint makes "seen before" and "apply" one decision (`SQL G-8`, `SQL G-10`); retention is a
 batched delete on the actor (`SQL G-17`). It resolves front's `ambiguous` 504s and makes retries after a move
@@ -139,7 +139,7 @@ safe (`RI R2`).
 
 - Tables (a new migration, CP-3 rules): `tenants`, `databases` (tenant owns 0..N, default database), `vms`
   (registry and heartbeats; load computed by `vm_load.sql`).
-- The placement policy is a pure function: least-loaded VM by active databases and bytes, with a cap (ts-db's
+- The placement policy is a pure function: least-loaded VM by active databases and bytes, with a cap (mansio's
   open M8 decision).
 - The lifecycle controller: create (flow B), move (`owner.Mover`, flow C), drop (placement tombstone first, then
   the prefix, `OS GC`), suspend. It talks to agents only through the lifecycle endpoints, with a deadline and a
@@ -180,7 +180,7 @@ Inside controld first; split out later.
 
 ### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `knowledge/front/2026-11-05-client.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): the locator answers `moving` until the claim lands (0005 NOTIFY on registry flips).
 
-A Go test client first, then ts-db's TS SDK (`RI §P` client sheet).
+A Go test client first, then mansio's TS SDK (`RI §P` client sheet).
 - Location cache refreshed ahead of TTL with jitter; re-resolve on `wrong_owner`, `fenced`, `ticket_invalid` or a
   connect failure, with bounded backoff. Deadline sent as `X-Timeout-Ms` (`RI T4`); the same request id on
   retried writes.
@@ -208,7 +208,7 @@ garbage tickets there (each costs a 26 µs verify). TLS client → edge → agen
 - `TestS3Compat` on MinIO and multi-node SeaweedFS before either is used (`OS X`).
 
 After CP-6, a client can reach the right Go process for any database: warm, new or cold. That's the "client → go
-process with the db" milestone. For ts-db itself, three things are still needed: the handler runtime spike
+process with the db" milestone. For mansio itself, three things are still needed: the handler runtime spike
 (`knowledge/front/2026-11-05-handler-executor.md`), the compiler port, and document operations replacing raw SQL
 on the wire (the reserved `op` field).
 

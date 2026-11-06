@@ -14,7 +14,7 @@
 #
 # Plan and fault times: configs/soak/soak.env (override any of them from the environment; NOFAULTS=1 skips
 # the fault windows, a phase of 0 s is skipped, RATE=0 is closed loop: capacity runs). Needs: go, docker
-# (tsdb-postgres, coldload-seaweedfs running), openssl, curl, jq, aws (bucket listing), duckdb.
+# (mansio-postgres, coldload-seaweedfs running), openssl, curl, jq, aws (bucket listing), duckdb.
 # Leaves the containers running (SeaweedFS is paused, then unpaused, in its fault window); stops every process it started.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -25,7 +25,7 @@ mkdir -p "$out/bin" "$out/tls" "$out/vm-a" "$out/vm-b"
 out="$(cd "$out" && pwd)"
 id="$(echo "$stamp" | tr 'A-Z' 'a-z')"
 schema="soak_$id" prefix="soak-$id/"
-pg_dsn='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable'
+pg_dsn='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable'
 admin_token="soak-admin-$(openssl rand -hex 12)" control_token="soak-control-$(openssl rand -hex 12)"
 edge_token="soak-edge-$(openssl rand -hex 12)"
 export AWS_ACCESS_KEY_ID=coldload AWS_SECRET_ACCESS_KEY=coldload-secret AWS_DEFAULT_REGION=us-east-1
@@ -40,7 +40,7 @@ for c in agentd controld edge frontbench agentctl; do go build -o "$out/bin/$c" 
 bin="$out/bin"
 
 # --- TLS: one throwaway CA, one server certificate for 127.0.0.1/localhost (every daemon here). -----------
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 7 -subj "/CN=tsdb soak CA" \
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 7 -subj "/CN=mansio soak CA" \
   -keyout "$out/tls/ca.key" -out "$out/tls/ca.pem" 2>/dev/null
 openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=127.0.0.1" \
   -keyout "$out/tls/server.key" -out "$out/tls/server.csr" 2>/dev/null
@@ -51,7 +51,7 @@ chmod 600 "$out/tls/"*.key
 ca="$out/tls/ca.pem"
 
 # --- Postgres schema, configs, secrets. -------------------------------------------------------------------
-docker exec tsdb-postgres psql -q -U tsdb -d tsdb -c "create schema $schema" >/dev/null
+docker exec mansio-postgres psql -q -U mansio -d mansio -c "create schema $schema" >/dev/null
 subst() { sed -e "s|@SCHEMA@|$schema|g" -e "s|@PREFIX@|$prefix|g" "$@"; }
 subst "$root/configs/soak/controld.json" > "$out/controld.json"
 subst "$root/configs/soak/edge.json" > "$out/edge.json"
@@ -115,15 +115,15 @@ mark start ready
 OUT="$out" CA="$ca" PREFIX="$prefix" SAMPLE_EVERY="$SAMPLE_EVERY" "$root/scripts/soak/sample.sh" &
 sampler=$!
 
-export TSDB_ADMIN_TOKEN="$admin_token"
+export MANSIO_ADMIN_TOKEN="$admin_token"
 fb=("$bin/frontbench" locator -locator https://127.0.0.1:17080 -ca "$ca" -edge https://127.0.0.1:17443
   -tenant fb -dbs "$DBS" -zipf "$ZIPF" -write "$WRITE" -timeout 10s -warmup 0s
   -ack-log "$out/acks.tsv" -events "$out/events.jsonl")
 log "setup: $DBS databases"
-TSDB_API_KEY= "${fb[@]}" -setup -duration 1s -conc 1 -rate 1 -out "$out/setup.json" > "$out/setup.txt" 2>&1 || { cat "$out/setup.txt"; exit 1; }
+MANSIO_API_KEY= "${fb[@]}" -setup -duration 1s -conc 1 -rate 1 -out "$out/setup.json" > "$out/setup.txt" 2>&1 || { cat "$out/setup.txt"; exit 1; }
 api_key="$(curl -sf --cacert "$ca" -X POST -H "Authorization: Bearer $admin_token" \
   https://127.0.0.1:17080/v1/tenants/fb/api-keys -d '{"principal":"soak"}' | jq -r .key)"
-export TSDB_API_KEY="$api_key"
+export MANSIO_API_KEY="$api_key"
 
 fault_windows() {
   local t0=$1
@@ -175,7 +175,7 @@ trap - EXIT
 
 if [ "${KEEP:-0}" != 1 ]; then
   aws --endpoint-url http://localhost:8333 s3 rm --recursive --quiet "s3://coldload/$prefix" || true
-  docker exec tsdb-postgres psql -q -U tsdb -d tsdb -c "drop schema $schema cascade" >/dev/null || true
+  docker exec mansio-postgres psql -q -U mansio -d mansio -c "drop schema $schema cascade" >/dev/null || true
 fi
 "$root/scripts/soak/analyze.sh" "$out" > "$out/analysis.txt" 2>&1 || log "analysis failed (see analysis.txt)"
 log "results in $out"

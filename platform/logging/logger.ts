@@ -345,7 +345,7 @@ function makeSink(role: LogRole): Effect.Effect<SinkParts, never, Config | Scope
       counters.lastStderrMs = nowMs;
       try {
         Deno.stderr.writeSync(stderrText.encode(
-          `ts-db event sink (${role}): ${counters.failed} record(s) lost to I/O failure; ` +
+          `mansio event sink (${role}): ${counters.failed} record(s) lost to I/O failure; ` +
             `latest: ${describeFailure(cause)}\n`,
         ));
       } catch {

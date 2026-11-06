@@ -1,6 +1,6 @@
 # FFI-08 — Docs, C4 diagrams, ADR and knowledge (builder brief)
 
-Status: dispatched · Branch: `item/ffi-08-docs` · Worktree: `/root/Software/tsdb-work/ffi08` · Base: `main` at
+Status: dispatched · Branch: `item/ffi-08-docs` · Worktree: `/root/Software/mansio-work/ffi08` · Base: `main` at
 `aa26b27` (after FFI-06 and FFI-07 landed) · Builder: Claude Haiku 5.5 (actor `haiku-ffi-08`) · Reviewer: Astra
 (`gpt-6-astra`), fresh unit · Landing: PASS **and explicit approval by Nick** (Haiku-tier item; Nick's ruling of
 2026-10-13 ~23:03 CDT restates it) · Date: 2026-10-14.

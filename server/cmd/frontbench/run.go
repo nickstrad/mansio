@@ -20,13 +20,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 type runFlags struct {

@@ -350,7 +350,7 @@ export function describeFailure(cause: Cause.Cause<unknown>): string {
 if (import.meta.main) {
   const exit = await Effect.runPromiseExit(makeServer());
   if (Exit.isFailure(exit) && !Cause.isInterruptedOnly(exit.cause)) {
-    Deno.stderr.writeSync(new TextEncoder().encode(`ts-db server failed: ${describeFailure(exit.cause)}\n`));
+    Deno.stderr.writeSync(new TextEncoder().encode(`mansio server failed: ${describeFailure(exit.cause)}\n`));
     Deno.exit(1);
   }
   Deno.exit(0);

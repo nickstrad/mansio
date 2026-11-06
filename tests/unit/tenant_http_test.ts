@@ -4,12 +4,12 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import postgres from "npm:postgres@3.4.9";
 
-const baseUrl = Deno.env.get("DATABASE_URL") ?? "postgres://tsdb:tsdb@localhost:5432/tsdb";
+const baseUrl = Deno.env.get("DATABASE_URL") ?? "postgres://mansio:mansio@localhost:5432/mansio";
 
 test("tenant HTTP: CLI keys, reads, forged identity, concurrent mutations, revocation and deactivation", {
   timeout: 120_000,
 }, async () => {
-  const root = await Deno.makeTempDir({ prefix: "tsdb-mt07-" });
+  const root = await Deno.makeTempDir({ prefix: "mansio-mt07-" });
   const name = `mt07_${crypto.randomUUID().replaceAll("-", "")}`;
   const admin = postgres(baseUrl);
   let sql: ReturnType<typeof postgres> | undefined;
@@ -215,7 +215,7 @@ test("tenant HTTP: CLI keys, reads, forged identity, concurrent mutations, revoc
 });
 
 test("tenant reader IPC rejects absent and malformed tenant context without opening legacy storage", async () => {
-  const root = await Deno.makeTempDir({ prefix: "tsdb-mt07-reader-" });
+  const root = await Deno.makeTempDir({ prefix: "mansio-mt07-reader-" });
   const child = new Deno.Command(Deno.execPath(), {
     args: ["run", "-A", "platform/reader.ts"],
     cwd: new URL("../../", import.meta.url),

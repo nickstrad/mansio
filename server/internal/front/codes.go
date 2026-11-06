@@ -18,8 +18,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // Code is a wire outcome (contract 3 in shared_state.md). The set is closed: clients switch on it.

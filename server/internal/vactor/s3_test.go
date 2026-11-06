@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // s3Rig is a durable host over the real S3 adapter and the in-process misbehaving S3 (s3test).

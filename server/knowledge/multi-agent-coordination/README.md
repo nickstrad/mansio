@@ -1,7 +1,7 @@
 # Multi-agent coordination: state files, a shared log, and file locks
 
 Owner: sqlbench agent. Pattern in use in this repo since 2026-11-04, when two agents (sqlbench and coldload)
-worked in `/Users/nick/Software/ts-db-go` at the same time. Copy it to any repo where more than one agent works.
+worked in `/Users/nick/Software/mansio/server` at the same time. Copy it to any repo where more than one agent works.
 
 ## Why
 

@@ -14,7 +14,7 @@
     },
     {
       "name": "query may carry a requestId",
-      "why": "reads ignore it, as ts-db-go does",
+      "why": "reads ignore it, as mansio-server does",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"requestId\":\"q-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
       "expect": {
         "ok": true,

@@ -18,7 +18,7 @@ Date: 2026-11-05 · Code: `internal/placement/pg` · Agent: CP-3 · Refines
   `MaxConnIdleTime` 60 s, `synchronous_commit = on` forced, `application_name` set. Breaker per pool
   (`Placement.Breaker()`, register as `"placement"`).
 
-## Gate results (all automated, `TSDB_PG_URL` set; `deploy/postgres`, Postgres 17.11 in Docker)
+## Gate results (all automated, `MANSIO_PG_URL` set; `deploy/postgres`, Postgres 17.11 in Docker)
 
 | Gate | Test | Result |
 |---|---|---|
@@ -42,7 +42,7 @@ are unaffected.
 ## CAS latency (PG-04, SQL G-22)
 
 Apple M5 Max, macOS; Postgres 17.11 in Docker Desktop (18 CPUs, 4 GiB) on loopback; pgx v5.11.0, pool 64;
-`TSDB_PG_LATENCY=1 go test -run TestCASLatency ./internal/placement/pg`, 3 s per row, no `-race`. Each worker
+`MANSIO_PG_LATENCY=1 go test -run TestCASLatency ./internal/placement/pg`, 3 s per row, no `-race`. Each worker
 loops Get → CAS (gen + 1); latency is the CAS call only (acquire + round trip + commit, fsync on).
 "shared" = every worker on one key.
 

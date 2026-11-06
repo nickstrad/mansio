@@ -484,7 +484,7 @@ const deadlineScenario = (pass: DeadlinePass) =>
   Effect.gen(function* () {
     const root = yield* scratchRoot("ffi06-integration-");
     const databaseName = "ffi06_" + crypto.randomUUID().replaceAll("-", "");
-    const sourceUrl = Deno.env.get("DATABASE_URL") ?? "postgres://tsdb:tsdb@localhost:5432/tsdb";
+    const sourceUrl = Deno.env.get("DATABASE_URL") ?? "postgres://mansio:mansio@localhost:5432/mansio";
     const admin = yield* Effect.acquireRelease(
       Effect.sync(() => postgres(sourceUrl, { max: 1, onnotice() {} })),
       (sql) => Effect.promise(() => sql.end()),

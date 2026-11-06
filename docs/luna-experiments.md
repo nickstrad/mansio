@@ -18,7 +18,7 @@ The evaluation question is twofold:
    production code — seed sweeps, query benchmarks, consistency audits, load-shape exploration.
 
 This file is docs-only. Nothing here touches plan item files, the `item/NN-slug` worktrees under
-`/root/Software/tsdb-work/`, or `agent-work/` (the coordinator's own scratch space).
+`/root/Software/mansio-work/`, or `agent-work/` (the coordinator's own scratch space).
 
 ---
 

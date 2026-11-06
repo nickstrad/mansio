@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 const vm = "vm-1"

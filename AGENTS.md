@@ -1,4 +1,4 @@
-# Agent orchestration protocol for ts-db
+# Agent orchestration protocol for mansio
 
 This file is the coordination contract for agents working on this repo. It covers the plan in
 [`docs/plans/effect-port-and-observability.md`](docs/plans/effect-port-and-observability.md) and the
@@ -33,7 +33,7 @@ unit and follows the global fresh-agent lifecycle. In this repo:
 1. **Brief**: the coordinator takes one item from the plan (its Owns/Reads sets, model assignment, work steps,
    acceptance criteria) and hands it to a newly spawned builder subagent with fresh context.
 2. **Build**: the builder works on branch `item/NN-slug`, in its own git worktree (coordinator worktrees live
-   under `/root/Software/tsdb-work/` — other agents must not touch those paths or branches while work is in
+   under `/root/Software/mansio-work/` — other agents must not touch those paths or branches while work is in
    flight). The builder edits only files in its item's `Owns` set and may read, but not edit, files in its
    `Reads` set.
 3. **Commit**: one item = one commit on that branch. Subject line: `<area>: <imperative summary>`.

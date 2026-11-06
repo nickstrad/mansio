@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
 // agent adapts processes for the Mover: a crashed or partitioned process is unreachable, and a successful

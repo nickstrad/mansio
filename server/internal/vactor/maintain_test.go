@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // hangingStore hangs every upload of one key until the caller's ctx ends (a PUT that stalls forever).

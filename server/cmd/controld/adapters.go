@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/control"
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/control"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
 )
 
 // registry adapts the Postgres adapter to control.Registry (type translation only).

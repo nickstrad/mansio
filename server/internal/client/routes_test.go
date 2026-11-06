@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
 )
 
 // newTestRoutes returns a cache whose loader answers epoch (settable) with TTL 10 s, refreshing at exactly 80%.

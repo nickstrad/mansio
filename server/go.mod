@@ -1,4 +1,4 @@
-module github.com/nickstrad/ts-db-go
+module github.com/nickstrad/mansio/server
 
 go 1.26.4
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 )
 
 // Commits and Snapshot are the additive hooks vactor's write-back uses (posted in shared_state.md by the

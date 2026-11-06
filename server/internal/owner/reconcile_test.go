@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
 // restarted places n keys on "a", writes once to each, then restarts "a": every key is Closed.

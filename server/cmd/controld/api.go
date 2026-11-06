@@ -11,16 +11,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/control"
-	"github.com/nickstrad/ts-db-go/internal/control/agenthttp"
-	"github.com/nickstrad/ts-db-go/internal/control/locator"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/control"
+	"github.com/nickstrad/mansio/server/internal/control/agenthttp"
+	"github.com/nickstrad/mansio/server/internal/control/locator"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
 )
 
 // The control API (Authorization: Bearer <admin_token>). Every call runs under api_timeout, at most

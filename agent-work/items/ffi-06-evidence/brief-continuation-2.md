@@ -1,7 +1,7 @@
 # FFI-06 continuation 2 (fresh Sol unit): apply the fixture row, run the gates, commit, push
 
-You are a freshly spawned builder (Codex Sol, `gpt-6.1-sol`) finishing plan item FFI-06 in the ts-db repo. Two
-previous Sol units implemented and measured the item in this worktree, /root/Software/tsdb-work/ffi06 (branch
+You are a freshly spawned builder (Codex Sol, `gpt-6.1-sol`) finishing plan item FFI-06 in the mansio repo. Two
+previous Sol units implemented and measured the item in this worktree, /root/Software/mansio-work/ffi06 (branch
 `item/ffi-06-evidence`, still at `main` `f2bf1c9`, with UNCOMMITTED changes), and stopped at ownership
 questions. Your event actor id is `sol-ffi-06-cont2`. Work ONLY in this worktree. Before any suite, check
 `ps -eo pid,args | grep -E "^ *[0-9]+ deno (test|task)"` and wait if one is running (another repair unit,

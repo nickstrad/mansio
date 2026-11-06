@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { assert, cleanEnv, command, drainCommands, keep } from "./harness.ts";
 import { SEED } from "./seed.ts";
 export const composeFile = new URL("./compose.yml", import.meta.url).pathname;
-export const project = `tsdb-e2e-${Deno.pid}-${String(SEED).replace("-", "n")}`;
+export const project = `mansio-e2e-${Deno.pid}-${String(SEED).replace("-", "n")}`;
 export async function compose(args: string[], signal?: AbortSignal) {
   const out = await command(
     "docker",
@@ -44,7 +44,7 @@ export function startPostgres() {
     });
     const address = yield* Effect.promise(() => compose(["port", "postgres", "5432"]));
     assert.match(address, /^127\.0\.0\.1:\d+$/);
-    return `postgres://tsdb:tsdb@${address}/postgres`;
+    return `postgres://mansio:mansio@${address}/postgres`;
   });
 }
 export function database(name: string) {

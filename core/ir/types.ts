@@ -10,7 +10,7 @@ import type { Filter } from "../plan.ts";
 export const MAX_OPS = 64;
 /** The body cap, in bytes of UTF-8. The same 64 KiB as the HTTP surface's default (`platform/config.ts`). */
 export const MAX_BODY_BYTES = 65_536;
-/** Longest `requestId`, `db.tenant` or `db.app`, in bytes (ts-db-go `front.MaxRequestID`). */
+/** Longest `requestId`, `db.tenant` or `db.app`, in bytes (mansio-server `front.MaxRequestID`). */
 export const MAX_ID_BYTES = 64;
 
 /** A back-reference to the `_id` produced by insert number `$ref` of the same request. */

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // ErrInjected is returned by every switch-triggered failure.

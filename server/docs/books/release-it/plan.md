@@ -1,4 +1,4 @@
-# Plan: apply _Release It!_ (Nygard, 1st ed.) to ts-db-go
+# Plan: apply _Release It!_ (Nygard, 1st ed.) to mansio-server
 
 Status: plan · Date: 2026-11-05 · Baseline: `main` at `bbf184b` · Companion: [guide.md](guide.md) (the
 integration-points and stability rules this plan installs).
@@ -13,7 +13,7 @@ code in `internal/` and `cmd/agentd`. Testing builds on `knowledge/testing/READM
 
 ## 1. Why this book matters here
 
-ts-db-go is about to become a distributed system. CP step 1 wires the agent to S3 (`vactor` + `durable` +
+mansio-server is about to become a distributed system. CP step 1 wires the agent to S3 (`vactor` + `durable` +
 `objstore`), step 3 adds a Postgres placement authority, steps 4–6 add controld, a locator and a retrying
 client. Nygard's central claim (ch4 §4.1, ch4 §4.3) is that **integration points are the number-one source of
 cracks and missing timeouts are the number-one way cracks spread**. Every one of those steps adds an

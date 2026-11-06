@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/coldload"
 )
 
 func TestBuildTemplate(t *testing.T) {

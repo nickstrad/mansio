@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/load"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/load"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // Config is controld's JSON config. Defaults are applied before decoding; unknown fields are errors;

@@ -1,4 +1,4 @@
-# Plan: apply _Object Storage as Infrastructure_ to ts-db-go
+# Plan: apply _Object Storage as Infrastructure_ to mansio-server
 
 Status: plan · Date: 2026-11-05 · Baseline: `main` at `bbf184b` · Item prefix: `OS-`
 
@@ -26,7 +26,7 @@ already verified.
 
 ## 1. Why this book matters here
 
-ts-db-go's durability model is the book's central pattern:
+mansio-server's durability model is the book's central pattern:
 - immutable objects (generations, `dbs/<key>/gen/<G>.db`);
 - one small mutable pointer (`manifest.json`), moved only by a conditional PUT (Ch 2, 5, 7, 9);
 - fencing epochs carried into that conditional write (Ch 5, Ch 10).

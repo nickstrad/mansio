@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/fsx"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/fsx"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // keyDir is the issuer's signing key ring on disk: one <kid>.json file per key ({kid, seed, created}), 0600,

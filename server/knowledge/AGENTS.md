@@ -1,4 +1,4 @@
-# knowledge/ — shared notes for agents working in ts-db-go
+# knowledge/ — shared notes for agents working in mansio-server
 
 More than one agent works in this repo at the same time. This folder holds what they learn, so the next agent
 (or the next session after a context clear) does not have to find it again.

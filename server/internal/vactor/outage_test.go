@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // countingStore counts every call that reaches the store, failed ones included.

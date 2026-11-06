@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/load"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/stats"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/load"
+	"github.com/nickstrad/mansio/server/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/stats"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // Classify maps an actor result to its outcome. A statement timeout wins over the error it caused.
@@ -117,7 +117,7 @@ func Resolve(cfg *load.Config, now time.Time, tmp string) {
 		cfg.OutDir = filepath.Join("results", fmt.Sprintf("%s-%s", cfg.Name, now.Format("20060102-150405")))
 	}
 	if cfg.DBDir == "" {
-		cfg.DBDir = filepath.Join(tmp, "ts-db-go", schema.NewCatalog(cfg.Seed, cfg.Schema).Fingerprint())
+		cfg.DBDir = filepath.Join(tmp, "mansio-server", schema.NewCatalog(cfg.Seed, cfg.Schema).Fingerprint())
 	}
 }
 

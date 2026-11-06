@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // NewStoreFunc returns a fresh, empty LocalStore, and a reopen func that returns a new instance over the same

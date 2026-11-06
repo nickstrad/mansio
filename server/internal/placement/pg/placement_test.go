@@ -10,9 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
 func TestConfigNormalize(t *testing.T) {

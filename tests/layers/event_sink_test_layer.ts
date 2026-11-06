@@ -32,7 +32,7 @@ export interface TestEventsService {
 }
 
 /** The read side of `EventSinkTest`. Only present when `EventSinkTest` is. */
-export class TestEvents extends Context.Tag("ts-db/test/TestEvents")<TestEvents, TestEventsService>() {}
+export class TestEvents extends Context.Tag("mansio/test/TestEvents")<TestEvents, TestEventsService>() {}
 
 /** Builds the two services over one fresh `Ref`. */
 export function makeEventSinkTest(): Effect.Effect<Context.Context<EventSink | TestEvents>> {

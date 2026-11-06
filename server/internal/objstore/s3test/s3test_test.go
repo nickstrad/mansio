@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
 func newServer(t *testing.T) (*s3test.Server, string) {

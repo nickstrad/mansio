@@ -42,13 +42,13 @@ export interface TenantStorageRouterService {
   readonly prepare: (location: StorageLocation) => Effect.Effect<void, TenantError>;
 }
 
-export class TenantStorageRouter extends Context.Tag("ts-db/TenantStorageRouter")<
+export class TenantStorageRouter extends Context.Tag("mansio/TenantStorageRouter")<
   TenantStorageRouter,
   TenantStorageRouterService
 >() {}
 
 /** Inject with Effect.provideService per request. Never store the current tenant in a global Ref. */
-export class TenantContext extends Context.Tag("ts-db/TenantContext")<
+export class TenantContext extends Context.Tag("mansio/TenantContext")<
   TenantContext,
   { readonly tenantId: TenantId }
 >() {}

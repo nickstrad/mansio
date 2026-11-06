@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/control"
-	"github.com/nickstrad/ts-db-go/internal/control/agenthttp"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/control"
+	"github.com/nickstrad/mansio/server/internal/control/agenthttp"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 func TestConfig(t *testing.T) {

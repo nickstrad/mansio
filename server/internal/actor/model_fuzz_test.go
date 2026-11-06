@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// idList returns the request ids in a's _tsdb_requests, sorted and comma-joined.
+// idList returns the request ids in a's _mansio_requests, sorted and comma-joined.
 func idList(t *testing.T, a *Actor, c context.Context) string {
 	t.Helper()
-	r := &Request{SQL: `SELECT coalesce(group_concat(request_id, ','), '') FROM (SELECT request_id FROM _tsdb_requests ORDER BY 1)`, MaxRows: 1}
+	r := &Request{SQL: `SELECT coalesce(group_concat(request_id, ','), '') FROM (SELECT request_id FROM _mansio_requests ORDER BY 1)`, MaxRows: 1}
 	r.boundBy(c, time.Now())
 	if err := a.Submit(r); err != nil {
 		t.Fatal(err)

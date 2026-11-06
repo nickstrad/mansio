@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/panicx"
-	"github.com/nickstrad/ts-db-go/internal/parallel"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/parallel"
 )
 
 func TestForEachBoundsAndReports(t *testing.T) {

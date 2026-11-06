@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
 // OS-11: Secure and CAFile are validated at the edge (New), before any request.

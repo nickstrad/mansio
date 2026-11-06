@@ -32,7 +32,7 @@ func NewCA(t testing.TB) *CA {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "ts-db test CA"},
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "mansio test CA"},
 		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour), IsCA: true,
 		KeyUsage: x509.KeyUsageCertSign, BasicConstraintsValid: true}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)

@@ -163,7 +163,7 @@ export function resolveRequestTenant(headers: Headers, appId: string) {
     if (!/^[^\s]+$/.test(presented.token)) return yield* fail("malformed");
     const configured = yield* Effect.serviceOption(Config);
     const config = configured._tag === "Some" ? configured.value : undefined;
-    if (config?.tenancy.mode === "better-auth" && !presented.token.startsWith("tsdb_")) {
+    if (config?.tenancy.mode === "better-auth" && !presented.token.startsWith("mansio_")) {
       const id = yield* sessionTenant(config.tenancy, presented.token, appId);
       const tenant = yield* registry.getTenant(id).pipe(
         Effect.catchIf((error) => error._tag !== "StorageError", () => Effect.fail(fail("mismatch"))),

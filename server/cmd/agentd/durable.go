@@ -8,18 +8,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/file"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/actordb"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/file"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
 )
 
 // durableAgent is durable mode (control-plane plan CP-1): one long-lived S3 client behind a breaker, the
@@ -271,17 +271,17 @@ func (d *durableAgent) probeOnce(ctx context.Context) {
 }
 
 func (p *s3Probe) register(reg *metrics.Registry) {
-	reg.Add("tsdb_s3_probe_ok", "1 when the last S3 probe (a manifest read past the breaker) answered.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_s3_probe_ok", "1 when the last S3 probe (a manifest read past the breaker) answered.", metrics.Gauge, func(e *metrics.Emit) {
 		v := 0.0
 		if p.ok.Load() {
 			v = 1
 		}
 		e.Value(nil, v)
 	})
-	reg.Add("tsdb_s3_probe_failures_total", "S3 probes that got no answer.", metrics.Counter, func(e *metrics.Emit) {
+	reg.Add("mansio_s3_probe_failures_total", "S3 probes that got no answer.", metrics.Counter, func(e *metrics.Emit) {
 		e.Value(nil, float64(p.failures.Load()))
 	})
-	reg.Add("tsdb_s3_probe_last_ok_timestamp_seconds", "When an S3 probe last answered (0 = never).", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_s3_probe_last_ok_timestamp_seconds", "When an S3 probe last answered (0 = never).", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(nil, float64(p.lastOK.Load())/1e9)
 	})
 }

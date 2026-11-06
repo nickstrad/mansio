@@ -45,8 +45,8 @@ without dataset changes.
 Independently ran `git diff --exit-code 351a51b --` for both older bundles and their content trees: exit 0.
 Their SHA-256 values also match the builder's record:
 
-- `tsdb-current.json`: `0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77`
-- `tsdb-lanes-proposal.json`: `04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9`
+- `mansio-current.json`: `0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77`
+- `mansio-lanes-proposal.json`: `04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9`
 
 Builder acceptance is green in the recorded outputs and inspected local logs: `repair-pages-final.log` reports
 165 unit tests, build success and 27 browser tests; `repair-ci.log` reports 687 unit tests passed, one

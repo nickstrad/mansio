@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/file"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/file"
 )
 
 // adminAddr is the addr-file's third line (the admin listener), "" if there is none.
@@ -102,7 +102,7 @@ func TestAdminBreakerTripFailsFastWithoutS3Calls(t *testing.T) {
 	if out := b.mustAdmin(t, "/admin/breaker/s3:trip"); out["changed"] != false {
 		t.Fatalf("second trip %v, want changed false", out)
 	}
-	if v := b.metric(t, `tsdb_breaker_state{dep="s3",state="open"}`); v != "1" {
+	if v := b.metric(t, `mansio_breaker_state{dep="s3",state="open"}`); v != "1" {
 		t.Fatalf("breaker open gauge %q", v)
 	}
 	before := keyRequests(r, "db-1")
@@ -167,8 +167,8 @@ func TestAdminFetchLimitAppliesToTheNextFetches(t *testing.T) {
 				return inFlight, queued
 			default:
 			}
-			n, _ := strconv.Atoi(b.metric(t, `tsdb_vactor{stat="fetches_in_flight"}`))
-			q, _ := strconv.Atoi(b.metric(t, `tsdb_vactor{stat="fetch_queued"}`))
+			n, _ := strconv.Atoi(b.metric(t, `mansio_vactor{stat="fetches_in_flight"}`))
+			q, _ := strconv.Atoi(b.metric(t, `mansio_vactor{stat="fetch_queued"}`))
 			inFlight, queued = max(inFlight, n), max(queued, q)
 			time.Sleep(5 * time.Millisecond)
 		}

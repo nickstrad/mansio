@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
-	"github.com/nickstrad/ts-db-go/internal/retry"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // Duration is a time.Duration that reads "250ms", "10s", "2m" from JSON.
@@ -144,7 +144,7 @@ const MaxClients = 255
 type Config struct {
 	Name    string `json:"name"`
 	OutDir  string `json:"out_dir"`  // default results/<name>-<timestamp>
-	DBDir   string `json:"db_dir"`   // default <tmp>/ts-db-go/<schema fingerprint>
+	DBDir   string `json:"db_dir"`   // default <tmp>/mansio-server/<schema fingerprint>
 	KeepDBs bool   `json:"keep_dbs"` // keep databases after the run (a rerun with the same seed/schema reuses them)
 
 	SetupWorkers     int      `json:"setup_workers"`     // parallel seeding/opening; default NumCPU

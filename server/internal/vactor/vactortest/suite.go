@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // NewFetcherFunc returns a Fetcher under test and a way to store objects in its backing store.

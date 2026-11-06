@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import type { ArchitectureBundle } from "c4-sdk/core";
 import { bundles } from "./fixtures.ts";
 
-const pinned = /^https:\/\/github\.com\/nickstrad\/ts-db\/blob\/([0-9a-f]{40})\/[^\s?#]+$/;
+const pinned = /^https:\/\/github\.com\/nickstrad\/mansio\/blob\/([0-9a-f]{40})\/[^\s?#]+$/;
 
 describe.each(bundles)("sources of $entry.id", ({ json }) => {
   const sources = (json as ArchitectureBundle).sources;
@@ -20,10 +20,10 @@ describe.each(bundles)("sources of $entry.id", ({ json }) => {
       // Preserve the original commit-pin checks for every pre-existing source; require
       // exact source-byte integrity and the explicit branch URL for this new addendum.
       if (source.id === "src-addendum") {
-        expect((json as ArchitectureBundle).id).toBe("tsdb-planes-proposal");
+        expect((json as ArchitectureBundle).id).toBe("mansio-planes-proposal");
         expect(source.path).toBe("agent-work/items/dp-01-planes/addendum-1.md");
         expect(source.url).toBe(
-          `https://github.com/nickstrad/ts-db/blob/item/dp-01-planes/${source.path}`,
+          `https://github.com/nickstrad/mansio/blob/item/dp-01-planes/${source.path}`,
         );
         const bytes = readFileSync(new URL(`../../${source.path}`, import.meta.url));
         expect(source.revision).toBe(`sha256:${createHash("sha256").update(bytes).digest("hex")}`);

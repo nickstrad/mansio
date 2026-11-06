@@ -1,7 +1,7 @@
 # DP-01 builder report
 
 Date: 2026-10-20. Actor: `sol-dp-01`. Branch: `item/dp-01-planes`. Worktree retained at
-`/root/Software/tsdb-work/dp01`. No main merge or deployment. The required `agent-work/COORDINATION.md` is
+`/root/Software/mansio-work/dp01`. No main merge or deployment. The required `agent-work/COORDINATION.md` is
 absent in this checkout; the shared event inbox and the other orientation files were read.
 
 Brief commit: `6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a`. Implementation: the commit containing this report;
@@ -9,7 +9,7 @@ the completion event and final response supply its exact SHA without a self-refe
 
 ## Delivered
 
-`tsdb-planes-proposal` adds 44 elements, 54 relationships, 59 plain + STE draft documents and 14 diagrams. The
+`mansio-planes-proposal` adds 44 elements, 54 relationships, 59 plain + STE draft documents and 14 diagrams. The
 inventory maps every element, relationship, scenario root and interaction to its sources and documents.
 
 | Kind       | Diagram IDs                                                                                                                                                                                          |
@@ -27,7 +27,7 @@ performance or production deployment claims are made.
 ## Registration and scope
 
 The dropdown is data-driven, but a bundle alone is insufficient: `pages/public/catalog.json` lists its
-entries. Added exactly one entry and kept `tsdb-current` as default. This is the minimal registration change
+entries. Added exactly one entry and kept `mansio-current` as default. This is the minimal registration change
 explicitly required by Build §8; the initial Owns list omitted that registration file. No viewer code changed.
 The existing fixtures still exercise a separate three-entry catalog and an arbitrary default; production now
 has three real entries. Per-dataset catalog assertions were extended, scenario integrity checks now cover both
@@ -130,8 +130,8 @@ $ git diff --exit-code 351a51b -- [both old bundles and content trees]
 (no output; exit 0)
 
 SHA-256 baseline and working file match:
-0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  tsdb-current.json
-04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  tsdb-lanes-proposal.json
+0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  mansio-current.json
+04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  mansio-lanes-proposal.json
 ```
 
 Additional full root CI (exit 0):
@@ -230,13 +230,13 @@ $ git diff --exit-code db0bb43617fac36127b99e1d312c3e0900f609f2 -- [both old bun
 $ git diff --exit-code 351a51b -- [both old bundles and content trees]
 (no output; exit 0)
 
-$ sha256sum pages/public/architectures/{tsdb-current,tsdb-lanes-proposal}.json
-0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  tsdb-current.json
-04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  tsdb-lanes-proposal.json
+$ sha256sum pages/public/architectures/{mansio-current,mansio-lanes-proposal}.json
+0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  mansio-current.json
+04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  mansio-lanes-proposal.json
 
 $ sha256sum -c /tmp/dp01-addendum-generated.sha256
-pages/public/architectures/tsdb-planes-proposal.json: OK
-pages/content/tsdb-planes-proposal/inventory.md: OK
+pages/public/architectures/mansio-planes-proposal.json: OK
+pages/content/mansio-planes-proposal/inventory.md: OK
 ```
 
 Additional full root CI completed successfully (exit 0):
@@ -320,13 +320,13 @@ Checked 183 files
 
 $ git diff --exit-code 351a51b -- [both older bundles and content trees]
 (no output; exit 0)
-$ sha256sum pages/public/architectures/{tsdb-current,tsdb-lanes-proposal}.json
-0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  tsdb-current.json
-04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  tsdb-lanes-proposal.json
+$ sha256sum pages/public/architectures/{mansio-current,mansio-lanes-proposal}.json
+0a736cb8d39de3df1c8d4a438d1a1c80ee0ab4a4e962ff69700b07a0298f2f77  mansio-current.json
+04c7f6f300bdc58be126bebf7521056995d3317a079f3ba4fe995d96122089b9  mansio-lanes-proposal.json
 
 $ sha256sum -c /tmp/dp01-repair-generated.sha256
-pages/public/architectures/tsdb-planes-proposal.json: OK
-pages/content/tsdb-planes-proposal/inventory.md: OK
+pages/public/architectures/mansio-planes-proposal.json: OK
+pages/content/mansio-planes-proposal/inventory.md: OK
 
 Repair semantic/inventory assertions: PASS
 (transport bypasses router, stale lookup RPC, five-node overview, policy tables,

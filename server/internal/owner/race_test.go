@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
 // Many goroutines Admit while Fence runs. No permit may be held when the final write-back starts, and no Admit

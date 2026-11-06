@@ -1,7 +1,7 @@
 # 2026-11-05 — what a handler executor needs from the `Executor` port
 
-Author: front agent. Context: ts-db's real workload is TypeScript handlers that read, decide and write inside
-one transaction (`/Users/nick/Software/ts-db/docs/architecture/scale-out-go-greenfield.md` §3). The handler
+Author: front agent. Context: mansio's real workload is TypeScript handlers that read, decide and write inside
+one transaction (`/Users/nick/Software/mansio/docs/architecture/scale-out-go-greenfield.md` §3). The handler
 runtime (an embedded JS engine) is a separate, later spike. This note says how it slots in behind
 `front.Executor` without changing the pipeline, framing, admission or wire codes. Nothing here is built or
 measured.

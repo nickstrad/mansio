@@ -19,8 +19,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/bench"
-	"github.com/nickstrad/ts-db-go/internal/load"
+	"github.com/nickstrad/mansio/server/internal/bench"
+	"github.com/nickstrad/mansio/server/internal/load"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/*.expected from the current output")

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
 // Route is where one database lives now, as the locator said: the owner VM's endpoint, the placement epoch

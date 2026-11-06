@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
 // fake is a locator and any number of agents on httptest servers. Handlers are scripted per test.

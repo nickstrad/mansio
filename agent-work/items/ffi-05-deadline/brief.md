@@ -1,6 +1,6 @@
 # FFI-05 — Classifier and deadline-bounded execution (builder brief)
 
-Status: dispatched · Branch: `item/ffi-05-deadline` · Worktree: `/root/Software/tsdb-work/ffi05` · Base:
+Status: dispatched · Branch: `item/ffi-05-deadline` · Worktree: `/root/Software/mansio-work/ffi05` · Base:
 `main` at `702c354` (FFI-04b merge) · Builder: Claude Opus 5.5 (actor `claude-opus-ffi-05`) · Reviewer: Astra
 (`gpt-6-astra`), fresh unit · Date: 2026-10-13 · Authorization: Nick via `/root/fable-ffi04-go.md` ("proceed
 per plan — FFI-04b next, then FFI-05").
@@ -125,7 +125,7 @@ default 5000, must be `< reader.callTimeoutMs`; `sqlite.statementInterruptGraceM
 ## Repair 1 after Astra review
 
 Astra review (FAIL, `review/ffi-05-astra`, `agent-work/items/ffi-05-deadline/review-astra.md`) on `6246f9d`;
-repair by `claude-opus-ffi-05-repair1` in `/root/Software/tsdb-work/ffi05-rep1`, the one repair round before
+repair by `claude-opus-ffi-05-repair1` in `/root/Software/mansio-work/ffi05-rep1`, the one repair round before
 arbitration. Repair commit `076b327`.
 
 - Defect 1 (P2), fixed: the reader's query context is rechecked where each select starts, after any gate wait

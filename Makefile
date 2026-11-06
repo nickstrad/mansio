@@ -1,18 +1,18 @@
-# ts-db local infrastructure: a SeaweedFS S3-compatible object store in Docker.
+# mansio local infrastructure: a SeaweedFS S3-compatible object store in Docker.
 #
 # Quickstart:   make up && make s3-init
 #
 # S3 endpoint (dev only):   http://localhost:8333
 # Test credentials (DEV ONLY, public, not secrets; defined in docker-compose.yml):
-#   access key id:      tsdbdevkey
-#   secret access key:  tsdbdevsecret
+#   access key id:      mansiodevkey
+#   secret access key:  mansiodevsecret
 #   region:             us-east-1   (SeaweedFS ignores it, but the platform requires one)
-#   bucket:             tsdb-test   (created by `make s3-init`)
+#   bucket:             mansio-test   (created by `make s3-init`)
 #
 # Point the platform at it with exactly these env vars (see platform/config.ts):
 #   S3_BASE_URL=http://localhost:8333
-#   AWS_ACCESS_KEY_ID=tsdbdevkey
-#   AWS_SECRET_ACCESS_KEY=tsdbdevsecret
+#   AWS_ACCESS_KEY_ID=mansiodevkey
+#   AWS_SECRET_ACCESS_KEY=mansiodevsecret
 #   AWS_REGION=us-east-1
 #
 # Requires Docker with Compose v2 (`docker compose`). `make s3-init` also needs the AWS CLI and
@@ -22,11 +22,11 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 S3_ENDPOINT   := http://localhost:8333
-S3_BUCKET     := tsdb-test
+S3_BUCKET     := mansio-test
 # Deliberately not named AWS_*: a developer's real AWS credentials in the environment must never be
 # sent to (or silently used for) the local store.
-S3_ACCESS_KEY := tsdbdevkey
-S3_SECRET_KEY := tsdbdevsecret
+S3_ACCESS_KEY := mansiodevkey
+S3_SECRET_KEY := mansiodevsecret
 S3_REGION     := us-east-1
 
 UP_TIMEOUT_SECONDS := 60
@@ -76,7 +76,7 @@ clean: ## Remove containers AND the seaweedfs-data volume (asks first)
 	  echo "Aborted; nothing deleted."; \
 	fi
 
-s3-init: ## Create the tsdb-test bucket and print endpoint + test credentials
+s3-init: ## Create the mansio-test bucket and print endpoint + test credentials
 	@if ! command -v aws >/dev/null 2>&1; then \
 	  echo "AWS CLI not found; installing..."; \
 	  (pip install awscli || pip3 install awscli || pip3 install --break-system-packages awscli \
@@ -104,8 +104,8 @@ s3-init: ## Create the tsdb-test bucket and print endpoint + test credentials
 	@echo "  export AWS_REGION=$(S3_REGION)"
 
 # Same dev defaults as the postgres service in docker-compose.yml (DEV ONLY).
-POSTGRES_USER ?= tsdb
-POSTGRES_DB   ?= tsdb
+POSTGRES_USER ?= mansio
+POSTGRES_DB   ?= mansio
 
 db-shell: ## Open an interactive psql shell in the postgres service
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)

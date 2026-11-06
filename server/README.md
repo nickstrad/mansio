@@ -1,4 +1,4 @@
-# ts-db-go: one goroutine per SQLite database
+# mansio-server: one goroutine per SQLite database
 
 A proof of concept that measures how far one Go process can go running **one goroutine (actor) per SQLite
 database**, with no lock shared between databases. Goal and current status: [STATE.md](STATE.md).

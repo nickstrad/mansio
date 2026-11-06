@@ -38,7 +38,7 @@ A session must resolve to **exactly one membership**, and that tenant must curre
 multiple memberships return 401. No header/body tenant selector can choose among memberships. Removing
 membership, expiring/deleting a session, signing out, or deactivating a tenant prevents the next
 authentication; already admitted requests can finish. Session cookie caching is disabled. Only the bearer
-header is forwarded for tenant authentication, so an ambient cookie cannot rescue an invalid token. `tsdb_`
+header is forwarded for tenant authentication, so an ambient cookie cannot rescue an invalid token. `mansio_`
 credentials continue through MT-07's API-key path and its existing cache policy.
 
 The built-in process-local rate limiter is enabled. This router has no trusted socket address, so forwarded-IP

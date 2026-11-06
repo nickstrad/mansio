@@ -46,7 +46,7 @@ Always JSON, every code:
 `retry_after_ms` when there is a `Retry-After`, `ambiguous: true` on an `expired` write that may have committed,
 and `log_id` on `internal` (the agent's JSON log has the chain and the stack under that ID).
 
-Integers above 2^53 lose precision in JavaScript clients (same rule as ts-db's number boundaries).
+Integers above 2^53 lose precision in JavaScript clients (same rule as mansio's number boundaries).
 
 ## Codes (the `Spec` table)
 

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
 // world is N simulated processes sharing one fake authority and one fake object store. Each process has its

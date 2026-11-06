@@ -120,7 +120,7 @@ interface Opened {
 }
 
 const tempDir = Effect.acquireRelease(
-  Effect.sync(() => mkdtempSync(join(tmpdir(), "ts-db-nul-"))),
+  Effect.sync(() => mkdtempSync(join(tmpdir(), "mansio-nul-"))),
   (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
 );
 

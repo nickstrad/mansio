@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // clock is the simulated Options.Clock: time moves only by Add. Tests that need deadlines to fire in real time

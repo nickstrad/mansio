@@ -5,7 +5,7 @@
  * regression and property suites load the writer's SQLite there (the FFI binding over the system
  * `libsqlite3`). DuckDB's `sqlite` extension is a second copy of the SQLite library, and the two must
  * never share an address space — the rule that makes the reader a separate process in production
- * applies to tests as well. So this module has two halves, selected by `TS_DB_READER_FIXTURE`:
+ * applies to tests as well. So this module has two halves, selected by `MANSIO_READER_FIXTURE`:
  *
  * - **Parent** (the variable is unset): never loads DuckDB. It writes the SQLite fixture files with
  *   the FFI binding (`tests/helpers/sqlite_inspect.ts`) and the pure compiler, then (1) runs this
@@ -42,7 +42,7 @@ function expectRight<A, E>(either: Either.Either<A, E>): A {
   assert.fail(`expected a right, got left ${JSON.stringify(either.left)}`);
 }
 
-const FIXTURE_ENV = "TS_DB_READER_FIXTURE";
+const FIXTURE_ENV = "MANSIO_READER_FIXTURE";
 const fixture = Deno.env.get(FIXTURE_ENV);
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -81,7 +81,7 @@ async function writeFixture(dir: string): Promise<void> {
 }
 
 async function withFixture(run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await Deno.makeTempDir({ prefix: "ts-db-reader-" });
+  const dir = await Deno.makeTempDir({ prefix: "mansio-reader-" });
   try {
     await writeFixture(dir);
     await run(dir);
@@ -213,7 +213,7 @@ if (fixture === undefined) {
   });
 
   test("reader process: a failed reader open is not cached; the next request retries it", async () => {
-    const dir = await Deno.makeTempDir({ prefix: "ts-db-reader-" });
+    const dir = await Deno.makeTempDir({ prefix: "mansio-reader-" });
     try {
       const child = new Deno.Command(Deno.execPath(), {
         args: ["run", "-A", "platform/reader.ts"],

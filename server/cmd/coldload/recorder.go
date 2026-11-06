@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/coldload"
 )
 
 // recorder writes activations.csv off the measured path: Add is a non-blocking channel send; one goroutine

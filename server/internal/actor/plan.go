@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // This file holds the actor's pure decisions: no SQLite, no goroutines, no clock reads.

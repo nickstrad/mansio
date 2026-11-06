@@ -20,18 +20,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 // The CP-4 gate (control-plane plan §3): two agentd processes on one host and controld, over Postgres and a
-// real S3. Gated on TSDB_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs).
+// real S3. Gated on MANSIO_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs).
 //
-//	TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable' COLDLOAD_S3=localhost:8333 \
+//	MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable' COLDLOAD_S3=localhost:8333 \
 //	  go test -count=1 -run TestGate -v ./cmd/controld
 
 const (
@@ -72,9 +72,9 @@ type agentProc struct {
 }
 
 func newCluster(t *testing.T) *cluster {
-	dsn, s3 := os.Getenv("TSDB_PG_URL"), os.Getenv("COLDLOAD_S3")
+	dsn, s3 := os.Getenv("MANSIO_PG_URL"), os.Getenv("COLDLOAD_S3")
 	if dsn == "" || s3 == "" {
-		t.Skip("set TSDB_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs) to run the CP-4 gate")
+		t.Skip("set MANSIO_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs) to run the CP-4 gate")
 	}
 	b := make([]byte, 5)
 	rand.Read(b)

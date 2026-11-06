@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // Admitter is a fake ownership port: databases have epochs; switches make it fail, panic or break its contract.

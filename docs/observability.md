@@ -1,6 +1,6 @@
 # Observability: the event log and how to query it
 
-Every process in ts-db writes structured events as JSON lines. A separate step ingests those lines into an
+Every process in mansio writes structured events as JSON lines. A separate step ingests those lines into an
 append-only DuckDB file, and a fixed catalog of named, parameterized, read-only queries answers the usual
 questions about it. This page is the reference for all three: where the files are, what the tables hold, what
 each query answers, how retention works, and worked examples.

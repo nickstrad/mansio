@@ -79,7 +79,7 @@ async function withBackend(name: BackendName, body: (backend: Backend) => Promis
   if (name === "StorageTest") {
     layer = StorageTest({ schema }).pipe(Layer.provide(IdGenTest));
   } else {
-    dir = await Deno.makeTempDir({ prefix: "ts-db-commit-prop-" });
+    dir = await Deno.makeTempDir({ prefix: "mansio-commit-prop-" });
     let id = 0;
     layer = StorageLive({ file: join(dir, "app.sqlite"), schema, appId: "commit-prop" }).pipe(
       Layer.provide(Layer.mergeAll(

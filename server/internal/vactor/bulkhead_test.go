@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // A store slower than the activation deadline: Get fails with ErrBusy within the deadline (+ε), leaves

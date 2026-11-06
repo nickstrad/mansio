@@ -10,7 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
 // ForEach calls fn(ctx, i) for every i in [0, n) on at most workers goroutines and returns each item's error

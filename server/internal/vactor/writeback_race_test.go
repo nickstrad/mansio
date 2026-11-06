@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // Regression (-race): one writer, while other goroutines Get, WriteBack, Passivate and Tick the same key and

@@ -26,7 +26,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 const module = "objstore"

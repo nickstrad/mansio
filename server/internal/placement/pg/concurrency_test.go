@@ -12,8 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
 // PG-04: the placement concurrency gate (SQL G-22: many workers on the same key).
@@ -152,10 +152,10 @@ func TestMoveRaceManyKeys(t *testing.T) {
 
 // TestCASLatency records p50/p99 CAS latency and conflicts per second at 1, 16 and 64 workers, on distinct
 // keys (no contention) and on one shared key (every worker races the same row). It runs only with
-// TSDB_PG_LATENCY=1 (about 20 s); numbers go to knowledge/fencing/.
+// MANSIO_PG_LATENCY=1 (about 20 s); numbers go to knowledge/fencing/.
 func TestCASLatency(t *testing.T) {
-	if os.Getenv("TSDB_PG_LATENCY") == "" {
-		t.Skip("set TSDB_PG_LATENCY=1 to measure CAS latency")
+	if os.Getenv("MANSIO_PG_LATENCY") == "" {
+		t.Skip("set MANSIO_PG_LATENCY=1 to measure CAS latency")
 	}
 	p, _ := newPlacement(t, conns64)
 	const run = 3 * time.Second

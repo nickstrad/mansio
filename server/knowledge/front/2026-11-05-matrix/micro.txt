@@ -1,15 +1,15 @@
 goos: darwin
 goarch: arm64
-pkg: github.com/nickstrad/ts-db-go/internal/ticket
+pkg: github.com/nickstrad/mansio/server/internal/ticket
 cpu: Apple M5 Max
 BenchmarkCacheHit-18    	42328041	        52.77 ns/op
 BenchmarkVerify-18      	   91585	     26256 ns/op
 BenchmarkMint-18        	  192940	     12420 ns/op
 PASS
-ok  	github.com/nickstrad/ts-db-go/internal/ticket	7.210s
+ok  	github.com/nickstrad/mansio/server/internal/ticket	7.210s
 goos: darwin
 goarch: arm64
-pkg: github.com/nickstrad/ts-db-go/internal/front
+pkg: github.com/nickstrad/mansio/server/internal/front
 cpu: Apple M5 Max
 BenchmarkDecodeRequest-18              	 2652286	       895.8 ns/op	    1272 B/op	      19 allocs/op
 BenchmarkEncodeResponse-18             	 7919684	       301.8 ns/op	     304 B/op	       2 allocs/op
@@ -19,4 +19,4 @@ BenchmarkHTTP/h2c-18                   	  116377	     20708 ns/op	   16137 B/op	
 BenchmarkPipeline/verify-18            	  574981	      4010 ns/op	    2183 B/op	      44 allocs/op
 BenchmarkPipeline/cached-ticket-18     	 1695842	      1780 ns/op	    1800 B/op	      35 allocs/op
 PASS
-ok  	github.com/nickstrad/ts-db-go/internal/front	19.834s
+ok  	github.com/nickstrad/mansio/server/internal/front	19.834s

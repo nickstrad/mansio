@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 func TestWeighted(t *testing.T) {

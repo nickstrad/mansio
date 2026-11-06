@@ -1,4 +1,4 @@
-# Plan: apply _Effective Software Testing_ (Aniche) to ts-db
+# Plan: apply _Effective Software Testing_ (Aniche) to mansio
 
 Status: proposal, not started · Author: Claude Opus 5.5 (with nickstrad) · Date: 2026-11-04 · Baseline: `main`
 at `fac3e3e`.
@@ -10,11 +10,11 @@ are to the book; "write-up §n" is the research note.
 
 ## 0. Summary
 
-ts-db already tests a lot: 60 test files (~29 k lines), fast-check properties with fixed seeds and replay, a
+mansio already tests a lot: 60 test files (~29 k lines), fast-check properties with fixed seeds and replay, a
 Storage conformance suite that checks the in-memory double against real SQLite, test layers for every service,
 and a seven-scenario e2e suite with ephemeral Postgres. What it lacks, measured against the book:
 
-| Book practice                                    | ts-db today                                                                                                           | Gap                                                                                                                     |
+| Book practice                                    | mansio today                                                                                                          | Gap                                                                                                                     |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Specification-based (ch2): partitions, on/off    | Many example tests; no written partition tables; some limits have on/off tests (`WRITER_QUEUE_CAP`), most don't       | No spec catalogue; untested boundaries (§1.1)                                                                           |
 | Structural (ch3): coverage to find missing tests | No coverage run anywhere; no mutation testing                                                                         | No coverage report, no structural pass, no mutation score                                                               |
@@ -102,9 +102,9 @@ integration) need either new tasks or scripts. **Default in this plan: scripts u
 task test` and `test:prop` pick them up. If Nick prefers tasks, TS-03 also owns a single `deno.json`
 edit adding `coverage`, `test:fuzz`, `test:mutation` and `test:pg` (decision D1).
 
-## 2. Test taxonomy (the book's, mapped to ts-db)
+## 2. Test taxonomy (the book's, mapped to mansio)
 
-| Book level    | ts-db meaning                                                                                                       | Where                                                   | Gate                                                 |
+| Book level    | mansio meaning                                                                                                      | Where                                                   | Gate                                                 |
 | ------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
 | Unit          | `core/` pure logic, and services over test layers                                                                   | `tests/unit/`, `tests/core_test.ts`                     | `deno task ci`                                       |
 | Specification | Not a level: a way to choose tests at every level, from a written partition/boundary table                          | `docs/testing/spec/*.md` → tests tagged with spec ids   | `ci` (traceability check)                            |
@@ -119,7 +119,7 @@ edit adding `coverage`, `test:fuzz`, `test:mutation` and `test:pg` (decision D1)
 config, files, IPC frames, Postgres rows) is **validated**: typed error, tested by spec tests. Data inside the
 safe zone, already validated, is guarded by **contracts**: a violation is a bug, so it is a defect with a
 `ContractViolation` cause, not a typed error, and it is rarely tested directly. A check is repeated on both
-sides only if the contract is "very important and should never be broken" (ch4): in ts-db that means tenant
+sides only if the contract is "very important and should never be broken" (ch4): in mansio that means tenant
 isolation (a resolved file path stays inside `TENANTS_DIR`) and data loss (a backup's manifest checksum
 matches the bytes stored).
 

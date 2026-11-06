@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det"
 )
 
 // Config applies to every actor. The zero value is valid: WithDefaults fills it in.

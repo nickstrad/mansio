@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 const module = "coldload"

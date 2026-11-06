@@ -1,4 +1,4 @@
-# Plan: apply _The Art of PostgreSQL_ (Fontaine) to ts-db-go
+# Plan: apply _The Art of PostgreSQL_ (Fontaine) to mansio-server
 
 Status: plan · Date: 2026-11-05 · Baseline: `main` at `bbf184b` · Companion: [guide.md](guide.md) (the SQL
 style guide this plan proposes; the rules there are referenced as G-n).
@@ -12,7 +12,7 @@ practice this builds on: `~/AI/writeups/go-coding-style.md`, `~/AI/writeups/go-t
 
 ## 1. Why this book matters here
 
-ts-db-go writes SQL in three dialects and is about to add a fourth role. SQLite is the data plane: the actor
+mansio-server writes SQL in three dialects and is about to add a fourth role. SQLite is the data plane: the actor
 (`internal/actor`) runs every tenant statement inside a group-commit transaction it owns, the generators
 (`internal/schema`, `internal/workload`, `cmd/coldload/template.go`) build DDL and DML as Go strings, and the
 request-id store (control-plane plan step 2) will put a table inside every tenant database. DuckDB is the
@@ -28,7 +28,7 @@ plan says which is which.
 
 ## 2. What the project already does well
 
-| Book idea | Where ts-db-go already does it |
+| Book idea | Where mansio-server already does it |
 |---|---|
 | Parameters sent apart from SQL text; prepared statements (ch 2 §1.6–1.7) | Every generated statement uses `?` binds, built once per table (`internal/workload/workload.go:141-205`, `Next` only draws args, `:251-317`). The actor keeps an LRU of prepared statements per connection (`internal/actor/conn.go:103-119`). The front decodes typed bind values and refuses `;` (`internal/front/request.go:186-213`). |
 | Transaction boundaries fixed at design time, not by callers (ch 42, ch 5) | The actor owns `BEGIN IMMEDIATE … COMMIT` (`internal/actor/actor.go:311-344`); clients may not send transaction control, `PRAGMA`, `ATTACH` (`internal/front/request.go:172-178`). |
@@ -86,7 +86,7 @@ plan says which is which.
   (`schema.go:156`, `cmd/coldload/template.go:17-21`).
 - **Scenario:** sqlbench's `delete` class removes parent rows while children keep pointing at them, so the
   `join` class silently returns fewer rows as a run goes on, and runs with different delete shares are not
-  comparable. For ts-db tenants (compiler-generated schemas, plan §3 "compiler port") a declared FK that is not
+  comparable. For mansio tenants (compiler-generated schemas, plan §3 "compiler port") a declared FK that is not
   enforced is a lie the application will trust. → **PG-05**.
 
 ### 3.4 Report SQL has no types and no regression test; the same views are defined twice (Medium)
@@ -188,7 +188,7 @@ Order is the table order. "Before CP" = can land before the control-plane step i
   error, **not** `ErrConflict`; `55P03` lock timeout, connection errors → `errs.Wrap("placement", …)` that matches
   neither sentinel (Claim/Reconcile stay closed). Never `SET LOCAL synchronous_commit = off` on this pool (ch 33).
 - **Acceptance:** `ownertest` contract suite (`TestPlacementCAS` cases) passes against the fake and Postgres
-  (env-gated `TSDB_PG_URL`, as `COLDLOAD_S3` gates S3); a test that holds the row in an open transaction proves
+  (env-gated `MANSIO_PG_URL`, as `COLDLOAD_S3` gates S3); a test that holds the row in an open transaction proves
   CAS returns a non-sentinel error within `lock_timeout`; `TestMoveCrashPoints` "reply lost" variant passes with
   the real adapter (cancel the ctx after the statement is sent).
 - **Size:** M.
@@ -431,19 +431,19 @@ on conflict for better error messages; not needed for correctness.
 ### 5.3 Request-id table in each tenant SQLite database (PG-09)
 
 ```sql
-create table if not exists _tsdb_requests (
+create table if not exists _mansio_requests (
   request_id text    not null primary key,   -- client-supplied, validated at the front
   applied_ms integer not null,               -- unix ms, UTC (SQLite has no timestamptz)
   result     blob                            -- encoded reply, for an identical answer on retry
 ) strict, without rowid;
 ```
 
-Per write, inside the write's savepoint (PG-01): `insert into _tsdb_requests (request_id, applied_ms) values (?,
+Per write, inside the write's savepoint (PG-01): `insert into _mansio_requests (request_id, applied_ms) values (?,
 ?) on conflict (request_id) do nothing returning request_id`; no row returned ⇒ duplicate, `ROLLBACK TO` the
 savepoint and answer from `result`. SQLite supports `RETURNING` since 3.35.
 
 As built (CP-2): the claim drops `returning` and reads the rows affected (same single statement, ~1.7 µs less
-per write through `database/sql`); `create index _tsdb_requests_applied on _tsdb_requests (applied_ms)` keeps
+per write through `database/sql`); `create index _mansio_requests_applied on _mansio_requests (applied_ms)` keeps
 the retention sweep off a full scan; the table is created lazily in the first batch with an id. Details and
 cost: `knowledge/front/2026-11-05-request-ids.md`.
 
@@ -456,7 +456,7 @@ fake and real, model fuzzing for state, env-gated integration). Additions:
 |---|---|---|
 | PG-01 | Real-SQLite batch with `INSERT OR ROLLBACK` / `RAISE(ROLLBACK)`; fake `endsTxn` fault; `FuzzActorModel` op; sqlbench `compare-actor` before/after | integration, fault injection, model fuzz, load |
 | PG-02 | `schema/test/constraints.sql` + `.expected`, run with `psql -X -v ON_ERROR_STOP=0 -a` and diffed (ch 8, Postgres's own regression style) | SQL regression |
-| PG-03 | `ownertest` CAS contract suite vs fake and Postgres (`TSDB_PG_URL`); lock-timeout test; lost-reply test | contract, integration |
+| PG-03 | `ownertest` CAS contract suite vs fake and Postgres (`MANSIO_PG_URL`); lock-timeout test; lost-reply test | contract, integration |
 | PG-04 | Same-key CAS race, many-key move race, invariants query returns zero rows; latency numbers | concurrency, load |
 | PG-05 | FK and type off-point tests; `smoke` run join-row stability | spec, load |
 | PG-06 | DuckDB golden test; CSV header ⇔ `views.sql` test | regression |
@@ -465,7 +465,7 @@ fake and real, model fuzzing for state, env-gated integration). Additions:
 | PG-10 | Cached locator after a move; listener reconnect | integration |
 
 Lines to add to `knowledge/testing/README.md` §3 (PG-11): (1) "SQL files are code: every embedded `.sql` file
-has a regression test with expected output (G-20)." (2) "Postgres integration tests are gated on `TSDB_PG_URL`
+has a regression test with expected output (G-20)." (2) "Postgres integration tests are gated on `MANSIO_PG_URL`
 and run in a fresh schema per test." (3) "Concurrency tests hit the **same** key with many workers; that is
 where contention and CAS races show."
 

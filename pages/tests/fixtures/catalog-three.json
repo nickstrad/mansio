@@ -2,14 +2,14 @@
   "defaultId": "fixture-third",
   "entries": [
     {
-      "id": "tsdb-current",
-      "title": "ts-db today (main 2d30330)",
-      "url": "architectures/tsdb-current.json"
+      "id": "mansio-current",
+      "title": "mansio today (main 2d30330)",
+      "url": "architectures/mansio-current.json"
     },
     {
-      "id": "tsdb-lanes-proposal",
+      "id": "mansio-lanes-proposal",
       "title": "Proposed: statement lanes and tenant placement (scale-out)",
-      "url": "architectures/tsdb-lanes-proposal.json"
+      "url": "architectures/mansio-lanes-proposal.json"
     },
     {
       "id": "fixture-third",

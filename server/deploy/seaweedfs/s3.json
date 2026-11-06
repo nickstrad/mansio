@@ -8,12 +8,12 @@
     {
       "name": "agent",
       "credentials": [{ "accessKey": "agent", "secretKey": "agent-secret-dev" }],
-      "actions": ["Read:coldload", "Write:coldload", "Read:tsdb", "Write:tsdb"]
+      "actions": ["Read:coldload", "Write:coldload", "Read:mansio", "Write:mansio"]
     },
     {
       "name": "gc",
       "credentials": [{ "accessKey": "gc", "secretKey": "gc-secret-dev" }],
-      "actions": ["Read:coldload", "List:coldload", "Write:coldload", "Read:tsdb", "List:tsdb", "Write:tsdb"]
+      "actions": ["Read:coldload", "List:coldload", "Write:coldload", "Read:mansio", "List:mansio", "Write:mansio"]
     },
     {
       "name": "bench",

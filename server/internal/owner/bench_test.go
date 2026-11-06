@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 func benchTable(b *testing.B, keys int) (*owner.Table, []string) {

@@ -209,9 +209,10 @@ parity amendment (Nick, 2026-10-13; plan risk 19), no failed threshold is relaxe
 games make `winsByMark`'s grouped count run past the deadline, while primary-key reads on the other tenant
 remain responsive. It asserts a flat point-read p99 < 50 ms and prints the host load average beside it. It
 uses an isolated database created on the dev Postgres (`DATABASE_URL`, default
-`postgres://tsdb:tsdb@localhost:5432/tsdb`) and drops it on exit. After server shutdown it runs `logs:ingest`
-and `logs:query deadline-hits-per-handler-hour`, asserting the deadline rows have `path = 'nonblocking'`. Old
-JSONL without `path` projects NULL; ingest adds the column idempotently to existing v2 event logs.
+`postgres://mansio:mansio@localhost:5432/mansio`) and drops it on exit. After server shutdown it runs
+`logs:ingest` and `logs:query deadline-hits-per-handler-hour`, asserting the deadline rows have
+`path = 'nonblocking'`. Old JSONL without `path` projects NULL; ingest adds the column idempotently to
+existing v2 event logs.
 
 Integration runs, newest first (every recorded p99 is under the plan's flat 50 ms; the harness asserts that
 flat budget and prints the load average beside it). The `logs:query deadline-hits-per-handler-hour` result had

@@ -6,7 +6,7 @@ export function assert(condition: unknown, name: string): asserts condition {
 }
 
 export const temporaryRoot = Effect.acquireRelease(
-  Effect.promise(() => Deno.makeTempDir({ prefix: "tsdb-demo-" })),
+  Effect.promise(() => Deno.makeTempDir({ prefix: "mansio-demo-" })),
   (root) => Effect.promise(() => Deno.remove(root, { recursive: true })),
 );
 

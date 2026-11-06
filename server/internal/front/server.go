@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // TicketVerifier is satisfied by ticket.Verifier and ticket.Cache.

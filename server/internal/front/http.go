@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
 // Paths and headers of the HTTP transport.
@@ -204,7 +204,7 @@ func (h *httpHandler) write(w http.ResponseWriter, r *http.Request, out Output) 
 		hd.Set("Retry-After", strconv.Itoa(out.RetryAfter))
 	}
 	if out.Status == http.StatusUnauthorized {
-		hd.Set("WWW-Authenticate", `Bearer realm="ts-db agent"`)
+		hd.Set("WWW-Authenticate", `Bearer realm="mansio agent"`)
 	}
 	w.WriteHeader(out.Status)
 	w.Write(append(body, '\n')) // a write error means the client left; nothing to do

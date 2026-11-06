@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 func run(t *testing.T, ctx context.Context, args ...string) (int, string, string) {

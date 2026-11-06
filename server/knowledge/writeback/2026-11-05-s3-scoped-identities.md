@@ -11,11 +11,11 @@ Throwaway dev keys; the same table is in the compose file's comment. Never use t
 | Identity | Keys | SeaweedFS actions | Used by |
 |---|---|---|---|
 | `coldload` | `coldload` / `coldload-secret` | Admin, Read, List, Tagging, Write (unchanged) | coldload, benches, every existing test and tool, test setup and cleanup |
-| `agent` | `agent` / `agent-secret-dev` | `Read:coldload`, `Write:coldload`, `Read:tsdb`, `Write:tsdb` | agentd (the gated real-S3 agentd tests now run with it) |
-| `gc` | `gc` / `gc-secret-dev` | Read, List, Write on `coldload` and `tsdb` | the orphan sweeper, `dbtool` |
+| `agent` | `agent` / `agent-secret-dev` | `Read:coldload`, `Write:coldload`, `Read:mansio`, `Write:mansio` | agentd (the gated real-S3 agentd tests now run with it) |
+| `gc` | `gc` / `gc-secret-dev` | Read, List, Write on `coldload` and `mansio` | the orphan sweeper, `dbtool` |
 | `bench` | `bench` / `bench-secret-dev` | Admin (unscoped: it creates buckets) | dev benches only |
 
-The agent's buckets are `coldload` (what the tests use) and `tsdb` (`configs/agentd/durable-local.json`).
+The agent's buckets are `coldload` (what the tests use) and `mansio` (`configs/agentd/durable-local.json`).
 
 ## What the agent identity can do (SeaweedFS 4.47, single node, measured 2026-11-05)
 

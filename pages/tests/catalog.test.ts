@@ -5,7 +5,7 @@ import { chooseDefault } from "../src/routes.ts";
 import { loadArchitectures } from "../src/sdk.ts";
 import { readJson, readText } from "./fixtures.ts";
 
-const SITE = "https://site.test/ts-db/";
+const SITE = "https://site.test/mansio/";
 const CATALOG_URL = `${SITE}catalog.json`;
 
 /**
@@ -36,19 +36,19 @@ async function load(catalog: string) {
 }
 
 describe("catalog loading", () => {
-  it("loads the site catalog and opens tsdb-current by default", async () => {
+  it("loads the site catalog and opens mansio-current by default", async () => {
     expect(await load(readText("public/catalog.json"))).toEqual({
-      ids: ["tsdb-current", "tsdb-lanes-proposal", "tsdb-planes-proposal", "tsdb-planes-fable"],
+      ids: ["mansio-current", "mansio-lanes-proposal", "mansio-planes-proposal", "mansio-planes-fable"],
       ok: [true, true, true, true],
-      defaultId: "tsdb-current",
-      choice: { ok: true, id: "tsdb-current" },
+      defaultId: "mansio-current",
+      choice: { ok: true, id: "mansio-current" },
     });
   });
 
   it("loads a three-entry catalog with no code change, defaulting to its defaultId", async () => {
     // The fixture's defaultId is its LAST entry, so the default is not merely the first entry.
     expect(await load(readText("tests/fixtures/catalog-three.json"))).toEqual({
-      ids: ["tsdb-current", "tsdb-lanes-proposal", "fixture-third"],
+      ids: ["mansio-current", "mansio-lanes-proposal", "fixture-third"],
       ok: [true, true, true],
       defaultId: "fixture-third",
       choice: { ok: true, id: "fixture-third" },
@@ -59,7 +59,7 @@ describe("catalog loading", () => {
     const { entries } = readJson("tests/fixtures/catalog-three.json") as { entries: unknown[] };
     const catalog = JSON.stringify({ entries: [entries[2], entries[0]] });
     expect(await load(catalog)).toEqual({
-      ids: ["fixture-third", "tsdb-current"],
+      ids: ["fixture-third", "mansio-current"],
       ok: [true, true],
       defaultId: undefined,
       choice: { ok: true, id: "fixture-third" },
@@ -74,7 +74,7 @@ describe("catalog loading", () => {
   it("passes every other request through untouched", async () => {
     const response = new Response("{}");
     const lifted = liftDefaultId(CATALOG_URL, () => Promise.resolve(response));
-    expect(await lifted.fetch(`${SITE}architectures/tsdb-current.json`)).toBe(response);
+    expect(await lifted.fetch(`${SITE}architectures/mansio-current.json`)).toBe(response);
     expect(lifted.defaultId()).toBeUndefined();
   });
 });
@@ -157,15 +157,15 @@ describe("the catalog fetch keeps the SDK's size bound while streaming", () => {
   it("lifts defaultId from a catalog of exactly LIMIT bytes; one byte more is the SDK size error", async () => {
     const json = JSON.stringify({
       ...readJson("public/catalog.json") as object,
-      defaultId: "tsdb-lanes-proposal",
+      defaultId: "mansio-lanes-proposal",
     });
     const padded = (bytes: number) => json + " ".repeat(bytes - new TextEncoder().encode(json).byteLength);
     expect(new TextEncoder().encode(padded(LIMIT)).byteLength).toBe(LIMIT);
     expect(await load(padded(LIMIT))).toEqual({
-      ids: ["tsdb-current", "tsdb-lanes-proposal", "tsdb-planes-proposal", "tsdb-planes-fable"],
+      ids: ["mansio-current", "mansio-lanes-proposal", "mansio-planes-proposal", "mansio-planes-fable"],
       ok: [true, true, true, true],
-      defaultId: "tsdb-lanes-proposal",
-      choice: { ok: true, id: "tsdb-lanes-proposal" },
+      defaultId: "mansio-lanes-proposal",
+      choice: { ok: true, id: "mansio-lanes-proposal" },
     });
     await expect(load(padded(LIMIT + 1))).rejects.toThrow(SIZE_ERROR);
   });

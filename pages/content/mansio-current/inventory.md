@@ -1,8 +1,8 @@
-# Conversion inventory: `tsdb-current`
+# Conversion inventory: `mansio-current`
 
-Bundle: [`public/architectures/tsdb-current.json`](../../public/architectures/tsdb-current.json). Source: the
-four audited C4 pairs in `docs/architecture/` on `main` at
-[`2d30330`](https://github.com/nickstrad/ts-db/tree/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture)
+Bundle: [`public/architectures/mansio-current.json`](../../public/architectures/mansio-current.json). Source:
+the four audited C4 pairs in `docs/architecture/` on `main` at
+[`2d30330`](https://github.com/nickstrad/mansio/tree/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture)
 (their audit stamp is `0b82504`, the FFI-08 merge; `2d30330` changes no file under `docs/architecture/`).
 Converted by PG-01 (`opus-pg-01`) on 2026-10-15; PG-02 (`opus-pg-02`) added the landscape and the code view
 the same day (sections at the end). Status: every element and relationship is `existing`, as the sources state
@@ -15,27 +15,27 @@ bundle test (`tests/bundles.test.ts`) fails if any element or relationship id is
 
 ## Sources
 
-| Source id                               | File at 2d30330                                                                                                                                                                                       |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-context-github`                    | [docs/architecture/c4-context-document-db.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md)             |
-| `src-context-terminal`                  | [docs/architecture/c4-context-document-db.terminal.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.terminal.md)         |
-| `src-context-py`                        | [docs/architecture/diagrams/c4-context-document-db.py](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-context-document-db.py)         |
-| `src-containers-platform-github`        | [docs/architecture/c4-container-platform.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md)               |
-| `src-containers-platform-terminal`      | [docs/architecture/c4-container-platform.terminal.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.terminal.md)           |
-| `src-containers-platform-py`            | [docs/architecture/diagrams/c4-container-platform.py](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-platform.py)           |
-| `src-containers-observability-github`   | [docs/architecture/c4-container-observability.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.github.md)     |
-| `src-containers-observability-terminal` | [docs/architecture/c4-container-observability.terminal.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.terminal.md) |
-| `src-containers-observability-py`       | [docs/architecture/diagrams/c4-container-observability.py](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-observability.py) |
-| `src-components-server-github`          | [docs/architecture/c4-component-server.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.github.md)                   |
-| `src-components-server-terminal`        | [docs/architecture/c4-component-server.terminal.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.terminal.md)               |
-| `src-components-server-py`              | [docs/architecture/diagrams/c4-component-server.py](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-component-server.py)               |
-| `src-arch-readme`                       | [docs/architecture/README.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/README.md)                                                           |
-| `src-arch-agents`                       | [docs/architecture/AGENTS.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/AGENTS.md)                                                           |
-| `src-document-reader`                   | [platform/document_reader.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts)                                                           |
-| `src-classify`                          | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts)                                                   |
-| `src-sqlite-ts`                         | [platform/sqlite.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts)                                                                             |
-| `src-sqlite-ffi-effect`                 | [platform/sqlite_ffi/effect.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/effect.ts)                                                       |
-| `src-sqlite-ffi-database`               | [platform/sqlite_ffi/database.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/database.ts)                                                   |
+| Source id                               | File at 2d30330                                                                                                                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src-context-github`                    | [docs/architecture/c4-context-document-db.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md)             |
+| `src-context-terminal`                  | [docs/architecture/c4-context-document-db.terminal.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.terminal.md)         |
+| `src-context-py`                        | [docs/architecture/diagrams/c4-context-document-db.py](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-context-document-db.py)         |
+| `src-containers-platform-github`        | [docs/architecture/c4-container-platform.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md)               |
+| `src-containers-platform-terminal`      | [docs/architecture/c4-container-platform.terminal.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.terminal.md)           |
+| `src-containers-platform-py`            | [docs/architecture/diagrams/c4-container-platform.py](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-platform.py)           |
+| `src-containers-observability-github`   | [docs/architecture/c4-container-observability.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.github.md)     |
+| `src-containers-observability-terminal` | [docs/architecture/c4-container-observability.terminal.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.terminal.md) |
+| `src-containers-observability-py`       | [docs/architecture/diagrams/c4-container-observability.py](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-observability.py) |
+| `src-components-server-github`          | [docs/architecture/c4-component-server.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.github.md)                   |
+| `src-components-server-terminal`        | [docs/architecture/c4-component-server.terminal.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.terminal.md)               |
+| `src-components-server-py`              | [docs/architecture/diagrams/c4-component-server.py](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-component-server.py)               |
+| `src-arch-readme`                       | [docs/architecture/README.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/README.md)                                                           |
+| `src-arch-agents`                       | [docs/architecture/AGENTS.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/AGENTS.md)                                                           |
+| `src-document-reader`                   | [platform/document_reader.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts)                                                           |
+| `src-classify`                          | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts)                                                   |
+| `src-sqlite-ts`                         | [platform/sqlite.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts)                                                                             |
+| `src-sqlite-ffi-effect`                 | [platform/sqlite_ffi/effect.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/effect.ts)                                                       |
+| `src-sqlite-ffi-database`               | [platform/sqlite_ffi/database.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/database.ts)                                                   |
 
 ## System Context → diagram `context`
 
@@ -326,7 +326,7 @@ differs. The pictures carry the same boxes in the same reading order. Difference
 - **D9. Notation mirrored from the source key.** Each key lists the source's three Mermaid classes (person,
   external, planned) plus the boundary and the numbered arrow. Planned is listed for completeness although
   nothing here is planned.
-- **D10. One shared landscape, here.** ts-db builds one software system, so the landscape is the context's
+- **D10. One shared landscape, here.** mansio builds one software system, so the landscape is the context's
   people and systems without a focus. The typed client SDK is left out (a library with no landscape-level
   relationship, D4). The proposed dataset adds no person or system (its separate "Central registry and
   placement" system is the same Postgres, P4 of that inventory), so it has no landscape of its own and shares

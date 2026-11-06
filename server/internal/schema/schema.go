@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Type is a SQLite column type.

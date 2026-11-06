@@ -18,7 +18,7 @@ import { TenantRegistry } from "../../platform/services.ts";
 import { TenantRegistryLive } from "../../platform/tenants/store.ts";
 import { parseApiKeyId, parseTenantId, type TenantRegistryService } from "../../platform/tenants/registry.ts";
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL") ?? "postgres://tsdb:tsdb@localhost:5432/tsdb";
+const DATABASE_URL = Deno.env.get("DATABASE_URL") ?? "postgres://mansio:mansio@localhost:5432/mansio";
 
 let scope: Scope.CloseableScope;
 let sql: Sql;
@@ -123,8 +123,8 @@ test("updateTenant on an unknown id fails UnknownTenant", async () => {
 test("key plaintext is shown exactly once — the store keeps only the hash", async () => {
   const tenant = await run(registry.createTenant({ name: "KeyOnce", slug: "keyonce" }));
   const issued = await run(registry.issueApiKey(tenant.id, "admin"));
-  assert.ok(issued.plaintext.startsWith("tsdb_"));
-  assert.equal(issued.prefix, "tsdb_");
+  assert.ok(issued.plaintext.startsWith("mansio_"));
+  assert.equal(issued.prefix, "mansio_");
   assert.equal(issued.tenantId, tenant.id);
 
   const hash = await sha256Hex(issued.plaintext);

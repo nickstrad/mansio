@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/keyfetch"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/keyfetch"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // openKeys builds the ticket key ring: static (keys_file; nil fetcher) or fetched (keys_url, with keys_file as

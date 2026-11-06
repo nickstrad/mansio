@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/client"
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/client"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // The CP-6 gate (control-plane plan §3): clients that know only controld, through internal/client.
@@ -23,9 +23,9 @@ import (
 //  2. With the owner's S3 breaker tripped (admin endpoint) and the database cold, the client's first retry
 //     waits at least the agent's Retry-After, and the call succeeds after the breaker is reset.
 //
-// Gated on TSDB_PG_URL and COLDLOAD_S3:
+// Gated on MANSIO_PG_URL and COLDLOAD_S3:
 //
-//	TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable' COLDLOAD_S3=localhost:8333 \
+//	MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable' COLDLOAD_S3=localhost:8333 \
 //	  go test -count=1 -run TestClientGate -v ./cmd/controld
 func TestClientGate(t *testing.T) {
 	c := newCluster(t)
@@ -44,7 +44,7 @@ func TestClientGate(t *testing.T) {
 	sumPath := filepath.Join(c.dir, "locator.json")
 	cmd := exec.Command(fb, "locator", "-locator", c.api, "-tenant", "fb", "-dbs", "4", "-conc", "16", "-write", "0.3",
 		"-warmup", "1s", "-duration", "8s", "-move-every", "1s", "-timeout", "5s", "-setup", "-out", sumPath)
-	cmd.Env = append(os.Environ(), "TSDB_ADMIN_TOKEN="+adminToken, "TSDB_API_KEY=")
+	cmd.Env = append(os.Environ(), "MANSIO_ADMIN_TOKEN="+adminToken, "MANSIO_API_KEY=")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("frontbench locator: %v\n%s", err, out)

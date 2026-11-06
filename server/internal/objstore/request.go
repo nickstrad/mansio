@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
 // The one retry layer for S3 (Release It R1, object-storage guide R2). minio-go's own retries are off

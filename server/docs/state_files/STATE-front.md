@@ -1,6 +1,6 @@
 # STATE-front: the agent's network front (tickets, admission, executor port). ARCHIVED 2026-11-05
 
-Owner: front agent. Branch `front` (worktree `/Users/nick/Software/ts-db-go-wt/front`), merged to `main`.
+Owner: front agent. Branch `front` (worktree `/Users/nick/Software/mansio-server-wt/front`), merged to `main`.
 Contract 3 in `shared_state.md` (2026-11-05 10:15). Findings: `knowledge/front/`.
 
 ## Goal

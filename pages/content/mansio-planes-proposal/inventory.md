@@ -1,4 +1,4 @@
-# DP-01 inventory: `tsdb-planes-proposal`
+# DP-01 inventory: `mansio-planes-proposal`
 
 Date: 2026-10-20. Builder: `sol-dp-01`. Proposal only; no runtime code is changed.
 
@@ -7,18 +7,18 @@ lifecycle. One-file-per-tenant is superseded in this proposal; the lanes dataset
 
 ## Sources
 
-| Source ID             | Commit-pinned path                                                                                                                                                                          | Use                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `src-brief`           | [agent-work/items/dp-01-planes/brief.md](https://github.com/nickstrad/ts-db/blob/6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a/agent-work/items/dp-01-planes/brief.md)                           | DP-01 authorized design brief                                     |
-| `src-addendum`        | [agent-work/items/dp-01-planes/addendum-1.md](https://github.com/nickstrad/ts-db/blob/item/dp-01-planes/agent-work/items/dp-01-planes/addendum-1.md)                                        | DP-01 addendum 1: VM agents and control-plane routing / placement |
-| `src-review`          | [agent-work/items/dp-01-planes/review-astra.md](https://github.com/nickstrad/ts-db/blob/c8883bd8efd8a500668a240eedda073b9227e719/agent-work/items/dp-01-planes/review-astra.md)             | DP-01 independent review and repair requirements                  |
-| `src-lanes`           | [pages/public/architectures/tsdb-lanes-proposal.json](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/public/architectures/tsdb-lanes-proposal.json) | Preserved scale-out dataset                                       |
-| `src-lanes-inventory` | [pages/content/tsdb-lanes-proposal/inventory.md](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/content/tsdb-lanes-proposal/inventory.md)           | Scale-out decisions P1–P17                                        |
-| `src-router`          | [platform/tenants/routing.ts](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/tenants/routing.ts)                                                 | Landed TenantStorageRouter seam; future ControlPlaneRouter        |
-| `src-classifier`      | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/classify.ts)                                         | Landed operation-IR classifier                                    |
-| `src-ffi`             | [platform/sqlite_ffi/effect.ts](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/effect.ts)                                             | Landed scoped FFI and cancellation wrappers                       |
-| `src-storage`         | [platform/sqlite.ts](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite.ts)                                                                   | Landed Storage, connection gate and deadlines                     |
-| `src-decisions`       | [docs/knowledge/decisions.md](https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/docs/knowledge/decisions.md)                                                 | Router seam and Postgres handwritten SQL decisions                |
+| Source ID             | Commit-pinned path                                                                                                                                                                             | Use                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `src-brief`           | [agent-work/items/dp-01-planes/brief.md](https://github.com/nickstrad/mansio/blob/6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a/agent-work/items/dp-01-planes/brief.md)                             | DP-01 authorized design brief                                     |
+| `src-addendum`        | [agent-work/items/dp-01-planes/addendum-1.md](https://github.com/nickstrad/mansio/blob/item/dp-01-planes/agent-work/items/dp-01-planes/addendum-1.md)                                          | DP-01 addendum 1: VM agents and control-plane routing / placement |
+| `src-review`          | [agent-work/items/dp-01-planes/review-astra.md](https://github.com/nickstrad/mansio/blob/c8883bd8efd8a500668a240eedda073b9227e719/agent-work/items/dp-01-planes/review-astra.md)               | DP-01 independent review and repair requirements                  |
+| `src-lanes`           | [pages/public/architectures/mansio-lanes-proposal.json](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/public/architectures/tsdb-lanes-proposal.json) | Preserved scale-out dataset                                       |
+| `src-lanes-inventory` | [pages/content/mansio-lanes-proposal/inventory.md](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/content/tsdb-lanes-proposal/inventory.md)           | Scale-out decisions P1–P17                                        |
+| `src-router`          | [platform/tenants/routing.ts](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/tenants/routing.ts)                                                   | Landed TenantStorageRouter seam; future ControlPlaneRouter        |
+| `src-classifier`      | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/classify.ts)                                           | Landed operation-IR classifier                                    |
+| `src-ffi`             | [platform/sqlite_ffi/effect.ts](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/effect.ts)                                               | Landed scoped FFI and cancellation wrappers                       |
+| `src-storage`         | [platform/sqlite.ts](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite.ts)                                                                     | Landed Storage, connection gate and deadlines                     |
+| `src-decisions`       | [docs/knowledge/decisions.md](https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/docs/knowledge/decisions.md)                                                   | Router seam and Postgres handwritten SQL decisions                |
 
 ## Decisions and discrepancies
 

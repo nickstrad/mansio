@@ -1,6 +1,6 @@
 -- 0004_api_keys.sql — API keys, the locator's first principals (CP-5). Applied once by Migrate; never edit after
 -- it is applied.
--- A key is "tsdb_<key_id>_<secret>" (internal/control/locator); only SHA-256(secret) is stored, so a leaked
+-- A key is "mansio_<key_id>_<secret>" (internal/control/locator); only SHA-256(secret) is stored, so a leaked
 -- table yields no usable key. The locator checks a key once per ticket it issues (cached for seconds), never
 -- per query.
 begin;

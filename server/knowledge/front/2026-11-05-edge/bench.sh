@@ -39,7 +39,7 @@ J
       echo "edge    tls   h2   w=$w: $($FB -write $w -url https://$E -proto h2 -ca tls/ca.pem -out edge-$phase-$w.json)"
     fi
   done
-  curl -s http://$EH/metrics | grep -E '^tsdb_edge_tickets_total|^tsdb_edge_agent_answers_total|^tsdb_requests_total\{point="edge".*\} [1-9]|^tsdb_breaker_state.*open.* 1' > edge-$phase.metrics
+  curl -s http://$EH/metrics | grep -E '^mansio_edge_tickets_total|^mansio_edge_agent_answers_total|^mansio_requests_total\{point="edge".*\} [1-9]|^mansio_breaker_state.*open.* 1' > edge-$phase.metrics
   kill -TERM $EP; wait $EP; echo "edge exit $?"
   kill -TERM $AP; wait $AP; echo "agentd exit $?"
 done

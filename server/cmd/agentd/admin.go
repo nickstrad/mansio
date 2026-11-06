@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // The admin endpoints: runtime controls without a deploy (Release It C4, ch. 16; plan RI-16). They are served

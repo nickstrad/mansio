@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-BUNDLE = ROOT / 'pages/public/architectures/tsdb-planes-proposal.json'
-CONTENT = ROOT / 'pages/content/tsdb-planes-proposal'
+BUNDLE = ROOT / 'pages/public/architectures/mansio-planes-proposal.json'
+CONTENT = ROOT / 'pages/content/mansio-planes-proposal'
 BRIEF = '6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a'
 BASE = subprocess.check_output(['git', 'rev-parse', '351a51b'], text=True).strip()
 SHIFT = ('A tenant owns zero or more databases (0..N). The database is the unit of placement, isolation, '
@@ -19,7 +19,7 @@ SOURCES = []
 
 def source(id, path, title, rev=BASE, notes=None):
     s = dict(id=id, title=title, path=path, revision=rev,
-             url=f'https://github.com/nickstrad/ts-db/blob/{rev}/{path}')
+             url=f'https://github.com/nickstrad/mansio/blob/{rev}/{path}')
     if notes:
         s['notes'] = notes
     SOURCES.append(s)
@@ -31,15 +31,15 @@ source('src-addendum', 'agent-work/items/dp-01-planes/addendum-1.md',
        'item/dp-01-planes', notes='Same-change design source: URL is a branch reference; revision is the SHA-256 of the source bytes, not a commit pin.')
 SOURCES[-1]['revision'] = 'sha256:' + hashlib.sha256((ROOT / SOURCES[-1]['path']).read_bytes()).hexdigest()
 source('src-review', 'agent-work/items/dp-01-planes/review-astra.md', 'DP-01 independent review and repair requirements', 'c8883bd8efd8a500668a240eedda073b9227e719')
-source('src-lanes', 'pages/public/architectures/tsdb-lanes-proposal.json', 'Preserved scale-out dataset')
-source('src-lanes-inventory', 'pages/content/tsdb-lanes-proposal/inventory.md', 'Scale-out decisions P1–P17')
+source('src-lanes', 'pages/public/architectures/mansio-lanes-proposal.json', 'Preserved scale-out dataset')
+source('src-lanes-inventory', 'pages/content/mansio-lanes-proposal/inventory.md', 'Scale-out decisions P1–P17')
 source('src-router', 'platform/tenants/routing.ts', 'Landed TenantStorageRouter seam; future ControlPlaneRouter')
 source('src-classifier', 'platform/sqlite_ffi/classify.ts', 'Landed operation-IR classifier')
 source('src-ffi', 'platform/sqlite_ffi/effect.ts', 'Landed scoped FFI and cancellation wrappers')
 source('src-storage', 'platform/sqlite.ts', 'Landed Storage, connection gate and deadlines')
 source('src-decisions', 'docs/knowledge/decisions.md', 'Router seam and Postgres handwritten SQL decisions')
 
-b = dict(schemaVersion=1, id='tsdb-planes-proposal',
+b = dict(schemaVersion=1, id='mansio-planes-proposal',
          title='Proposed: control plane / data plane — tenants own many databases',
          revision='dp-01-repair-2026-10-20', defaultDiagramId='planes-context',
          model=dict(elements=[], relationships=[]), diagrams=[], documents=[], sources=SOURCES, terms=[])
@@ -683,7 +683,7 @@ for obj in b['diagrams'] + b['model']['elements']:
 CONTENT.mkdir(parents=True, exist_ok=True)
 BUNDLE.write_text(json.dumps(b,ensure_ascii=False,indent=2)+'\n')
 # Inventory maps each item to source identifiers and a precise local design rationale.
-lines = ['# DP-01 inventory: `tsdb-planes-proposal`', '', 'Date: 2026-10-20. Builder: `sol-dp-01`. Proposal only; no runtime code is changed.', '',
+lines = ['# DP-01 inventory: `mansio-planes-proposal`', '', 'Date: 2026-10-20. Builder: `sol-dp-01`. Proposal only; no runtime code is changed.', '',
          SHIFT, '', '## Sources', '', '| Source ID | Commit-pinned path | Use |', '| --- | --- | --- |']
 for s in SOURCES:
     lines.append(f'| `{s["id"]}` | [{s["path"]}]({s["url"]}) | {s["title"]} |')

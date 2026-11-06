@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/breaker"
 )
 
 // registrySrv is controld's GET /v1/agents with a fault switch: body, when set, is answered as is.

@@ -1,22 +1,22 @@
-# Conversion inventory: `tsdb-lanes-proposal`
+# Conversion inventory: `mansio-lanes-proposal`
 
 Title: "Proposed: statement lanes and tenant placement (scale-out)". This dataset proposes **only** the
 unbuilt scale-out design: statement lanes, the placement table, the forwarder, the lane supervisor, the peer
 node and WAL frames. The FFI execution layer (FFI-01 to FFI-08: binding, statement classifier, deadline and
-HTTP 504) has landed on `main` and is part of `tsdb-current`; here it appears as `existing`, never as the
+HTTP 504) has landed on `main` and is part of `mansio-current`; here it appears as `existing`, never as the
 proposal.
 
 Bundle:
-[`public/architectures/tsdb-lanes-proposal.json`](../../public/architectures/tsdb-lanes-proposal.json).
+[`public/architectures/mansio-lanes-proposal.json`](../../public/architectures/mansio-lanes-proposal.json).
 Source: the proposed context and container pairs in `docs/plans/ffi/` on branch `docs/ffi-c4` at
-[`81d9936`](https://github.com/nickstrad/ts-db/tree/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi)
+[`81d9936`](https://github.com/nickstrad/mansio/tree/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi)
 (not merged to `main`; read with `git show`), corrected against `main` at `2d30330`, where the FFI execution
 layer (FFI-01 to FFI-08) has landed. Converted by PG-01 (`opus-pg-01`) on 2026-10-15; completed by PG-02
 (`opus-pg-02`) the same day.
 
 Scope: the **context** and **container (data node with lanes)** views (PG-01), and since PG-02 the **lane
 component** view, the README's four key flows as **dynamic** views (plus their named failure alternatives) and
-one **illustrative deployment**. The landscape and the code view are in `tsdb-current` (the proposal adds no
+one **illustrative deployment**. The landscape and the code view are in `mansio-current` (the proposal adds no
 person or system, and no code-level elements are drawn for unbuilt code).
 
 Statuses: lanes, the placement table, the forwarder, the lane supervisor, the peer node and WAL frames are
@@ -26,28 +26,28 @@ from this file.
 
 ## Sources
 
-| Source id              | File                                                                                                                                                                                      | Revision  |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `src-ctx-github`       | [docs/plans/ffi/c4-context-ffi.github.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.github.md)                       | `81d9936` |
-| `src-ctx-terminal`     | [docs/plans/ffi/c4-context-ffi.terminal.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.terminal.md)                   | `81d9936` |
-| `src-ctx-py`           | [docs/plans/ffi/diagrams/c4-context-ffi.py](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-context-ffi.py)                   | `81d9936` |
-| `src-ctr-github`       | [docs/plans/ffi/c4-container-ffi.github.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.github.md)                   | `81d9936` |
-| `src-ctr-terminal`     | [docs/plans/ffi/c4-container-ffi.terminal.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.terminal.md)               | `81d9936` |
-| `src-ctr-py`           | [docs/plans/ffi/diagrams/c4-container-ffi.py](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-container-ffi.py)               | `81d9936` |
-| `src-ffi-readme`       | [docs/plans/ffi/README.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/README.md)                                                     | `81d9936` |
-| `src-ffi-ste`          | [docs/plans/ffi/architecture-ste100.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/architecture-ste100.md)                           | `81d9936` |
-| `src-lang-switch`      | [docs/architecture/lang-switch-fable.md](https://github.com/nickstrad/ts-db/blob/d97bcf8f145e94279b882665c70412eabdaba775/docs/architecture/lang-switch-fable.md)                         | `d97bcf8` |
-| `src-ffi-plan`         | [docs/plans/ffi-implementation.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md)                                     | `2d30330` |
-| `src-adr-0008`         | [docs/adr/0008-statement-execution-via-ffi.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/adr/0008-statement-execution-via-ffi.md)             | `2d30330` |
-| `src-sqlite-ffi`       | [platform/sqlite_ffi/README.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/README.md)                                           | `2d30330` |
-| `src-classify`         | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts)                                       | `2d30330` |
-| `src-current-platform` | [docs/architecture/c4-container-platform.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md)   | `2d30330` |
-| `src-current-context`  | [docs/architecture/c4-context-document-db.github.md](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md) | `2d30330` |
-| `src-lane-github`      | [docs/plans/ffi/c4-component-ffi-lane.github.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.github.md)         | `81d9936` |
-| `src-lane-terminal`    | [docs/plans/ffi/c4-component-ffi-lane.terminal.md](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.terminal.md)     | `81d9936` |
-| `src-lane-py`          | [docs/plans/ffi/diagrams/c4-component-ffi-lane.py](https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-component-ffi-lane.py)     | `81d9936` |
-| `src-sqlite-ts`        | [platform/sqlite.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts)                                                                 | `2d30330` |
-| `src-document-reader`  | [platform/document_reader.ts](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts)                                               | `2d30330` |
+| Source id              | File                                                                                                                                                                                       | Revision  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| `src-ctx-github`       | [docs/plans/ffi/c4-context-ffi.github.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.github.md)                       | `81d9936` |
+| `src-ctx-terminal`     | [docs/plans/ffi/c4-context-ffi.terminal.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.terminal.md)                   | `81d9936` |
+| `src-ctx-py`           | [docs/plans/ffi/diagrams/c4-context-ffi.py](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-context-ffi.py)                   | `81d9936` |
+| `src-ctr-github`       | [docs/plans/ffi/c4-container-ffi.github.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.github.md)                   | `81d9936` |
+| `src-ctr-terminal`     | [docs/plans/ffi/c4-container-ffi.terminal.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.terminal.md)               | `81d9936` |
+| `src-ctr-py`           | [docs/plans/ffi/diagrams/c4-container-ffi.py](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-container-ffi.py)               | `81d9936` |
+| `src-ffi-readme`       | [docs/plans/ffi/README.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/README.md)                                                     | `81d9936` |
+| `src-ffi-ste`          | [docs/plans/ffi/architecture-ste100.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/architecture-ste100.md)                           | `81d9936` |
+| `src-lang-switch`      | [docs/architecture/lang-switch-fable.md](https://github.com/nickstrad/mansio/blob/d97bcf8f145e94279b882665c70412eabdaba775/docs/architecture/lang-switch-fable.md)                         | `d97bcf8` |
+| `src-ffi-plan`         | [docs/plans/ffi-implementation.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md)                                     | `2d30330` |
+| `src-adr-0008`         | [docs/adr/0008-statement-execution-via-ffi.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/adr/0008-statement-execution-via-ffi.md)             | `2d30330` |
+| `src-sqlite-ffi`       | [platform/sqlite_ffi/README.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/README.md)                                           | `2d30330` |
+| `src-classify`         | [platform/sqlite_ffi/classify.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts)                                       | `2d30330` |
+| `src-current-platform` | [docs/architecture/c4-container-platform.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md)   | `2d30330` |
+| `src-current-context`  | [docs/architecture/c4-context-document-db.github.md](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md) | `2d30330` |
+| `src-lane-github`      | [docs/plans/ffi/c4-component-ffi-lane.github.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.github.md)         | `81d9936` |
+| `src-lane-terminal`    | [docs/plans/ffi/c4-component-ffi-lane.terminal.md](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.terminal.md)     | `81d9936` |
+| `src-lane-py`          | [docs/plans/ffi/diagrams/c4-component-ffi-lane.py](https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-component-ffi-lane.py)     | `81d9936` |
+| `src-sqlite-ts`        | [platform/sqlite.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts)                                                                 | `2d30330` |
+| `src-document-reader`  | [platform/document_reader.ts](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts)                                               | `2d30330` |
 
 ## System Context — proposed lanes and tenant placement → diagram `lanes-context`
 
@@ -393,8 +393,8 @@ relationship table and runtime notes are byte-identical. The pictures carry the 
    Mermaid edge labels do carry timings (8: 6 to 7 µs, 9: 44 to 69 µs, 11: about 0.4 ms); the bundle moves
    them to `doc-measurements` (P5).
 8. **The lane view uses the `external` class for the API process and the tenant documents**, which are
-   containers of the platform (as in the current server component view, D3 of `tsdb-current`). The bundle tags
-   them `external` (P12).
+   containers of the platform (as in the current server component view, D3 of `mansio-current`). The bundle
+   tags them `external` (P12).
 9. **README versus STE on in-flight mutations after a kill.** The README says they "are resolved on retry
    through the request-id store, never replayed blind"; the STE text (§7.4) adds that the API process makes
    that retry with the same request id. The kill flow states only what both say and links the retry flow.
@@ -411,7 +411,7 @@ relationship table and runtime notes are byte-identical. The pictures carry the 
 - **P1. Landed FFI parts are `existing`.** The source (2026-10-12, baseline `e808983`) marks the FFI binding,
   the statement classifier and the deadline/interrupt path planned. They landed on `main` in FFI-01 to FFI-08
   (2026-10-14; plan
-  [`docs/plans/ffi-implementation.md`](https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md);
+  [`docs/plans/ffi-implementation.md`](https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md);
   binding at `platform/sqlite_ffi/`, not the source's `platform/ffi/sqlite.ts`). They run in the API process,
   not in lanes. So `api`, `platform` and `ctr-7` describe them as existing, and only their placement inside
   lanes stays planned. FFI plan §6 confirms lanes and placement were not built.
@@ -449,15 +449,15 @@ relationship table and runtime notes are byte-identical. The pictures carry the 
   `api`, `lanes`, `files`, `peer`) have plain and STE (ASD-STE100 Issue 9, `draft`) texts. The STE texts draw
   on the source's own STE restatement (`architecture-ste100.md`) and are not certified.
 - **P11. Renamed from its first id, which carried an `ffi` prefix (Nick, 2026-10-14).** The old name read as
-  if the FFI execution layer were still proposed, but FFI-01 to FFI-08 landed and `tsdb-current` already draws
-  them. The dataset id is now `tsdb-lanes-proposal` and its two diagram ids are `lanes-context` and
+  if the FFI execution layer were still proposed, but FFI-01 to FFI-08 landed and `mansio-current` already
+  draws them. The dataset id is now `mansio-lanes-proposal` and its two diagram ids are `lanes-context` and
   `lanes-containers` (were `ffi-context` and `ffi-containers`; old deep links to the proposed dataset are not
   redirected). Content, statuses, relationships and the side-by-side mechanics are unchanged. Kept on purpose:
   the bundle `revision` string (`docs-ffi-c4-81d9936-on-main-2d30330-pg01`), the source ids (`src-ffi-readme`,
   `src-ffi-plan`, ...) and the source paths, because they name real files and the branch `docs/ffi-c4` the
   diagrams were converted from; source titles now say "Source diagram ... (branch docs/ffi-c4)" instead of
   "FFI ...".
-- **P12. Supporting containers on the lane component view are tagged `external`** (D3 of `tsdb-current`,
+- **P12. Supporting containers on the lane component view are tagged `external`** (D3 of `mansio-current`,
   applied here). c4-sdk rejects an untagged container on a component view, so `api`, `files` and `lane-jsonl`
   carry the tag; `api` and `files` therefore render grey on the container view too, and its key says why.
   `lane-jsonl` is a new planned container (the source's "Lane JSONL", and the README's "one JSONL directory

@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/load"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/stats"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/load"
+	"github.com/nickstrad/mansio/server/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/stats"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // --- specification tests (pure) --------------------------------------------------------------------------------
@@ -86,7 +86,7 @@ func TestResolveAndDBPath(t *testing.T) {
 	if c.OutDir != filepath.Join("results", "tiny-20261104-200102") {
 		t.Fatalf("OutDir = %s", c.OutDir)
 	}
-	if !strings.HasPrefix(c.DBDir, "/tmp/ts-db-go/v3-") {
+	if !strings.HasPrefix(c.DBDir, "/tmp/mansio-server/v3-") {
 		t.Fatalf("DBDir = %s", c.DBDir)
 	}
 	keep := tinyConfig(t, "")

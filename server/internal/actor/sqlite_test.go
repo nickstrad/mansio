@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 	"os"
 	"path/filepath"
 	"runtime"

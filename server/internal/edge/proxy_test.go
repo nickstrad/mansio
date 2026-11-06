@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/ratelimit"
 )
 
 // fakeAgent counts calls and answers with its handler (default: 200 ok naming itself).
@@ -404,12 +404,12 @@ func TestMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`tsdb_requests_total{point="edge",class="app_error",code="ticket_invalid"} 1`,
-		`tsdb_edge_agent_answers_total{status="2xx"} 1`,
-		`tsdb_edge_tickets_total{result="miss"} 2`,
-		`tsdb_breaker_state{dep="agent:vm-a",state="closed"} 1`,
-		`tsdb_edge_agent_in_flight{vm="vm-a"} 0`,
-		`tsdb_in_flight{point="edge"} 0`,
+		`mansio_requests_total{point="edge",class="app_error",code="ticket_invalid"} 1`,
+		`mansio_edge_agent_answers_total{status="2xx"} 1`,
+		`mansio_edge_tickets_total{result="miss"} 2`,
+		`mansio_breaker_state{dep="agent:vm-a",state="closed"} 1`,
+		`mansio_edge_agent_in_flight{vm="vm-a"} 0`,
+		`mansio_in_flight{point="edge"} 0`,
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("missing %s in\n%s", want, b.String())

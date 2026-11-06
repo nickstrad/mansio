@@ -8,7 +8,7 @@ root `Makefile` wraps the common actions. Everything here is **dev only**.
 
 ```sh
 make up        # start SeaweedFS, wait (max 60s) until healthy
-make s3-init   # create the tsdb-test bucket, print endpoint + credentials
+make s3-init   # create the mansio-test bucket, print endpoint + credentials
 make help      # all targets: up down restart ps logs clean s3-init
 ```
 
@@ -20,12 +20,12 @@ make help      # all targets: up down restart ps logs clean s3-init
 | Variable                | Value                   |
 | ----------------------- | ----------------------- |
 | `S3_BASE_URL`           | `http://localhost:8333` |
-| `AWS_ACCESS_KEY_ID`     | `tsdbdevkey`            |
-| `AWS_SECRET_ACCESS_KEY` | `tsdbdevsecret`         |
+| `AWS_ACCESS_KEY_ID`     | `mansiodevkey`          |
+| `AWS_SECRET_ACCESS_KEY` | `mansiodevsecret`       |
 | `AWS_REGION`            | `us-east-1`             |
 
 The credentials are public test values defined in `docker-compose.yml` (the `seaweedfs-s3` config) — dev-only,
-never reuse them anywhere real. Bucket: `tsdb-test`.
+never reuse them anywhere real. Bucket: `mansio-test`.
 
 Debug UIs: master <http://localhost:9333>, filer <http://localhost:8888>, volume <http://localhost:8080>.
 

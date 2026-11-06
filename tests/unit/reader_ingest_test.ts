@@ -67,7 +67,7 @@ interface World {
 }
 
 async function withWorld(body: (world: World) => Promise<void>): Promise<void> {
-  const root = await Deno.makeTempDir({ prefix: "ts-db-reader-ingest-" });
+  const root = await Deno.makeTempDir({ prefix: "mansio-reader-ingest-" });
   const world = {
     root,
     dataDir: join(root, "data"),
@@ -696,7 +696,7 @@ test(
       let staging = false;
       for (let attempt = 0; attempt < 2000 && !staging; attempt++) {
         for await (const entry of Deno.readDir(world.tmpDir)) {
-          staging ||= entry.name.startsWith("ts-db-ingest-");
+          staging ||= entry.name.startsWith("mansio-ingest-");
         }
         if (!staging) await new Promise((resolve) => setTimeout(resolve, 5));
       }

@@ -23,7 +23,7 @@ Questions:
 
 ## Knowledge folder (shared by both agents) — please use it
 
-`/Users/nick/Software/ts-db-go/knowledge/` holds notes and artifacts that should outlast the work of either agent.
+`/Users/nick/Software/mansio/server/knowledge/` holds notes and artifacts that should outlast the work of either agent.
 
 - Read `knowledge/AGENTS.md` (rules; `knowledge/CLAUDE.md` points to it) and `knowledge/index.md` (one line per
   topic) before you start work.
@@ -95,7 +95,7 @@ Shared, maintained by me: `internal/assert`, `internal/errs`, `internal/logx` (s
 ## How to run
 
 ```sh
-cd /Users/nick/Software/ts-db-go
+cd /Users/nick/Software/mansio/server
 docker compose -f deploy/seaweedfs/docker-compose.yml up -d     # SeaweedFS, S3 on :8333 (key coldload / coldload-secret)
 go test -race ./internal/vactor                                 # host tests (singleflight, retry after failure, passivate)
 scripts/coldload/run.sh configs/coldload/smoke.json             # seed + run + DuckDB report (~5 s)

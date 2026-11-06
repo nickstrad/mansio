@@ -9,19 +9,19 @@ every existing document stay as they are.
 
 ## Answer
 
-**I pick planes** (`tsdb-planes-proposal`), with **eight modifications**, three of which import pieces of the
-lanes proposal and two of which close deferrals the DP-01 review left open. The deciding reason is the unit of
-placement: a database rather than a tenant. The lanes model is the special case of the planes model where
-every tenant owns exactly one database, and nothing in lanes can express the general case without becoming
-planes. The second reason is that planes has a specified, adversarially reviewed lifecycle (create, move,
-drop, fence, restart) where lanes has a paragraph and a lease. What lanes does better, a lighter control plane
-that is not on the serving path, I would import rather than give up: modification M1 below.
+**I pick planes** (`mansio-planes-proposal`), with **eight modifications**, three of which import pieces of
+the lanes proposal and two of which close deferrals the DP-01 review left open. The deciding reason is the
+unit of placement: a database rather than a tenant. The lanes model is the special case of the planes model
+where every tenant owns exactly one database, and nothing in lanes can express the general case without
+becoming planes. The second reason is that planes has a specified, adversarially reviewed lifecycle (create,
+move, drop, fence, restart) where lanes has a paragraph and a lease. What lanes does better, a lighter control
+plane that is not on the serving path, I would import rather than give up: modification M1 below.
 
 ## 0. How to read this, and where I stand
 
 Three kinds of statement appear below, and I mark them:
 
-- **Landed** means it runs on `main` at `eb5df16` and is drawn as `existing` in `tsdb-current` (46 elements,
+- **Landed** means it runs on `main` at `eb5df16` and is drawn as `existing` in `mansio-current` (46 elements,
   79 relationships, all `existing`, pinned to `2d30330`; nothing under `core/`, `platform/` or `sdk/` changed
   between `2d30330` and `eb5df16`, which only added `pages/` content and docs).
 - **Lanes says** or **planes says** means the dataset, its inventory or its documents state it. Where the
@@ -47,7 +47,7 @@ in-node half I praise in planes is the half I designed.
 
 ### 1.1 Lanes: statement lanes and tenant placement
 
-Dataset `tsdb-lanes-proposal` (revision `docs-ffi-c4-81d9936-on-main-2d30330-pg02`): 39 elements (22
+Dataset `mansio-lanes-proposal` (revision `docs-ffi-c4-81d9936-on-main-2d30330-pg02`): 39 elements (22
 `planned`, 9 `existing`, 8 `mixed`), 46 relationships, 12 diagrams (context, container, one component view of
 a lane, 8 dynamic flows, one illustrative deployment), 28 documents. Converted 2026-10-15 from
 `docs/plans/ffi/` on `docs/ffi-c4` and corrected against `main` at `2d30330`, where the FFI execution layer
@@ -77,7 +77,7 @@ by an admin CLI command, and node loss is "restore its tenants onto another node
 
 ### 1.2 Planes: control plane, data plane, tenants own many databases
 
-Dataset `tsdb-planes-proposal` (revision `dp-01-repair-2026-10-20`): 44 elements (40 `planned`, 2 `mixed`, 2
+Dataset `mansio-planes-proposal` (revision `dp-01-repair-2026-10-20`): 44 elements (40 `planned`, 2 `mixed`, 2
 `existing`), 55 relationships, 15 diagrams (context, container, three component views, 9 dynamic flows, one
 illustrative deployment), 60 documents. Built by Codex Sol as DP-01 on 2026-10-20 from Nick's brief and
 addendum, reviewed by Codex Astra (FAIL on three required tweaks, repaired, then PASS WITH NITS), landed as
@@ -121,8 +121,8 @@ a replacement cleanup executor for a lost agent (review tweak 6); instance-level
 
 ### 1.3 The landed baseline both start from
 
-Landed, drawn in `tsdb-current`: one API process; every application SQLite file opened through the FFI binding
-over the system `libsqlite3` (`platform/sqlite_ffi/`); the statement classifier on the operation IR
+Landed, drawn in `mansio-current`: one API process; every application SQLite file opened through the FFI
+binding over the system `libsqlite3` (`platform/sqlite_ffi/`); the statement classifier on the operation IR
 (`classify.ts`), which never reads SQL text; unbounded reads on the nonblocking path under
 `statementDeadlineMs` with `sqlite3_interrupt` and HTTP 504; one file per tenant at `TENANTS_DIR/<tenant>.db`
 behind the `TenantStorageRouter` seam, whose config already reserves `router: "control-plane"` but whose
@@ -511,11 +511,12 @@ proof, and M5 is how proof is obtained when the source is gone.
 
 ## 6. Sources checked
 
-- `pages/public/architectures/tsdb-lanes-proposal.json` and `pages/content/tsdb-lanes-proposal/inventory.md`
-  (P1 to P17, discrepancies 1 to 11); `pages/public/architectures/tsdb-planes-proposal.json` and
-  `pages/content/tsdb-planes-proposal/inventory.md` (A1 to A4, DP1 to DP13, repair dispositions); every plain
-  document in both bundles.
-- `pages/content/tsdb-current/inventory.md`; `docs/architecture/README.md` audited-state table;
+- `pages/public/architectures/mansio-lanes-proposal.json` and
+  `pages/content/mansio-lanes-proposal/inventory.md` (P1 to P17, discrepancies 1 to 11);
+  `pages/public/architectures/mansio-planes-proposal.json` and
+  `pages/content/mansio-planes-proposal/inventory.md` (A1 to A4, DP1 to DP13, repair dispositions); every
+  plain document in both bundles.
+- `pages/content/mansio-current/inventory.md`; `docs/architecture/README.md` audited-state table;
   `docs/knowledge/decisions.md`, `glossary.md`, `index.md`.
 - `agent-work/items/dp-01-planes/brief.md`, `addendum-1.md`, `review-astra.md`, `review-astra-rereview.md`,
   `report.md`.

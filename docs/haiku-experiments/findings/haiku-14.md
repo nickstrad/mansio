@@ -1,7 +1,7 @@
 # haiku-14 — Opus review: k6 load scenarios and output capture (plan item 14)
 
 **Branch:** `haiku/14-k6` (`7cddbc4`, single commit) **Reviewer:** Opus, 2026-10-10 **Review worktree:**
-`origin/haiku/14-k6` at `/root/Software/tsdb-work/rev14` (read-only) **Verdict: FAIL** — two of the three
+`origin/haiku/14-k6` at `/root/Software/mansio-work/rev14` (read-only) **Verdict: FAIL** — two of the three
 scripts do not load in k6 at all, the required load model and custom metric are missing, and the output
 capture the item exists to deliver is dead code.
 

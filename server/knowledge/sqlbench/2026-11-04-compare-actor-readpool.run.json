@@ -2,7 +2,7 @@
   "config": {
     "name": "compare-actor-readpool",
     "out_dir": "results/compare-actor-readpool",
-    "db_dir": "/var/folders/bh/gj52slt51639d18cgb918pcr0000gn/T/ts-db-go/v1-s1-t1_5-c2_8-r0_500-i0.3-p0.5",
+    "db_dir": "/var/folders/bh/gj52slt51639d18cgb918pcr0000gn/T/mansio-server/v1-s1-t1_5-c2_8-r0_500-i0.3-p0.5",
     "keep_dbs": true,
     "mode": "actor",
     "setup_workers": 18,

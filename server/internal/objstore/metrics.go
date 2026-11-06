@@ -4,8 +4,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Operation names for Metrics (Release It guide §P, object-storage guide O1). One name per kind of HTTP

@@ -8,7 +8,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Listing and deleting (Release It B: bound every listing; object-storage guide K2, GC5). LIST is never on

@@ -1,4 +1,4 @@
-report: /Users/nick/Software/ts-db-go/results/coldload/sizes-nowarm
+report: /Users/nick/Software/mansio/server/results/coldload/sizes-nowarm
 == 1. Per level: throughput and time to ready (ms, activating callers) ==
 ┌───────┬──────┬────────────┬──────────┬─────┬─────┬────────┬──────────┬───────────┬──────────┬───────────┬───────────┬───────────┬───────────┐
 │ level │ kind │ size_class │ file_mib │  c  │  n  │ errors │ wall_ms  │ act_per_s │ mb_per_s │ ready_p50 │ ready_p95 │ ready_p99 │ ready_max │

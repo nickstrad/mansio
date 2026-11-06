@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // SuiteDB is the database the suite expects the executor to serve (schema KVSchema, rows KVRows). MissingDB

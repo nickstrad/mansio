@@ -210,7 +210,7 @@ const OLD_LATEST = enc.encode('{"format":1,"appId":"app","note":"previous good b
 // ---------------------------------------------------------------------------
 
 test("BackupsLive over real Storage + local ObjectStore: ordered puts, restorable object, one event per phase", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-backup-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-backup-"));
   try {
     const run = collector();
     const deps = Layer.mergeAll(run.deps, ConfigTest({ objectStore: { localDir: join(dir, "objects") } }));
@@ -418,7 +418,7 @@ test("a temp-directory failure fails take at phase snapshot and still emits a sn
   const { runner, events } = runnerOver(store);
   const previous = Deno.env.get("TMPDIR");
   // `Deno.makeTempDir` creates under `TMPDIR`; a missing parent makes it fail.
-  Deno.env.set("TMPDIR", join(tmpdir(), `ts-db-missing-${crypto.randomUUID()}`));
+  Deno.env.set("TMPDIR", join(tmpdir(), `mansio-missing-${crypto.randomUUID()}`));
   let exit: Exit.Exit<Manifest, unknown>;
   try {
     exit = await Effect.runPromiseExit(runner.take("app", storage));
@@ -501,7 +501,7 @@ test("interrupting take mid-upload releases the per-app guard and removes the te
 });
 
 test("interrupted upload over the real ObjectStoreLocal records the phase and one interrupted transfer", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-backup-interrupt-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-backup-interrupt-"));
   const writeGate = Promise.withResolvers<void>();
   try {
     const run = collector();
@@ -645,7 +645,7 @@ test("the guard is a race-free claim: N simultaneous takes while one is in fligh
 // ---------------------------------------------------------------------------
 
 test("ingested, two backups under one caller trace with a retried upload count as 2 runs, 12 phases, 6 transfers, 1 retry", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-backup-accounting-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-backup-accounting-"));
   try {
     const run = collector();
     // The very first request (the first run's snapshot-object PUT) is throttled once, then everything succeeds.
@@ -746,7 +746,7 @@ test("ingested, two backups under one caller trace with a retried upload count a
 // ---------------------------------------------------------------------------
 
 test("verifySnapshot accepts a healthy file and rejects a non-database as SnapshotIntegrityError", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-verify-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-verify-"));
   try {
     const good = join(dir, "good.sqlite");
     writeValidSnapshot(good);
@@ -778,10 +778,10 @@ const s3Skip = s3Enabled ? false : "S3_INTEGRATION=1 is not set; real-S3 backup 
 const s3Endpoint = (Deno.env.get("S3_BASE_URL") ?? "http://localhost:8333").replace(/\/$/, "");
 const s3BucketUrl = s3Endpoint !== "" && new URL(s3Endpoint).pathname !== "/"
   ? s3Endpoint
-  : `${s3Endpoint}/${Deno.env.get("S3_BUCKET") ?? "tsdb-test"}`;
+  : `${s3Endpoint}/${Deno.env.get("S3_BUCKET") ?? "mansio-test"}`;
 const s3Creds = {
-  accessKeyId: Deno.env.get("AWS_ACCESS_KEY_ID") ?? "tsdbdevkey",
-  secretAccessKey: Deno.env.get("AWS_SECRET_ACCESS_KEY") ?? "tsdbdevsecret",
+  accessKeyId: Deno.env.get("AWS_ACCESS_KEY_ID") ?? "mansiodevkey",
+  secretAccessKey: Deno.env.get("AWS_SECRET_ACCESS_KEY") ?? "mansiodevsecret",
   region: Deno.env.get("AWS_REGION") ?? "us-east-1",
 };
 /** A per-run app id, so the run's `apps/<id>/` prefix is unique and can be deleted afterwards. */
@@ -822,7 +822,7 @@ test("real S3: backup round trip over ObjectStoreS3 publishes latest.json last a
   assert.equal(await sha256(result.object), result.manifest.sha256);
   const puts = backupEvents(run.events).filter((e) => e.emitter === "object-store").map((e) => e.key);
   assert.deepEqual(puts, [result.manifest.key, `${result.manifest.key}.json`, `apps/${s3AppId}/latest.json`]);
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-s3-restore-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-s3-restore-"));
   try {
     const file = join(dir, "restored.sqlite");
     await Deno.writeFile(file, result.object);

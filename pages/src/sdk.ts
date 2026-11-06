@@ -38,7 +38,7 @@ export type { CatalogEntry, Diagnostic, Diagram, Route, RoutePort, ValidatedArch
 
 /**
  * One layout port for every viewer on the page. The package ships its ELK worker as a separate file; Vite
- * fingerprints it through `?url` and resolves it under the `/ts-db/` base.
+ * fingerprints it through `?url` and resolves it under the `/mansio/` base.
  */
 export const layoutPort = createElkLayoutPort(() => new Worker(layoutWorkerUrl, { type: "module" }));
 

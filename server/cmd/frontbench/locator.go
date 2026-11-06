@@ -19,11 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/client"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/retry"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/client"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // frontbench locator (control-plane plan CP-6 gate): closed-loop clients that know only controld. Every
@@ -32,8 +32,8 @@ import (
 // -move-every, a mover moves a random database to another VM on that period through controld's admin API, and
 // the summary reports the error rate of requests that started during a move (or in the 2 s after it).
 //
-// Secrets come from the environment: TSDB_API_KEY (the tenant's key) and TSDB_ADMIN_TOKEN (controld's admin
-// token, needed for -setup and -move-every; with it and no TSDB_API_KEY, -setup creates a key).
+// Secrets come from the environment: MANSIO_API_KEY (the tenant's key) and MANSIO_ADMIN_TOKEN (controld's admin
+// token, needed for -setup and -move-every; with it and no MANSIO_API_KEY, -setup creates a key).
 //
 // The workload is one table per database, fb(id integer primary key, v blob): point reads by a random id, and
 // inserts of a 64-byte blob. The databases are <tenant>:fb-0 … fb-N-1; -setup creates them and the table.
@@ -103,8 +103,8 @@ func locatorCmd(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs.DurationVar(&f.duration, "duration", 10*time.Second, "measured time")
 	fs.DurationVar(&f.warmup, "warmup", time.Second, "unmeasured time first")
 	fs.DurationVar(&f.timeout, "timeout", 5*time.Second, "per-call deadline (covers resolves, retries and waits)")
-	fs.DurationVar(&f.move, "move-every", 0, "move a random database to another VM this often (0 = never; needs TSDB_ADMIN_TOKEN)")
-	fs.BoolVar(&f.setup, "setup", false, "create the databases and their table first (needs TSDB_ADMIN_TOKEN)")
+	fs.DurationVar(&f.move, "move-every", 0, "move a random database to another VM this often (0 = never; needs MANSIO_ADMIN_TOKEN)")
+	fs.BoolVar(&f.setup, "setup", false, "create the databases and their table first (needs MANSIO_ADMIN_TOKEN)")
 	fs.StringVar(&f.edge, "edge", "", "send queries to this edge base URL (resolves still go to -locator)")
 	fs.Float64Var(&f.rate, "rate", 0, "requests per second across all clients (0 = closed loop)")
 	fs.Float64Var(&f.zipf, "zipf", 0, "database popularity: Zipf exponent > 1 (fb-0 hottest); 0 = uniform")
@@ -123,12 +123,12 @@ func locatorCmd(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return errs.Wrap(module, err, "cannot load the CA file %s", f.ca)
 	}
 	hc.Timeout = time.Minute
-	ad := &adminAPI{base: strings.TrimSuffix(f.locator, "/"), token: os.Getenv("TSDB_ADMIN_TOKEN"), http: hc}
+	ad := &adminAPI{base: strings.TrimSuffix(f.locator, "/"), token: os.Getenv("MANSIO_ADMIN_TOKEN"), http: hc}
 	if (f.setup || f.move > 0) && ad.token == "" {
-		fmt.Fprintln(stderr, "frontbench locator: -setup and -move-every need TSDB_ADMIN_TOKEN")
-		return usageError{errors.New("missing TSDB_ADMIN_TOKEN")}
+		fmt.Fprintln(stderr, "frontbench locator: -setup and -move-every need MANSIO_ADMIN_TOKEN")
+		return usageError{errors.New("missing MANSIO_ADMIN_TOKEN")}
 	}
-	apiKey := os.Getenv("TSDB_API_KEY")
+	apiKey := os.Getenv("MANSIO_API_KEY")
 	if apiKey == "" && f.setup {
 		var err error
 		if apiKey, err = ad.createKey(ctx, f.tenant); err != nil {
@@ -136,8 +136,8 @@ func locatorCmd(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		}
 	}
 	if apiKey == "" {
-		fmt.Fprintln(stderr, "frontbench locator: set TSDB_API_KEY (or use -setup with TSDB_ADMIN_TOKEN)")
-		return usageError{errors.New("missing TSDB_API_KEY")}
+		fmt.Fprintln(stderr, "frontbench locator: set MANSIO_API_KEY (or use -setup with MANSIO_ADMIN_TOKEN)")
+		return usageError{errors.New("missing MANSIO_API_KEY")}
 	}
 	if f.setup {
 		if err := setupDBs(ctx, f, ad, apiKey); err != nil {

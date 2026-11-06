@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/outcome"
 )
 
 var testFormat = RecordFormat{Classes: []string{"point_read", "insert"}, Clients: []string{"good", "bad"}}

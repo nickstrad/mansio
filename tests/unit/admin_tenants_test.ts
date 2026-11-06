@@ -10,7 +10,7 @@ import { TenantRegistryLazy, TenantRegistryLive } from "../../platform/tenants/s
 import { EventSinkTest, IdGenTest } from "../layers/index.ts";
 
 const ADMIN = "mt05-admin-token";
-const baseUrl = Deno.env.get("DATABASE_URL") ?? "postgres://tsdb:tsdb@localhost:5432/tsdb";
+const baseUrl = Deno.env.get("DATABASE_URL") ?? "postgres://mansio:mansio@localhost:5432/mansio";
 
 async function hash(key: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
@@ -112,7 +112,7 @@ test("admin tenant HTTP: CRUD, one-time keys, authentication, validation and iso
     const created = await send("POST", "/admin/tenants", { name: "Acme", slug: "acme" });
     assert.equal(created.status, 200);
     const { tenant, apiKey } = created.data.result;
-    assert.match(apiKey.plaintext, /^tsdb_[A-Za-z0-9_-]{43}$/);
+    assert.match(apiKey.plaintext, /^mansio_[A-Za-z0-9_-]{43}$/);
     assert.equal(
       (await Effect.runPromise(registry.resolveTenantByKeyHash(await hash(apiKey.plaintext)))).id,
       tenant.id,

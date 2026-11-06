@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // Gate verifies tickets for the edge. Unlike an agent, the edge does not know the audience in advance: the

@@ -4,9 +4,9 @@ import (
 	"math/rand/v2"
 	"slices"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // weighted picks an index in [0, n) with probability proportional to its weight; indexes with a weight <= 0

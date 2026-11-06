@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // phase is one step of the shutdown sequence (Release It H3: shutdown has one budget).

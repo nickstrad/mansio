@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "tsdb-current",
-  "title": "ts-db today (main 2d30330)",
+  "id": "mansio-current",
+  "title": "mansio today (main 2d30330)",
   "revision": "main-2d30330-pg02",
   "defaultDiagramId": "context",
   "model": {
@@ -2218,7 +2218,7 @@
     {
       "id": "landscape",
       "kind": "landscape",
-      "title": "System landscape: ts-db, its people and its neighbours",
+      "title": "System landscape: mansio, its people and its neighbours",
       "status": "existing",
       "related": [],
       "nodes": [
@@ -3878,9 +3878,9 @@
     {
       "id": "doc-landscape",
       "title": "System landscape: one system",
-      "plain": "ts-db builds one software system, the Document DB platform. This landscape shows it with every person and system the\naudited context view names: app developers, application callers and the platform operator; object storage, the\nanalytics consumer and the k6 load generator. It adds no system: the other views are the place for the platform's\nparts (Postgres, the reader child, the files). The typed client SDK is a library in the caller's process (decision\nD4) and has no landscape-level relationship, so it is not drawn here.\n\nThe landscape differs from the system context in one way: no system is in focus. Open the platform to see its\ncontext. The proposed dataset adds no person or system (its \"Central registry and placement\" is the same Postgres,\ndrawn as a system of the platform's organisation by its source), so both datasets share this landscape.",
+      "plain": "mansio builds one software system, the Document DB platform. This landscape shows it with every person and system the\naudited context view names: app developers, application callers and the platform operator; object storage, the\nanalytics consumer and the k6 load generator. It adds no system: the other views are the place for the platform's\nparts (Postgres, the reader child, the files). The typed client SDK is a library in the caller's process (decision\nD4) and has no landscape-level relationship, so it is not drawn here.\n\nThe landscape differs from the system context in one way: no system is in focus. Open the platform to see its\ncontext. The proposed dataset adds no person or system (its \"Central registry and placement\" is the same Postgres,\ndrawn as a system of the platform's organisation by its source), so both datasets share this landscape.",
       "ste": {
-        "text": "ts-db is one software system: the Document DB platform. This view shows the people and the systems that use it or\nthat it uses. The proposal does not add a person or a system.",
+        "text": "mansio is one software system: the Document DB platform. This view shows the people and the systems that use it or\nthat it uses. The proposal does not add a person or a system.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3949,105 +3949,105 @@
     {
       "id": "src-context-github",
       "title": "System Context (Mermaid)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-context-document-db.github.md"
     },
     {
       "id": "src-context-terminal",
       "title": "System Context (terminal box drawing)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.terminal.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-context-document-db.terminal.md"
     },
     {
       "id": "src-context-py",
       "title": "System Context (generator source of both formats)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-context-document-db.py",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-context-document-db.py",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/diagrams/c4-context-document-db.py"
     },
     {
       "id": "src-containers-platform-github",
       "title": "Container — request path (Mermaid)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-container-platform.github.md"
     },
     {
       "id": "src-containers-platform-terminal",
       "title": "Container — request path (terminal box drawing)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.terminal.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-container-platform.terminal.md"
     },
     {
       "id": "src-containers-platform-py",
       "title": "Container — request path (generator source of both formats)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-platform.py",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-platform.py",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/diagrams/c4-container-platform.py"
     },
     {
       "id": "src-containers-observability-github",
       "title": "Container — observability path (Mermaid)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-container-observability.github.md"
     },
     {
       "id": "src-containers-observability-terminal",
       "title": "Container — observability path (terminal box drawing)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-observability.terminal.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-container-observability.terminal.md"
     },
     {
       "id": "src-containers-observability-py",
       "title": "Container — observability path (generator source of both formats)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-observability.py",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-container-observability.py",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/diagrams/c4-container-observability.py"
     },
     {
       "id": "src-components-server-github",
       "title": "Component — server process (Mermaid)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-component-server.github.md"
     },
     {
       "id": "src-components-server-terminal",
       "title": "Component — server process (terminal box drawing)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-component-server.terminal.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-component-server.terminal.md"
     },
     {
       "id": "src-components-server-py",
       "title": "Component — server process (generator source of both formats)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-component-server.py",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/diagrams/c4-component-server.py",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/diagrams/c4-component-server.py"
     },
     {
       "id": "src-arch-readme",
       "title": "Architecture diagrams index and audited state",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/README.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/README.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/README.md"
     },
     {
       "id": "src-arch-agents",
-      "title": "C4 diagram conventions for ts-db",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/AGENTS.md",
+      "title": "C4 diagram conventions for mansio",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/AGENTS.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/AGENTS.md"
     },
     {
       "id": "src-document-reader",
       "title": "Document reader source (platform/document_reader.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/document_reader.ts",
       "notes": "The code view's symbols, signatures and line numbers. Unchanged on main through b789441."
@@ -4055,28 +4055,28 @@
     {
       "id": "src-classify",
       "title": "Statement classifier source (platform/sqlite_ffi/classify.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite_ffi/classify.ts"
     },
     {
       "id": "src-sqlite-ts",
       "title": "Storage and ConnectionGate source (platform/sqlite.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite.ts"
     },
     {
       "id": "src-sqlite-ffi-effect",
       "title": "FFI binding Effect layer source (platform/sqlite_ffi/effect.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/effect.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/effect.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite_ffi/effect.ts"
     },
     {
       "id": "src-sqlite-ffi-database",
       "title": "FFI binding Database source (platform/sqlite_ffi/database.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/database.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/database.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite_ffi/database.ts"
     }

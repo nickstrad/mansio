@@ -350,8 +350,8 @@ export const OPTIONS = [
     name: "databaseUrl",
     envVar: "DATABASE_URL",
     type: "string",
-    default: "postgres://tsdb:tsdb@localhost:5432/tsdb",
-    defaultLabel: "postgres://tsdb:tsdb@localhost:5432/tsdb",
+    default: "postgres://mansio:mansio@localhost:5432/mansio",
+    defaultLabel: "postgres://mansio:mansio@localhost:5432/mansio",
     description:
       "Postgres connection URL for the multitenancy central database (tenant registry). Unused while tenancy mode is `off`.",
   },

@@ -72,7 +72,7 @@ function freePort(): number {
 }
 
 async function scratch(prefix: string): Promise<Scratch> {
-  const root = await Deno.makeTempDir({ prefix: `ts-db-scope-${prefix}-` });
+  const root = await Deno.makeTempDir({ prefix: `mansio-scope-${prefix}-` });
   const dataDir = join(root, "data");
   const logDir = join(root, "logs");
   const port = freePort();
@@ -872,7 +872,7 @@ test(
       const status = await exitWithin(spawned, BOUND_MS);
       assert.equal(status.code, 1);
       const stderr = await spawned.stderr;
-      assert.match(stderr, /ts-db server failed: ListenError/);
+      assert.match(stderr, /mansio server failed: ListenError/);
       assert.match(stderr, /AddrInUse/);
       await assertProcessReleased(s, spawned, "failure", { served: false });
     } finally {
@@ -917,7 +917,7 @@ test(
       spawned.child.kill("SIGTERM");
       const status = await exitWithin(spawned, 15_000);
       assert.equal(status.code, 0, await spawned.stderr);
-      assert.doesNotMatch(await spawned.stderr, /ts-db server failed: ReaderExitedError/);
+      assert.doesNotMatch(await spawned.stderr, /mansio server failed: ReaderExitedError/);
       // Exclude the killed child's exit when checking the replacement's finalizer order.
       const records = await serverLog(s.logDir, spawned.child.pid);
       await assertProcessReleased(s, spawned, "interrupted", { childExit: true });

@@ -6,10 +6,10 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/parallel"
-	"github.com/nickstrad/ts-db-go/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/parallel"
+	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
 // ReconcileOptions bound a reconcile round (Release It H1: startup reconciles with bounded concurrency and a

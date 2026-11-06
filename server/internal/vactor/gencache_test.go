@@ -3,8 +3,8 @@ package vactor_test
 import (
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // OS-10: a re-warm of an idle database whose manifest has not moved is a local hit (1 manifest GET, no

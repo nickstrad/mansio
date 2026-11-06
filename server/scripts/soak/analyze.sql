@@ -29,10 +29,10 @@ create or replace table steady as
   select s.*, epoch(s.t) - epoch(p.t0) as x
   from s, phases p
   where p.phase = 'load2' and s.t >= p.t0 + interval 300 second and s.t <= p.t1
-    and (s.series like 'tsdb_process{%' or s.series in ('ps_rss_bytes', 'objects', 'bytes')
-         or s.series like 'dir_bytes%' or s.series = 'tsdb_vactor_oldest_dirty_age_seconds'
-         or s.series = 'tsdb_vactor{stat="active"}' or s.series = 'tsdb_actors'
-         or s.series = 'controld_locator_cached' or s.series like 'tsdb_edge_state%');
+    and (s.series like 'mansio_process{%' or s.series in ('ps_rss_bytes', 'objects', 'bytes')
+         or s.series like 'dir_bytes%' or s.series = 'mansio_vactor_oldest_dirty_age_seconds'
+         or s.series = 'mansio_vactor{stat="active"}' or s.series = 'mansio_actors'
+         or s.series = 'controld_locator_cached' or s.series like 'mansio_edge_state%');
 select '1a. client view per phase (frontbench summaries)' as section;
 select regexp_extract(filename, '([a-z0-9]+)\.json$', 1) as phase, requests, round(ok_per_sec) as ok_per_sec,
        round(p50_us) as p50_us, round(p99_us) as p99_us, round(p999_us) as p999_us, round(max_us) as max_us,
@@ -56,7 +56,7 @@ from steady group by all order by verdict desc, proc, series;
 select '3. leak check: levels at the start, the end of load1, the end of idle, the end of load2' as section;
 create or replace table lv as
   select s.proc, s.series, s.v, s.t from s
-  where s.series in ('tsdb_process{stat="goroutines"}', 'tsdb_process{stat="open_fds"}', 'ps_rss_bytes', 'tsdb_process{stat="heap_bytes"}');
+  where s.series in ('mansio_process{stat="goroutines"}', 'mansio_process{stat="open_fds"}', 'ps_rss_bytes', 'mansio_process{stat="heap_bytes"}');
 with pts as (
   select 'start' as pt, (select min(t) from s) as t union all
   select 'load1_end', t1 from phases where phase = 'load1' union all
@@ -86,7 +86,7 @@ where e.ev = 'error' and f.fault is null group by all order by minute limit 50;
 
 select '4c. agent / edge answers by code (counter totals at the end; agents restarted reset)' as section;
 select proc, regexp_extract(series, 'code="([^"]*)"', 1) as code, max(v) as total
-from s where series like 'tsdb_requests_total{%' group by all having max(v) > 0 order by proc, code;
+from s where series like 'mansio_requests_total{%' group by all having max(v) > 0 order by proc, code;
 
 select '5. retried shed / unavailable answers without a Retry-After' as section;
 select code, count(*) as retries, count(*) filter (where hint_ms = 0) as no_hint

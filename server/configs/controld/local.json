@@ -2,7 +2,7 @@
   "listen": "127.0.0.1:7080",
   "secrets_file": "../../results/controld/secrets.json",
   "ticket_keys": {"dir": "../../results/controld/ticket-keys"},
-  "s3": {"endpoint": "localhost:8333", "bucket": "tsdb", "prefix": "agentd/"},
+  "s3": {"endpoint": "localhost:8333", "bucket": "mansio", "prefix": "agentd/"},
   "agents": [
     {"vm": "vm-local", "endpoint": "127.0.0.1:7070", "lifecycle": "http://127.0.0.1:7071"}
   ],

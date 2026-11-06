@@ -1,12 +1,13 @@
 # Scale-out option 4: control plane as a locator, clients talk to database actors directly
 
 Status: proposal · Author: Claude Opus 5.5 (with nickstrad) · Date: 2026-11-04 · Branch: `main` · Code
-baseline: `main` at `fac3e3e` (DP-02 landed). Builds on: `tsdb-planes-fable` (DP-02) and
+baseline: `main` at `fac3e3e` (DP-02 landed). Builds on: `mansio-planes-fable` (DP-02) and
 [`scale-out-comparison-fable.md`](scale-out-comparison-fable.md).
 
-Options so far: (1) `tsdb-current`, what runs today; (2) `tsdb-lanes-proposal`; (3) `tsdb-planes-proposal`,
-revised by Fable as `tsdb-planes-fable`. This document is **option 4**: planes-fable with the gateway taken
-off the query path. It changes no code and no dataset. If accepted, it becomes a DP-03 dataset brief.
+Options so far: (1) `mansio-current`, what runs today; (2) `mansio-lanes-proposal`; (3)
+`mansio-planes-proposal`, revised by Fable as `mansio-planes-fable`. This document is **option 4**:
+planes-fable with the gateway taken off the query path. It changes no code and no dataset. If accepted, it
+becomes a DP-03 dataset brief.
 
 ## Answer
 
@@ -264,6 +265,6 @@ what the per-database actor replaces.
 
 ## 9. Sources checked
 
-- `pages/content/tsdb-planes-fable/inventory.md` (F1–F11, admission table, trust boundary, move protocol).
+- `pages/content/mansio-planes-fable/inventory.md` (F1–F11, admission table, trust boundary, move protocol).
 - `docs/architecture/scale-out-comparison-fable.md` (§1–§4).
 - Landed code, for §5.1: listed with each row.

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det"
 )
 
 // Clock is a manual det.Clock: time stands still until Advance moves it, and Advance fires the timers that

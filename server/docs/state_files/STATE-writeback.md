@@ -2,12 +2,12 @@
 
 # STATE — writeback agent (warm → cold durability for virtual actors)
 
-Last updated: 2026-11-05. Branch `writeback`, worktree `/Users/nick/Software/ts-db-go-wt/writeback`.
+Last updated: 2026-11-05. Branch `writeback`, worktree `/Users/nick/Software/mansio-server-wt/writeback`.
 
 ## Goal
 
 Make vactor's warm → cold path durable: write-back before passivation, periodic write-back (RPO), eviction
-policy, per contract 1 in `shared_state.md` (2026-11-05 10:15) and option 4 of ts-db's
+policy, per contract 1 in `shared_state.md` (2026-11-05 10:15) and option 4 of mansio's
 `docs/architecture/scale-out-direct-actors.md`.
 
 ## Plan

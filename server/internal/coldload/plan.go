@@ -3,7 +3,7 @@ package coldload
 import (
 	"fmt"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Level kinds.

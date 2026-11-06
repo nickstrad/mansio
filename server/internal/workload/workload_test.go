@@ -11,11 +11,11 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // seeded builds s in a private in-memory database with foreign keys enforced, as the actor opens every database.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // AdmissionLimits are the caps per database, per tenant and per VM (option 4 §3.2: "subject to mailbox, tenant

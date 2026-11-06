@@ -1,43 +1,43 @@
-# ts-db architecture diagrams site
+# mansio architecture diagrams site
 
-An interactive C4 viewer for ts-db, meant to be used **while designing a feature**: N architectures in one
+An interactive C4 viewer for mansio, meant to be used **while designing a feature**: N architectures in one
 dropdown, the current one (what runs on `main`) by default, each drilled from the system context down to
 containers, components and code. It is not a replacement for the Markdown diagrams in
 [`docs/architecture/`](../docs/architecture/README.md) (the audited source of truth for the current system);
 it renders converted copies of them, with every element traceable to a commit-pinned source.
 
-The `tsdb-lanes-proposal` entry covers only the unbuilt scale-out design (statement lanes, the placement
+The `mansio-lanes-proposal` entry covers only the unbuilt scale-out design (statement lanes, the placement
 table, the forwarder, the lane supervisor, the peer node and WAL frames): its context, containers, the inside
 of one lane, the four key flows and an illustrative two-node deployment. The FFI execution layer (FFI-01 to
-FFI-08: binding, classifier, deadline and 504) has landed on `main` and is part of `tsdb-current`.
+FFI-08: binding, classifier, deadline and 504) has landed on `main` and is part of `mansio-current`.
 
-Future URL: <https://nickstrad.github.io/ts-db/> (GitHub Pages is **not enabled yet**; see
+Future URL: <https://nickstrad.github.io/mansio/> (GitHub Pages is **not enabled yet**; see
 [Deploying](#deploying)).
 
 ## What it shows
 
 Today the catalog lists four architectures:
 
-| Catalog entry          | Content                                                                                                                                                                |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsdb-current`         | The default: the four audited pairs of `docs/architecture/`, a landscape and a code view                                                                               |
-| `tsdb-lanes-proposal`  | Statement lanes and placement: context, containers, lane components, flows and a deployment                                                                            |
-| `tsdb-planes-proposal` | Control plane / data plane: tenants own 0..N databases; database-scoped placement, isolation and lifecycle                                                             |
-| `tsdb-planes-fable`    | Fable revision of the planes proposal: route grants, lane view, default database, VM-loss recovery, backup manifests, instance moves, candidate placement rule (M1–M8) |
+| Catalog entry            | Content                                                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mansio-current`         | The default: the four audited pairs of `docs/architecture/`, a landscape and a code view                                                                               |
+| `mansio-lanes-proposal`  | Statement lanes and placement: context, containers, lane components, flows and a deployment                                                                            |
+| `mansio-planes-proposal` | Control plane / data plane: tenants own 0..N databases; database-scoped placement, isolation and lifecycle                                                             |
+| `mansio-planes-fable`    | Fable revision of the planes proposal: route grants, lane view, default database, VM-loss recovery, backup manifests, instance moves, candidate placement rule (M1–M8) |
 
-The `tsdb-planes-proposal` addition supersedes one-file-per-tenant **in this proposal only**. It adds
+The `mansio-planes-proposal` addition supersedes one-file-per-tenant **in this proposal only**. It adds
 control/data-plane component views, create/query/move/drop scenarios with separate failure alternatives, and
 an illustrative uneven three-VM deployment: n SQLite files across m VMs. Routing and the placement registry
 belong to the control plane; the gateway consults them. Every VM runs **VM agent (process)** as the last mile
 for all query and lifecycle file work. The control plane chooses each database’s VM, but the placement policy
 remains an explicit open question. Existing scale-out content is preserved. Its
-[inventory](content/tsdb-planes-proposal/inventory.md) records the database-aware router extension, fencing
+[inventory](content/mansio-planes-proposal/inventory.md) records the database-aware router extension, fencing
 protocol, fail-closed online admission, service trust boundaries, bounded resource budgets and the distinction
 between landed FFI code and proposed lane processes. The data overview links to agent execution detail.
 Backup/VM-loss flow expansion and source/target move instance companions are explicitly deferred in the
 inventory and documents. Registration adds one entry to `public/catalog.json`; no viewer code changes.
 
-The `tsdb-planes-fable` entry (DP-02) is the planes proposal with the eight modifications from
+The `mansio-planes-fable` entry (DP-02) is the planes proposal with the eight modifications from
 [`docs/architecture/scale-out-comparison-fable.md`](../docs/architecture/scale-out-comparison-fable.md) §4
 applied, generated from the DP-01 generator plus a patch
 (`agent-work/items/dp-02-fable-planes/build-dataset.py`), so everything an M-number does not name is carried
@@ -51,7 +51,7 @@ instance-level move companions (drawn as illustrative deployment views, because 
 instances only there); M8 draws a candidate v1 placement rule labelled **proposed, pending Nick's decision**;
 M2 (build order) is recorded in documents only. It is a proposal: everything new is `planned`, and the landed
 FFI pieces keep the planes dataset's `existing`/`mixed` marks. M1 and M5 alter contracts Astra reviewed in
-DP-01, so they need Nick's word and a re-review. Its [inventory](content/tsdb-planes-fable/inventory.md)
+DP-01, so they need Nick's word and a re-review. Its [inventory](content/mansio-planes-fable/inventory.md)
 records F1–F11. The three older datasets are byte-identical.
 
 ### The architecture dropdown and the sticky bar
@@ -77,7 +77,7 @@ Found (with a link to each architecture); nothing falls back silently.
 
 ```json
 {
-  "defaultId": "tsdb-current",
+  "defaultId": "mansio-current",
   "entries": [{ "id": "…", "title": "…", "url": "architectures/….json" }]
 }
 ```
@@ -101,13 +101,14 @@ No code changes (the tests prove it with a three-entry fixture catalog):
 
 ### Diagram kinds per dataset
 
-All seven C4 kinds are drawn across the catalog (`tests/views.test.ts` checks it). The `tsdb-planes-proposal`
-entry has context, container, three component views, nine dynamic scenarios and one illustrative deployment;
-`tsdb-planes-fable` has context, container, four component views (adding the lane view), fifteen dynamic
-scenarios and three illustrative deployment views (the fleet plus the two instance-level move companions).
-Neither adds a landscape or code view. The original two entries retain these views:
+All seven C4 kinds are drawn across the catalog (`tests/views.test.ts` checks it). The
+`mansio-planes-proposal` entry has context, container, three component views, nine dynamic scenarios and one
+illustrative deployment; `mansio-planes-fable` has context, container, four component views (adding the lane
+view), fifteen dynamic scenarios and three illustrative deployment views (the fleet plus the two
+instance-level move companions). Neither adds a landscape or code view. The original two entries retain these
+views:
 
-| Kind       | `tsdb-current`                                    | `tsdb-lanes-proposal`                                              |
+| Kind       | `mansio-current`                                  | `mansio-lanes-proposal`                                            |
 | ---------- | ------------------------------------------------- | ------------------------------------------------------------------ |
 | Landscape  | `landscape` (shared by both)                      | none: the proposal adds no person or system                        |
 | Context    | `context`                                         | `lanes-context`                                                    |
@@ -127,8 +128,8 @@ export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$HOME/.deno/bin:$PATH"
 cd pages
 npm ci
 npm run dev          # http://localhost:5173/
-npm run build        # dist/ at base /ts-db/ (gitignored)
-npm run preview      # serve dist/ at http://localhost:4173/ts-db/
+npm run build        # dist/ at base /mansio/ (gitignored)
+npm run preview      # serve dist/ at http://localhost:4173/mansio/
 npm run check        # typecheck + unit tests + build + browser smoke
 ```
 
@@ -136,7 +137,7 @@ npm run check        # typecheck + unit tests + build + browser smoke
 | -------------- | ------------------------------------------------------------------------------------------------------- |
 | `typecheck`    | `tsc -b` over the viewer and the tests, against the c4-sdk package's declarations                       |
 | `test`         | vitest: every bundle decodes with `decodeArchitecture` and **zero** diagnostics; catalog, routes, views |
-| `build`        | `vite build --base /ts-db/`                                                                             |
+| `build`        | `vite build --base /mansio/`                                                                            |
 | `test:browser` | Playwright against `vite preview` of `dist/`: dropdown, four entries, sticky bar, deep links, Not Found |
 
 The browser smoke reuses Playwright 1.64.0's Chromium from `~/.cache/ms-playwright` (already installed on vm-1
@@ -166,7 +167,7 @@ A dataset is one `ArchitectureBundle` v1 JSON file (c4-sdk `docs/plans/implement
 c4-sdk is the oracle) plus a conversion inventory.
 
 1. **Pin the source.** Every `sources[].url` is
-   `https://github.com/nickstrad/ts-db/blob/<40-hex commit>/<path>` with `revision` = that commit (the test
+   `https://github.com/nickstrad/mansio/blob/<40-hex commit>/<path>` with `revision` = that commit (the test
    enforces it). Read unmerged branches with `git show <sha>:<path>`.
 2. **Map, don't redraw.** Each source box becomes one element (one element per running thing across views),
    each numbered source edge one relationship with `displayNumber` = the source number. Labels stay verbatim;
@@ -186,7 +187,7 @@ c4-sdk is the oracle) plus a conversion inventory.
    covers them; without `--config` deno formats at width 80 because of `pages/package.json`), then `npm test`,
    then look at the result in `npm run dev`.
 
-`tsdb-current` is pinned to `main` at `2d30330` (audit stamp `0b82504`). When the Markdown diagrams change,
+`mansio-current` is pinned to `main` at `2d30330` (audit stamp `0b82504`). When the Markdown diagrams change,
 refresh it from the new commit: diff the pairs, update elements, relationships, documents and sources, and
 re-run the checks.
 
@@ -204,7 +205,7 @@ exactly (`0.1.0`) in `package.json` and locked in `package-lock.json`. Its only 
 `react-dom`; React Flow, ELK, Markdown, zod and the dialog are bundled inside it, so the site does not list
 them. Only `src/sdk.ts` imports it, through the package's exports: `c4-sdk` (React components and adapters),
 `c4-sdk/core` (decode, routes, types; tests import it too), `c4-sdk/styles.css`, and
-`c4-sdk/layout-worker.js?url`, which Vite fingerprints and serves under `/ts-db/` for
+`c4-sdk/layout-worker.js?url`, which Vite fingerprints and serves under `/mansio/` for
 `createElkLayoutPort(() => new Worker(layoutWorkerUrl, { type: "module" }))`. Never patch the package; adapt
 `src/sdk.ts` to it. To upgrade, `npm install --save-exact c4-sdk@<version>`, check its README for changed
 exports or peers, then run `npm run check`.

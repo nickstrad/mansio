@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 )
 
 func TestBuild(t *testing.T) {

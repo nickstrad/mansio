@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/objstore"
 )
 
 // seed builds one template per size class and uploads Count copies of it, skipping objects already

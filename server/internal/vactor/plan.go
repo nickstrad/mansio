@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Policy says when warm databases are written back and when they are passivated. Zero fields are off.

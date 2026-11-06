@@ -15,8 +15,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/schema"
 )
 
 // Class names a kind of statement.

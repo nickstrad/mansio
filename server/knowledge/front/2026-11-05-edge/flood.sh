@@ -20,5 +20,5 @@ $FB -key keys-forged/issuer.key -conc 64 -duration 9s > forged.out &
 FP=$!
 echo "valid with flood: $($FB -key keys/issuer.key -conc 16)"
 wait $FP; echo "forged flood:     $(cat forged.out)"
-curl -s http://$EH/metrics | grep -E '^tsdb_edge_tickets_total|^tsdb_requests_total\{point="edge".*\} [1-9]'
+curl -s http://$EH/metrics | grep -E '^mansio_edge_tickets_total|^mansio_requests_total\{point="edge".*\} [1-9]'
 kill -TERM $EP $AP; wait

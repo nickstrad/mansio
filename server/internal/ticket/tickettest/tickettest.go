@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // Issuer signs tickets with one key id.

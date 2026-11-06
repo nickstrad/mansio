@@ -36,7 +36,7 @@ import {
 // ---------------------------------------------------------------------------
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await Deno.makeTempDir({ prefix: "ts-db-logger-" });
+  const dir = await Deno.makeTempDir({ prefix: "mansio-logger-" });
   try {
     await run(dir);
   } finally {

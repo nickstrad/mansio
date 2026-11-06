@@ -1,10 +1,10 @@
-# Local development services for ts-db. Driven by the Makefile (`make help`); see docker/README.md.
+# Local development services for mansio. Driven by the Makefile (`make help`); see docker/README.md.
 #
 # seaweedfs: a single-container SeaweedFS (master + volume + filer + S3 API) giving the platform an
 # S3-compatible object store at http://localhost:8333. DEV ONLY: the credentials below are public
 # test values and must never be reused anywhere real.
 
-name: tsdb
+name: mansio
 
 services:
   seaweedfs:
@@ -45,15 +45,15 @@ services:
 
   postgres:
     image: postgres:17 # pinned major; bump deliberately (latest major on Docker Hub as of 2026-10)
-    # DEV ONLY: tsdb/tsdb/tsdb are public test values and must never be reused anywhere real.
+    # DEV ONLY: mansio/mansio/mansio are public test values and must never be reused anywhere real.
     # Override via env: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB (e.g. `POSTGRES_PASSWORD=x make up`).
     # The password only applies when the pg-data volume is first initialised.
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-tsdb}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tsdb}
-      POSTGRES_DB: ${POSTGRES_DB:-tsdb}
+      POSTGRES_USER: ${POSTGRES_USER:-mansio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mansio}
+      POSTGRES_DB: ${POSTGRES_DB:-mansio}
     ports:
-      - "5432:5432" # Postgres (postgres://tsdb:tsdb@localhost:5432/tsdb)
+      - "5432:5432" # Postgres (postgres://mansio:mansio@localhost:5432/mansio)
     volumes:
       - pg-data:/var/lib/postgresql/data
     deploy:
@@ -62,7 +62,7 @@ services:
           cpus: "0.5"
           memory: 512M
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tsdb} -d ${POSTGRES_DB:-tsdb}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mansio} -d ${POSTGRES_DB:-mansio}"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -104,9 +104,9 @@ configs:
       {
         "identities": [
           {
-            "name": "tsdb-dev",
+            "name": "mansio-dev",
             "credentials": [
-              { "accessKey": "tsdbdevkey", "secretKey": "tsdbdevsecret" }
+              { "accessKey": "mansiodevkey", "secretKey": "mansiodevsecret" }
             ],
             "actions": ["Admin", "Read", "List", "Tagging", "Write"]
           }

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // fetchGate is the fetch bulkhead (Release It B1, B2): at most maxN fetches and maxBytes bytes in flight, and

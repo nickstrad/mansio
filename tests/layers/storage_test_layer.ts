@@ -141,7 +141,7 @@ export interface MemoryStoreService {
 }
 
 /** The shared in-memory store behind `StorageTest` and `ReaderTest`. */
-export class MemoryStore extends Context.Tag("ts-db/test/MemoryStore")<MemoryStore, MemoryStoreService>() {}
+export class MemoryStore extends Context.Tag("mansio/test/MemoryStore")<MemoryStore, MemoryStoreService>() {}
 
 // ===========================================================================
 // The evaluator (pure)

@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // ErrOpen is what a caller wraps when Allow refuses: the breaker is open (or half-open with its probe in

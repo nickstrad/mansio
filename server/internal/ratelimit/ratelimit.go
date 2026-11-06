@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // SourceLimiter is a token bucket per request source, charged once for each costly check an unauthenticated

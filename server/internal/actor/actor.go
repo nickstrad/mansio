@@ -12,7 +12,7 @@
 // The driver is modernc.org/sqlite (pure Go, no cgo), so a running statement occupies a goroutine, not an OS
 // thread, and the Go scheduler can preempt it: a slow query on one database cannot stall the others.
 //
-// A write with a request id applies at most once per database: the id is claimed in _tsdb_requests inside the
+// A write with a request id applies at most once per database: the id is claimed in _mansio_requests inside the
 // write's savepoint, and a retry is answered from the record without running (reqid.go, CP-2).
 //
 // Per-request errors are returned in Result.Err as the driver produced them (or as one of this package's
@@ -27,8 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 var (
@@ -127,7 +127,7 @@ type Actor struct {
 	commits    atomic.Uint64 // write transactions committed since New
 
 	// Request ids (reqid.go); owned by the run goroutine.
-	reqReady  bool // _tsdb_requests is known to exist in the open database
+	reqReady  bool // _mansio_requests is known to exist in the open database
 	lastSweep time.Time
 	sweepMore bool // the last sweep hit sweepBatch: run again in the next batch
 }

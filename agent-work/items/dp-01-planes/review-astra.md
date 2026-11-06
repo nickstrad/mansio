@@ -23,7 +23,7 @@ operational contract explicit enough that delayed commands and restarts cannot d
 
 ### 1. P1 — Keep routing authority out of the query-result transport path
 
-**Diagram-level; required.** In `tsdb-planes-proposal.json`, change `dp-forward`,
+**Diagram-level; required.** In `mansio-planes-proposal.json`, change `dp-forward`,
 `flow-query-right-node-s8/s18/s19`, and the corresponding inventory rows. The router belongs to `control`, but
 `dp-forward` runs from that router to the gateway forwarder. Step s18 explicitly returns query results through
 the router. This contradicts `doc-data`, `doc-forwarder` and the container relationships `c-resolve` and

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 )
 
 // genCache spec (OS-10): hit, miss, a different hash or size is a miss, eviction at the budget's on/off

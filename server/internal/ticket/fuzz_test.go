@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // FuzzVerify: arbitrary input never panics, and is accepted only if it is exactly the ticket the issuer would

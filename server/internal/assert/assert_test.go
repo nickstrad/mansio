@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Runs in both builds: `go test ./internal/assert` and `go test -tags noassert ./internal/assert`.

@@ -286,7 +286,7 @@ export interface ReaderProcessService {
 }
 
 export class ReaderProcess
-  extends Context.Tag("ts-db/ReaderProcess")<ReaderProcess, ReaderProcessService>() {}
+  extends Context.Tag("mansio/ReaderProcess")<ReaderProcess, ReaderProcessService>() {}
 
 /**
  * `ReaderClient` over a supervised child running the reader module, with the per-call deadline

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
 )
 
 func canaryServer(ex front.Executor, adm front.AdmissionLimits) *front.Server {

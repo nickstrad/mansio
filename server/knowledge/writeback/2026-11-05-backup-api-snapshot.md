@@ -59,7 +59,7 @@ wbbench now prints `reqs` and `$/M` per warm write-back: **4 requests** (`put_ge
 `publish`), **$10.80 per million write-backs** at S3 Standard list prices (2 class A at $0.005/1000 + 2 class B
 at $0.0004/1000). The fake counts in the S3 adapter's request shape; `objstore` counts real attempts, retries
 included. `Host.Stats` has `Requests` (by op) and `RequestCostUSD`. agentd already exports
-`tsdb_s3_requests_total`; cost is not exported as a metric (derive it from the counts).
+`mansio_s3_requests_total`; cost is not exported as a metric (derive it from the counts).
 
 ## Tests
 

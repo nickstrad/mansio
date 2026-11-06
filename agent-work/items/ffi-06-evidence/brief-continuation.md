@@ -1,7 +1,7 @@
 # FFI-06 continuation (fresh Sol unit): finish, validate, commit, push
 
-You are a freshly spawned builder (Codex Sol, `gpt-6.1-sol`) continuing plan item FFI-06 in the ts-db repo.
-The previous Sol unit (`sol-ffi-06`) implemented the item in this worktree, /root/Software/tsdb-work/ffi06
+You are a freshly spawned builder (Codex Sol, `gpt-6.1-sol`) continuing plan item FFI-06 in the mansio repo.
+The previous Sol unit (`sol-ffi-06`) implemented the item in this worktree, /root/Software/mansio-work/ffi06
 (branch `item/ffi-06-evidence`, still at `main` `f2bf1c9`, with UNCOMMITTED changes), ran the evidence, and
 exited without committing because nine unit tests fail in files outside its Owns. Your event actor id is
 `sol-ffi-06-cont`. Work ONLY in this worktree. Another review (FFI-07, Astra) may be running suites: before

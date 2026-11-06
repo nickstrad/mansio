@@ -1,9 +1,9 @@
-# Replace ts-db's control and data plane with ts-db-go
+# Replace mansio's control and data plane with mansio-server
 
-Status: plan · Date: 2026-11-05 · Baselines: ts-db `main` at `addda3d` (plus uncommitted docs), ts-db-go
+Status: plan · Date: 2026-11-05 · Baselines: mansio `main` at `addda3d` (plus uncommitted docs), mansio-server
 `main` at `1eac7d4` · Supersedes the build order in
-[scale-out-go-greenfield.md](../architecture/scale-out-go-greenfield.md) §4, which was written before ts-db-go
-had a control plane. Changes no code.
+[scale-out-go-greenfield.md](../architecture/scale-out-go-greenfield.md) §4, which was written before
+mansio-server had a control plane. Changes no code.
 
 > **Update (2026-11-05):** the handler-engine track (D2, D3, phases 0 and 2) is replaced by
 > [ir-protocol.md](ir-protocol.md): the SDK sends document operations (IR) and runs handlers itself; the Go
@@ -11,10 +11,10 @@ had a control plane. Changes no code.
 
 ## 1. Goal and end state
 
-Delete the Deno server (`platform/`, 16k lines, plus its 30k lines of platform tests) and run ts-db on the Go
-backend in ts-db-go. TypeScript stays where users touch it: the SDK, the schema DSL, the handler API and the
-sample app. Users see the same SDK, the same wire contract (`{"result"}` / `{"error":{tag,message}}`, the same
-statuses and tags) and the same document semantics.
+Delete the Deno server (`platform/`, 16k lines, plus its 30k lines of platform tests) and run mansio on the Go
+backend in mansio-server. TypeScript stays where users touch it: the SDK, the schema DSL, the handler API and
+the sample app. Users see the same SDK, the same wire contract (`{"result"}` / `{"error":{tag,message}}`, the
+same statuses and tags) and the same document semantics.
 
 ```
 TODAY                                         END STATE
@@ -27,15 +27,15 @@ sdk/client.ts ──HTTP──► Deno platform/         sdk/client.ts ──res
                                                                                     owner: fencing, epochs
 ```
 
-## 2. What ts-db-go already covers, and the gaps
+## 2. What mansio-server already covers, and the gaps
 
-ts-db-go today (see its `docs/control-plane-plan.md`) has: actor per database with group commit, savepoints,
-request ids and deadlines; S3 durability (generations, conditional manifest, GC, generation cache, `dbtool`);
-single-owner fencing; agentd with TLS, admission, metrics, readiness, bounded shutdown; controld with Postgres
-placement, tenants/databases/VM registries, create/move/drop/restore, locator, Ed25519 tickets, API keys; an
-edge; a Go client. It does **not** speak ts-db's language: its wire is raw SQL on `/v1/query`.
+mansio-server today (see its `docs/control-plane-plan.md`) has: actor per database with group commit,
+savepoints, request ids and deadlines; S3 durability (generations, conditional manifest, GC, generation cache,
+`dbtool`); single-owner fencing; agentd with TLS, admission, metrics, readiness, bounded shutdown; controld
+with Postgres placement, tenants/databases/VM registries, create/move/drop/restore, locator, Ed25519 tickets,
+API keys; an edge; a Go client. It does **not** speak mansio's language: its wire is raw SQL on `/v1/query`.
 
-| ts-db today (file)                                                                                                              | Replacement                                                                                                                                                                       | Status                                     |
+| mansio today (file)                                                                                                             | Replacement                                                                                                                                                                       | Status                                     |
 | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | Router, wire format, status map (`platform/http/router.ts`, `core/errors.ts:554-620`)                                           | New **document front** in agentd serving `/apps/:appId/(query\|mutation)/:name`, `{result}`/`{error:{tag,message}}`, `X-Trace-Id`, 64 KiB cap, check order of `handlers.ts:12-17` | **Build**                                  |
 | Handlers in-process inside `BEGIN IMMEDIATE` (`platform/sqlite.ts:683-765`)                                                     | JS engine inside the actor goroutine; one `SAVEPOINT` per handler inside a group-commit batch (greenfield §3)                                                                     | **Build — the gate**                       |
@@ -55,17 +55,17 @@ edge; a Go client. It does **not** speak ts-db's language: its wire is raw SQL o
 
 ## 3. Decisions to make first
 
-| #  | Decision                 | Recommendation                                                                                                                                                                                                                                                                   |
-| -- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1 | Repo layout              | Move ts-db-go into ts-db as `server/` with `git subtree` (history kept). One repo means the e2e suite, SDK and server change in one commit. ts-db-go stays read-only afterwards.                                                                                                 |
-| D2 | Handler engine           | Decided by the spike (§5 phase 0): goja vs QuickJS-on-wazero vs V8/cgo. If none passes, fall back to greenfield option B (Deno sidecar, optimistic commit).                                                                                                                      |
-| D3 | Where the compiler runs  | Inside the engine with the handler (`db.*` → `core/compile` → host `exec(sql, args)` → `decode`). Zero port, exact parity with `GENERATED_SQL.txt`. Port to Go only for a measured reason.                                                                                       |
-| D4 | App model                | A database is `(tenant, app)`. Fixes today's un-namespaced tenant files (both apps sharing `<tenantId>.db`). Off mode: tenant `default`.                                                                                                                                         |
-| D5 | Auth                     | Go auth in controld: email/password with Better Auth's scrypt parameters (N=16384, r=16, p=1, 64-byte key, NFKC, `salt:hex`) so accounts migrate without resets — verify against a real hash first. Sessions as opaque bearer tokens; memberships unchanged.                     |
-| D6 | API keys                 | Keep accepting existing `tsdb_<base64url>` keys (SHA-256 lookup, as today) alongside ts-db-go's `tsdb_<id>_<secret>`. Migrate rows; issue new keys in the new format.                                                                                                            |
-| D7 | Observability            | Go writes ts-db's event envelope (`http`, `handler`, `tx`, `sql`, `queue`, `backup`, `lifecycle`) as JSONL with the same redaction, so ingest and the analysis catalog keep working. Ingest moves to an offline CLI (ADR 0004/0007 still hold). Prometheus metrics stay as well. |
-| D8 | Wire for multi-node      | Single URL first: the edge routes `/apps/...` requests. Phase 6 adds resolve + tickets to the TS SDK (`createClient(baseURL, ...)` keeps working with `baseURL` = locator).                                                                                                      |
-| D9 | Still open from ts-db-go | Leases (`ts-db-go/knowledge/fencing/2026-11-05-leases-options.md`), WAL-shipping degraded mode. Neither blocks phases 0–5.                                                                                                                                                       |
+| #  | Decision                      | Recommendation                                                                                                                                                                                                                                                                    |
+| -- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1 | Repo layout                   | Move mansio-server into mansio as `server/` with `git subtree` (history kept). One repo means the e2e suite, SDK and server change in one commit. mansio-server stays read-only afterwards.                                                                                       |
+| D2 | Handler engine                | Decided by the spike (§5 phase 0): goja vs QuickJS-on-wazero vs V8/cgo. If none passes, fall back to greenfield option B (Deno sidecar, optimistic commit).                                                                                                                       |
+| D3 | Where the compiler runs       | Inside the engine with the handler (`db.*` → `core/compile` → host `exec(sql, args)` → `decode`). Zero port, exact parity with `GENERATED_SQL.txt`. Port to Go only for a measured reason.                                                                                        |
+| D4 | App model                     | A database is `(tenant, app)`. Fixes today's un-namespaced tenant files (both apps sharing `<tenantId>.db`). Off mode: tenant `default`.                                                                                                                                          |
+| D5 | Auth                          | Go auth in controld: email/password with Better Auth's scrypt parameters (N=16384, r=16, p=1, 64-byte key, NFKC, `salt:hex`) so accounts migrate without resets — verify against a real hash first. Sessions as opaque bearer tokens; memberships unchanged.                      |
+| D6 | API keys                      | Keep accepting existing `mansio_<base64url>` keys (SHA-256 lookup, as today) alongside mansio-server's `mansio_<id>_<secret>`. Migrate rows; issue new keys in the new format.                                                                                                    |
+| D7 | Observability                 | Go writes mansio's event envelope (`http`, `handler`, `tx`, `sql`, `queue`, `backup`, `lifecycle`) as JSONL with the same redaction, so ingest and the analysis catalog keep working. Ingest moves to an offline CLI (ADR 0004/0007 still hold). Prometheus metrics stay as well. |
+| D8 | Wire for multi-node           | Single URL first: the edge routes `/apps/...` requests. Phase 6 adds resolve + tickets to the TS SDK (`createClient(baseURL, ...)` keeps working with `baseURL` = locator).                                                                                                       |
+| D9 | Still open from mansio-server | Leases (`mansio-server/knowledge/fencing/2026-11-05-leases-options.md`), WAL-shipping degraded mode. Neither blocks phases 0–5.                                                                                                                                                   |
 
 ## 4. Design notes
 
@@ -90,8 +90,8 @@ queries: read-pool connection, BEGIN (read) … COMMIT, writes refused (QueryWri
 
 The bundle is `app/` + `sdk/{db,functions,schema}` + `core/{schema,plan,errors,compile}` + `effect`, built
 with esbuild per app. Runtimes are pooled per app and lane, not per database. No ambient I/O in the engine
-(sandbox tests). Request ids (ts-db-go CP-2) give mutations exactly-once retries. That's new for ts-db: add an
-optional `Idempotency-Key` header to the SDK.
+(sandbox tests). Request ids (mansio-server CP-2) give mutations exactly-once retries. That's new for mansio:
+add an optional `Idempotency-Key` header to the SDK.
 
 ### 4.3 Data and file migration
 
@@ -115,21 +115,21 @@ The e2e harness (`tests/e2e/platform/harness.ts`) gains `BACKEND=deno|go`. It tr
 a Go config file instead of rejecting unknown names. Until phase 7, every scenario runs against both backends.
 The Deno backend is the reference.
 
-| Phase                           | Work                                                                                                                                                                                                                                                                                                          | Gate                                                                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Spike + baseline**         | Bundle `app/functions.ts` with Effect; run `createGame`/`makeMove` in each engine inside a ts-db-go actor with a minimal `db` binding; measure p50/p99 overhead, memory per runtime, savepoint-batch throughput. Baseline ts-db on the same workload (k6 `mixed.js`). Verify one real Better Auth hash in Go. | An engine runs the bundle unmodified; handler overhead well under SQLite cost; D1–D8 recorded as ADRs                                                                             |
-| **1. One repo**                 | `git subtree add --prefix=server` ts-db-go; Go CI tasks in `deno.json`/Makefile; harness `BACKEND=go` that boots agentd (single node, file placement, local S3 = SeaweedFS from `docker-compose.yml`)                                                                                                         | Harness starts and health-checks the Go binary                                                                                                                                    |
-| **2. Single node, TENANCY=off** | Document front (§4.1), engine pool and actor integration (§4.2), fingerprint, app bundles for both storage layouts, error/status parity, `X-Trace-Id`                                                                                                                                                         | e2e `documents`, `queries` green on Go; `GENERATED_SQL.txt` identical; differential property test (fast-check plans → same rows from Deno and Go)                                 |
-| **3. Tenancy + auth**           | `(tenant, app)` databases; auth port (app token, API keys with the old format, sessions); controld admin endpoints compatible with `scripts/tenants.ts` or the CLI switched to controld; Go auth with `/api/auth` sign-up/sign-in; Postgres migration (§4.3)                                                  | e2e `auth` (Better Auth client calls replaced by plain HTTP), `tenant_isolation`, `admin_lifecycle` green on Go                                                                   |
-| **4. Durability**               | `/admin/backup/:appId` → force write-back and return a manifest-shaped answer; `scripts/restore.ts` → `dbtool restore`; `dbtool import` for existing files; backups now cover tenant databases                                                                                                                | e2e `backup_restore` (rewritten for generations) green; an import of a Deno-written file opens with no drift                                                                      |
-| **5. Observability**            | Go JSONL emitter for the event envelope with redaction; offline `logs ingest` (keep the TS ingest as a CLI, or port it); `/admin/logs/*` on controld or the CLI; k6 scripts against Go                                                                                                                        | e2e `log_analysis` (rewritten: no direct reader IPC) and `observability_test.ts` green; the catalog's queries return the same shapes                                              |
-| **6. Multi-node**               | TS SDK: resolve + ticket + location cache + re-resolve rules (port ts-db-go `internal/client`), request ids; edge in front; controld `create/move/drop` for `(tenant, app)`                                                                                                                                   | New e2e `scale_out`: two agents, a move under load with no lost or duplicate mutation, a VM restored after an operator attestation; the locator down doesn't stop running traffic |
-| **7. Cut over and delete**      | Remove `platform/`, `core/{events,eventlog,logging,ipc}` (if ingest was ported), the Deno server tasks, the FFI and reader tests, Better Auth deps, `TENANCY` env plumbing; update the C4 diagrams, README, CLAUDE/AGENTS, `docs/testing.md`                                                                  | e2e green on Go only; `deno task ci` covers SDK, core and app; one ADR records the switch                                                                                         |
+| Phase                           | Work                                                                                                                                                                                                                                                                                                                | Gate                                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0. Spike + baseline**         | Bundle `app/functions.ts` with Effect; run `createGame`/`makeMove` in each engine inside a mansio-server actor with a minimal `db` binding; measure p50/p99 overhead, memory per runtime, savepoint-batch throughput. Baseline mansio on the same workload (k6 `mixed.js`). Verify one real Better Auth hash in Go. | An engine runs the bundle unmodified; handler overhead well under SQLite cost; D1–D8 recorded as ADRs                                                                             |
+| **1. One repo**                 | `git subtree add --prefix=server` mansio-server; Go CI tasks in `deno.json`/Makefile; harness `BACKEND=go` that boots agentd (single node, file placement, local S3 = SeaweedFS from `docker-compose.yml`)                                                                                                          | Harness starts and health-checks the Go binary                                                                                                                                    |
+| **2. Single node, TENANCY=off** | Document front (§4.1), engine pool and actor integration (§4.2), fingerprint, app bundles for both storage layouts, error/status parity, `X-Trace-Id`                                                                                                                                                               | e2e `documents`, `queries` green on Go; `GENERATED_SQL.txt` identical; differential property test (fast-check plans → same rows from Deno and Go)                                 |
+| **3. Tenancy + auth**           | `(tenant, app)` databases; auth port (app token, API keys with the old format, sessions); controld admin endpoints compatible with `scripts/tenants.ts` or the CLI switched to controld; Go auth with `/api/auth` sign-up/sign-in; Postgres migration (§4.3)                                                        | e2e `auth` (Better Auth client calls replaced by plain HTTP), `tenant_isolation`, `admin_lifecycle` green on Go                                                                   |
+| **4. Durability**               | `/admin/backup/:appId` → force write-back and return a manifest-shaped answer; `scripts/restore.ts` → `dbtool restore`; `dbtool import` for existing files; backups now cover tenant databases                                                                                                                      | e2e `backup_restore` (rewritten for generations) green; an import of a Deno-written file opens with no drift                                                                      |
+| **5. Observability**            | Go JSONL emitter for the event envelope with redaction; offline `logs ingest` (keep the TS ingest as a CLI, or port it); `/admin/logs/*` on controld or the CLI; k6 scripts against Go                                                                                                                              | e2e `log_analysis` (rewritten: no direct reader IPC) and `observability_test.ts` green; the catalog's queries return the same shapes                                              |
+| **6. Multi-node**               | TS SDK: resolve + ticket + location cache + re-resolve rules (port mansio-server `internal/client`), request ids; edge in front; controld `create/move/drop` for `(tenant, app)`                                                                                                                                    | New e2e `scale_out`: two agents, a move under load with no lost or duplicate mutation, a VM restored after an operator attestation; the locator down doesn't stop running traffic |
+| **7. Cut over and delete**      | Remove `platform/`, `core/{events,eventlog,logging,ipc}` (if ingest was ported), the Deno server tasks, the FFI and reader tests, Better Auth deps, `TENANCY` env plumbing; update the C4 diagrams, README, CLAUDE/AGENTS, `docs/testing.md`                                                                        | e2e green on Go only; `deno task ci` covers SDK, core and app; one ADR records the switch                                                                                         |
 
 Phases 2–4 fix the Deno platform's scaling issues 2–5 on a single node before any multi-node work, the same
 "in-node first" order as before.
 
-## 6. What survives in ts-db after phase 7
+## 6. What survives in mansio after phase 7
 
 `sdk/` (client gains resolve and tickets), `app/`, `core/{schema,plan,errors,compile}` (bundled into the
 engine and used by the SDK), `tests/{unit,property}` for those, the e2e suite (now the server's conformance
@@ -149,8 +149,8 @@ platform-only tests (`storage`, `sqlite_ffi_*`, `reader*`, `ipc`, `eventlog`, `r
 - **Two backends during the transition:** freeze features on the Deno side once phase 2 starts.
 - **Observability parity** is wide (10 catalog queries, 8 event kinds). Keep the TS ingest as a CLI rather
   than porting it, unless Deno must go entirely.
-- **Durability defaults:** ts-db runs `synchronous=FULL` today. ts-db-go defaults to `NORMAL` plus write-back
-  RPO, and WAL shipping is still a design. Decide the RPO ts-db promises before phase 4 (D9).
+- **Durability defaults:** mansio runs `synchronous=FULL` today. mansio-server defaults to `NORMAL` plus
+  write-back RPO, and WAL shipping is still a design. Decide the RPO mansio promises before phase 4 (D9).
 
 ## 8. Size (estimate, unverified)
 

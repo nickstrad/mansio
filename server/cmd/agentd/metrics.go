@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // The metric catalog (Release It O1, O2) is documented in knowledge/front/2026-11-05-metrics.md. Every
@@ -30,7 +30,7 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server) {
 	var st front.ServerStats
 	var adm front.AdmissionStats
 	reg.OnScrape(func() { st, adm = srv.Stats(), srv.Admission().Stats() })
-	reg.Add("tsdb_requests_total", "Answers per integration point by outcome class and wire code.", metrics.Counter, func(e *metrics.Emit) {
+	reg.Add("mansio_requests_total", "Answers per integration point by outcome class and wire code.", metrics.Counter, func(e *metrics.Emit) {
 		for i, c := range front.Codes {
 			n := st.Outcomes[i]
 			if front.OutcomeClass(c, true) == front.OutcomeClass(c, false) {
@@ -41,17 +41,17 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server) {
 			e.Value(metrics.Labels{"point", "front", "class", front.OutcomeClass(c, false), "code", string(c)}, float64(n[0]))
 		}
 	})
-	reg.Add("tsdb_request_latency_seconds", "Answer latency per integration point (requests that hang are counted at their deadline).",
+	reg.Add("mansio_request_latency_seconds", "Answer latency per integration point (requests that hang are counted at their deadline).",
 		metrics.Histogram, func(e *metrics.Emit) {
 			e.Histogram(metrics.Labels{"point", "front"}, st.LatencyBounds, st.LatencyCounts, st.LatencySum)
 		})
-	reg.Add("tsdb_in_flight", "Requests in flight per integration point.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_in_flight", "Requests in flight per integration point.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(metrics.Labels{"point", "front"}, float64(st.InFlight))
 	})
-	reg.Add("tsdb_in_flight_high_water", "Most requests in flight at once since start, per integration point.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_in_flight_high_water", "Most requests in flight at once since start, per integration point.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(metrics.Labels{"point", "front"}, float64(st.InFlightHighWater))
 	})
-	reg.Add("tsdb_admission", "Admission (VM-wide): in use, queued, their high-water marks, tenants and databases with state.",
+	reg.Add("mansio_admission", "Admission (VM-wide): in use, queued, their high-water marks, tenants and databases with state.",
 		metrics.Gauge, func(e *metrics.Emit) {
 			for _, v := range []struct {
 				stat string
@@ -61,10 +61,10 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server) {
 				e.Value(metrics.Labels{"stat", v.stat}, float64(v.n))
 			}
 		})
-	reg.Add("tsdb_admission_shed_total", "Requests admission refused because a queue was full (times full).", metrics.Counter, func(e *metrics.Emit) {
+	reg.Add("mansio_admission_shed_total", "Requests admission refused because a queue was full (times full).", metrics.Counter, func(e *metrics.Emit) {
 		e.Value(nil, float64(adm.Shed))
 	})
-	reg.Add("tsdb_admission_drain_per_second", "Admission completions in the last whole second (the shed Retry-After's rate).",
+	reg.Add("mansio_admission_drain_per_second", "Admission completions in the last whole second (the shed Retry-After's rate).",
 		metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, adm.DrainPerSec) })
 }
 
@@ -72,12 +72,12 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server) {
 func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
 	var q front.QueueStats
 	reg.OnScrape(func() { q = host.QueueStats() })
-	reg.Add("tsdb_actor_queue_depth", "Requests queued in actors: total, deepest, and the p99 across actors.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_actor_queue_depth", "Requests queued in actors: total, deepest, and the p99 across actors.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(metrics.Labels{"stat", "total"}, float64(q.Total))
 		e.Value(metrics.Labels{"stat", "max"}, float64(q.Max))
 		e.Value(metrics.Labels{"stat", "p99"}, float64(q.P99))
 	})
-	reg.Add("tsdb_actors", "Actors served (databases open, plus the canary).", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_actors", "Actors served (databases open, plus the canary).", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(nil, float64(q.Actors))
 	})
 }
@@ -87,17 +87,17 @@ func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
 func lifecycleMetrics(reg *metrics.Registry, pending func() int, ready *front.Readiness, started time.Time) {
 	var n int
 	reg.OnScrape(func() { n = pending() }) // once per scrape: durable mode's count is O(keys)
-	reg.Add("tsdb_startup_pending", "Databases not open or reconciled yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_startup_pending", "Databases not open or reconciled yet (refused unavailable until they are).", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(nil, float64(n))
 	})
-	reg.Add("tsdb_startup_pending_age_seconds", "How long the oldest unopened or unreconciled database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_startup_pending_age_seconds", "How long the oldest unopened or unreconciled database has waited (0 when none).", metrics.Gauge, func(e *metrics.Emit) {
 		age := 0.0
 		if n > 0 {
 			age = time.Since(started).Seconds()
 		}
 		e.Value(nil, age)
 	})
-	reg.Add("tsdb_ready", "1 when the last readiness probe passed and is fresh.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_ready", "1 when the last readiness probe passed and is fresh.", metrics.Gauge, func(e *metrics.Emit) {
 		v := 0.0
 		if ready.State().Ready {
 			v = 1
@@ -132,21 +132,21 @@ func s3Metrics(reg *metrics.Registry, snapshot func() map[string]objstore.OpStat
 			}
 		})
 	}
-	family("tsdb_s3_requests_total", "S3 attempts (retries included) by operation, outcome class and kind.", metrics.Counter,
+	family("mansio_s3_requests_total", "S3 attempts (retries included) by operation, outcome class and kind.", metrics.Counter,
 		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			for k := objstore.OK; k <= objstore.Canceled; k++ {
 				e.Value(metrics.Labels{"point", "s3", "op", op, "class", s3Class(k), "kind", k.String()}, float64(st.ByKind[k]))
 			}
 		})
-	family("tsdb_s3_retries_total", "Failed S3 attempts the retry layer followed with another attempt.", metrics.Counter,
+	family("mansio_s3_retries_total", "Failed S3 attempts the retry layer followed with another attempt.", metrics.Counter,
 		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Value(metrics.Labels{"op", op}, float64(st.Retried))
 		})
-	family("tsdb_s3_bytes_total", "Body bytes moved by successful S3 attempts.", metrics.Counter,
+	family("mansio_s3_bytes_total", "Body bytes moved by successful S3 attempts.", metrics.Counter,
 		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Value(metrics.Labels{"op", op}, float64(st.Bytes))
 		})
-	family("tsdb_s3_latency_seconds", "S3 attempt latency by operation (_sum is 0: objstore keeps buckets only).", metrics.Histogram,
+	family("mansio_s3_latency_seconds", "S3 attempt latency by operation (_sum is 0: objstore keeps buckets only).", metrics.Histogram,
 		func(e *metrics.Emit, op string, st objstore.OpStats) {
 			e.Histogram(metrics.Labels{"point", "s3", "op", op}, objstore.LatencyBuckets, toUint(st.Latency), 0)
 		})
@@ -166,7 +166,7 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 	var st vactor.Stats
 	var tick vactor.TickReport
 	reg.OnScrape(func() { st, tick = h.Stats(), lastTick() })
-	reg.Add("tsdb_vactor_events_total", "Virtual-actor host counters since start.", metrics.Counter, func(e *metrics.Emit) {
+	reg.Add("mansio_vactor_events_total", "Virtual-actor host counters since start.", metrics.Counter, func(e *metrics.Emit) {
 		for _, v := range []struct {
 			event string
 			n     int64
@@ -175,7 +175,7 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 			e.Value(metrics.Labels{"event", v.event}, float64(v.n))
 		}
 	})
-	reg.Add("tsdb_vactor_last_writeback_ok_timestamp_seconds", "When a write-back last published (0 = never).", metrics.Gauge,
+	reg.Add("mansio_vactor_last_writeback_ok_timestamp_seconds", "When a write-back last published (0 = never).", metrics.Gauge,
 		func(e *metrics.Emit) {
 			v := 0.0
 			if t := st.LastWriteBackOK; !t.IsZero() {
@@ -183,16 +183,16 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 			}
 			e.Value(nil, v)
 		})
-	reg.Add("tsdb_vactor", "Virtual-actor host levels: active databases and the fetch bulkhead.", metrics.Gauge, func(e *metrics.Emit) {
+	reg.Add("mansio_vactor", "Virtual-actor host levels: active databases and the fetch bulkhead.", metrics.Gauge, func(e *metrics.Emit) {
 		g := h.Gauges()
 		e.Value(metrics.Labels{"stat", "active"}, float64(g.Active))
 		e.Value(metrics.Labels{"stat", "fetches_in_flight"}, float64(g.FetchesInFlight))
 		e.Value(metrics.Labels{"stat", "fetch_bytes_in_flight"}, float64(g.FetchBytesInFlight))
 		e.Value(metrics.Labels{"stat", "fetch_queued"}, float64(g.FetchQueued))
 	})
-	reg.Add("tsdb_vactor_oldest_dirty_age_seconds", "Age of the oldest unpublished writes at the last tick (the RPO).", metrics.Gauge,
+	reg.Add("mansio_vactor_oldest_dirty_age_seconds", "Age of the oldest unpublished writes at the last tick (the RPO).", metrics.Gauge,
 		func(e *metrics.Emit) { e.Value(nil, tick.OldestDirtyAge.Seconds()) })
-	reg.Add("tsdb_vactor_tick", "The last maintenance tick: duration, intervals missed, jobs that hit their deadline.", metrics.Gauge,
+	reg.Add("mansio_vactor_tick", "The last maintenance tick: duration, intervals missed, jobs that hit their deadline.", metrics.Gauge,
 		func(e *metrics.Emit) {
 			e.Value(metrics.Labels{"stat", "took_seconds"}, tick.Took.Seconds())
 			e.Value(metrics.Labels{"stat", "missed"}, float64(tick.Missed))
@@ -262,7 +262,7 @@ func (o *ownerEvents) onChange(key string, from, to owner.Local) {
 }
 
 func (o *ownerEvents) register(reg *metrics.Registry) {
-	reg.Add("tsdb_owner_transitions_total", "Ownership transitions by the state entered.", metrics.Counter, func(e *metrics.Emit) {
+	reg.Add("mansio_owner_transitions_total", "Ownership transitions by the state entered.", metrics.Counter, func(e *metrics.Emit) {
 		for s := owner.Absent; int(s) < len(o.to); s++ {
 			e.Value(metrics.Labels{"to", s.String()}, float64(o.to[s].Load()))
 		}

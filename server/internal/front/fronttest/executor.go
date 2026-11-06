@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // The statements the contract suite uses. The fake executor understands exactly these; the real one runs them

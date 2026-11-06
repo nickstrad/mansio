@@ -6,12 +6,12 @@ import { bundles, catalog, readText } from "./fixtures.ts";
 describe("catalog", () => {
   it("lists every architecture and opens the current one by default", () => {
     expect(catalog.entries.map((entry) => entry.id)).toEqual([
-      "tsdb-current",
-      "tsdb-lanes-proposal",
-      "tsdb-planes-proposal",
-      "tsdb-planes-fable",
+      "mansio-current",
+      "mansio-lanes-proposal",
+      "mansio-planes-proposal",
+      "mansio-planes-fable",
     ]);
-    expect(catalog.defaultId).toBe("tsdb-current");
+    expect(catalog.defaultId).toBe("mansio-current");
   });
 });
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
 func TestTextExposition(t *testing.T) {
@@ -85,7 +85,7 @@ func TestProcess(t *testing.T) {
 		var b strings.Builder
 		r.WriteText(&b)
 		for line := range strings.SplitSeq(b.String(), "\n") {
-			if v, ok := strings.CutPrefix(line, `tsdb_process{stat="`+name+`"} `); ok {
+			if v, ok := strings.CutPrefix(line, `mansio_process{stat="`+name+`"} `); ok {
 				f, err := strconv.ParseFloat(v, 64)
 				if err != nil {
 					t.Fatal(err)

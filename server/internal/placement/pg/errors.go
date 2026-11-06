@@ -6,8 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 var (

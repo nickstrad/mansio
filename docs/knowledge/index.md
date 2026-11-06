@@ -1,10 +1,10 @@
 # Project knowledge
 
-Durable ts-db knowledge for future agents and the human: decisions, traps, and terms that survive any single
+Durable mansio knowledge for future agents and the human: decisions, traps, and terms that survive any single
 session. **Start here at session/orientation time**, then open the page relevant to your task.
 
 Markdown only, by human decision (2026-10-11): no RAG index, no `kb` CLI. Sibling projects (`vm-agent`,
-`perpetual`) use the nickstrad/kb full-text store; ts-db deliberately stays plain markdown so any agent can
+`perpetual`) use the nickstrad/kb full-text store; mansio deliberately stays plain markdown so any agent can
 read and edit entries with zero tooling.
 
 ## Pages

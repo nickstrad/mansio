@@ -1,6 +1,6 @@
 # FFI-07 — Property tests for the binding and the deadline (builder brief)
 
-Status: dispatched · Branch: `item/ffi-07-props` · Worktree: `/root/Software/tsdb-work/ffi07` · Base: `main`
+Status: dispatched · Branch: `item/ffi-07-props` · Worktree: `/root/Software/mansio-work/ffi07` · Base: `main`
 at `f2bf1c9` (FFI-05 merge) · Builder: Claude Sonnet (actor `claude-sonnet-ffi-07`) · Reviewer: Astra
 (`gpt-6-astra`), fresh unit · Date: 2026-10-14 · Runs CONCURRENT with FFI-06 (`item/ffi-06-evidence`, disjoint
 Owns).

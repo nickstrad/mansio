@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
 )
 
 // lifecycleAddr is the addr-file's second line (the lifecycle listener).

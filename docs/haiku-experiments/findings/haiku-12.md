@@ -1,9 +1,9 @@
 # haiku-12 — Opus review: Property tests, wave 1 (plan item 12)
 
 **Branch:** `haiku/12-props` (`b1a1a26`, single commit) **Reviewer:** Opus, 2026-10-10 **Review worktree:**
-`origin/haiku/12-props` at `/root/Software/tsdb-work/rev12` (read-only) **Verdict: FAIL** — the suite is green
-but two of the five rotation properties assert nothing, and the commit message reports test evidence that does
-not reproduce.
+`origin/haiku/12-props` at `/root/Software/mansio-work/rev12` (read-only) **Verdict: FAIL** — the suite is
+green but two of the five rotation properties assert nothing, and the commit message reports test evidence
+that does not reproduce.
 
 ## What was built
 

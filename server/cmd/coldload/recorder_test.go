@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 func rec(seq int) coldload.Record {

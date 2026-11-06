@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "tsdb-planes-proposal",
+  "id": "mansio-planes-proposal",
   "title": "Proposed: control plane / data plane — tenants own many databases",
   "revision": "dp-01-repair-2026-10-20",
   "defaultDiagramId": "planes-context",
@@ -6131,14 +6131,14 @@
       "title": "DP-01 authorized design brief",
       "path": "agent-work/items/dp-01-planes/brief.md",
       "revision": "6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a",
-      "url": "https://github.com/nickstrad/ts-db/blob/6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a/agent-work/items/dp-01-planes/brief.md"
+      "url": "https://github.com/nickstrad/mansio/blob/6c3989e28aed5c5fa60d4f6c33730ce6885d5c9a/agent-work/items/dp-01-planes/brief.md"
     },
     {
       "id": "src-addendum",
       "title": "DP-01 addendum 1: VM agents and control-plane routing / placement",
       "path": "agent-work/items/dp-01-planes/addendum-1.md",
       "revision": "sha256:e3fa963e235602b6124a24ec9987c1d576fc38e2665d46c388c64af30effb483",
-      "url": "https://github.com/nickstrad/ts-db/blob/item/dp-01-planes/agent-work/items/dp-01-planes/addendum-1.md",
+      "url": "https://github.com/nickstrad/mansio/blob/item/dp-01-planes/agent-work/items/dp-01-planes/addendum-1.md",
       "notes": "Same-change design source: URL is a branch reference; revision is the SHA-256 of the source bytes, not a commit pin."
     },
     {
@@ -6146,56 +6146,56 @@
       "title": "DP-01 independent review and repair requirements",
       "path": "agent-work/items/dp-01-planes/review-astra.md",
       "revision": "c8883bd8efd8a500668a240eedda073b9227e719",
-      "url": "https://github.com/nickstrad/ts-db/blob/c8883bd8efd8a500668a240eedda073b9227e719/agent-work/items/dp-01-planes/review-astra.md"
+      "url": "https://github.com/nickstrad/mansio/blob/c8883bd8efd8a500668a240eedda073b9227e719/agent-work/items/dp-01-planes/review-astra.md"
     },
     {
       "id": "src-lanes",
       "title": "Preserved scale-out dataset",
-      "path": "pages/public/architectures/tsdb-lanes-proposal.json",
+      "path": "pages/public/architectures/mansio-lanes-proposal.json",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/public/architectures/tsdb-lanes-proposal.json"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/public/architectures/tsdb-lanes-proposal.json"
     },
     {
       "id": "src-lanes-inventory",
       "title": "Scale-out decisions P1–P17",
-      "path": "pages/content/tsdb-lanes-proposal/inventory.md",
+      "path": "pages/content/mansio-lanes-proposal/inventory.md",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/content/tsdb-lanes-proposal/inventory.md"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/pages/content/tsdb-lanes-proposal/inventory.md"
     },
     {
       "id": "src-router",
       "title": "Landed TenantStorageRouter seam; future ControlPlaneRouter",
       "path": "platform/tenants/routing.ts",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/tenants/routing.ts"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/tenants/routing.ts"
     },
     {
       "id": "src-classifier",
       "title": "Landed operation-IR classifier",
       "path": "platform/sqlite_ffi/classify.ts",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/classify.ts"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/classify.ts"
     },
     {
       "id": "src-ffi",
       "title": "Landed scoped FFI and cancellation wrappers",
       "path": "platform/sqlite_ffi/effect.ts",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/effect.ts"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite_ffi/effect.ts"
     },
     {
       "id": "src-storage",
       "title": "Landed Storage, connection gate and deadlines",
       "path": "platform/sqlite.ts",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite.ts"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/platform/sqlite.ts"
     },
     {
       "id": "src-decisions",
       "title": "Router seam and Postgres handwritten SQL decisions",
       "path": "docs/knowledge/decisions.md",
       "revision": "351a51bfe64c5f1172538d5a446c46c58a4c3b00",
-      "url": "https://github.com/nickstrad/ts-db/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/docs/knowledge/decisions.md"
+      "url": "https://github.com/nickstrad/mansio/blob/351a51bfe64c5f1172538d5a446c46c58a4c3b00/docs/knowledge/decisions.md"
     }
   ],
   "terms": []

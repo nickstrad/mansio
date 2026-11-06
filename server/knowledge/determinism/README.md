@@ -1,6 +1,6 @@
 # determinism/ — Clock, Rand and IDGen seams for deterministic simulation (DST)
 
-Owner: DST builder (IR protocol plan §6.4, `ts-db/docs/plans/ir-protocol.md`). Newest first.
+Owner: DST builder (IR protocol plan §6.4, `mansio/docs/plans/ir-protocol.md`). Newest first.
 
 ## 2026-11-05 DST-0: determinism hygiene (branch `dst/0-hygiene`)
 

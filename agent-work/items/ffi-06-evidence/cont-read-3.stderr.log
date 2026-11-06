@@ -1,4 +1,4 @@
 error: Uncaught (in promise) AssertionError: node parity
   assert.ok(report.ffi_blocking_us.p50_us <= report.node_sqlite_sync_us.p50_us, "node parity");
          ^
-    at file:///root/Software/tsdb-work/ffi06/perf/ffi_read_cost.ts:70:10
+    at file:///root/Software/mansio-work/ffi06/perf/ffi_read_cost.ts:70:10

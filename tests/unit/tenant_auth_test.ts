@@ -101,7 +101,7 @@ test("tenant key cache: fixed positive/negative TTL, capacity, local invalidatio
 });
 
 test("tenant HTTP query does not re-prepare SQLite while a mutation holds its transaction", async () => {
-  const root = await Deno.makeTempDir({ prefix: "tsdb-tenant-overlap-" });
+  const root = await Deno.makeTempDir({ prefix: "mansio-tenant-overlap-" });
   const scope = Effect.runSync(Scope.make());
   const entered = Effect.runSync(Deferred.make<void>());
   const release = Effect.runSync(Deferred.make<void>());

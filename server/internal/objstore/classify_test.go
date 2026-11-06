@@ -11,9 +11,9 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/objstore"
 )
 
 // Spec table for Classify, one row per partition, with on/off points at the status boundaries

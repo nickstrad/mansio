@@ -1,5 +1,6 @@
 {
   "nodeModulesDir": "auto",
+  "exclude": ["server/"],
   "compilerOptions": {
     "strict": true
   },
@@ -18,6 +19,8 @@
     "test": "deno test --v8-flags=--expose-gc -A tests/unit/**/*.ts tests/core_test.ts",
     "test:prop": "deno test --v8-flags=--expose-gc -A tests/property/**/*.ts",
     "ci": "deno task fmt:check && deno task lint && deno task check && deno task test && deno task test:prop",
+    "go:ci": "cd server && test -z \"$(gofmt -l .)\" && go vet ./... && go test -race ./... && go test -tags noassert ./...",
+    "ci:all": "deno task ci && deno task go:ci",
     "explain": "deno run scripts/explain.ts",
     "integration": "deno run -A tests/integration.ts",
     "serve": "deno run -A platform/server.ts",

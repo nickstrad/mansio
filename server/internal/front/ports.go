@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/actor"
 )
 
 // Admitter is the ownership port (contract 2; fencing's internal/owner implements it through an adapter).

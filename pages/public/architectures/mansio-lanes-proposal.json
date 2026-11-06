@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "tsdb-lanes-proposal",
+  "id": "mansio-lanes-proposal",
   "title": "Proposed: statement lanes and tenant placement (scale-out)",
   "revision": "docs-ffi-c4-81d9936-on-main-2d30330-pg02",
   "defaultDiagramId": "lanes-context",
@@ -4177,7 +4177,7 @@
     {
       "id": "doc-context",
       "title": "System context: what the proposal changes",
-      "plain": "This dataset proposes only the scale-out design: statement lanes and tenant placement. The FFI execution layer\n(FFI-01 to FFI-08) is not part of the proposal; it has landed and is drawn in `tsdb-current`.\n\nThe proposal keeps the system's people and external systems. Inside the platform's organisation boundary, statement\nlanes (child processes) take over SQLite execution, the Postgres registry gains a `placement` table (tenant to node,\nwith leases and epochs) so any node can forward a request to the tenant's owner, and object storage later gains WAL\nframes (phase two). No new external system is introduced: the forwarded hop is node-to-node inside the platform, and\nthe caller contract (`createClient(baseURL, appId, token)`) is unchanged. k6 and the migration and tenant CLIs are\nunchanged and omitted for focus; the current dataset draws them.\n\n**Since the source was drawn** (2026-10-12, baseline `e808983`), the FFI execution layer it marked planned has landed\non `main` (FFI-01 to FFI-08, 2026-10-14): the API process already executes SQLite through Deno FFI to the system\n`libsqlite3`, classifies each statement from its plan and bounds unbounded reads with a deadline and\n`sqlite3_interrupt` (HTTP 504 on expiry). Lanes, placement, forwarding and WAL shipping remain proposals; FFI plan §6\nnames lanes and placement as explicitly not built.",
+      "plain": "This dataset proposes only the scale-out design: statement lanes and tenant placement. The FFI execution layer\n(FFI-01 to FFI-08) is not part of the proposal; it has landed and is drawn in `mansio-current`.\n\nThe proposal keeps the system's people and external systems. Inside the platform's organisation boundary, statement\nlanes (child processes) take over SQLite execution, the Postgres registry gains a `placement` table (tenant to node,\nwith leases and epochs) so any node can forward a request to the tenant's owner, and object storage later gains WAL\nframes (phase two). No new external system is introduced: the forwarded hop is node-to-node inside the platform, and\nthe caller contract (`createClient(baseURL, appId, token)`) is unchanged. k6 and the migration and tenant CLIs are\nunchanged and omitted for focus; the current dataset draws them.\n\n**Since the source was drawn** (2026-10-12, baseline `e808983`), the FFI execution layer it marked planned has landed\non `main` (FFI-01 to FFI-08, 2026-10-14): the API process already executes SQLite through Deno FFI to the system\n`libsqlite3`, classifies each statement from its plan and bounds unbounded reads with a deadline and\n`sqlite3_interrupt` (HTTP 504 on expiry). Lanes, placement, forwarding and WAL shipping remain proposals; FFI plan §6\nnames lanes and placement as explicitly not built.",
       "ste": {
         "text": "The proposal does not change the people or the external systems. The proposal adds three things to the platform.\nStatement lanes execute the SQLite statements. A placement table in the registry shows the owner node of each tenant.\nA node forwards a request to the owner node of its tenant. In phase two, object storage also keeps WAL frames.\n\nThe FFI binding is now installed on main. The API process uses it today. The lanes and the placement table are not\ninstalled.",
         "issue": "ASD-STE100 Issue 9",
@@ -4802,63 +4802,63 @@
     {
       "id": "src-ctx-github",
       "title": "Source diagram: proposed system context (Mermaid, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.github.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-context-ffi.github.md"
     },
     {
       "id": "src-ctx-terminal",
       "title": "Source diagram: proposed system context (terminal box drawing, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-context-ffi.terminal.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-context-ffi.terminal.md"
     },
     {
       "id": "src-ctx-py",
       "title": "Source diagram: proposed system context (generator source, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-context-ffi.py",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-context-ffi.py",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/diagrams/c4-context-ffi.py"
     },
     {
       "id": "src-ctr-github",
       "title": "Source diagram: proposed data node with lanes (Mermaid, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.github.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-container-ffi.github.md"
     },
     {
       "id": "src-ctr-terminal",
       "title": "Source diagram: proposed data node with lanes (terminal box drawing, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-container-ffi.terminal.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-container-ffi.terminal.md"
     },
     {
       "id": "src-ctr-py",
       "title": "Source diagram: proposed data node with lanes (generator source, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-container-ffi.py",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-container-ffi.py",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/diagrams/c4-container-ffi.py"
     },
     {
       "id": "src-ffi-readme",
       "title": "Source plan README (branch docs/ffi-c4, drawn before FFI landed): diagram set, status table and key flows",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/README.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/README.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/README.md"
     },
     {
       "id": "src-ffi-ste",
       "title": "Source plan in Simplified Technical English (branch docs/ffi-c4, drawn before FFI landed)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/architecture-ste100.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/architecture-ste100.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/architecture-ste100.md"
     },
     {
       "id": "src-lang-switch",
       "title": "Language-switch study: measurements and the FFI recommendation",
-      "url": "https://github.com/nickstrad/ts-db/blob/d97bcf8f145e94279b882665c70412eabdaba775/docs/architecture/lang-switch-fable.md",
+      "url": "https://github.com/nickstrad/mansio/blob/d97bcf8f145e94279b882665c70412eabdaba775/docs/architecture/lang-switch-fable.md",
       "revision": "d97bcf8f145e94279b882665c70412eabdaba775",
       "path": "docs/architecture/lang-switch-fable.md",
       "notes": "On research/fable-lang-switch; not on main. Section 3 holds the measurements, section 9 their limits."
@@ -4866,7 +4866,7 @@
     {
       "id": "src-ffi-plan",
       "title": "FFI implementation plan: FFI-01 to FFI-08 landed",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/plans/ffi-implementation.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/plans/ffi-implementation.md",
       "notes": "What landed on main and what explicitly did not (section 6: lanes and placement)."
@@ -4874,63 +4874,63 @@
     {
       "id": "src-adr-0008",
       "title": "ADR 0008: statement execution via FFI",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/adr/0008-statement-execution-via-ffi.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/adr/0008-statement-execution-via-ffi.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/adr/0008-statement-execution-via-ffi.md"
     },
     {
       "id": "src-sqlite-ffi",
       "title": "The landed FFI binding (platform/sqlite_ffi/)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/README.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/README.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite_ffi/README.md"
     },
     {
       "id": "src-classify",
       "title": "The landed statement classifier",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite_ffi/classify.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite_ffi/classify.ts"
     },
     {
       "id": "src-current-platform",
       "title": "Current container view: request path (audited)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-container-platform.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-container-platform.github.md"
     },
     {
       "id": "src-current-context",
       "title": "Current system context (audited)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/docs/architecture/c4-context-document-db.github.md",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "docs/architecture/c4-context-document-db.github.md"
     },
     {
       "id": "src-lane-github",
       "title": "Source diagram: proposed statement lane components (Mermaid, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.github.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.github.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-component-ffi-lane.github.md"
     },
     {
       "id": "src-lane-terminal",
       "title": "Source diagram: proposed statement lane components (terminal box drawing, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.terminal.md",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/c4-component-ffi-lane.terminal.md",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/c4-component-ffi-lane.terminal.md"
     },
     {
       "id": "src-lane-py",
       "title": "Source diagram: proposed statement lane components (generator source, branch docs/ffi-c4)",
-      "url": "https://github.com/nickstrad/ts-db/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-component-ffi-lane.py",
+      "url": "https://github.com/nickstrad/mansio/blob/81d9936df084763c1577f37bd844b4ff00b95fdc/docs/plans/ffi/diagrams/c4-component-ffi-lane.py",
       "revision": "81d9936df084763c1577f37bd844b4ff00b95fdc",
       "path": "docs/plans/ffi/diagrams/c4-component-ffi-lane.py"
     },
     {
       "id": "src-sqlite-ts",
       "title": "The landed Storage service, ConnectionGate and tenant handle cache (platform/sqlite.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/sqlite.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/sqlite.ts",
       "notes": "Writer Semaphore(1) and WRITER_QUEUE_CAP; BEGIN IMMEDIATE; sql, tx and queue events; ConnectionGate and the interrupt grace period; the 64-entry leased tenant handle cache with idle eviction (makeStorage)."
@@ -4938,7 +4938,7 @@
     {
       "id": "src-document-reader",
       "title": "The landed document reader (platform/document_reader.ts)",
-      "url": "https://github.com/nickstrad/ts-db/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts",
+      "url": "https://github.com/nickstrad/mansio/blob/2d30330ed2c0aa967fb737827e43a7cbb8714e59/platform/document_reader.ts",
       "revision": "2d30330ed2c0aa967fb737827e43a7cbb8714e59",
       "path": "platform/document_reader.ts",
       "notes": "One read-only connection per query handler; 32-permit execution cap; 1000-pending admission; blocking or nonblocking path per classify."

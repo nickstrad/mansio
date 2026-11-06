@@ -1,10 +1,10 @@
 # sqlbench — one goroutine (actor) per SQLite database, under load
 
-Owner: sqlbench agent (live plan/status: `/Users/nick/Software/ts-db-go/STATE.md`). Code: `cmd/sqlbench`,
+Owner: sqlbench agent (live plan/status: `/Users/nick/Software/mansio/server/STATE.md`). Code: `cmd/sqlbench`,
 `internal/{actor,schema,workload,retry,load,stats}`, `queries/report.sql`, `queries/compare.sql`, `configs/*.json`
 (not `configs/coldload/`).
 
-Question it answers: if ts-db's SQLite work stops sharing one thread / one lock, how much does that buy, and
+Question it answers: if mansio's SQLite work stops sharing one thread / one lock, how much does that buy, and
 what is the next limit?
 
 ## Findings (newest first)
@@ -56,8 +56,8 @@ Measured conclusions:
    5k dbs (from `samples.csv` deltas; peak RSS only, so an estimate).
 5. OS threads reached 1,506 in actor mode even with pure-Go SQLite: blocking file syscalls hold a thread each.
 
-Caveat: the global-lock mode is a worst case (every statement on one thread). ts-db already runs unbounded reads
-on a 32-permit blocking pool and has per-file writer queues, so it is not an exact replica of ts-db.
+Caveat: the global-lock mode is a worst case (every statement on one thread). mansio already runs unbounded reads
+on a 32-permit blocking pool and has per-file writer queues, so it is not an exact replica of mansio.
 
 Not yet measured: `ramp` (to 10k dbs), `retry-storm` (good vs no-jitter vs bad clients under overload), `hot`
 (zipf), lower statement timeouts, admission control for expensive query classes.

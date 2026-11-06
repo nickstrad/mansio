@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/client"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/client"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 // Soak support (control-plane plan CP-4b, RI-15): pacing, a skewed database mix, an acknowledgement log that
@@ -211,9 +211,9 @@ func verifyCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err := parse(fs, args, stderr); err != nil {
 		return err
 	}
-	apiKey := os.Getenv("TSDB_API_KEY")
+	apiKey := os.Getenv("MANSIO_API_KEY")
 	if logs == "" || apiKey == "" || f.dbs < 1 {
-		fmt.Fprintln(stderr, "frontbench verify: need -ack-logs, -dbs >= 1 and TSDB_API_KEY")
+		fmt.Fprintln(stderr, "frontbench verify: need -ack-logs, -dbs >= 1 and MANSIO_API_KEY")
 		return usageError{errors.New("bad flags")}
 	}
 	type logged struct{ db, outcome string }

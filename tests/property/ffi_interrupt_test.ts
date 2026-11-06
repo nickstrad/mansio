@@ -153,7 +153,7 @@ async function withFixture<T>(
   beat: (context: string) => void,
   fn: (f: Fixture) => Promise<T>,
 ): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi-interrupt-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi-interrupt-"));
   const db = Database.open(join(dir, "interrupt.db"));
   let body: { ok: true; value: T } | { ok: false; error: unknown };
   try {

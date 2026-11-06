@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/edge/edgetest"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/edge/edgetest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 // keys writes a one-key public key file and returns its path and a minting function.
@@ -206,7 +206,7 @@ func TestLifecycleAndShutdown(t *testing.T) {
 		done <- status
 	}()
 	for {
-		if _, body := get("/metrics"); strings.Contains(body, `tsdb_edge_agent_in_flight{vm="vm-a"} 1`) {
+		if _, body := get("/metrics"); strings.Contains(body, `mansio_edge_agent_in_flight{vm="vm-a"} 1`) {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)

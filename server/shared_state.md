@@ -153,23 +153,23 @@ coldload: `cmd/coldload/template.go:41` has the same pattern — not touching it
 
 ## 2026-11-05 10:15 — coordinator: three agents start: writeback, fencing, front (contracts between them)
 
-Context: ts-db (`/Users/nick/Software/ts-db/docs/architecture/scale-out-go-greenfield.md` §8) found three gaps
-between ts-db-go and a data plane a control plane could route to. The user asked for one Opus agent per gap,
-in ts-db-go's style (knowledge/testing, knowledge/concurrency-in-go, internal/{errs,logx,assert}).
+Context: mansio (`/Users/nick/Software/mansio/docs/architecture/scale-out-go-greenfield.md` §8) found three gaps
+between mansio-server and a data plane a control plane could route to. The user asked for one Opus agent per gap,
+in mansio-server's style (knowledge/testing, knowledge/concurrency-in-go, internal/{errs,logx,assert}).
 
 Agents, branches, worktrees (each agent commits only on its own branch; the coordinator merges to main):
 
 | Agent | Branch / worktree | Owns (new or taken over) | State file |
 |---|---|---|---|
-| writeback | `writeback` · `/Users/nick/Software/ts-db-go-wt/writeback` | `internal/vactor`, `internal/objstore` (taken over from coldload, which is archived), new `internal/snapshot` if needed, `knowledge/writeback/` | `STATE-writeback.md` |
-| fencing | `fencing` · `/Users/nick/Software/ts-db-go-wt/fencing` | new `internal/owner`, `knowledge/fencing/` | `STATE-fencing.md` |
-| front | `front` · `/Users/nick/Software/ts-db-go-wt/front` | new `internal/front`, `internal/ticket`, `cmd/agentd`, `cmd/frontbench`, `configs/agentd/`, `knowledge/front/` | `STATE-front.md` |
+| writeback | `writeback` · `/Users/nick/Software/mansio-server-wt/writeback` | `internal/vactor`, `internal/objstore` (taken over from coldload, which is archived), new `internal/snapshot` if needed, `knowledge/writeback/` | `STATE-writeback.md` |
+| fencing | `fencing` · `/Users/nick/Software/mansio-server-wt/fencing` | new `internal/owner`, `knowledge/fencing/` | `STATE-fencing.md` |
+| front | `front` · `/Users/nick/Software/mansio-server-wt/front` | new `internal/front`, `internal/ticket`, `cmd/agentd`, `cmd/frontbench`, `configs/agentd/`, `knowledge/front/` | `STATE-front.md` |
 
 Everyone: `internal/actor` (sqlbench) and `internal/{errs,logx,assert,panicx}` are shared; additive changes
 only, posted here first. `go.mod`: additions only. Shared log and locks live in the MAIN checkout: always call
-`/Users/nick/Software/ts-db-go/scripts/shared-note.sh` and `/Users/nick/Software/ts-db-go/scripts/lock.sh`
+`/Users/nick/Software/mansio/server/scripts/shared-note.sh` and `/Users/nick/Software/mansio/server/scripts/lock.sh`
 by absolute path. Heavy CPU (benchmarks, fuzz > a few seconds) only under
-`/Users/nick/Software/ts-db-go/scripts/lock.sh results/.bench-lock ...`. Docker is NOT running: don't start
+`/Users/nick/Software/mansio/server/scripts/lock.sh results/.bench-lock ...`. Docker is NOT running: don't start
 it. Real-S3 contract tests are env-gated (`COLDLOAD_S3`) and skipped; say so in your report.
 
 Contracts between the three (draft; the owner may refine it but must post any change here first):
@@ -197,7 +197,7 @@ another agent's unmerged package.
 
 ## 2026-11-05 10:20 — front: claims, additive actor change (MaxRows), Admitter/Host ports
 
-front starting. Worktree `/Users/nick/Software/ts-db-go-wt/front`, branch `front`, state `STATE-front.md` there.
+front starting. Worktree `/Users/nick/Software/mansio-server-wt/front`, branch `front`, state `STATE-front.md` there.
 
 **Claims (new paths, as in the coordinator's table):** `internal/ticket`, `internal/ticket/tickettest`, `internal/front`,
 `internal/front/fronttest`, `cmd/agentd`, `cmd/frontbench`, `configs/agentd/`, `knowledge/front/`, a `front` section
@@ -226,7 +226,7 @@ No signature, default or hot-path change for MaxRows = 0 (sqlbench, coldload, va
 
 ## 2026-11-05 10:22 — fencing: claim internal/owner; Admitter shape for front; Stamp addition to contract 1
 
-Claim (branch `fencing`, worktree `/Users/nick/Software/ts-db-go-wt/fencing`): new `internal/owner`, `internal/owner/ownertest`,
+Claim (branch `fencing`, worktree `/Users/nick/Software/mansio-server-wt/fencing`): new `internal/owner`, `internal/owner/ownertest`,
 `knowledge/fencing/`, `STATE-fencing.md`. No edits to shared packages planned; none to vactor/objstore/front.
 
 Proposed API (draft; changes get posted here):
@@ -266,7 +266,7 @@ it if you route them through it), so ErrStale after a stamp always means "a high
 
 ## 2026-11-05 10:22 — writeback: claims, contract-1 details, additive actor API
 
-Branch `writeback`, worktree `/Users/nick/Software/ts-db-go-wt/writeback`. State: `STATE-writeback.md` there.
+Branch `writeback`, worktree `/Users/nick/Software/mansio-server-wt/writeback`. State: `STATE-writeback.md` there.
 
 Claims (new): `internal/durable` (manifest + layout + `Store` port + `ErrStale`, pure publish checks),
 `internal/durable/durabletest` (fake store with fault switches + contract suite), `internal/vactor/actordb`
@@ -403,7 +403,7 @@ Contract changes: only `Stamp` (posted 10:22, implemented by writeback as `durab
 ## 2026-11-05 10:49 — writeback: landed on main: 3a5dd97
 
 Merge commit `3a5dd97` on main (`--no-ff writeback`, under the `git-main` lock; nothing else had merged). Post-merge
-in `/Users/nick/Software/ts-db-go`: `go build ./...`, `go vet ./...`, `go test -race ./...` and
+in `/Users/nick/Software/mansio/server`: `go build ./...`, `go vet ./...`, `go test -race ./...` and
 `go test -tags noassert ./...` all pass (second run; see the flake below).
 
 **What's in it:** `internal/durable` (contract 1 + `Stamp`, fake store with fault switches, `RunStoreSuite`),
@@ -507,13 +507,13 @@ contracts above:
 
 Branch `cp/cp2`. Details: `knowledge/front/2026-11-05-request-ids.md`.
 
-- **actor:** `Request.RequestID` (writes only): applied at most once per database, recorded in `_tsdb_requests`
+- **actor:** `Request.RequestID` (writes only): applied at most once per database, recorded in `_mansio_requests`
   (in the tenant file, so it travels with snapshots/moves). A duplicate does not run: `Result.Duplicate` + the
   original's `Rows`. `Config.RequestTTL` (default 24 h), `Config.RequestSweep` (default 1 m).
-  `actor.ReservedPrefix = "_tsdb_"` names agent tables.
+  `actor.ReservedPrefix = "_mansio_"` names agent tables.
 - **front (contract 3, additive):** `Reply.Duplicate`, `Response.Duplicate` (`"duplicate": true` on an `ok`
   write whose `request_id` was applied before; `count` is the original's). Retrying `ambiguous` expired /
-  `internal` writes with the same `request_id` is now safe. Client SQL naming `_tsdb_` → `bad_request`.
+  `internal` writes with the same `request_id` is now safe. Client SQL naming `_mansio_` → `bad_request`.
   `ActorExecutor` passes `Call.RequestID`; any other Executor (CP-1's vactor executor) should delegate to it.
 - **Clients/benches must send unique ids per write** (frontbench now sends `fb-<run>-<seq>`); a reused id gets
   the first write's answer.
@@ -525,7 +525,7 @@ Branch `cp/cp3`. New package `internal/placement/pg` implements `owner.Placement
 - **API:** `pg.Open(pg.Config{DSN, AppName, Schema, MaxConns, ...})` (lazy, no I/O), `p.Migrate(ctx)`, `Get`, `CAS`, `RegisterVM(ctx, vm, endpoint)` (owners must be registered: FK), `Moving`, `Load`, `Invariants`, `Breaker()` (register as `"placement"`), `Stat()`, `Close()`.
 - **Errors:** `owner.ErrNotFound`, `owner.ErrConflict`, `owner.ErrInvalid` (bad key: not UTF-8, NUL, length; bad VM id), `pg.ErrInvariant` (bug), `pg.ErrUnknownVM`, `pg.ErrUnavailable` (breaker open with `RetryAfter()`, or system failure; a CAS may have applied). Wiring must add `pg.ErrUnavailable` to agentd's/controld's `unavailableCauses`.
 - **Keys:** Postgres text cannot hold NUL or invalid UTF-8, so the adapter refuses them (`durable.ValidateKey` already refuses NUL).
-- **Deploy:** `deploy/postgres/docker-compose.yml` (container `tsdb-postgres`, port 5433); `TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable'`.
+- **Deploy:** `deploy/postgres/docker-compose.yml` (container `mansio-postgres`, port 5433); `MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable'`.
 
 ## 2026-11-05 14:06 — CP-1: agentd durable mode wired; lifecycle API; placement contract suite
 
@@ -560,7 +560,7 @@ Branch `cp/cp4`. Details: `knowledge/front/2026-11-05-controld.md`, `knowledge/f
 Branch `cp/cp5`. Details: `knowledge/front/2026-11-05-locator.md`.
 
 - **controld resolve API** (CP-6 client calls this): `POST /v1/resolve`, `Authorization: Bearer <api key>`, body `{"tenant","db"[,"min_epoch"]}` → `{"code":"ok","db","tenant","vm","endpoint","epoch","gen","ticket","perms","ttl_ms","expires_at"}`. Errors `{code,message}`: 400 bad_request, 401 unauthorized, 403 forbidden (other tenant's key), 404 not_found, 409 suspended, 503 moving + Retry-After (re-resolve after it), 503 unavailable, 504 timeout. Re-resolve after `wrong_owner`/`fenced` with `min_epoch = last epoch + 1` (reads the primary). Own bulkhead `locator.concurrency`, deadline `locator.timeout`.
-- **API keys:** `tsdb_<16 hex>_<secret>`; admin `POST /v1/tenants/{t}/api-keys {"principal","perms"}` (key shown once), `POST /v1/api-keys/{id}/revoke`; CLI `controld create-key|revoke-key`. A key covers all databases of its tenant. Revocation takes `auth_ttl` (10 s) + ticket TTL.
+- **API keys:** `mansio_<16 hex>_<secret>`; admin `POST /v1/tenants/{t}/api-keys {"principal","perms"}` (key shown once), `POST /v1/api-keys/{id}/revoke`; CLI `controld create-key|revoke-key`. A key covers all databases of its tenant. Revocation takes `auth_ttl` (10 s) + ticket TTL.
 - **Ticket keys:** controld config **requires** `ticket_keys.dir` (0700; rotating Ed25519 ring). `GET /v1/keys` (unauthenticated) serves `ticket.PublicKeyFile`. agentd: `keys_url` (+ optional `keys_file` cache, `keys_refresh` 30 s, `keys_timeout` 3 s) or static `keys_file` as before; plain-HTTP `keys_url` needs `-dev`. CP-7 edge can verify the same way (`ticket.NewKeyRing` + `KeyRing.Replace`; `ticket.NewPublicKeyFile`, `KeyRing.Equal/Len`, `ticket.ParsePerm` are new).
 - **placement/pg:** migrations `0003_notify.sql` (`pg_notify('placement', key:epoch)` on insert/update/delete of placement) and `0004_api_keys.sql`; `Locate`, `GetAPIKey`, `CreateAPIKey`, `RevokeAPIKey`, `Listen(ctx, ListenConfig, ListenHooks)`. Secrets: optional `pg_replica_dsn` for controld.
 
@@ -583,7 +583,7 @@ Branch `cp/cp6`. Details: `knowledge/front/2026-11-05-client.md`.
 - **New `internal/client`** (CP-6): `client.New(Config{Locator, APIKey, Tenant[, Scheme, CAFile, Retry, Budget, Timeout, MaxReroutes, Hooks]})`, `Do(ctx, Request{DB, Kind, SQL, Args[, RequestID]}) (Result, error)`; errors are `*client.Error` (`Op`, `Code`, `MayHaveApplied`), `client.CodeOf(err)`. Re-resolves on wrong_owner/fenced (min_epoch = epoch+1), ticket_invalid, no answer; retries shed/unavailable/aborted with Retry-After as `ServerHint` and a windowed budget; sends `X-Timeout-Ms`; one request id per write across attempts.
 - **`internal/outcome`:** new code `Unavailable` (appended; numbers unchanged). **`internal/retry`:** the zero Policy's `RetryOn` is now {shed, unavailable, aborted}; `retry.HintOf(err)`.
 - **`front.WireArgs`** (blob args → wire form) and **`tlsx.ClientConfig(caFile)`** are new shared helpers.
-- **frontbench:** new subcommand `frontbench locator` (env `TSDB_API_KEY`, `TSDB_ADMIN_TOKEN`; `-setup`, `-move-every`); `run` shares `summarize`/`finish`.
+- **frontbench:** new subcommand `frontbench locator` (env `MANSIO_API_KEY`, `MANSIO_ADMIN_TOKEN`; `-setup`, `-move-every`); `run` shares `summarize`/`finish`.
 - **controld gate harness:** agents get `admin_listen`; `agentProc.admin` holds its address.
 - **Known locator gap (follow-up):** the locator routes to a new owner before its claim lands; that owner answers `wrong_owner` at the current epoch for a few ms. The client tolerates it (a primary answer ends min_epoch; ≤ 5 re-resolves). Better: locator answers `moving` until the registry says active (needs a NOTIFY on the registry flip).
 

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
-	"github.com/nickstrad/ts-db-go/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/logx"
 )
 
 type syncBuf struct {
@@ -74,7 +74,7 @@ func TestHTTPStatusesAndHeaders(t *testing.T) {
 	}{
 		{"ok", bearer, get(1), nil, nil, 200, front.OK, map[string]string{"Content-Type": "application/json"}},
 		{"bearer is case-insensitive", "bearer " + r.tok(t, "db-1", nil), get(1), nil, nil, 200, front.OK, nil},
-		{"no ticket", "", get(1), nil, nil, 401, front.TicketInvalid, map[string]string{"WWW-Authenticate": `Bearer realm="ts-db agent"`}},
+		{"no ticket", "", get(1), nil, nil, 401, front.TicketInvalid, map[string]string{"WWW-Authenticate": `Bearer realm="mansio agent"`}},
 		{"basic auth is not a ticket", "Basic abc", get(1), nil, nil, 401, front.TicketInvalid, nil},
 		{"body at limit + 1", bearer, bytes.Repeat([]byte(" "), 513), nil, nil, 413, front.BadRequest, nil},
 		{"bad timeout header", bearer, get(1), map[string]string{front.TimeoutHeader: "-5"}, nil, 400, front.BadRequest, nil},

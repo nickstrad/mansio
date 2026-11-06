@@ -70,7 +70,7 @@ interface Harness {
 }
 
 function harness(logging: Partial<LoggingConfig> = {}): Harness & { cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-storage-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-storage-"));
   const events: EventRecord[] = [];
   let id = 0;
   const deps = Layer.mergeAll(
@@ -767,7 +767,7 @@ test("sq-06: 50 concurrent read-modify-write increments commit 50/50 with zero l
 // ---------------------------------------------------------------------------
 
 test("FFI-05: a mutation whose find runs past the deadline rolls back, fails 504, and the next mutation succeeds", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi05-writer-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi05-writer-"));
   const file = join(dir, "app.sqlite");
   const jsonSchema = withStorage(schema, "json");
   try {
@@ -905,7 +905,7 @@ test("FFI-05: a mutation whose find runs past the deadline rolls back, fails 504
 });
 
 test("FFI-05: a concurrent statement waits for an in-flight nonblocking read instead of failing busy", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi05-gate-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi05-gate-"));
   const db = Database.open(join(dir, "gate.sqlite"));
   try {
     db.exec("CREATE TABLE t (x INTEGER)");
@@ -948,7 +948,7 @@ test("FFI-05: a blocking start does its native work before returning, so a compe
   // that defers its native call into the Effect (`Effect.sync(() => nativeCall())`) then finds the
   // connection busy. `handOff` is that window made deterministic: it lets the competitor claim the
   // connection and waits until it has, standing in for any yield between `start` and its Effect.
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi05-claim-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi05-claim-"));
   const db = Database.open(join(dir, "claim.sqlite"));
   try {
     db.exec("CREATE TABLE t (x INTEGER)");
@@ -1014,7 +1014,7 @@ test("FFI-05 grace period: a step that outlives its interrupt poisons the connec
   // `sqlite3_interrupt` cannot cut a busy-handler wait (measured on vm-1's 3.45.1: a step blocked on
   // another connection's EXCLUSIVE lock returned SQLITE_BUSY only when its busy timeout ran out), so
   // a read queued behind a lock is a real step that does not return after its interrupt.
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi05-grace-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi05-grace-"));
   const file = join(dir, "grace.sqlite"); // rollback journal: readers wait for an EXCLUSIVE writer
   const holder = Database.open(file);
   const victim = Database.open(file, { busyTimeoutMs: 600 });

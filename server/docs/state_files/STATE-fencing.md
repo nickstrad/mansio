@@ -3,13 +3,13 @@
 > **ARCHIVED 2026-11-05.** Done; merged to main. Findings: `knowledge/fencing/`. Live coordination:
 > `shared_state.md`.
 
-Owner: the "fencing" agent (Opus). Branch `fencing`, worktree `/Users/nick/Software/ts-db-go-wt/fencing`.
-Shared log: `/Users/nick/Software/ts-db-go/shared_state.md` (append only with `scripts/shared-note.sh`, absolute path).
+Owner: the "fencing" agent (Opus). Branch `fencing`, worktree `/Users/nick/Software/mansio-server-wt/fencing`.
+Shared log: `/Users/nick/Software/mansio/server/shared_state.md` (append only with `scripts/shared-note.sh`, absolute path).
 
 ## Goal
 
 Make it impossible for two processes to accept writes for one database at the same time, even when routes are
-stale (ts-db `docs/architecture/scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4). The guarantee lives in
+stale (mansio `docs/architecture/scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4). The guarantee lives in
 the process that hosts the database: durable local ownership state per key, epoch-checked admission, a fence
 that drains and writes back before it acknowledges, and the storage backstop (contract 1 conditional publish).
 

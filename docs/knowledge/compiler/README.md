@@ -1,6 +1,6 @@
 # compiler
 
-How ts-db turns a logical plan or a schema into SQL, and which process runs the SQL. Code: `core/plan.ts`,
+How mansio turns a logical plan or a schema into SQL, and which process runs the SQL. Code: `core/plan.ts`,
 `core/compile/` (`dialect.ts`, `select.ts`, `ddl.ts`, `write.ts`, `decode.ts`). Everything there is pure:
 nothing throws, and failures come back as a `CompileError`, `SchemaError` or `DecodeError` in an `Either`.
 

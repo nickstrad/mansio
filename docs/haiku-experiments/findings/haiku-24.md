@@ -1,7 +1,7 @@
 # haiku-24 — Opus review: Retention sweeper (plan item 24)
 
 **Branch:** `haiku/24-sweeper` (`68d0188`) **Reviewer:** Opus, 2026-10-10 **Review worktree:**
-`origin/haiku/24-sweeper` at `/root/Software/tsdb-work/rev24` (read-only) **Verdict: NITS, but only after
+`origin/haiku/24-sweeper` at `/root/Software/mansio-work/rev24` (read-only) **Verdict: NITS, but only after
 wrapper repair** — the best of the three items. Haiku's structure and bulk tests are sound; the one safety
 rail the plan calls out as the reason this item exists was absent, and the test meant to prove it asserted
 nothing.

@@ -226,7 +226,7 @@ async function snapshot(root: string): Promise<string[]> {
 }
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await Deno.makeTempDir({ prefix: "ts-db-retention-" });
+  const dir = await Deno.makeTempDir({ prefix: "mansio-retention-" });
   try {
     await run(dir);
   } finally {

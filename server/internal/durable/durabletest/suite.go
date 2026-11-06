@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
 // NewStoreFunc returns an empty Store under test (a fresh namespace per call).

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det"
 )
 
 // Admission is the concurrent wrapper around the pure limiter: one mutex, and a channel per waiter.

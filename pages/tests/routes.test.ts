@@ -5,16 +5,16 @@ describe("parseSiteRoute", () => {
   it.each([
     ["", { kind: "home" }],
     ["#", { kind: "home" }],
-    ["#/architectures/tsdb-current/diagrams/context", {
+    ["#/architectures/mansio-current/diagrams/context", {
       kind: "single",
-      architectureId: "tsdb-current",
+      architectureId: "mansio-current",
       diagramId: "context",
     }],
     [
-      "#/architectures/tsdb-current/diagrams/components-server/elements/storage",
+      "#/architectures/mansio-current/diagrams/components-server/elements/storage",
       {
         kind: "single",
-        architectureId: "tsdb-current",
+        architectureId: "mansio-current",
         diagramId: "components-server",
       },
     ],
@@ -30,8 +30,8 @@ describe("parseSiteRoute", () => {
   // Never a silent fallback: each of these is Not Found.
   it.each([
     "#/somewhere",
-    "#/architectures/tsdb-current",
-    "#/architectures/tsdb-current/diagrams/context/extra",
+    "#/architectures/mansio-current",
+    "#/architectures/mansio-current/diagrams/context/extra",
   ])("%j is Not Found", (hash) => {
     expect(parseSiteRoute(hash).kind).toBe("not-found");
   });
@@ -39,16 +39,16 @@ describe("parseSiteRoute", () => {
 
 describe("chooseDefault", () => {
   // Three peer entries; none is special to the code.
-  const ids = ["tsdb-current", "tsdb-lanes-proposal", "fixture-third"];
+  const ids = ["mansio-current", "mansio-lanes-proposal", "fixture-third"];
 
   it("uses defaultId when it names an entry", () => {
     expect(chooseDefault(ids, "fixture-third")).toEqual({ ok: true, id: "fixture-third" });
-    expect(chooseDefault(ids, "tsdb-current")).toEqual({ ok: true, id: "tsdb-current" });
+    expect(chooseDefault(ids, "mansio-current")).toEqual({ ok: true, id: "mansio-current" });
   });
 
   it("falls back to the first entry when the catalog has no defaultId", () => {
-    expect(chooseDefault(ids, undefined)).toEqual({ ok: true, id: "tsdb-current" });
-    expect(chooseDefault(["fixture-third", "tsdb-current"], undefined)).toEqual({
+    expect(chooseDefault(ids, undefined)).toEqual({ ok: true, id: "mansio-current" });
+    expect(chooseDefault(["fixture-third", "mansio-current"], undefined)).toEqual({
       ok: true,
       id: "fixture-third",
     });
@@ -75,11 +75,11 @@ describe("shownArchitectureId", () => {
     expect(shownArchitectureId({ kind: "home" }, "fixture-third")).toBe("fixture-third");
     expect(
       shownArchitectureId(
-        { kind: "single", architectureId: "tsdb-lanes-proposal", diagramId: "lanes-context" },
-        "tsdb-current",
+        { kind: "single", architectureId: "mansio-lanes-proposal", diagramId: "lanes-context" },
+        "mansio-current",
       ),
-    ).toBe("tsdb-lanes-proposal");
-    expect(shownArchitectureId({ kind: "not-found", message: "x" }, "tsdb-current"))
+    ).toBe("mansio-lanes-proposal");
+    expect(shownArchitectureId({ kind: "not-found", message: "x" }, "mansio-current"))
       .toBeUndefined();
   });
 });

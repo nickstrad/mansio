@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/breaker"
 )
 
 // BreakerLog logs every transition of dep's breaker with a stable message code: <DEP>.BREAKER_OPEN (WARN),

@@ -28,7 +28,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front"
 )
 
 const exitOK, exitError, exitUsage, exitInterrupted = 0, 1, 2, 130

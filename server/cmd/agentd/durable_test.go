@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/faultnet"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/file"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/faultnet"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/file"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 const controlToken = "test-control-token-0123456789"
@@ -475,7 +475,7 @@ func TestS3OutageAtTheAgent(t *testing.T) {
 					t.Fatalf("cold key under %s: %d %+v (Retry-After %q)", tc.name, ans.status, ans.Response, ans.retryAfter)
 				}
 			}
-			if v := b.metric(t, `tsdb_breaker_state{dep="s3",state="open"}`); v != "1" {
+			if v := b.metric(t, `mansio_breaker_state{dep="s3",state="open"}`); v != "1" {
 				t.Fatalf("breaker open gauge = %q", v)
 			}
 			t0 := time.Now()
@@ -493,7 +493,7 @@ func TestS3OutageAtTheAgent(t *testing.T) {
 			if code, _ := getStatus(t, "http://"+b.life+front.ReadyPath); code != http.StatusOK {
 				t.Fatalf("readyz %d during the S3 outage", code)
 			}
-			if v := b.metric(t, "tsdb_s3_probe_ok"); v != "0" {
+			if v := b.metric(t, "mansio_s3_probe_ok"); v != "0" {
 				t.Errorf("probe gauge %q during the outage", v)
 			}
 

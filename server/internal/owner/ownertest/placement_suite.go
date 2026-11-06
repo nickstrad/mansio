@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // SuiteVMs returns the owner names RunPlacementSuite puts in rows. An implementation that only accepts

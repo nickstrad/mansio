@@ -1,5 +1,5 @@
 # Builds the architecture diagrams site in pages/ and deploys it to GitHub Pages
-# (https://nickstrad.github.io/ts-db/). GitHub Pages must first be enabled for the repository with
+# (https://nickstrad.github.io/mansio/). GitHub Pages must first be enabled for the repository with
 # "GitHub Actions" as the source; that is a human step (see pages/README.md). Until then the deploy job fails.
 name: Deploy architecture diagrams to GitHub Pages
 

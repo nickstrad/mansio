@@ -7,8 +7,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/nickstrad/ts-db-go/internal/actor"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/actor"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // Opener opens each database as a started actor with Cfg.

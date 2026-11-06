@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 // Shape is how a phase's rate moves from StartQPS to EndQPS.

@@ -89,7 +89,7 @@ const sha256Hex = (plaintext: string): Effect.Effect<string, StorageError> =>
     catch: (cause) => new StorageError({ operation: "insert", detail: "sha256(plaintext)", cause }),
   });
 
-/** 32 random bytes, base64url — the secret part of a `tsdb_` API key. */
+/** 32 random bytes, base64url — the secret part of a `mansio_` API key. */
 const randomKeySecret = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   let binary = "";
@@ -190,7 +190,7 @@ export const makeTenantRegistry = (sql: Sql): TenantRegistryService => {
   const issueApiKey: TenantRegistryService["issueApiKey"] = (tenantId, name) =>
     Effect.gen(function* () {
       const keyId = crypto.randomUUID() as ApiKeyId;
-      const plaintext = `tsdb_${randomKeySecret()}`;
+      const plaintext = `mansio_${randomKeySecret()}`;
       const hash = yield* sha256Hex(plaintext);
       const rows = yield* Effect.tryPromise({
         try: () =>
@@ -204,7 +204,7 @@ export const makeTenantRegistry = (sql: Sql): TenantRegistryService => {
               throw new TenantDeactivated({ tenantId });
             }
             return await tx`INSERT INTO api_keys (id, tenant_id, key_hash, prefix, name)
-                            VALUES (${keyId}, ${tenantId}, ${hash}, 'tsdb_', ${name})
+                            VALUES (${keyId}, ${tenantId}, ${hash}, 'mansio_', ${name})
                             RETURNING id, tenant_id, name, created_at`;
           }),
         catch: (cause) =>
@@ -217,7 +217,7 @@ export const makeTenantRegistry = (sql: Sql): TenantRegistryService => {
         id: row.id as ApiKeyId,
         tenantId: row.tenant_id as TenantId,
         name: row.name,
-        prefix: "tsdb_",
+        prefix: "mansio_",
         // Returned exactly once, here. Never persisted: only the hash is stored.
         plaintext,
         createdAt: row.created_at,

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/edge/edgetest"
-	"github.com/nickstrad/ts-db-go/internal/keyfetch"
+	"github.com/nickstrad/mansio/server/internal/edge/edgetest"
+	"github.com/nickstrad/mansio/server/internal/keyfetch"
 )
 
 // startTLSControld runs controld on a loopback listener with cfgExtra in its config and args before -config.

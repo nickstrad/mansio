@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/breaker"
 )
 
 // Breakers exposes each remote dependency's breaker: its state (one series per state, 1 for the current one)
@@ -19,7 +19,7 @@ func Breakers(reg *Registry, deps map[string]*breaker.Breaker) {
 func BreakersFunc(reg *Registry, deps func() map[string]*breaker.Breaker) {
 	var snap map[string]*breaker.Breaker
 	reg.OnScrape(func() { snap = deps() })
-	reg.Add("tsdb_breaker_state", "Circuit breaker state per dependency (1 = current).", Gauge, func(e *Emit) {
+	reg.Add("mansio_breaker_state", "Circuit breaker state per dependency (1 = current).", Gauge, func(e *Emit) {
 		deps := snap
 		now := time.Now()
 		for _, dep := range slices.Sorted(maps.Keys(deps)) {
@@ -33,7 +33,7 @@ func BreakersFunc(reg *Registry, deps func() map[string]*breaker.Breaker) {
 			}
 		}
 	})
-	reg.Add("tsdb_breaker_transitions_total", "Circuit breaker state changes per dependency.", Counter, func(e *Emit) {
+	reg.Add("mansio_breaker_transitions_total", "Circuit breaker state changes per dependency.", Counter, func(e *Emit) {
 		deps := snap
 		for _, dep := range slices.Sorted(maps.Keys(deps)) {
 			e.Value(Labels{"dep", dep}, float64(deps[dep].Transitions()))

@@ -63,7 +63,7 @@ before sending), 130 interrupted.
 
 | Gate | Result |
 |---|---|
-| Trip the S3 breaker via admin | cold key → `503 unavailable`, Retry-After ≥ 1, **0 S3 requests for that key** (counted on the fake), three times across the 3 s cool-down; warm key reads and writes ok; `tsdb_breaker_state{dep="s3",state="open"}` 1; reset → the cold key activates |
+| Trip the S3 breaker via admin | cold key → `503 unavailable`, Retry-After ≥ 1, **0 S3 requests for that key** (counted on the fake), three times across the 3 s cool-down; warm key reads and writes ok; `mansio_breaker_state{dep="s3",state="open"}` 1; reset → the cold key activates |
 | Lower fetch:limit at run time | limit 1, three cold keys at once, GETs dribbled at 16 KiB/s: peak 1 fetch in flight, 2 queued, all ok; raised to 3 (after passivating them): peak 3 in flight |
 | Other controls | passivate wrote back (manifest gen ≥ 1) and the key re-warmed with its rows; drain → queries `shed`, `/readyz` 503 draining, then exit 0 on stop; every error code |
 

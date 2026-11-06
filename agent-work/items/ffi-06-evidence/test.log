@@ -303,8 +303,8 @@ a reader that exited, timed out or broke the protocol → 502 per call; the writ
 a handler defect → 500 Defect with the trace id; the cause is logged under that trace ...
 ------- post-test output -------
 timestamp=1970-01-01T00:00:00.000Z level=ERROR fiber=#1782 message="request handler defect" cause="Error: analysis handler blew up
-    at answer (file:///root/Software/tsdb-work/ffi06/tests/unit/http_test.ts:137:56)
-    at file:///root/Software/tsdb-work/ffi06/tests/unit/http_test.ts:149:23" traceId=t-defect
+    at answer (file:///root/Software/mansio-work/ffi06/tests/unit/http_test.ts:137:56)
+    at file:///root/Software/mansio-work/ffi06/tests/unit/http_test.ts:149:23" traceId=t-defect
 ----- post-test output end -----
 a handler defect → 500 Defect with the trace id; the cause is logged under that trace ... ok (23ms)
 POST /admin/backup/:appId takes a backup under the request's trace id ... ok (56ms)
@@ -352,7 +352,7 @@ overflowing the queue drops records visibly: emit never fails and the drops are 
 drop reports are written even when the level gate would suppress a warning ... ok (12ms)
 an unwritable LOG_DIR degrades instead of failing emit or shutdown ...
 ------- post-test output -------
-ts-db event sink (server): 3 record(s) lost to I/O failure; latest: mkdir /tmp/ts-db-logger-e311b703b02771d8/blocked/server/2026-10-14: NotADirectory: Not a directory (os error 20): mkdir '/tmp/ts-db-logger-e311b703b02771d8/blocked/server/2026-10-14'
+mansio event sink (server): 3 record(s) lost to I/O failure; latest: mkdir /tmp/mansio-logger-e311b703b02771d8/blocked/server/2026-10-14: NotADirectory: Not a directory (os error 20): mkdir '/tmp/mansio-logger-e311b703b02771d8/blocked/server/2026-10-14'
 ----- post-test output end -----
 an unwritable LOG_DIR degrades instead of failing emit or shutdown ... ok (16ms)
 Effect.log* flows into the same JSONL records, with annotations and log spans ... ok (21ms)
@@ -925,7 +925,7 @@ error: AssertionError: Expected values to be strictly deep-equal:
 
   assert.deepEqual([...ANALYSIS_QUERY_NAMES].sort(), [
          ^
-    at NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:65:10)
+    at NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:65:10)
 
 doc: the named queries section lists exactly the catalog names => ./tests/unit/analysis_catalog_test.ts:92:1
 error: AssertionError: Expected values to be strictly deep-equal:
@@ -942,19 +942,19 @@ error: AssertionError: Expected values to be strictly deep-equal:
 
   assert.deepEqual([...documented].sort(), [...ANALYSIS_QUERY_NAMES].sort());
          ^
-    at NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:94:10)
+    at NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:94:10)
 
 doc: every parameter of every catalog entry is documented under its query => ./tests/unit/analysis_catalog_test.ts:97:1
 error: AssertionError: deadline-hits-per-handler-hour: parameter since is not documented
       assert.ok(body.includes(`\`${param}\``), `${name}: parameter ${param} is not documented`);
              ^
-    at NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:104:14)
+    at NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:104:14)
 
 doc: every column of every event-log table is documented => ./tests/unit/analysis_catalog_test.ts:109:1
 error: AssertionError: sql_events.path is documented
         assert.match(body, new RegExp(`^\\| \`${column}\`\\s+\\|`, "m"), `${table}.${column} is documented`);
                ^
-    at NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:133:16)
+    at NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:133:16)
 
 AnalysisLive: every catalog query runs against an empty file and against the fixture => ./tests/unit/analysis_catalog_test.ts:248:1
 error: Error: Binder Error: table sql_events has 15 columns but 14 values were supplied
@@ -987,7 +987,7 @@ error: AssertionError: guide must describe every catalog query exactly once
 
   assert.deepEqual(
          ^
-    at NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/docs_guide_test.ts:54:10)
+    at NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/docs_guide_test.ts:54:10)
 
  FAILURES 
 

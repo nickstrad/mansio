@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
-	"github.com/nickstrad/ts-db-go/internal/retry"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 const module = "client"
@@ -42,7 +42,7 @@ const (
 // Config configures a Client. Locator, APIKey and Tenant are required; zero fields take the defaults above.
 type Config struct {
 	Locator string // controld's base URL, e.g. http://10.0.0.2:7080
-	APIKey  string // tsdb_<id>_<secret> (CP-5)
+	APIKey  string // mansio_<id>_<secret> (CP-5)
 	Tenant  string // every database this client names belongs to this tenant (an API key covers one tenant)
 
 	// Scheme is used for endpoints the locator returns as host:port: "http" (default) or "https" (TLS agents

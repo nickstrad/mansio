@@ -3,8 +3,8 @@ package vactortest_test
 import (
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // The fake must honour the same contract as the real S3 fetcher, or unit tests against it prove nothing.

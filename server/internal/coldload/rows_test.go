@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 func col(row []string, name string) string {

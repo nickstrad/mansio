@@ -2,4 +2,4 @@ Task integration deno run -A tests/integration.ts
 PASS: both layouts, DuckDB read-after-write, aggregation, app isolation, backup, restore, HTTP auth, X-Trace-Id in JSONL (32 ids), logs-ingest populates DuckDB (125 lines), error-rate-by-handler handlers
 scratch kept for diagnosis: /tmp/ffi06-integration-24b9917c737e973d
 error: Uncaught (in promise) (FiberFailure) AssertionError: [{"hour":"2026-10-14 02:00:00","app_id":"tic-tac-toe-json","handler_kind":"query","name":"winsByMark","path":"nonblocking","deadline_hits":19},{"hour":"2026-10-14 02:00:00","app_id":"tic-tac-toe-json","handler_kind":null,"name":null,"path":"nonblocking","deadline_hits":1}]
-    at file:///root/Software/tsdb-work/ffi06/tests/integration.ts:626:10
+    at file:///root/Software/mansio-work/ffi06/tests/integration.ts:626:10

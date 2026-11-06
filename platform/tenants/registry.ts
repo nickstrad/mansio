@@ -69,7 +69,7 @@ export interface IssuedApiKey {
   readonly tenantId: TenantId;
   readonly name: string;
   /** Key scheme prefix. Constant today; stored in `api_keys.prefix` for support identification. */
-  readonly prefix: "tsdb_";
+  readonly prefix: "mansio_";
   readonly plaintext: string;
   readonly createdAt: Date;
 }
@@ -110,7 +110,7 @@ export interface TenantRegistryService {
    */
   deactivateTenant(id: TenantId): Effect.Effect<Tenant, TenantError | StorageError>;
   /**
-   * Issue an API key: `tsdb_` + 32 random bytes (base64url). The SHA-256 hash of the full
+   * Issue an API key: `mansio_` + 32 random bytes (base64url). The SHA-256 hash of the full
    * plaintext is stored; the plaintext is returned exactly once in `IssuedApiKey`. Atomic:
    * the tenant row is locked and re-checked inside the insert transaction, so a key can
    * never be issued for a tenant deactivated concurrently with issuance. Unknown tenant →

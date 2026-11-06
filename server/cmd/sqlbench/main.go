@@ -21,11 +21,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/bench"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/load"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/bench"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/load"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
 const (

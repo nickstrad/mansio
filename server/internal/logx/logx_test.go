@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/logx"
 )
 
 func TestNewWritesJSONInUTC(t *testing.T) {

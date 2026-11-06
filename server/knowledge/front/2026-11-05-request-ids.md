@@ -38,7 +38,7 @@ the statement now would fail (e.g. a retried INSERT whose row exists — the ori
 
 Rules:
 
-- **Scope: one database.** Ids live in the database (`_tsdb_requests`), so they travel with snapshots,
+- **Scope: one database.** Ids live in the database (`_mansio_requests`), so they travel with snapshots,
   write-backs and moves: a retry reaches whichever owner holds the database and is answered there. The same id
   on two databases is two requests.
 - **Writes only.** `request_id` stays required for writes and optional for reads; reads ignore it.
@@ -49,16 +49,16 @@ Rules:
 - **Same id, different payload:** not detected. The second request gets the first's answer. Clients must not
   reuse ids (frontbench now generates `fb-<run>-<seq>`). A payload hash in the row would let us answer
   `bad_request` instead; not done (no client reuses ids on purpose, and it costs a hash per write).
-- **Reserved names:** client SQL naming `_tsdb_` anything is `bad_request`, so a client cannot read, forge or
+- **Reserved names:** client SQL naming `_mansio_` anything is `bad_request`, so a client cannot read, forge or
   drop ids.
 
 ## Storage
 
 ```sql
-create table if not exists _tsdb_requests (
+create table if not exists _mansio_requests (
   request_id text not null primary key, applied_ms integer not null, result blob
 ) strict, without rowid;
-create index if not exists _tsdb_requests_applied on _tsdb_requests (applied_ms);
+create index if not exists _mansio_requests_applied on _mansio_requests (applied_ms);
 ```
 
 Per write with an id, in its savepoint: `insert … on conflict (request_id) do nothing` (one row affected ⇒
@@ -115,6 +115,6 @@ claim without the result update 3.2 µs (not correct: no answer for a duplicate)
   (…)` and insert the applied ones in one multi-row statement before COMMIT: 2 statements per batch instead of
   2 per write. It moves the claim out of each write's savepoint, so PG-01's per-write rollback must then skip
   failed writes explicitly; worth it only if the +4 µs/write shows up through agentd.
-- **Enforce `_tsdb_` in the actor**, not only in front's lexical guard (a SQLite authorizer, if modernc exposes
+- **Enforce `_mansio_` in the actor**, not only in front's lexical guard (a SQLite authorizer, if modernc exposes
   one), before callers other than front send client SQL (the handler executor).
 - **Payload hash** in the id row, to answer `bad_request` when a client reuses an id for a different write.

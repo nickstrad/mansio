@@ -1,25 +1,25 @@
 {
-  "defaultId": "tsdb-current",
+  "defaultId": "mansio-current",
   "entries": [
     {
-      "id": "tsdb-current",
-      "title": "ts-db today (main 2d30330)",
-      "url": "architectures/tsdb-current.json"
+      "id": "mansio-current",
+      "title": "mansio today (main 2d30330)",
+      "url": "architectures/mansio-current.json"
     },
     {
-      "id": "tsdb-lanes-proposal",
+      "id": "mansio-lanes-proposal",
       "title": "Proposed: statement lanes and tenant placement (scale-out)",
-      "url": "architectures/tsdb-lanes-proposal.json"
+      "url": "architectures/mansio-lanes-proposal.json"
     },
     {
-      "id": "tsdb-planes-proposal",
+      "id": "mansio-planes-proposal",
       "title": "Proposed: control plane / data plane — tenants own many databases",
-      "url": "architectures/tsdb-planes-proposal.json"
+      "url": "architectures/mansio-planes-proposal.json"
     },
     {
-      "id": "tsdb-planes-fable",
+      "id": "mansio-planes-fable",
       "title": "Fable revision: control/data planes with route grants (M1–M8 applied)",
-      "url": "architectures/tsdb-planes-fable.json"
+      "url": "architectures/mansio-planes-fable.json"
     }
   ]
 }

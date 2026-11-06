@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/faultnet"
+	"github.com/nickstrad/mansio/server/internal/faultnet"
 )
 
 // echo is an upstream that echoes every byte and counts its connections.

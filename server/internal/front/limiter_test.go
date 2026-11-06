@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 var small = AdmissionLimits{TenantInFlight: 2, TenantQueue: 2, DBInFlight: 1, DBQueue: 1}

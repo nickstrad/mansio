@@ -1,4 +1,4 @@
-# AGENTS.md — ts-db-go
+# AGENTS.md — mansio-server
 
 Instructions for every agent working in this repo.
 

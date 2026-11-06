@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 // keyServer is a fake issuer's GET /v1/keys with a fault switch.

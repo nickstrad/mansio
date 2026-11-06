@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
 // ErrInjected is returned by every switch-triggered failure.

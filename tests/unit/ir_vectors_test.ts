@@ -193,11 +193,11 @@ function dump(file: string, schema: Schema): Record<string, unknown> {
   }
 }
 
-/** `_tsdb_requests`, ordered by id, with `result` as lowercase hex. */
+/** `_mansio_requests`, ordered by id, with `result` as lowercase hex. */
 function requests(file: string): unknown[] {
   const db = Database.open(file);
   try {
-    return db.prepare("select request_id, applied_ms, result from _tsdb_requests order by request_id").all()
+    return db.prepare("select request_id, applied_ms, result from _mansio_requests order by request_id").all()
       .map((row) => ({
         request_id: row.request_id,
         applied_ms: row.applied_ms,

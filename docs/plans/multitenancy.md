@@ -74,7 +74,7 @@ client.
 - **App-layer isolation pattern** (sveltekit-cf-template `docs/multi-tenancy.md`): the Actor is derived from
   the session by the route, never from the request body; services scope every query by `organization_id`; a
   cross-tenant read returns nothing.
-- **Decision for ts-db:** the existing `Authorization: Bearer <token>` header carries a **tenant-scoped API
+- **Decision for mansio:** the existing `Authorization: Bearer <token>` header carries a **tenant-scoped API
   key** (or, after MT-08, a Better Auth session token). The server hashes the presented key, looks up the
   tenant in Postgres, and injects the tenant id into the Effect layer. The TS client's `token` parameter
   becomes that key — no new client field is needed, which keeps the `createClient(baseURL, appId, token)`
@@ -183,7 +183,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
 - **Reads:** `platform/config.ts` (options table).
 - **Work:** Add `tenancyMode` (env `TENANCY`, default `"off"`, validated against
   `off | api-key |
-  better-auth`), `databaseUrl` (default `postgres://tsdb:tsdb@localhost:5432/tsdb`),
+  better-auth`), `databaseUrl` (default `postgres://mansio:mansio@localhost:5432/mansio`),
   `tenantsDir` (default `<dataDir>/tenants`), `tenantRouter` (default `"local"`; validated against the known
   router kinds — `"local"` today, `"control-plane"` reserved for the future), `betterAuthSecret` (no default —
   required when `tenancyMode` is `better-auth`), `betterAuthUrl` (default `http://localhost:3000`-style
@@ -250,7 +250,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
      comment with the citable paragraph from `docs/haiku-experiments/findings/sq-10.md`). **No ORM, ever**:
      the store uses the pinned `npm:postgres` client directly with hand-written SQL, leveraging SQL syntax —
      not an ORM or query builder generating SQL internally; direct hand-written SQL is tunable and has no
-     hidden query generation. API keys: `tsdb_` prefix + 32 random bytes; **SHA-256 hash stored**, plaintext
+     hidden query generation. API keys: `mansio_` prefix + 32 random bytes; **SHA-256 hash stored**, plaintext
      returned exactly once at issuance; `resolveTenantByKeyHash` joins `api_keys` → `tenants` and rejects
      revoked keys and inactive tenants. Use `sql.begin` for `issueApiKey`-style atomic writes; match errors on
      `PostgresError` + `code === "23505"` (constraint `tenants_slug_key` in real Postgres); keep prepared
@@ -516,14 +516,14 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
      `docker-compose.yml` (a check in `postgres.ts` fails the run on drift), data on `tmpfs` (no volumes at
      all), the host port published as `127.0.0.1::5432` (ephemeral, read back with `docker compose port`), and
      the same `pg_isready` healthcheck. `postgres.ts` runs it under a unique project name
-     (`tsdb-e2e-<pid>-<seed>`) with `docker compose up -d --wait`, creates one database per scenario, runs the
-     migration runner (`scripts/db/migrate.ts`, MT-01b) against each with `DATABASE_URL` pointed at the
+     (`mansio-e2e-<pid>-<seed>`) with `docker compose up -d --wait`, creates one database per scenario, runs
+     the migration runner (`scripts/db/migrate.ts`, MT-01b) against each with `DATABASE_URL` pointed at the
      scenario database (the `make db-migrate` recipe, re-pointed — no Makefile edit), applies MT-08's Better
      Auth migration when the auth gate is open, and tears down with
      `docker compose down --remove-orphans --volumes`. Docker absent or unhealthy within 60 s → the run fails
      with a clear message; it never skips to green.
   3. **Harness (`harness.ts`), one server per scenario.** Each scenario gets its own subdirectory of one run
-     temp root (`Deno.makeTempDir({ prefix: "tsdb-e2e-" })`) and its own server on a free `127.0.0.1` port,
+     temp root (`Deno.makeTempDir({ prefix: "mansio-e2e-" })`) and its own server on a free `127.0.0.1` port,
      spawned with the command the `serve` task runs. Spawn with `clearEnv: true` and an explicit env: `PATH`,
      `HOME` and `DENO_DIR` from the parent, plus only option names from the `OPTIONS` table — `PORT`,
      `BIND_HOST`, `DATA_DIR`, `LOG_DIR`, `LOCAL_OBJECT_DIR`, `EVENTLOG_DUCKDB`, `S3_BASE_URL=""`,
@@ -566,7 +566,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
        The literal case of two tenant files holding the same `_id` stays covered at the storage layer by MT-04
        (no HTTP route lets a client choose `_id`).
      - **5 auth:** **(a) API keys, always run:** a missing `Authorization` header, a malformed bearer, an
-       unknown `tsdb_…` key and a wrong admin token are each 401 on `/apps/*` and `/admin/*`; in
+       unknown `mansio_…` key and a wrong admin token are each 401 on `/apps/*` and `/admin/*`; in
        `TENANCY=off`, one app's token is 401 on the other app. **(b) Better Auth, gated:** the gate is open
        iff MT-08's step-2 deliverables exist (`scripts/auth.ts` and `platform/auth/`). Open → run headless
        `signUp.email`/`signIn.email` through `better-auth/client` at the version MT-08 pinned (no new
@@ -594,7 +594,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
        401" step polls up to the `tenantKeyCacheTtlMs` option (MT-02) plus 1 s and fails past that bound; the
        bound comes from config, not a hardcoded sleep.
   6. **Runner (`main.ts`) and hermeticity self-check.** Record `git status --porcelain` and the set of
-     `tsdb-e2e-*` containers, start Postgres, and run `deno test -A tests/e2e/platform/suite_test.ts` (plus
+     `mansio-e2e-*` containers, start Postgres, and run `deno test -A tests/e2e/platform/suite_test.ts` (plus
      passthrough args) with the connection details in env. Tear down on exit, on failure, and on
      SIGINT/SIGTERM. Then re-check: no container, network or volume of this run's project; no live child pid
      this run spawned; the temp root gone; `git status --porcelain` unchanged; no `./data`, `./logs` or
@@ -609,7 +609,7 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
      seed and the failing assertion. The coordinator opens a fix against the owning item. Never weaken an
      assertion or mark a case ignored to get green (the only ignore is the MT-08 gate in scenario 5b).
 - **Acceptance criteria:**
-  - `deno task` lists `e2e (package.json)`. From a state with no ts-db containers running (`make down`),
+  - `deno task` lists `e2e (package.json)`. From a state with no mansio containers running (`make down`),
     `deno task e2e` exits 0 and its last line is `E2E PASS seed=20261010 scenarios=7 skipped=…`.
     `deno run -A tests/e2e/platform/main.ts` behaves identically.
   - With a fresh developer stack up (`make up && make db-migrate`, holding host ports 5432 and 8333),
@@ -625,9 +625,9 @@ exist. MT-10 (added 2026-10-11) runs alone in its slot: it needs every tenancy a
     scenario 7 fails; `EventSinkLive` swapped for a no-op sink → scenario 6 fails; the restored-`_version`
     expectation flipped → scenario 3 fails.
   - Hermetic, after a passing run, after a failing run (one injected failed assertion), and after an
-    interrupted run (`timeout -s INT 30 deno task e2e`): `docker ps -a -q --filter name=tsdb-e2e` and
-    `docker volume ls -q --filter name=tsdb-e2e` print nothing; `ls -d /tmp/tsdb-e2e-*` matches nothing;
-    `pgrep -f "platform/(server|reader).ts"` prints nothing (no other ts-db server running);
+    interrupted run (`timeout -s INT 30 deno task e2e`): `docker ps -a -q --filter name=mansio-e2e` and
+    `docker volume ls -q --filter name=mansio-e2e` print nothing; `ls -d /tmp/mansio-e2e-*` matches nothing;
+    `pgrep -f "platform/(server|reader).ts"` prints nothing (no other mansio server running);
     `git status --porcelain` is unchanged; no `./data`, `./logs` or `./object-store` exists that did not exist
     before.
   - Two concurrent runs (`deno task e2e & PROP_SEED=7 deno task e2e & wait`) both exit 0 — the run projects,

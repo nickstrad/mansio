@@ -28,7 +28,7 @@ async function serveThreeEntryCatalog(page: Page) {
 test("the site opens on the default architecture and lists every catalog entry", async ({ page }) => {
   await page.goto("./");
   await expect(page).toHaveURL(
-    /#\/architectures\/tsdb-current\/diagrams\/context$/,
+    /#\/architectures\/mansio-current\/diagrams\/context$/,
   );
   await expect(
     page.getByRole("heading", {
@@ -37,9 +37,9 @@ test("the site opens on the default architecture and lists every catalog entry",
     }),
   ).toBeVisible();
   await expect(page.locator(canvas)).toHaveCount(1);
-  await expect(picker(page)).toHaveValue("tsdb-current");
+  await expect(picker(page)).toHaveValue("mansio-current");
   await expect(picker(page).getByRole("option")).toHaveText([
-    "ts-db today (main 2d30330)",
+    "mansio today (main 2d30330)",
     "Proposed: statement lanes and tenant placement (scale-out)",
     "Proposed: control plane / data plane — tenants own many databases",
     "Fable revision: control/data planes with route grants (M1–M8 applied)",
@@ -49,9 +49,9 @@ test("the site opens on the default architecture and lists every catalog entry",
 test("choosing an architecture opens its default diagram, and Back returns", async ({ page }) => {
   await page.goto("./");
   await expect(page.locator(canvas)).toHaveCount(1);
-  await picker(page).selectOption("tsdb-lanes-proposal");
+  await picker(page).selectOption("mansio-lanes-proposal");
   await expect(page).toHaveURL(
-    /#\/architectures\/tsdb-lanes-proposal\/diagrams\/lanes-context$/,
+    /#\/architectures\/mansio-lanes-proposal\/diagrams\/lanes-context$/,
   );
   await expect(
     page.getByRole("heading", {
@@ -61,14 +61,14 @@ test("choosing an architecture opens its default diagram, and Back returns", asy
   ).toBeVisible();
   await expect(page.locator(canvas)).toHaveCount(1);
   await back(page).click();
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-current\/diagrams\/context$/);
-  await expect(picker(page)).toHaveValue("tsdb-current");
+  await expect(page).toHaveURL(/#\/architectures\/mansio-current\/diagrams\/context$/);
+  await expect(picker(page)).toHaveValue("mansio-current");
   await expect(page.locator(canvas)).toHaveCount(1);
 });
 
 test("a deep link to a diagram of another entry reloads to the same diagram", async ({ page }) => {
   await page.goto(
-    "./#/architectures/tsdb-lanes-proposal/diagrams/lanes-containers",
+    "./#/architectures/mansio-lanes-proposal/diagrams/lanes-containers",
   );
   await expect(
     page.getByRole("heading", {
@@ -77,7 +77,7 @@ test("a deep link to a diagram of another entry reloads to the same diagram", as
     }),
   )
     .toBeVisible();
-  await expect(picker(page)).toHaveValue("tsdb-lanes-proposal");
+  await expect(picker(page)).toHaveValue("mansio-lanes-proposal");
   await page.reload();
   await expect(
     page.getByRole("heading", {
@@ -93,10 +93,10 @@ test("unknown routes show Not Found instead of falling back", async ({ page }) =
   await page.goto("./#/architectures/nope/diagrams/context");
   await expect(page.getByRole("heading", { name: "Not Found" })).toBeVisible();
   await expect(picker(page)).toHaveValue("");
-  await expect(page.getByRole("link", { name: "Open ts-db today (main 2d30330)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open mansio today (main 2d30330)" })).toBeVisible();
   await page.goto("./#/somewhere");
   await expect(page.getByRole("heading", { name: "Not Found" })).toBeVisible();
-  await page.goto("./#/architectures/tsdb-current/diagrams/no-such-diagram");
+  await page.goto("./#/architectures/mansio-current/diagrams/no-such-diagram");
   await expect(page.getByText(/Not Found: unknown diagram/)).toBeVisible();
 });
 
@@ -111,7 +111,7 @@ test("the skip link and the architecture dropdown are keyboard reachable", async
   await expect(picker(page)).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page).toHaveURL(
-    /#\/architectures\/tsdb-lanes-proposal\/diagrams\/lanes-context$/,
+    /#\/architectures\/mansio-lanes-proposal\/diagrams\/lanes-context$/,
   );
   await expect(page.locator(canvas)).toHaveCount(1);
 });
@@ -127,12 +127,12 @@ test("a three-entry catalog works with no code change and opens its defaultId", 
   await expect(page.locator(canvas)).toHaveCount(1);
   await expect(picker(page)).toHaveValue("fixture-third");
   await expect(picker(page).getByRole("option")).toHaveText([
-    "ts-db today (main 2d30330)",
+    "mansio today (main 2d30330)",
     "Proposed: statement lanes and tenant placement (scale-out)",
     "Fixture: a third architecture",
   ]);
-  await picker(page).selectOption("tsdb-current");
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-current\/diagrams\/context$/);
+  await picker(page).selectOption("mansio-current");
+  await expect(page).toHaveURL(/#\/architectures\/mansio-current\/diagrams\/context$/);
   await expect(page.locator(canvas)).toHaveCount(1);
   await back(page).click();
   await expect(page).toHaveURL(/#\/architectures\/fixture-third\/diagrams\/fixture-context$/);
@@ -140,7 +140,7 @@ test("a three-entry catalog works with no code change and opens its defaultId", 
 
 test("the top bar stays in the viewport while a tall diagram page scrolls", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("./#/architectures/tsdb-lanes-proposal/diagrams/lanes-components");
+  await page.goto("./#/architectures/mansio-lanes-proposal/diagrams/lanes-components");
   await expect(page.locator(canvas)).toHaveCount(1);
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
   expect(height).toBeGreaterThan(3 * 720);
@@ -149,26 +149,26 @@ test("the top bar stays in the viewport while a tall diagram page scrolls", asyn
   await expect(picker(page)).toBeInViewport();
   await expect(back(page)).toBeInViewport();
   // Both still work from the bottom of the page (a covered control would fail the click's hit test).
-  await picker(page).selectOption("tsdb-current");
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-current\/diagrams\/context$/);
+  await picker(page).selectOption("mansio-current");
+  await expect(page).toHaveURL(/#\/architectures\/mansio-current\/diagrams\/context$/);
   await page.evaluate(() => globalThis.scrollTo(0, document.documentElement.scrollHeight));
   await expect(back(page)).toBeInViewport();
   await back(page).click();
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-lanes-proposal\/diagrams\/lanes-components$/);
+  await expect(page).toHaveURL(/#\/architectures\/mansio-lanes-proposal\/diagrams\/lanes-components$/);
 });
 
 // One view of each kind PG-02 added; each must lay out on its own canvas.
 for (
   const [architecture, diagram, title] of [
-    ["tsdb-current", "landscape", "System landscape: ts-db, its people and its neighbours"],
-    ["tsdb-current", "code-document-reader", "Code: platform/document_reader.ts"],
+    ["mansio-current", "landscape", "System landscape: mansio, its people and its neighbours"],
+    ["mansio-current", "code-document-reader", "Code: platform/document_reader.ts"],
     [
-      "tsdb-lanes-proposal",
+      "mansio-lanes-proposal",
       "flow-long-query-interrupt",
       "Flow: a long query stopped at its deadline (proposed)",
     ],
     [
-      "tsdb-lanes-proposal",
+      "mansio-lanes-proposal",
       "lanes-deployment",
       "Deployment (illustrative): two data nodes with statement lanes",
     ],
@@ -183,50 +183,50 @@ for (
 
 // DP-01: use the production catalog, and render every proposed view, not just a fixture.
 const planes = JSON.parse(readFileSync(
-  new URL("../public/architectures/tsdb-planes-proposal.json", import.meta.url),
+  new URL("../public/architectures/mansio-planes-proposal.json", import.meta.url),
   "utf8",
 )) as { diagrams: { id: string; title: string }[] };
 
 for (const diagram of planes.diagrams) {
   test(`the planes ${diagram.id} view renders`, async ({ page }) => {
-    await page.goto(`./#/architectures/tsdb-planes-proposal/diagrams/${diagram.id}`);
+    await page.goto(`./#/architectures/mansio-planes-proposal/diagrams/${diagram.id}`);
     await expect(page.getByRole("heading", { level: 1, name: diagram.title, exact: true })).toBeVisible();
     await expect(page.locator(canvas)).toHaveCount(1);
-    await expect(picker(page)).toHaveValue("tsdb-planes-proposal");
+    await expect(picker(page)).toHaveValue("mansio-planes-proposal");
   });
 }
 
 // DP-02: the Fable revision renders every view from the production catalog too.
 const fable = JSON.parse(readFileSync(
-  new URL("../public/architectures/tsdb-planes-fable.json", import.meta.url),
+  new URL("../public/architectures/mansio-planes-fable.json", import.meta.url),
   "utf8",
 )) as { diagrams: { id: string; title: string }[] };
 
 for (const diagram of fable.diagrams) {
   test(`the fable ${diagram.id} view renders`, async ({ page }) => {
-    await page.goto(`./#/architectures/tsdb-planes-fable/diagrams/${diagram.id}`);
+    await page.goto(`./#/architectures/mansio-planes-fable/diagrams/${diagram.id}`);
     await expect(page.getByRole("heading", { level: 1, name: diagram.title, exact: true })).toBeVisible();
     await expect(page.locator(canvas)).toHaveCount(1);
-    await expect(picker(page)).toHaveValue("tsdb-planes-fable");
+    await expect(picker(page)).toHaveValue("mansio-planes-fable");
   });
 }
 
 test("the Fable revision is selectable and Back preserves the current architecture", async ({ page }) => {
   await page.goto("./");
   await expect(page.locator(canvas)).toHaveCount(1);
-  await picker(page).selectOption("tsdb-planes-fable");
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-planes-fable\/diagrams\/planes-context$/);
+  await picker(page).selectOption("mansio-planes-fable");
+  await expect(page).toHaveURL(/#\/architectures\/mansio-planes-fable\/diagrams\/planes-context$/);
   await expect(page.locator(canvas)).toHaveCount(1);
   await back(page).click();
-  await expect(picker(page)).toHaveValue("tsdb-current");
+  await expect(picker(page)).toHaveValue("mansio-current");
 });
 
 test("the planes proposal is selectable and Back preserves the current architecture", async ({ page }) => {
   await page.goto("./");
   await expect(page.locator(canvas)).toHaveCount(1);
-  await picker(page).selectOption("tsdb-planes-proposal");
-  await expect(page).toHaveURL(/#\/architectures\/tsdb-planes-proposal\/diagrams\/planes-context$/);
+  await picker(page).selectOption("mansio-planes-proposal");
+  await expect(page).toHaveURL(/#\/architectures\/mansio-planes-proposal\/diagrams\/planes-context$/);
   await expect(page.locator(canvas)).toHaveCount(1);
   await back(page).click();
-  await expect(picker(page)).toHaveValue("tsdb-current");
+  await expect(picker(page)).toHaveValue("mansio-current");
 });

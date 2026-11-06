@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 var now0 = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)

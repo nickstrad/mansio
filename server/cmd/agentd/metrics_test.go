@@ -15,17 +15,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
-	"github.com/nickstrad/ts-db-go/internal/vactor/vactortest"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/vactor/vactortest"
 )
 
 // sample returns the value of the series whose line starts with series (name plus its exact label set).
@@ -102,33 +102,33 @@ func TestMetricCatalogAfterFaultScript(t *testing.T) {
 		t.Fatalf("content type %q", res.Header.Get("Content-Type"))
 	}
 	for series, want := range map[string]float64{
-		`tsdb_requests_total{point="front",class="ok",code="ok"}`:                    2,
-		`tsdb_requests_total{point="front",class="app_error",code="wrong_owner"}`:    1,
-		`tsdb_requests_total{point="front",class="app_error",code="bad_request"}`:    1,
-		`tsdb_requests_total{point="front",class="app_error",code="ticket_invalid"}`: 1,
-		`tsdb_requests_total{point="front",class="refused",code="unavailable"}`:      1,
-		`tsdb_requests_total{point="front",class="app_error",code="stmt_timeout"}`:   1,
-		`tsdb_requests_total{point="front",class="timeout",code="expired"}`:          0, // counted: TestServerStatsCountEveryAnswer
-		`tsdb_requests_total{point="front",class="ambiguous",code="expired"}`:        0,
-		`tsdb_requests_total{point="front",class="5xx",code="internal"}`:             0,
-		`tsdb_request_latency_seconds_count{point="front"}`:                          7,
-		`tsdb_in_flight{point="front"}`:                                              0,
-		`tsdb_startup_pending`:                                                       1, // db-bad
-		`tsdb_ready`:                                                                 1,
-		`tsdb_admission_shed_total`:                                                  0,
+		`mansio_requests_total{point="front",class="ok",code="ok"}`:                    2,
+		`mansio_requests_total{point="front",class="app_error",code="wrong_owner"}`:    1,
+		`mansio_requests_total{point="front",class="app_error",code="bad_request"}`:    1,
+		`mansio_requests_total{point="front",class="app_error",code="ticket_invalid"}`: 1,
+		`mansio_requests_total{point="front",class="refused",code="unavailable"}`:      1,
+		`mansio_requests_total{point="front",class="app_error",code="stmt_timeout"}`:   1,
+		`mansio_requests_total{point="front",class="timeout",code="expired"}`:          0, // counted: TestServerStatsCountEveryAnswer
+		`mansio_requests_total{point="front",class="ambiguous",code="expired"}`:        0,
+		`mansio_requests_total{point="front",class="5xx",code="internal"}`:             0,
+		`mansio_request_latency_seconds_count{point="front"}`:                          7,
+		`mansio_in_flight{point="front"}`:                                              0,
+		`mansio_startup_pending`:                                                       1, // db-bad
+		`mansio_ready`:                                                                 1,
+		`mansio_admission_shed_total`:                                                  0,
 	} {
 		if got := sample(t, text, series); got != want {
 			t.Errorf("%s = %v, want %v", series, got, want)
 		}
 	}
-	for _, series := range []string{`tsdb_in_flight_high_water{point="front"}`, `tsdb_admission{stat="in_flight_high_water"}`,
-		`tsdb_actors`, `tsdb_startup_pending_age_seconds`} {
+	for _, series := range []string{`mansio_in_flight_high_water{point="front"}`, `mansio_admission{stat="in_flight_high_water"}`,
+		`mansio_actors`, `mansio_startup_pending_age_seconds`} {
 		if sample(t, text, series) < 1e-9 {
 			t.Errorf("%s is 0", series)
 		}
 	}
-	for _, series := range []string{`tsdb_actor_queue_depth{stat="p99"}`, `tsdb_admission{stat="queued"}`, `tsdb_admission_drain_per_second`,
-		`tsdb_request_latency_seconds_bucket{point="front",le="+Inf"}`} {
+	for _, series := range []string{`mansio_actor_queue_depth{stat="p99"}`, `mansio_admission{stat="queued"}`, `mansio_admission_drain_per_second`,
+		`mansio_request_latency_seconds_bucket{point="front",le="+Inf"}`} {
 		sample(t, text, series)
 	}
 	cancel()
@@ -203,28 +203,28 @@ func TestDependencyMetricsAndCodes(t *testing.T) {
 
 	text := scrape(t, reg)
 	for series, want := range map[string]float64{
-		`tsdb_breaker_state{dep="s3",state="open"}`:                                     1,
-		`tsdb_breaker_state{dep="s3",state="closed"}`:                                   0,
-		`tsdb_breaker_transitions_total{dep="s3"}`:                                      1,
-		`tsdb_s3_requests_total{point="s3",op="fetch",class="ok",kind="ok"}`:            1,
-		`tsdb_s3_requests_total{point="s3",op="fetch",class="5xx",kind="transient"}`:    1,
-		`tsdb_s3_requests_total{point="s3",op="fetch",class="timeout",kind="canceled"}`: 0,
-		`tsdb_s3_retries_total{op="fetch"}`:                                             1,
-		`tsdb_s3_bytes_total{op="fetch"}`:                                               4096,
-		`tsdb_s3_latency_seconds_count{point="s3",op="fetch"}`:                          2,
-		`tsdb_vactor_events_total{event="activation"}`:                                  1,
-		`tsdb_vactor_events_total{event="writeback_failure"}`:                           1,
-		`tsdb_vactor{stat="active"}`:                                                    1,
-		`tsdb_vactor_last_writeback_ok_timestamp_seconds`:                               0,
-		`tsdb_vactor_tick{stat="timed_out"}`:                                            1,
-		`tsdb_owner_transitions_total{to="active"}`:                                     1,
-		`tsdb_owner_transitions_total{to="fenced"}`:                                     1,
+		`mansio_breaker_state{dep="s3",state="open"}`:                                     1,
+		`mansio_breaker_state{dep="s3",state="closed"}`:                                   0,
+		`mansio_breaker_transitions_total{dep="s3"}`:                                      1,
+		`mansio_s3_requests_total{point="s3",op="fetch",class="ok",kind="ok"}`:            1,
+		`mansio_s3_requests_total{point="s3",op="fetch",class="5xx",kind="transient"}`:    1,
+		`mansio_s3_requests_total{point="s3",op="fetch",class="timeout",kind="canceled"}`: 0,
+		`mansio_s3_retries_total{op="fetch"}`:                                             1,
+		`mansio_s3_bytes_total{op="fetch"}`:                                               4096,
+		`mansio_s3_latency_seconds_count{point="s3",op="fetch"}`:                          2,
+		`mansio_vactor_events_total{event="activation"}`:                                  1,
+		`mansio_vactor_events_total{event="writeback_failure"}`:                           1,
+		`mansio_vactor{stat="active"}`:                                                    1,
+		`mansio_vactor_last_writeback_ok_timestamp_seconds`:                               0,
+		`mansio_vactor_tick{stat="timed_out"}`:                                            1,
+		`mansio_owner_transitions_total{to="active"}`:                                     1,
+		`mansio_owner_transitions_total{to="fenced"}`:                                     1,
 	} {
 		if got := sample(t, text, series); got != want {
 			t.Errorf("%s = %v, want %v", series, got, want)
 		}
 	}
-	if sample(t, text, `tsdb_vactor_oldest_dirty_age_seconds`) <= 0 {
+	if sample(t, text, `mansio_vactor_oldest_dirty_age_seconds`) <= 0 {
 		t.Error("oldest dirty age is 0 with a dirty database")
 	}
 	for _, code := range []string{"S3.BREAKER_OPEN", "VACTOR.TICK_SLOW", "OWNER.CLAIMED", "OWNER.SUPERSEDED", "OWNER.RECONCILE_DONE"} {

@@ -281,7 +281,7 @@ export interface ConfigService {
 }
 
 /** Live: `ConfigLive` (env, item 08). Test: `ConfigTest(overrides)`. */
-export class Config extends Context.Tag("ts-db/Config")<Config, ConfigService>() {}
+export class Config extends Context.Tag("mansio/Config")<Config, ConfigService>() {}
 
 // ===========================================================================
 // IdGen — item 15 (`IdGenLive`), item 20 (`IdGenTest`)
@@ -293,7 +293,7 @@ export interface IdGenService {
 }
 
 /** Live: `IdGenLive` (`crypto.randomUUID`). Test: `IdGenTest`. */
-export class IdGen extends Context.Tag("ts-db/IdGen")<IdGen, IdGenService>() {}
+export class IdGen extends Context.Tag("mansio/IdGen")<IdGen, IdGenService>() {}
 
 // ===========================================================================
 // Clock — Effect's built-in
@@ -323,7 +323,7 @@ export interface EventSinkService {
 }
 
 /** Live: `EventSinkLive` (bounded queue → rotating JSONL). Test: `EventSinkTest` (`Ref<EventRecord[]>`). */
-export class EventSink extends Context.Tag("ts-db/EventSink")<EventSink, EventSinkService>() {}
+export class EventSink extends Context.Tag("mansio/EventSink")<EventSink, EventSinkService>() {}
 
 // ===========================================================================
 // AppRegistry — item 22 (`AppRegistryLive`), item 20 (`AppRegistryTest`)
@@ -335,7 +335,7 @@ export interface AppRegistryService {
 }
 
 /** Live: `AppRegistryLive` (over `Config`). Test: `AppRegistryTest`. */
-export class AppRegistry extends Context.Tag("ts-db/AppRegistry")<AppRegistry, AppRegistryService>() {}
+export class AppRegistry extends Context.Tag("mansio/AppRegistry")<AppRegistry, AppRegistryService>() {}
 
 // ===========================================================================
 // Storage — item 15 (`StorageLive`), item 20 (`StorageTest`)
@@ -361,7 +361,7 @@ export interface StorageService {
  * One layer instance per app: the writer owns a single SQLite connection, so item 22 builds the
  * per-app stacks rather than passing an `appId` to every call.
  */
-export class Storage extends Context.Tag("ts-db/Storage")<Storage, StorageService>() {}
+export class Storage extends Context.Tag("mansio/Storage")<Storage, StorageService>() {}
 
 // ===========================================================================
 // Reader — item 16 (`ReaderLive`), item 20 (`ReaderTest`)
@@ -373,7 +373,7 @@ export interface ReaderService {
 }
 
 /** Live: `ReaderLive` (scoped DuckDB, reader process only). Test: `ReaderTest`. */
-export class Reader extends Context.Tag("ts-db/Reader")<Reader, ReaderService>() {}
+export class Reader extends Context.Tag("mansio/Reader")<Reader, ReaderService>() {}
 
 // ===========================================================================
 // ReaderClient — item 17 (`ReaderClientLive`), item 20 (`ReaderClientTest`)
@@ -410,7 +410,7 @@ export type ServerReaderClientService = ReaderClientService<ReaderCallError | St
  * Substituting the test layer is what lets the whole HTTP surface be exercised in one process with
  * no subprocess and no DuckDB (item 22's `tests/unit/http_test.ts`).
  */
-export class ReaderClient extends Context.Tag("ts-db/ReaderClient")<
+export class ReaderClient extends Context.Tag("mansio/ReaderClient")<
   ReaderClient,
   ServerReaderClientService
 >() {}
@@ -425,7 +425,7 @@ export interface ObjectStoreService {
 }
 
 /** Live: `ObjectStoreLive` selects local or S3 on `Config.objectStore.s3BaseUrl`. Test: `ObjectStoreTest`. */
-export class ObjectStore extends Context.Tag("ts-db/ObjectStore")<ObjectStore, ObjectStoreService>() {}
+export class ObjectStore extends Context.Tag("mansio/ObjectStore")<ObjectStore, ObjectStoreService>() {}
 
 // ===========================================================================
 // Backups — item 19 (`BackupsLive`)
@@ -446,7 +446,7 @@ export interface BackupsService {
 }
 
 /** Live: `BackupsLive` (over `Storage` + `ObjectStore` + `Clock` + `IdGen`). Tests reuse the live layer. */
-export class Backups extends Context.Tag("ts-db/Backups")<Backups, BackupsService>() {}
+export class Backups extends Context.Tag("mansio/Backups")<Backups, BackupsService>() {}
 
 // ===========================================================================
 // EventLogIngest — item 21 (`EventLogIngestLive`), item 20 (`EventLogIngestTest`)
@@ -458,7 +458,7 @@ export interface EventLogIngestService {
 }
 
 /** Live: `EventLogIngestLive` (DuckDB). Test: `EventLogIngestTest`. */
-export class EventLogIngest extends Context.Tag("ts-db/EventLogIngest")<
+export class EventLogIngest extends Context.Tag("mansio/EventLogIngest")<
   EventLogIngest,
   EventLogIngestService
 >() {}
@@ -478,7 +478,7 @@ export interface AnalysisService {
 }
 
 /** Live: `AnalysisLive` (reader process, over the event-log DuckDB file). No test double. */
-export class Analysis extends Context.Tag("ts-db/Analysis")<Analysis, AnalysisService>() {}
+export class Analysis extends Context.Tag("mansio/Analysis")<Analysis, AnalysisService>() {}
 
 // ===========================================================================
 // TenantRegistry — MT-03 (`TenantRegistryLive`), test: ephemeral Postgres
@@ -489,7 +489,7 @@ export class Analysis extends Context.Tag("ts-db/Analysis")<Analysis, AnalysisSe
  * layer against ephemeral Postgres (`make up` + `make db-migrate`); pg-mem is explicitly
  * rejected for registry tests (`docs/haiku-experiments/findings/sq-10.md`).
  */
-export class TenantRegistry extends Context.Tag("ts-db/TenantRegistry")<
+export class TenantRegistry extends Context.Tag("mansio/TenantRegistry")<
   TenantRegistry,
   TenantRegistryService
 >() {}

@@ -8,9 +8,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // Template schema: a small meta table plus items with a 1000-byte random payload (incompressible) and one

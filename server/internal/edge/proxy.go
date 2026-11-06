@@ -17,15 +17,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/logx"
-	"github.com/nickstrad/ts-db-go/internal/metrics"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
-	"github.com/nickstrad/ts-db-go/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/ratelimit"
 )
 
 const module = "edge"
@@ -372,7 +372,7 @@ func (e *Edge) answer(w http.ResponseWriter, a answer) {
 		h.Set("Retry-After", strconv.Itoa(retry))
 	}
 	if status == http.StatusUnauthorized {
-		h.Set("WWW-Authenticate", `Bearer realm="ts-db edge"`)
+		h.Set("WWW-Authenticate", `Bearer realm="mansio edge"`)
 	}
 	w.WriteHeader(status)
 	w.Write(append(b, '\n'))

@@ -10,7 +10,7 @@ import (
 // descriptors and Go heap bytes. Every daemon registers it so a soak can check that each one is flat.
 func Process(reg *Registry) {
 	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}, {Name: "/memory/classes/total:bytes"}}
-	reg.Add("tsdb_process", "Process levels: goroutines, open_fds (-1 if unknown), heap_bytes (live objects), go_bytes (all memory the Go runtime mapped).",
+	reg.Add("mansio_process", "Process levels: goroutines, open_fds (-1 if unknown), heap_bytes (live objects), go_bytes (all memory the Go runtime mapped).",
 		Gauge, func(e *Emit) {
 			metrics.Read(sample)
 			e.Value(Labels{"stat", "goroutines"}, float64(runtime.NumGoroutine()))

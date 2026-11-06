@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
 )
 
 // Every answer is counted once, by code, with its latency; the high-water mark follows in-flight requests.

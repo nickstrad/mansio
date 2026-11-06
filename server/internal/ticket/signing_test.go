@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 var pol = ticket.RotationPolicy{Rotate: 24 * time.Hour, Activate: 5 * time.Minute, Overlap: 15 * time.Minute}

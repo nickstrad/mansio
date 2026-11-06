@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Policy is the placement policy (ts-db's open decision M8, made here; knowledge/front/2026-11-05-controld.md):
+// Policy is the placement policy (mansio's open decision M8, made here; knowledge/front/2026-11-05-controld.md):
 // put a new or moving database on the least-loaded live VM, by active databases and bytes, under a cap.
 //
 //   - Live: heartbeat younger than MaxHeartbeatAge (and not attested dead: Load leaves those out).

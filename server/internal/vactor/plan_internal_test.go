@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Every assertion in checkPlan must be able to fire.

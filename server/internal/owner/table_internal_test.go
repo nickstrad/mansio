@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Assertions must be able to fire (knowledge/testing §2).

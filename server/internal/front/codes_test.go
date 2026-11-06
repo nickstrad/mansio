@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // The wire contract, one row per code: HTTP status, Retry-After, and every error that maps to it.

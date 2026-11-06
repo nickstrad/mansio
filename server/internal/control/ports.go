@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 const module = "control"

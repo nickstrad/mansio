@@ -1,4 +1,4 @@
-# Integration points and stability guide (ts-db-go)
+# Integration points and stability guide (mansio-server)
 
 Status: proposed · 2026-11-05 · From _Release It!_ (Nygard, 1st ed.) · Plan and evidence: [plan.md](plan.md)
 

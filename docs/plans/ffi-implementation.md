@@ -169,8 +169,8 @@ Builders log `task_started`/`task_completed` through `work-scripts/bash/log-even
 summary and a fresh actor per unit (`<model>-ffi-NN`); reviewers log `review_verdict` naming the reviewed SHA
 and commit their report under `agent-work/items/<item>/`.
 
-**Worktrees:** FFI-01 is `item/ffi-binding` in `/root/Software/tsdb-work/ffi-binding` (as built); FFI-02 …
-FFI-08 use `/root/Software/tsdb-work/ffi02` … `ffi08`, branches `item/ffi-02-config` … `item/ffi-08-docs`.
+**Worktrees:** FFI-01 is `item/ffi-binding` in `/root/Software/mansio-work/ffi-binding` (as built); FFI-02 …
+FFI-08 use `/root/Software/mansio-work/ffi02` … `ffi08`, branches `item/ffi-02-config` … `item/ffi-08-docs`.
 Each review and each fixup gets its own worktree too. Nobody edits another unit's worktree.
 
 ## 4. Items
@@ -183,7 +183,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   at `9250359` (reports under `agent-work/items/ffi-binding/` on the `review/ffi-01-astra*` branches). Each
   round's lesson is in `docs/knowledge/gotchas.md`.
 - **Model:** **Opus 5.5 / Astra** — built by Opus 5.5, so the review goes to **Astra** (`gpt-6-astra`).
-- **Branch / worktree:** `item/ffi-binding` · `/root/Software/tsdb-work/ffi-binding` (the builder's, as
+- **Branch / worktree:** `item/ffi-binding` · `/root/Software/mansio-work/ffi-binding` (the builder's, as
   recorded in `agent-work/items/ffi-binding/claims.md`).
 - **Owns (as claimed):** `platform/sqlite_ffi/mod.ts`, `library.ts`, `database.ts`, `errors.ts`;
   `tests/unit/sqlite_ffi_crud_test.ts`, `sqlite_ffi_cancel_test.ts`, `sqlite_ffi_perf_test.ts`;
@@ -241,7 +241,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
 - **Model:** **Haiku 5.5 / Luna (high)** — additive rows copying the item-08 options-table pattern (MT-02
   precedent), acceptance checkable by `deno task test`. Review: **Opus 5.5 / Astra**; lands only with a PASS
   and explicit human approval (AGENTS.md Haiku rule).
-- **Branch / worktree:** `item/ffi-02-config` · `/root/Software/tsdb-work/ffi02`.
+- **Branch / worktree:** `item/ffi-02-config` · `/root/Software/mansio-work/ffi02`.
 - **Owns:** `platform/config.ts` (additive rows only), `platform/services.ts` (additive `SqliteConfig` type
   and `Config.sqlite` field), `README.md` "Configuration" section (additive rows; this item also runs
   `deno fmt README.md`, which clears one of the three pre-existing fmt failures on `main`),
@@ -271,7 +271,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   FFI-01 already delivers `Database`/`Statement`, both step paths, deadlines and abort; this item makes them
   Effect resources and adds the two things the platform callers need that the binding does not have.
 - **Model:** **Opus 5.5 / Astra.** Scoped resource lifetimes and the interruption bridge.
-- **Branch / worktree:** `item/ffi-03-effect` · `/root/Software/tsdb-work/ffi03`.
+- **Branch / worktree:** `item/ffi-03-effect` · `/root/Software/mansio-work/ffi03`.
 - **Owns:** `platform/sqlite_ffi/effect.ts` (new), `platform/sqlite_ffi/library.ts` (additive symbol
   `sqlite3_get_autocommit`), `platform/sqlite_ffi/database.ts` (additive `Database.inTransaction` only),
   `tests/unit/sqlite_ffi_effect_test.ts`, `platform/sqlite_ffi/mod.ts` (re-exports),
@@ -311,7 +311,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   file in the API process switches in one commit.
 - **Model:** **Opus 5.5 / Astra.** Transaction and writer-queue boundaries, snapshot semantics, test migration
   with a lock hazard. Review by the other top-tier model.
-- **Branch / worktree:** `item/ffi-04-cutover` · `/root/Software/tsdb-work/ffi04`.
+- **Branch / worktree:** `item/ffi-04-cutover` · `/root/Software/mansio-work/ffi04`.
 - **Owns:** `platform/sqlite.ts`, `platform/document_reader.ts`, `platform/tenants/routing.ts`,
   `platform/backup.ts`, `platform/layers.ts` and `platform/server.ts` (wiring the `Config.sqlite` library path
   into the open calls and the one-time lifecycle event), `tests/unit/boundaries_test.ts` (new rules),
@@ -375,7 +375,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   acceptable for the cutover with this follow-up.
 - **Model:** **Opus 5.5 / Astra** (binding core, FFI symbol table). Prefer Astra build + Opus 5.5 review to
   balance pools.
-- **Branch / worktree:** `item/ffi-04b-defaults` · `/root/Software/tsdb-work/ffi04b`.
+- **Branch / worktree:** `item/ffi-04b-defaults` · `/root/Software/mansio-work/ffi04b`.
 - **Owns:** `platform/sqlite_ffi/library.ts` (add `sqlite3_db_config` to the symbol table),
   `platform/sqlite_ffi/database.ts` (at open: `sqlite3_db_config(db, SQLITE_DBCONFIG_DQS_DML, 0, NULL)` and
   `SQLITE_DBCONFIG_DQS_DDL` likewise, then `PRAGMA foreign_keys=ON`; refuse to proceed if either config call
@@ -401,7 +401,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   item.
 - **Model:** **Opus 5.5 / Astra.** Decides which statements can be interrupted, the error taxonomy change and
   its HTTP mapping, and what happens when an interrupt does not return. Review by the other top-tier model.
-- **Branch / worktree:** `item/ffi-05-deadline` · `/root/Software/tsdb-work/ffi05`.
+- **Branch / worktree:** `item/ffi-05-deadline` · `/root/Software/mansio-work/ffi05`.
 - **Owns:** `platform/sqlite_ffi/classify.ts` (new), `platform/document_reader.ts` and `platform/sqlite.ts`
   (path selection and deadline wiring), `core/errors.ts` (additive `StatementDeadlineError`),
   `platform/http/router.ts` (`toHttpStatus` row), `tests/errors_exhaustiveness.ts`, `core/events.ts` (additive
@@ -459,7 +459,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
 - **Scoping:** CONCURRENT with FFI-07. After FFI-05.
 - **Model:** **Sonnet / Sol** (`sonnet`, `gpt-6.1-sol`). Porting measured scripts to the landed API; checkable
   thresholds. Review: Opus 5.5 / Astra.
-- **Branch / worktree:** `item/ffi-06-evidence` · `/root/Software/tsdb-work/ffi06`.
+- **Branch / worktree:** `item/ffi-06-evidence` · `/root/Software/mansio-work/ffi06`.
 - **Owns:** `perf/ffi_read_cost.ts`, `perf/ffi_interrupt.ts`, `perf/README.md` (additive),
   `tests/integration.ts` (additive scenario), `platform/eventlog/tables.ts` and `core/eventlog/ddl.ts`
   (additive nullable `path` column on `sql_events`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS` on ingest),
@@ -493,7 +493,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
 - **Scoping:** CONCURRENT with FFI-06. After FFI-05.
 - **Model:** **Sonnet / Sol.** The interfaces are fixed; the work is generators and invariants in the item-13
   style.
-- **Branch / worktree:** `item/ffi-07-props` · `/root/Software/tsdb-work/ffi07`.
+- **Branch / worktree:** `item/ffi-07-props` · `/root/Software/mansio-work/ffi07`.
 - **Owns:** `tests/property/ffi_roundtrip_test.ts`, `tests/property/ffi_interrupt_test.ts`, `docs/testing.md`
   (additive rows).
 - **Reads:** `platform/sqlite_ffi/*`, `tests/property/sqlite_oracle_test.ts` (generators to reuse),
@@ -517,7 +517,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   `sdk/`, `app/`, `tests/`, `scripts/`, `perf/`, `deno.json`).
 - **Model:** **Haiku 5.5 / Luna (high)** — docs-only with a fixed checklist (precedent: SP-08 docs, Luna
   build, review PASS). Review: Opus 5.5 / Astra; lands only with a PASS and explicit human approval.
-- **Branch / worktree:** `item/ffi-08-docs` · `/root/Software/tsdb-work/ffi08`.
+- **Branch / worktree:** `item/ffi-08-docs` · `/root/Software/mansio-work/ffi08`.
 - **Owns:** `docs/architecture/c4-component-server.*` and `c4-container-platform.*` with their `diagrams/*.py`
   sources (the `node:sqlite` box becomes "FFI binding → system libsqlite3"; edge labels name the two step
   paths), `docs/architecture/README.md`, `docs.md` and `README.md` (usage: the 504 deadline, the three

@@ -668,7 +668,7 @@ export function makeEventLogIngest(
         const sources = yield* attempt("inventory", () => inventory(logDir));
         const state = yield* readState;
         const tempDir = yield* Effect.acquireRelease(
-          attempt("read", () => Deno.makeTempDir({ prefix: "ts-db-ingest-" })),
+          attempt("read", () => Deno.makeTempDir({ prefix: "mansio-ingest-" })),
           (dir) => Effect.promise(() => Deno.remove(dir, { recursive: true }).catch(() => undefined)),
         );
 

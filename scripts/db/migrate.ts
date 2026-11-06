@@ -38,7 +38,7 @@ import { Config } from "../../platform/services.ts";
 
 const MIGRATIONS_DIR = new URL("../../platform/tenants/migrations/", import.meta.url);
 const FILE_RE = /^(\d{3})_([A-Za-z0-9][A-Za-z0-9_.-]*)\.(up|down)\.sql$/;
-const ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext('tsdb-migrate'))";
+const ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtext('mansio-migrate'))";
 const JOURNAL_DDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
   version text PRIMARY KEY,
   applied_at timestamptz NOT NULL DEFAULT now()

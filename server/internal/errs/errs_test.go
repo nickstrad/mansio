@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 var errSentinel = errors.New("disk full")

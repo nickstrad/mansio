@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det"
-	"github.com/nickstrad/ts-db-go/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
 // Lifecycle paths (Release It H2: liveness ≠ readiness). Serve them on the lifecycle listener, so they never

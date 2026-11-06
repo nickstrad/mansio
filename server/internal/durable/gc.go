@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Generation GC (object-storage guide GC1–GC6, plan OS-06). Two reapers keep a key's storage near

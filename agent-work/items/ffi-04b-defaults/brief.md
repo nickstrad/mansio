@@ -1,7 +1,7 @@
 # FFI-04b — Binding connection defaults match `node:sqlite`
 
 Builder: Codex Astra (`gpt-6-astra`), actor `astra-ffi-04b`. Assigned branch `item/ffi-04b-defaults`, worktree
-`/root/Software/tsdb-work/ffi04b`, base `51a5283`. Independent review is assigned to a fresh Claude Opus 5.5
+`/root/Software/mansio-work/ffi04b`, base `51a5283`. Independent review is assigned to a fresh Claude Opus 5.5
 unit by the coordinator.
 
 ## Authorization and ownership

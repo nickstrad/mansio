@@ -1,4 +1,4 @@
-# ts-db platform user guide
+# mansio platform user guide
 
 Write TypeScript schemas and named document handlers; the platform compiles document operations to SQL. This
 guide uses the default app-token mode (`TENANCY=off`) and the two shipped tic-tac-toe apps. Read the README's

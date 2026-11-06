@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/outcome"
 )
 
 // The decisions of the client loop, pure: what an answer means for the next step, and when a cached route

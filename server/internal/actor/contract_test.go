@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // runExecutorContract is the executor port's contract. Every implementation the actor may be given (the real

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/client"
+	"github.com/nickstrad/mansio/server/internal/client"
 )
 
 func TestPacerSpacesCallers(t *testing.T) {

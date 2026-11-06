@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
 // Spec table for the fetch bulkhead at 0 / 1 / limit / limit+1 of each bound (count, bytes, queue). A

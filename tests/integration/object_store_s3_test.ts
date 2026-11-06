@@ -7,12 +7,12 @@
  * (item 08), with the global `fetch`.
  *
  * Run:
- *   S3_INTEGRATION=1 S3_BASE_URL=http://localhost:8333 AWS_ACCESS_KEY_ID=tsdbdevkey \
- *   AWS_SECRET_ACCESS_KEY=tsdbdevsecret AWS_REGION=us-east-1 \
+ *   S3_INTEGRATION=1 S3_BASE_URL=http://localhost:8333 AWS_ACCESS_KEY_ID=mansiodevkey \
+ *   AWS_SECRET_ACCESS_KEY=mansiodevsecret AWS_REGION=us-east-1 \
  *   deno test -A tests/integration/object_store_s3_test.ts
  *
  * Gated on `S3_INTEGRATION=1`: without it every test is skipped, so a machine with no S3 never fails.
- * `S3_BUCKET` (default `tsdb-test`) names the bucket. The layer's base URL *includes* the bucket, so the
+ * `S3_BUCKET` (default `mansio-test`) names the bucket. The layer's base URL *includes* the bucket, so the
  * test composes `${S3_BASE_URL}/${S3_BUCKET}` unless `S3_BASE_URL` already carries a path.
  *
  * Every run writes under its own `it-s3/<timestamp>-<random>/` prefix and deletes what it wrote. The
@@ -35,7 +35,7 @@ if (!enabled) console.warn(`SKIP object_store_s3_test: ${skip}`);
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-const bucket = Deno.env.get("S3_BUCKET") ?? "tsdb-test";
+const bucket = Deno.env.get("S3_BUCKET") ?? "mansio-test";
 const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID") ?? "";
 const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY") ?? "";
 const region = Deno.env.get("AWS_REGION") ?? "us-east-1";
@@ -43,7 +43,7 @@ const endpoint = (Deno.env.get("S3_BASE_URL") ?? "").replace(/\/$/, "");
 const hasPath = endpoint !== "" && new URL(endpoint).pathname !== "/";
 const bucketUrl = hasPath ? endpoint : `${endpoint}/${bucket}`;
 /** Same endpoint, a bucket that does not exist. Only ever read from, so nothing can be created. */
-const missingBucketUrl = `${endpoint}/tsdb-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`;
+const missingBucketUrl = `${endpoint}/mansio-no-such-bucket-${crypto.randomUUID().slice(0, 8)}`;
 
 /** Unique per run so reruns (and concurrent runs) never collide. */
 const prefix = `it-s3/${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;

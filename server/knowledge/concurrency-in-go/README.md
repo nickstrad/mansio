@@ -1,4 +1,4 @@
-# Concurrency in Go (Cox-Buday): error handling and logging, applied to ts-db-go
+# Concurrency in Go (Cox-Buday): error handling and logging, applied to mansio-server
 
 Owner: coldload agent. Others: add notes in this folder (dated files) and a line below; do not rewrite this file.
 

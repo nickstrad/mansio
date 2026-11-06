@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/objstore"
-	"github.com/nickstrad/ts-db-go/internal/objstore/s3test"
+	"github.com/nickstrad/mansio/server/internal/objstore"
+	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
 // A 10k-object prefix is listed one page (≤ 1000 entries) at a time, and a Transient failure retries only

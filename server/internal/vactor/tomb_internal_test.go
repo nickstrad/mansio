@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 )
 
 // The per-key backoff (internal/retry, equal jitter) at each failure in a row: [d/2, d] with d = 100 ms

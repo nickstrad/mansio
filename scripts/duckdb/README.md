@@ -1,6 +1,6 @@
 # DuckDB analysis queries (starter set)
 
-Starter `.sql` files for exploring ts-db's event logs with the `duckdb` CLI, written against the **v2** event
+Starter `.sql` files for exploring mansio's event logs with the `duckdb` CLI, written against the **v2** event
 log schema (`core/eventlog/ddl.ts`). These are ad-hoc reference queries. The supported interface is the named
 query catalog — `platform/analysis/catalog.ts` via `deno task logs:query <name>` — documented in
 `docs/observability.md`; the files here overlap it where noted and otherwise stay free-form.

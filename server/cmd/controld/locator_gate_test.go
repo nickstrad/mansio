@@ -17,14 +17,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // The CP-5 gate (control-plane plan §3, PG-10): two agentd processes that fetch their ticket keys from controld,
-// and clients that only know controld's resolve API. Gated on TSDB_PG_URL and COLDLOAD_S3.
+// and clients that only know controld's resolve API. Gated on MANSIO_PG_URL and COLDLOAD_S3.
 //
-//	TSDB_PG_URL='postgres://tsdb:tsdb-dev@localhost:5433/tsdb?sslmode=disable' COLDLOAD_S3=localhost:8333 \
+//	MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable' COLDLOAD_S3=localhost:8333 \
 //	  go test -count=1 -run TestLocatorGate -v ./cmd/controld
 
 // route is a resolve answer as a client keeps it.
@@ -149,7 +149,7 @@ func TestLocatorGate(t *testing.T) {
 		key, tenant, db string
 		status          int
 	}{
-		{"tsdb_nope", "gate", "loc", 401},
+		{"mansio_nope", "gate", "loc", 401},
 		{other["key"], "gate", "loc", 403},
 		{apiKey, "gate", "nothing", 404},
 		{apiKey, "gate", "Bad Name", 400},
@@ -274,10 +274,10 @@ func TestLocatorGate(t *testing.T) {
 
 	// Unknown api key ids are charged to their source (here loopback, burst 5, 1/s; two keys already spent two):
 	// a flood of them is shed with Retry-After, while the cached key from the same source still resolves.
-	secret := apiKey[len("tsdb_")+17:]
+	secret := apiKey[len("mansio_")+17:]
 	statuses := map[int]int{}
 	for i := range 40 {
-		code, ra, _ := c.resolve(fmt.Sprintf("tsdb_%016x_%s", i+1, secret), "gate", "loc", 0)
+		code, ra, _ := c.resolve(fmt.Sprintf("mansio_%016x_%s", i+1, secret), "gate", "loc", 0)
 		statuses[code]++
 		if code == 503 && ra == "" {
 			t.Fatal("shed without Retry-After")

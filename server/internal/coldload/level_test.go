@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // getter is a fake host: key "fail*" fails, "panic" panics, "hit*" is a local hit, "wait*" a waiter;

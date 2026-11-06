@@ -78,7 +78,7 @@ export interface ObjectStoreTestService {
 }
 
 /** The control side of `ObjectStoreTest`. Only present when `ObjectStoreTest` is. */
-export class ObjectStoreTestControl extends Context.Tag("ts-db/test/ObjectStoreTestControl")<
+export class ObjectStoreTestControl extends Context.Tag("mansio/test/ObjectStoreTestControl")<
   ObjectStoreTestControl,
   ObjectStoreTestService
 >() {}

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/coldload"
 )
 
 func normalized(t *testing.T, c coldload.Config) coldload.Config {

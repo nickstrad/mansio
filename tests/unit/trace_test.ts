@@ -145,7 +145,7 @@ test("concurrent fibers never see each other's span", async () => {
 // ===========================================================================
 
 const APP = { id: "tic-tac-toe", token: "columns-token", storage: "columns" } as const;
-const dataDir = await Deno.makeTempDir({ prefix: "ts-db-trace-" });
+const dataDir = await Deno.makeTempDir({ prefix: "mansio-trace-" });
 after(() => Deno.remove(dataDir, { recursive: true }));
 
 /** What the reader double saw: each request and the trace context of the fiber that sent it. */

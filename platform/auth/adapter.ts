@@ -98,7 +98,7 @@ export function postgresAdapter(sql: Client, inTransaction = false): AdapterFact
   return (options: BetterAuthOptions) =>
     createAdapterFactory({
       config: {
-        adapterId: "tsdb-postgres",
+        adapterId: "mansio-postgres",
         supportsDates: true,
         supportsBooleans: true,
         supportsNumericIds: false,

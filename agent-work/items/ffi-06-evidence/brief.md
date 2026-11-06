@@ -1,7 +1,7 @@
 # FFI-06 builder brief
 
 Date: 2026-10-14. Actor: sol-ffi-06. Builder: Codex Sol. Branch: item/ffi-06-evidence. Worktree:
-/root/Software/tsdb-work/ffi06. Base: main f2bf1c9 (FFI-05). Concurrent FFI-07 owns disjoint property-test
+/root/Software/mansio-work/ffi06. Base: main f2bf1c9 (FFI-05). Concurrent FFI-07 owns disjoint property-test
 files. Plan: origin/plan/ffi-implementation:docs/plans/ffi-implementation.md sections 2–5.
 
 Port the read-cost and interrupt PoCs from origin/research/fable-lang-switch to the production

@@ -45,7 +45,7 @@ landing rules still come from `AGENTS.md`.
 From this branch's checkout on the VM:
 
 ```bash
-cd /root/Software/tsdb-work/eventlog
+cd /root/Software/mansio-work/eventlog
 export AGENT_ACTOR=codex-eventlog
 work-scripts/bash/log-event.sh --type task_started --branch infra/event-log \
   --summary "Event-log implementation started"
@@ -59,7 +59,7 @@ from your own checkout (or an absolute path to a checkout containing it while ke
 repo). Neither Claude nor Codex needs its own integration. Through the host SSH wrapper:
 
 ```bash
-~/workspace/goals/claude-code-and-codex-sessions-on-vm-1/hidden_files/bin/sshvm.sh 'cd /root/Software/tsdb-work/eventlog && work-scripts/bash/log-event.sh --type task_started --branch infra/event-log --actor claude-eventlog --summary "Event-log implementation started" --detail "Session: eventlog; task: centralized agent reporting."'
+~/workspace/goals/claude-code-and-codex-sessions-on-vm-1/hidden_files/bin/sshvm.sh 'cd /root/Software/mansio-work/eventlog && work-scripts/bash/log-event.sh --type task_started --branch infra/event-log --actor claude-eventlog --summary "Event-log implementation started" --detail "Session: eventlog; task: centralized agent reporting."'
 ```
 
 These are ordinary Bash commands with no model-specific environment. Replace the actor/task/branch and

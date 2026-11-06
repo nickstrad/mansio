@@ -98,7 +98,7 @@ const KEY_COLUMNS = ["id", "tenantId", "name", "createdAt"];
 
 function issued(value: unknown): string {
   const key = record(value);
-  if (typeof key.plaintext !== "string" || !/^tsdb_[A-Za-z0-9_-]+$/.test(key.plaintext)) {
+  if (typeof key.plaintext !== "string" || !/^mansio_[A-Za-z0-9_-]+$/.test(key.plaintext)) {
     throw new Error("Invalid admin API response: missing issued API key");
   }
   return `${

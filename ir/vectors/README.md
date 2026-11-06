@@ -1,8 +1,8 @@
 # IR test vectors
 
 The cross-language contract for [IR protocol v1](../spec/v1.md) (ADR 0010). TypeScript runs them in
-`tests/unit/ir_vectors_test.ts` (`deno task test`); the Go runner (ts-db-go IR-1/IR-2) reads the same files.
-Every bug fix in either implementation adds a vector.
+`tests/unit/ir_vectors_test.ts` (`deno task test`); the Go runner (mansio-server IR-1/IR-2) reads the same
+files. Every bug fix in either implementation adds a vector.
 
 **Do not edit the JSON by hand.** The source is `scripts/ir/gen-vectors.ts`; regenerate with
 
@@ -97,13 +97,13 @@ already JSON text).
 
 ## `execute.json`
 
-| Member        | Meaning                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `schema`      | the database's schema (one storage layout)                                                                                                                                                                                                                                                                                                                                                 |
-| `fingerprint` | its `sha256:` fingerprint; requests carry it in `schema` unless the vector tests a mismatch                                                                                                                                                                                                                                                                                                |
-| `seed`        | `{table: [doc…]}` written before the first step, bypassing the protocol: each doc's `_id`, `_creationTime` and `_version` are stored as given                                                                                                                                                                                                                                              |
-| `steps`       | requests run in order against the same database                                                                                                                                                                                                                                                                                                                                            |
-| `final`       | `{table: [doc…]}` — every row of each listed table after the last step, ordered by `_id`; **an unlisted table must be empty**. Optional `requests`: `[{request_id, applied_ms, result_hex}]`, the whole `_tsdb_requests` table ordered by `request_id`, `result_hex` the lowercase hex of the stored blob (`02` + canonical JSON); compared exactly when present, not compared when absent |
+| Member        | Meaning                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema`      | the database's schema (one storage layout)                                                                                                                                                                                                                                                                                                                                                   |
+| `fingerprint` | its `sha256:` fingerprint; requests carry it in `schema` unless the vector tests a mismatch                                                                                                                                                                                                                                                                                                  |
+| `seed`        | `{table: [doc…]}` written before the first step, bypassing the protocol: each doc's `_id`, `_creationTime` and `_version` are stored as given                                                                                                                                                                                                                                                |
+| `steps`       | requests run in order against the same database                                                                                                                                                                                                                                                                                                                                              |
+| `final`       | `{table: [doc…]}` — every row of each listed table after the last step, ordered by `_id`; **an unlisted table must be empty**. Optional `requests`: `[{request_id, applied_ms, result_hex}]`, the whole `_mansio_requests` table ordered by `request_id`, `result_hex` the lowercase hex of the stored blob (`02` + canonical JSON); compared exactly when present, not compared when absent |
 
 Each step: `clock` (the request's single clock reading, ms), `serverIds` (the ids the server's generator
 returns, in order, for inserts without a client id; using more, or fewer, is a runner failure), `request` (the
@@ -118,7 +118,7 @@ dump the database through its own connection; in TS both go through `core/compil
 For differential testing of the Go compiler (plan §6.2). Line 1 is a header:
 
 ```json
-{ "format": "ts-db/ir-compile-corpus", "version": 1, "seed": 20261105, "count": 2000, "dialect": "sqlite" }
+{ "format": "mansio/ir-compile-corpus", "version": 1, "seed": 20261105, "count": 2000, "dialect": "sqlite" }
 ```
 
 Every other line is one case:

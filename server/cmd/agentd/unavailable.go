@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/owner"
-	"github.com/nickstrad/ts-db-go/internal/placement/pg"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // unavailableCauses are the dependency sentinels that mean "a dependency cannot serve this request now; nothing

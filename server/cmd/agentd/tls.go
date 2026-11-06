@@ -4,8 +4,8 @@ import (
 	"crypto/tls"
 	"net"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // TLSFiles is the query listener's server certificate and key (PEM). With it the listener speaks HTTPS, h2 and

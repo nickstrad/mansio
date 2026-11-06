@@ -32,17 +32,17 @@ import { type Op, READ_OPS, type Request, type Response } from "../../core/ir/ty
 import { IdGen } from "../services.ts";
 import { Database, prepareCached } from "../sqlite_ffi/mod.ts";
 
-/** ts-db-go's request-id table (`internal/actor/reqid.go`), byte for byte. */
+/** mansio-server's request-id table (`internal/actor/reqid.go`), byte for byte. */
 export const REQUEST_TABLE_DDL = [
-  `create table if not exists _tsdb_requests (
+  `create table if not exists _mansio_requests (
   request_id text    not null primary key,
   applied_ms integer not null,
   result     blob
 ) strict, without rowid`,
-  `create index if not exists _tsdb_requests_applied on _tsdb_requests (applied_ms)`,
+  `create index if not exists _mansio_requests_applied on _mansio_requests (applied_ms)`,
 ];
 
-/** The version byte of an IR result in `_tsdb_requests.result`: then the canonical JSON of `result`. */
+/** The version byte of an IR result in `_mansio_requests.result`: then the canonical JSON of `result`. */
 export const OUTCOME_IR = 2;
 
 export interface IrDatabase {
@@ -224,18 +224,18 @@ export function openIrDatabase(
         return result;
       });
 
-    /** A mutation: answered from `_tsdb_requests` when its id was applied, otherwise run and recorded. */
+    /** A mutation: answered from `_mansio_requests` when its id was applied, otherwise run and recorded. */
     const mutation = (request: Request, requestId: string, now: number) =>
       Effect.gen(function* () {
         const [prior] = yield* all({
-          text: "select result from _tsdb_requests where request_id = ?",
+          text: "select result from _mansio_requests where request_id = ?",
           values: [requestId],
         });
         if (prior) return { result: yield* decodeOutcome(prior.result), duplicate: true as const };
         const result = yield* ops(request, now);
         const outcome = new Uint8Array([OUTCOME_IR, ...new TextEncoder().encode(canonical(result))]);
-        yield* attempt("insert", "_tsdb_requests", () =>
-          prepareCached(db, "insert into _tsdb_requests (request_id, applied_ms, result) values (?, ?, ?)")
+        yield* attempt("insert", "_mansio_requests", () =>
+          prepareCached(db, "insert into _mansio_requests (request_id, applied_ms, result) values (?, ?, ?)")
             .run([requestId, now, outcome]));
         return { result };
       });
@@ -263,7 +263,7 @@ export function openIrDatabase(
 function decodeOutcome(stored: unknown): Effect.Effect<unknown[], StorageError> {
   const failed = new StorageError({
     operation: "select",
-    table: "_tsdb_requests",
+    table: "_mansio_requests",
     detail: "unreadable result",
   });
   if (!(stored instanceof Uint8Array) || stored[0] !== OUTCOME_IR) return Effect.fail(failed);

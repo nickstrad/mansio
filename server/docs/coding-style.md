@@ -1,4 +1,4 @@
-# Coding style for ts-db-go
+# Coding style for mansio-server
 
 Status: adopted · 2026-11-05 · Read this before planning or writing code. It is the short version. Each section
 links to the full guide, which wins on detail.
@@ -150,7 +150,7 @@ Full: [knowledge/testing/README.md](../knowledge/testing/README.md), `~/AI/write
 3. **Fakes with fault switches** in `<pkg>test` packages; **one contract suite run against every
    implementation** (fake, real, and real-through-`faultnet`/`s3test` for adapters — Release It H4 fault table).
 4. **Model-based fuzzing** for anything stateful; commit failing inputs to `testdata/fuzz/`.
-5. **Adapter integration tests** including failure paths and error wrapping (gated: `COLDLOAD_S3`, `TSDB_PG_URL`).
+5. **Adapter integration tests** including failure paths and error wrapping (gated: `COLDLOAD_S3`, `MANSIO_PG_URL`).
 6. **Concurrency**: `-race`, many workers on the same key for CAS paths.
 7. **SQL**: every `.sql` file has a golden-output regression test; each constraint has an off-point test.
 8. **Under load and over time**: fault modes during a frontbench/wbbench run before calling a component done.

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/edge/edgetest"
+	"github.com/nickstrad/mansio/server/internal/edge/edgetest"
 )
 
 // End to end with the real binaries and a private CA, no -dev: frontbench → (TLS, h2) edge → (TLS, h2) agentd.

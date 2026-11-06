@@ -10,19 +10,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/nickstrad/ts-db-go/internal/owner/ownertest"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
-// Postgres tests are gated on TSDB_PG_URL (deploy/postgres/docker-compose.yml) and each runs in a fresh
+// Postgres tests are gated on MANSIO_PG_URL (deploy/postgres/docker-compose.yml) and each runs in a fresh
 // schema that is dropped afterwards (knowledge/testing/README.md, SQL G-21).
 
 var ctx = context.Background()
 
 func pgURL(t testing.TB) string {
 	t.Helper()
-	u := os.Getenv("TSDB_PG_URL")
+	u := os.Getenv("MANSIO_PG_URL")
 	if u == "" {
-		t.Skip("TSDB_PG_URL not set (docker compose -f deploy/postgres/docker-compose.yml up -d)")
+		t.Skip("MANSIO_PG_URL not set (docker compose -f deploy/postgres/docker-compose.yml up -d)")
 	}
 	return u
 }
@@ -105,12 +105,12 @@ func open(t testing.TB, dsn, schema string, mod func(*Config)) *Placement {
 	return p
 }
 
-// pgAddr parses TSDB_PG_URL (it must be a URL) and returns it with its host:port.
+// pgAddr parses MANSIO_PG_URL (it must be a URL) and returns it with its host:port.
 func pgAddr(t testing.TB) (*url.URL, string) {
 	t.Helper()
 	u, err := url.Parse(pgURL(t))
 	if err != nil || u.Host == "" {
-		t.Fatalf("TSDB_PG_URL must be a postgres:// URL for proxy tests: %v", err)
+		t.Fatalf("MANSIO_PG_URL must be a postgres:// URL for proxy tests: %v", err)
 	}
 	if u.Port() == "" {
 		return u, u.Host + ":5432"

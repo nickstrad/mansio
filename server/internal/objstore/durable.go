@@ -19,8 +19,8 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Durable is the S3 adapter for durable.Store (contract 1). Object names are Root + the durable layout.

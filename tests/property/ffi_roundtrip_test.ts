@@ -162,7 +162,7 @@ async function withRig<T>(
   options: { readBigInts: boolean },
   fn: (rig: Rig) => Promise<T>,
 ): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), "ts-db-ffi-roundtrip-"));
+  const dir = mkdtempSync(join(tmpdir(), "mansio-ffi-roundtrip-"));
   // The oracle is `:memory:`; the binding has the temp file. No file is shared (FFI plan §1.2).
   const oracle = new DatabaseSync(":memory:");
   const binding = Database.open(join(dir, "binding.db"), options);

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/breaker"
-	"github.com/nickstrad/ts-db-go/internal/faultnet"
-	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/breaker"
+	"github.com/nickstrad/mansio/server/internal/faultnet"
+	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
 // Failures below the interface (Release It H4): a held row lock, a black hole, a half-open connection, a
@@ -32,7 +32,7 @@ func timed(f func() error) (error, time.Duration) {
 	return err, time.Since(start)
 }
 
-// proxied opens an adapter on schema through a faultnet proxy in front of TSDB_PG_URL. It does not migrate.
+// proxied opens an adapter on schema through a faultnet proxy in front of MANSIO_PG_URL. It does not migrate.
 func proxied(t *testing.T, schema string, mod func(*Config)) (*Placement, *faultnet.Proxy) {
 	t.Helper()
 	u, addr := pgAddr(t)

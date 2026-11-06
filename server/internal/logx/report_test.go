@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 func TestReporter(t *testing.T) {

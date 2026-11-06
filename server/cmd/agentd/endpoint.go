@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/logx"
 )
 
 // jsonEndpoints is the shape the lifecycle (control.go) and admin (admin.go) endpoints share: an optional

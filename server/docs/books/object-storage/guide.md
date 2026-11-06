@@ -1,4 +1,4 @@
-# Object storage patterns and rules for ts-db-go
+# Object storage patterns and rules for mansio-server
 
 Status: adopted rules · Date: 2026-11-05 · Background and refactor items: [plan.md](plan.md) (`OS-NN`)
 

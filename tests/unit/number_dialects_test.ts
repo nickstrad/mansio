@@ -49,8 +49,8 @@ function expectRight<A, E>(either: Either.Either<A, E>): A {
   assert.fail(`expected a right, got left ${JSON.stringify(either.left)}`);
 }
 
-const ROLE_ENV = "TS_DB_NUMBER_DIALECTS_ROLE";
-const DIR_ENV = "TS_DB_NUMBER_DIALECTS_DIR";
+const ROLE_ENV = "MANSIO_NUMBER_DIALECTS_ROLE";
+const DIR_ENV = "MANSIO_NUMBER_DIALECTS_DIR";
 const role = Deno.env.get(ROLE_ENV);
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -242,7 +242,7 @@ const show = (value: unknown) => JSON.stringify(value);
 
 if (role === undefined) {
   Deno.test("number boundary matrix: SQLite and DuckDB, in separate processes, agree with the JS reference in both layouts", async () => {
-    const dir = await Deno.makeTempDir({ prefix: "ts-db-number-dialects-" });
+    const dir = await Deno.makeTempDir({ prefix: "mansio-number-dialects-" });
     try {
       // SQLite writes the fixture files, so it runs to completion before DuckDB attaches them.
       const sqlite = await runLeg("sqlite", dir);

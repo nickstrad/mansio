@@ -1,4 +1,4 @@
-# SQL guide for ts-db-go
+# SQL guide for mansio-server
 
 Status: proposed (adopt with [plan.md](plan.md) PG-11) · Date: 2026-11-05 · Source: _The Art of PostgreSQL_
 (Fontaine), chapter numbers as in `~/AI/books/art-of-postgresql/chapters/`.
@@ -79,7 +79,7 @@ Why: the two-step form races (ch 39); `on conflict … do nothing returning` tel
 you inserted.
 
 ```sql
-insert into _tsdb_requests (request_id, applied_ms) values (?, ?)
+insert into _mansio_requests (request_id, applied_ms) values (?, ?)
 on conflict (request_id) do nothing returning request_id   -- no row ⇒ already applied
 ```
 
@@ -145,7 +145,7 @@ golden files with `-update`, and review the diff.
 
 **G-21 [pg] Each constraint has an off-point test; each port adapter passes the fake's contract suite.**
 Why: a constraint that never fired in a test may not exist (ch 29 + Aniche on/off points). Postgres tests are
-gated on `TSDB_PG_URL`, like `COLDLOAD_S3`.
+gated on `MANSIO_PG_URL`, like `COLDLOAD_S3`.
 
 **G-22 [all] Concurrency tests put many workers on the same key.**
 Why: contention and CAS races only show there (ch 37). Record latency at 1/16/64 workers in `knowledge/<topic>/`.

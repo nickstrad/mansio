@@ -164,7 +164,7 @@ const DECODE: DecodeCase[] = [
   { name: "minimal query", why: "one select, no requestId", request: query([sel()]), expect: ok },
   {
     name: "query may carry a requestId",
-    why: "reads ignore it, as ts-db-go does",
+    why: "reads ignore it, as mansio-server does",
     request: query([sel()], { requestId: "q-1" }),
     expect: ok,
   },

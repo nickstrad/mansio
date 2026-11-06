@@ -461,7 +461,7 @@ httpTest(
 
     // One snapshot holds the writer; 999 mutations queue behind it — 1000 admitted, the cap.
     const dir = yield* Effect.acquireRelease(
-      Effect.promise(() => Deno.makeTempDir({ prefix: "ts-db-http-queue-" })),
+      Effect.promise(() => Deno.makeTempDir({ prefix: "mansio-http-queue-" })),
       (path) => Effect.promise(() => Deno.remove(path, { recursive: true })),
     );
     const holder = yield* Effect.fork(stack.storage.snapshot(join(dir, "held.sqlite")));
@@ -686,7 +686,7 @@ async function serverJsonl(dir: string): Promise<Record<string, unknown>[]> {
 }
 
 test("the server's LoggingLive writes one http event per request, and defect logs, to its JSONL file", async () => {
-  const dir = await Deno.makeTempDir({ prefix: "ts-db-http-jsonl-" });
+  const dir = await Deno.makeTempDir({ prefix: "mansio-http-jsonl-" });
   try {
     const JsonlStack = PlatformTest.pipe(
       Layer.provideMerge(Layer.mergeAll(LoggingLive, IdGenTest, ObjectStoreTest(), UnusedTenantRegistry)),

@@ -25,10 +25,10 @@ front ── depAdmitter{ownerAdmitter{owner.Table}} ── depExecutor{hostExec
   failing at startup is a WARN (`S3.BUCKET_CHECK_FAILED`), not a refusal to start.
 - Shutdown phase `host.close` = `vhost.Shutdown` (oldest-dirty first, rest kept; `VACTOR.SHUTDOWN` logs
   written_back / kept), then the canary.
-- Metrics added in durable mode: `tsdb_s3_*`, `tsdb_breaker_*{dep="s3"}`, `tsdb_vactor_*`,
-  `tsdb_owner_transitions_total`, `tsdb_s3_probe_{ok,failures_total,last_ok_timestamp_seconds}` (a manifest
-  read past the breaker every `ready_interval`; never fails readiness). `tsdb_startup_pending` = keys still
-  closed. Not in durable mode: `tsdb_actor_queue_depth` (vactor exposes no per-actor queues; deferred).
+- Metrics added in durable mode: `mansio_s3_*`, `mansio_breaker_*{dep="s3"}`, `mansio_vactor_*`,
+  `mansio_owner_transitions_total`, `mansio_s3_probe_{ok,failures_total,last_ok_timestamp_seconds}` (a manifest
+  read past the breaker every `ready_interval`; never fails readiness). `mansio_startup_pending` = keys still
+  closed. Not in durable mode: `mansio_actor_queue_depth` (vactor exposes no per-actor queues; deferred).
 
 ## Lifecycle endpoints (control-plane identity: `Authorization: Bearer <control_token>`)
 

@@ -314,7 +314,7 @@ for (const layout of ["columns", "json"] as const) {
     Effect.gen(function* () {
       const schema: Schema = { t: new Table({ s: { node: { kind: "string" } } }, layout) };
       const dir = yield* Effect.acquireRelease(
-        Effect.sync(() => mkdtempSync(join(tmpdir(), "ts-db-oracle-"))),
+        Effect.sync(() => mkdtempSync(join(tmpdir(), "mansio-oracle-"))),
         (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
       );
       const file = join(dir, "app.sqlite");

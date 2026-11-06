@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Repo conventions for Claude Code in `ts-db`. For the multi-agent build/review/merge protocol (batches, model
+Repo conventions for Claude Code in `mansio`. For the multi-agent build/review/merge protocol (batches, model
 assignment, side quests), see `AGENTS.md` — this file does not repeat it.
 
 ## What this repo is
@@ -25,7 +25,7 @@ Use `deno task <name>` for everything (see the plan's §2.3 for the full task li
 - Each unit follows the global fresh-agent lifecycle (see `~/.claude/CLAUDE.md`) plus this repo's
   [unit-of-work rules](AGENTS.md#unit-of-work-rules-repo-additions-to-the-global-lifecycle), including
   ownership-safe handoffs.
-- Plan items build on `item/NN-slug` branches in worktrees under `/root/Software/tsdb-work/`.
+- Plan items build on `item/NN-slug` branches in worktrees under `/root/Software/mansio-work/`.
 - Side quests build on `haiku/sq-NN` branches — see `docs/side-quests.md`.
 - If you are not the agent assigned to a given branch/worktree, do not edit files in it or push to it. Check
   `AGENTS.md` and the current coordination state (`agent-work/COORDINATION.md`, if present) before assuming a

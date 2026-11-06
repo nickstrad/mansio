@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/durable/durabletest"
-	"github.com/nickstrad/ts-db-go/internal/vactor"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
+	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
 // RI-06 acceptance: 500 dirty databases, every store call takes 100 ms, a 1.5 s budget. Shutdown returns

@@ -10,9 +10,9 @@ executor whose ops are `insert`/`patch`/`delete` without client ids, results or 
 (`platform/sqlite.ts`, `execute` ~l.866). The reference executor opens its own connection and reuses the same
 pieces: `compileDDL`, the `_platform_schema` fingerprint check, `compileSelect`/`decode` and
 `compileInsert`/`compileReplace`/`compileDelete`, so its files are interchangeable with `Storage`'s. It adds
-ts-db-go's `_tsdb_requests` table (same DDL as `internal/actor/reqid.go`). It emits no events and has no queue
-or deadline; IR-3 wires it into `Storage` for that. Checked: `tests/unit/ir_vectors_test.ts` (execute vectors,
-both layouts) passes under `deno-linux.sh`.
+mansio-server's `_mansio_requests` table (same DDL as `internal/actor/reqid.go`). It emits no events and has
+no queue or deadline; IR-3 wires it into `Storage` for that. Checked: `tests/unit/ir_vectors_test.ts` (execute
+vectors, both layouts) passes under `deno-linux.sh`.
 
 Differences from today's semantics, all deliberate (spec §11):
 

@@ -1,8 +1,8 @@
 # PG-02b — Architecture selector with N entries, sticky chrome, no comparison view (brief)
 
-Unit: build item PG-02b of `docs/plans/pages-diagrams.md` (`/root/Software/tsdb-work/c4react/docs/plans/pages-diagrams.md`,
+Unit: build item PG-02b of `docs/plans/pages-diagrams.md` (`/root/Software/mansio-work/c4react/docs/plans/pages-diagrams.md`,
 read-only; read §0 "Selector" and the PG-02b section). Builder: Claude Opus 5.5, actor `opus-pg-02b`. Branch
-`item/pg-02b-selector` off `main` `f52c817` (PG-02 landed as `f52c817`). Worktree `/root/Software/tsdb-work/pg02b`. Reviewer
+`item/pg-02b-selector` off `main` `f52c817` (PG-02 landed as `f52c817`). Worktree `/root/Software/mansio-work/pg02b`. Reviewer
 afterwards: Codex Astra. Date: 2026-10-15. Authorization: Nick's direction `/root/fable-pg-dropdown.md` AND its amendment `/root/fable-pg-dropdown-amend.md` (read both verbatim; the amendment drops side-by-side comparison for now and requires sticky top chrome) under
 his go `/root/fable-c4-docs-go.md`; build delegated to Opus per `/root/fable-c4-docs-delegate-opus.md`.
 
@@ -18,7 +18,7 @@ Configuration table); `agent-work/items/pg-02b-selector/**`. Do not touch `pages
 `pages/public/architectures/`, inventories, the workflow, `docs/`.
 
 Build (ONE implementation commit `pages: sticky top bar with an architecture dropdown; drop the comparison view`):
-1. Catalog: optional `defaultId` in `catalog.json` (set to `tsdb-current`); the app defaults to it, else the first entry.
+1. Catalog: optional `defaultId` in `catalog.json` (set to `mansio-current`); the app defaults to it, else the first entry.
    Entries are peers: no constant names a "proposed" or "current" entry (`PROPOSED_ID`-style constants go).
 2. Single view: a labelled, keyboard-reachable dropdown (native `<select>` is fine) listing every entry by title; selecting
    one navigates to that architecture's default diagram via the SDK route port; deep links still work.

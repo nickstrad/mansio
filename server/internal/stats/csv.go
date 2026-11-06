@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // CSV writes a low-volume file (phases, samples, schemas) a row at a time, flushing each row so the file can be

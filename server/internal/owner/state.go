@@ -1,6 +1,6 @@
 // Package owner makes sure at most one process admits writes for a database key at a time.
 //
-// Object storage lets any process download any database, and routes are allowed to be stale (ts-db option 4
+// Object storage lets any process download any database, and routes are allowed to be stale (mansio option 4
 // §3.3). So the guarantee lives in the process that hosts the database, in three layers:
 //
 //  1. An authority (the Placement port; the control plane later) hands out an epoch per (key, owner). It

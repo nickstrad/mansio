@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 
 	"modernc.org/sqlite" // also registers the "sqlite" driver (pure Go, no cgo)
 )

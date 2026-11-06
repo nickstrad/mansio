@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# segfault-stress.sh — stress runner for the intermittent exit-139 (SIGSEGV) seen in ts-db test runs.
+# segfault-stress.sh — stress runner for the intermittent exit-139 (SIGSEGV) seen in mansio test runs.
 #
 # Runs one command N times, J at a time, and records every exit code plus the child pid. Any run that
 # dies on a signal (exit >= 128) gets the matching `dmesg` lines captured: the kernel logs the faulting

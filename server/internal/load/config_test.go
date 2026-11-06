@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/outcome"
-	"github.com/nickstrad/ts-db-go/internal/retry"
-	"github.com/nickstrad/ts-db-go/internal/workload"
+	"github.com/nickstrad/mansio/server/internal/outcome"
+	"github.com/nickstrad/mansio/server/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/workload"
 )
 
 func parse(t *testing.T, body string) *Config {

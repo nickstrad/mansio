@@ -57,9 +57,9 @@ AnalysisLive: every catalog query runs against an empty file and against the fix
 error: AssertionError: deadline-hits-per-handler-hour returns rows over the fixture
       assert.ok(rows.length > 0, `${name} returns rows over the fixture`);
              ^
-    at file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:261:14
-    at async withFixture (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:194:12)
-    at async NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/analysis_catalog_test.ts:257:3)
+    at file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:261:14
+    at async withFixture (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:194:12)
+    at async NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/analysis_catalog_test.ts:257:3)
 
  FAILURES 
 

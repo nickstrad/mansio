@@ -1,6 +1,6 @@
 # FFI-01 — file claims
 
-Claimed by `claude-ffi-binding` on `item/ffi-binding` (worktree `/root/Software/tsdb-work/ffi-binding`) from
+Claimed by `claude-ffi-binding` on `item/ffi-binding` (worktree `/root/Software/mansio-work/ffi-binding`) from
 2026-10-13 until the item lands or is abandoned. Other agents: do not edit these paths on any branch while the
 claim stands.
 

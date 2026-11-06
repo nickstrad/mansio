@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nickstrad/ts-db-go/internal/coldload"
+	"github.com/nickstrad/mansio/server/internal/coldload"
 )
 
 // snapshot reads Go runtime memory, current RSS (via ps: includes SQLite's non-Go allocations) and open file

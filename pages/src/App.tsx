@@ -14,7 +14,7 @@ import { liftDefaultId } from "./catalog.ts";
 import { chooseDefault, parseSiteRoute, shownArchitectureId, singleHash } from "./routes.ts";
 import type { SiteRoute } from "./routes.ts";
 
-const REPO = "https://github.com/nickstrad/ts-db";
+const REPO = "https://github.com/nickstrad/mansio";
 const CATALOG_URL = `${import.meta.env.BASE_URL}catalog.json`;
 
 // The SDK hash port reports its own pushState writes and browser navigation (popstate, hashchange).
@@ -96,7 +96,7 @@ export function App() {
       <header className="site-header">
         <div className="site-heading">
           <p className="site-eyebrow">C4 model</p>
-          <p className="site-title">ts-db architecture</p>
+          <p className="site-title">mansio architecture</p>
           <p className="site-purpose">
             Use these diagrams when you design a feature. Pick an architecture from the list in the bar below
             (what runs on <code>main</code>{" "}

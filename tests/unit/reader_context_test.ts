@@ -232,7 +232,7 @@ test("withRequestContext: a caller trace is not replaced by an outer annotation;
 // ===========================================================================
 
 async function withFixture(run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await Deno.makeTempDir({ prefix: "ts-db-reader-context-" });
+  const dir = await Deno.makeTempDir({ prefix: "mansio-reader-context-" });
   try {
     const { inspect } = await import("../helpers/sqlite_inspect.ts");
     const db = inspect(join(dir, "tic-tac-toe.sqlite"), { write: true });

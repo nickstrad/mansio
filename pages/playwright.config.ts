@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // Smoke test of the production build (run `npm run build` first; `npm run check` does). It serves dist/ with
-// `vite preview` at the GitHub Pages base path, so asset and worker URLs are exercised under /ts-db/.
+// `vite preview` at the GitHub Pages base path, so asset and worker URLs are exercised under /mansio/.
 const port = 4319;
 
 export default defineConfig({
@@ -11,7 +11,7 @@ export default defineConfig({
   outputDir: "node_modules/.cache/playwright-results",
   timeout: 60_000,
   reporter: "line",
-  use: { baseURL: `http://127.0.0.1:${port}/ts-db/` },
+  use: { baseURL: `http://127.0.0.1:${port}/mansio/` },
   projects: [{
     name: "chromium",
     use: {
@@ -20,8 +20,8 @@ export default defineConfig({
     },
   }],
   webServer: {
-    command: `npx vite preview --base /ts-db/ --host 127.0.0.1 --port ${port} --strictPort`,
-    url: `http://127.0.0.1:${port}/ts-db/`,
+    command: `npx vite preview --base /mansio/ --host 127.0.0.1 --port ${port} --strictPort`,
+    url: `http://127.0.0.1:${port}/mansio/`,
     reuseExistingServer: false,
   },
 });

@@ -1,4 +1,4 @@
-# ts-db-go Makefile. One section per workstream; add yours as a new section (edit under
+# mansio-server Makefile. One section per workstream; add yours as a new section (edit under
 # `scripts/lock.sh Makefile ...`). `make help` lists the documented targets.
 
 .PHONY: help

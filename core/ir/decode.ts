@@ -37,7 +37,7 @@ import {
 type Json = Record<string, unknown>;
 type Result<A> = Either.Either<A, SchemaError>;
 
-/** `[A-Za-z0-9._:-]`, 1..64 bytes, not starting with `.` — ts-db-go's `front.checkID`. */
+/** `[A-Za-z0-9._:-]`, 1..64 bytes, not starting with `.` — mansio-server's `front.checkID`. */
 const WIRE_ID = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]{0,63}$/;
 /** A canonical lowercase UUIDv7: version nibble 7, RFC 9562 variant. */
 export const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

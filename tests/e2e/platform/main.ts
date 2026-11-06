@@ -34,7 +34,7 @@ try {
   beforeStatus = await gitStatus();
   beforePaths = await Promise.all(defaultPaths.map(exists));
   try {
-    beforeContainers = await docker(["ps", "-a", "-q", "--filter", "name=tsdb-e2e-"]);
+    beforeContainers = await docker(["ps", "-a", "-q", "--filter", "name=mansio-e2e-"]);
     dockerReady = true;
   } catch (error) {
     throw new Error(`Docker dependency missing or unhealthy: ${error}`);
@@ -42,7 +42,7 @@ try {
   await Effect.runPromise(
     Effect.scoped(Effect.gen(function* () {
       temp = yield* Effect.acquireRelease(
-        Effect.promise(() => Deno.makeTempDir({ prefix: "tsdb-e2e-" })),
+        Effect.promise(() => Deno.makeTempDir({ prefix: "mansio-e2e-" })),
         (path) =>
           Effect.promise(async () => {
             if (keep) return;
@@ -112,7 +112,7 @@ try {
             `${kind} leak in ${project}`,
           );
         }
-        const after = await docker(["ps", "-a", "-q", "--filter", "name=tsdb-e2e-"]);
+        const after = await docker(["ps", "-a", "-q", "--filter", "name=mansio-e2e-"]);
         // Other concurrent suites may start/finish; only this project's resources are ours to reclaim.
         console.log(
           `hermeticity: baseline-e2e-containers=${beforeContainers.length} current=${after.length}`,

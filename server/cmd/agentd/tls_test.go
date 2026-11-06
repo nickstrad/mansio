@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/edge/edgetest"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/front/fronttest"
+	"github.com/nickstrad/mansio/server/internal/edge/edgetest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/front/fronttest"
 )
 
 // With a tls section the query listener speaks HTTPS (h2 by ALPN) with a private CA's certificate; plain HTTP

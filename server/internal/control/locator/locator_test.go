@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/det/dettest"
-	"github.com/nickstrad/ts-db-go/internal/front"
-	"github.com/nickstrad/ts-db-go/internal/ratelimit"
-	"github.com/nickstrad/ts-db-go/internal/ticket"
-	"github.com/nickstrad/ts-db-go/internal/ticket/tickettest"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
+	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
 // fakeStore is a Store with fault switches: block holds every load until released; fail and panicky make
@@ -166,7 +166,7 @@ func TestResolveAnswers(t *testing.T) {
 	}{
 		{"ok", "db", f.key, nil, 0},
 		{"malformed key", "db", "nope", ErrUnauthorized, 0},
-		{"unknown key id", "db", "tsdb_" + id + "_" + f.key[len("tsdb_")+17:], ErrUnauthorized, 0},
+		{"unknown key id", "db", "mansio_" + id + "_" + f.key[len("mansio_")+17:], ErrUnauthorized, 0},
 		{"wrong secret", "db", wrongSecret, ErrUnauthorized, 0},
 		{"revoked", "db", revoked, ErrUnauthorized, 0},
 		{"other tenant's key", "db", other, ErrForbidden, 0},
@@ -315,7 +315,7 @@ func TestUnknownKeyIDsAreRateLimitedPerSource(t *testing.T) {
 	}
 	refused := 0
 	for i := range 50 {
-		garbage := fmt.Sprintf("tsdb_%016x_%s", i+1, f.key[len("tsdb_")+17:])
+		garbage := fmt.Sprintf("mansio_%016x_%s", i+1, f.key[len("mansio_")+17:])
 		_, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: garbage, Source: "evil"})
 		var h front.RetryHint
 		switch {
@@ -334,7 +334,7 @@ func TestUnknownKeyIDsAreRateLimitedPerSource(t *testing.T) {
 		}
 	}
 	f.clk.Advance(time.Second) // one token back
-	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: "tsdb_ffffffffffffffff_" + f.key[len("tsdb_")+17:],
+	if _, err := f.l.Resolve(context.Background(), Request{Tenant: "acme", Name: "db", APIKey: "mansio_ffffffffffffffff_" + f.key[len("mansio_")+17:],
 		Source: "evil"}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("after refill: %v", err)
 	}
@@ -516,8 +516,8 @@ func TestAPIKeys(t *testing.T) {
 	if hash == sha256.Sum256([]byte(key)) {
 		t.Fatal("the hash must cover the secret only")
 	}
-	for _, bad := range []string{"", "tsdb_", key[:len(key)-1], key + "A", "tsdb_" + id + "-" + key[22:], "TSDB" + key[4:],
-		"tsdb_" + "ABCDEF0123456789" + key[21:], key[:len(key)-2] + "=="} {
+	for _, bad := range []string{"", "mansio_", key[:len(key)-1], key + "A", "mansio_" + id + "-" + key[22:], "MANSIO" + key[4:],
+		"mansio_" + "ABCDEF0123456789" + key[21:], key[:len(key)-2] + "=="} {
 		if _, _, ok := ParseAPIKey(bad); ok {
 			t.Errorf("accepted %q", bad)
 		}

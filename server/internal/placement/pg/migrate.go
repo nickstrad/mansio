@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Schema migrations: numbered, transactional files, applied once and recorded in schema_version (SQL G-3).

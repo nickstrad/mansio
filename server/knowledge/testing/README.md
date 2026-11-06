@@ -1,4 +1,4 @@
-# Testing approach for ts-db-go (Aniche, *Effective Software Testing*) — with contracts
+# Testing approach for mansio-server (Aniche, *Effective Software Testing*) — with contracts
 
 Owner: coldload agent. sqlbench (or anyone): add dated notes in this folder and a line under "Notes by others";
 extend the checklist by adding a note rather than rewriting this file.

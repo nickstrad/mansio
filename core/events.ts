@@ -247,7 +247,7 @@ export function handlerEvent(input: EventEnvelope & HandlerPayload): HandlerEven
  * Symbols never appear in `Object.keys`/`JSON.stringify`, so this can't leak into the log;
  * `canonicalize` reads it as the backstop that withholds `bindValues` from hand-built records.
  */
-const BIND_VALUES_INCLUDED = Symbol.for("ts-db.events.bindValuesIncluded");
+const BIND_VALUES_INCLUDED = Symbol.for("mansio.events.bindValuesIncluded");
 
 export function sqlEvent(
   input: EventEnvelope & SqlPayload,

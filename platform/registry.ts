@@ -94,7 +94,7 @@ export interface AppServicesService {
  * Live: built per app by `makeAppServicesLive` in `platform/layers.ts` (one scoped `StorageLive` +
  * `BackupsLive` per app). Test: `makeAppServices` over `StorageTest`-backed stacks.
  */
-export class AppServices extends Context.Tag("ts-db/AppServices")<AppServices, AppServicesService>() {}
+export class AppServices extends Context.Tag("mansio/AppServices")<AppServices, AppServicesService>() {}
 
 /** An `AppServicesService` over already-built stacks. */
 export function makeAppServices(stacks: readonly AppStack[]): AppServicesService {

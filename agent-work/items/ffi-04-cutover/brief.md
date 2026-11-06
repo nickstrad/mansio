@@ -1,6 +1,6 @@
 # FFI-04 — Cutover of the statement path to the FFI binding (brief)
 
-Status: dispatched · Branch: `item/ffi-04-cutover` · Worktree: `/root/Software/tsdb-work/ffi04` · Base: `main`
+Status: dispatched · Branch: `item/ffi-04-cutover` · Worktree: `/root/Software/mansio-work/ffi04` · Base: `main`
 at `182e85d` (FFI-03 merge) · Builder: Claude Opus 5.5 (actor `claude-opus-ffi-04`) · Reviewer: Astra
 (`gpt-6-astra`), fresh unit · Date: 2026-10-13 · Authorization: Nick via `/root/fable-ffi03-go.md` (land
 FFI-03, then dispatch FFI-04 per `docs/plans/ffi-implementation.md`).
@@ -45,11 +45,11 @@ brief and your claims/notes (`agent-work/` is gitignored: `git add -f`).
 Not owned, do not edit: `deno.json` (frozen), `platform/sqlite_ffi/*` (if the FFI-03 API is missing something
 you need, stop and log `blocker` with the exact gap; do not patch the binding in this item), `core/*`,
 `sdk/*`, `app/*`, `tests/property/sqlite_oracle_test.ts`, `tests/property/json_number_test.ts`,
-`tests/unit/sqlite_ffi_*_test.ts`, `docs/plans/*`, any other worktree under `/root/Software/tsdb-work/`.
+`tests/unit/sqlite_ffi_*_test.ts`, `docs/plans/*`, any other worktree under `/root/Software/mansio-work/`.
 
 ## Deviations accepted by the coordinator
 
-Recorded at repair 1 (actor `claude-opus-ffi-04-repair1`, worktree `/root/Software/tsdb-work/ffi04-rep1`)
+Recorded at repair 1 (actor `claude-opus-ffi-04-repair1`, worktree `/root/Software/mansio-work/ffi04-rep1`)
 after the Astra review FAIL on `73f882f`:
 
 - **Owns extension: `tests/property/sqlite_oracle_test.ts`.** Review defect 1: regression 2 held `Storage`

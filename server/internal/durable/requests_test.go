@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
 func TestRequestCost(t *testing.T) {

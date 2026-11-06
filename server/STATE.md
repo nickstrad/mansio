@@ -1,15 +1,15 @@
-# STATE — ts-db-go SQLite actor PoC
+# STATE — mansio-server SQLite actor PoC
 
 Last updated: 2026-11-04 (keep this file current; newest status at the top of "Status").
 
 ## Goal
 
-Decide whether rewriting all or part of ts-db (`/Users/nick/Software/ts-db`, TypeScript/Deno) in Go fixes its
+Decide whether rewriting all or part of mansio (`/Users/nick/Software/mansio`, TypeScript/Deno) in Go fixes its
 main scaling problem: every tenant's SQLite work shares one JavaScript event loop and a few global locks (see
-`/Users/nick/Software/ts-db/docs/architecture/scaling_issues.md`, issues 2–5). This PoC measures one Go process
+`/Users/nick/Software/mansio/docs/architecture/scaling_issues.md`, issues 2–5). This PoC measures one Go process
 that runs **one goroutine (actor) per SQLite database**, with no shared lock. (A one-global-lock baseline was
 measured once, F1, then retired at the user's request.) It is greenfield: nothing here
-imports ts-db.
+imports mansio.
 
 Questions the runs should answer:
 
@@ -109,7 +109,7 @@ API changes (newest first):
 ## How to run
 
 ```sh
-cd /Users/nick/Software/ts-db-go
+cd /Users/nick/Software/mansio/server
 make sqlbench-check                             # gofmt, vet, -race, -tags noassert, e2e
 make sqlbench-fuzz FUZZTIME=30s                 # every fuzz target, under the bench lock
 make sqlbench-cover                             # per-function coverage, lowest first
@@ -195,9 +195,9 @@ in-flight cap, `scripts/compare.sh`:
 - `os_threads` reached 1,506 in actor mode even with pure-Go SQLite: blocking file syscalls (fsync/read) each
   hold an OS thread while in progress.
 
-Caveat on the baseline: ts-db already runs unbounded reads off the event loop (32-permit blocking pool) and has
+Caveat on the baseline: mansio already runs unbounded reads off the event loop (32-permit blocking pool) and has
 per-file writer queues. The global-lock mode is the worst case (every statement on one thread), closest to
-ts-db's synchronous write/point-read path, not an exact replica.
+mansio's synchronous write/point-read path, not an exact replica.
 
 Machine: Apple Silicon, 18 cores, 128 GB, macOS, Go 1.26.4, DuckDB 2.0.0, open-file limit 245,760.
 
@@ -205,14 +205,14 @@ Machine: Apple Silicon, 18 cores, 128 GB, macOS, Go 1.26.4, DuckDB 2.0.0, open-f
 
 - `modernc.org/sqlite` is a C-to-Go translation: slower per statement than cgo `mattn/go-sqlite3`, but no OS
   thread per call. A cgo variant (build tag) would show the other side of that trade.
-- The global-lock baseline models "one thread does all SQLite work"; it does not model ts-db's other issues
+- The global-lock baseline models "one thread does all SQLite work"; it does not model mansio's other issues
   (per-request Postgres auth, handle-cache lock). Those are design issues a Go rewrite would not fix by itself.
 - Peak RSS only (macOS has no cheap current-RSS call); per-database memory is estimated from deltas.
 - Reads in a batch run after that batch's writes commit (they see them). Writes run before reads in the batch,
   regardless of arrival order.
 
-## Related files in ts-db
+## Related files in mansio
 
-- `/Users/nick/Software/ts-db/docs/architecture/scaling_issues.md` — what won't scale today.
-- `/Users/nick/Software/ts-db/docs/architecture/scale-out-direct-actors.md` — option 4 (actor per database).
-- Both on ts-db branch `docs/scale-out-and-testing` (not merged to `main`).
+- `/Users/nick/Software/mansio/docs/architecture/scaling_issues.md` — what won't scale today.
+- `/Users/nick/Software/mansio/docs/architecture/scale-out-direct-actors.md` — option 4 (actor per database).
+- Both on mansio branch `docs/scale-out-and-testing` (not merged to `main`).

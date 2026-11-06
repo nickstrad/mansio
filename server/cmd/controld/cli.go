@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/tlsx"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // command is one admin call: its flags and the request they make.
@@ -74,7 +74,7 @@ var commands = map[string]*command{
 		}
 	}},
 	"revoke-key": {"-id KEY_ID", func(fs *flag.FlagSet) func() (string, string, any, error) {
-		id := fs.String("id", "", "the key's id (the 16 hex digits after tsdb_)")
+		id := fs.String("id", "", "the key's id (the 16 hex digits after mansio_)")
 		return func() (string, string, any, error) {
 			return http.MethodPost, "/v1/api-keys/" + url.PathEscape(*id) + "/revoke", nil, need(*id)
 		}

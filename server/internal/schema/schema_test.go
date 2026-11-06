@@ -11,9 +11,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/nickstrad/ts-db-go/internal/assert"
-	"github.com/nickstrad/ts-db-go/internal/schema"
-	"github.com/nickstrad/ts-db-go/internal/sqlitedsn"
+	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/schema"
+	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 )
 
 // memDB is a private in-memory database (one connection, so every statement sees the same database) with

@@ -32,7 +32,7 @@ test("e2e/7-admin-lifecycle: issue, revoke, deactivate and secret-safe CLI outpu
         const first = await tenant(server, 10 + index);
         await play(client(server, app, first.key), moves.X.slice(0, 1));
         const issue = await cli(server, "tenants", ["issue-key", first.id]);
-        const keys = issue.stdout.match(/tsdb_[A-Za-z0-9_-]+/g) ?? [];
+        const keys = issue.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
         assert.equal(keys.length, 1);
         assert.match(issue.stdout, /Save this API key now/);
         const second = keys[0];
@@ -49,7 +49,7 @@ test("e2e/7-admin-lifecycle: issue, revoke, deactivate and secret-safe CLI outpu
         for (const command of [["list"], ["show", first.id]]) {
           const out = await cli(server, "tenants", command);
           assert.ok(!out.stdout.includes(first.key) && !out.stdout.includes(second));
-          assert.doesNotMatch(out.stdout + out.stderr, /tsdb_[A-Za-z0-9_-]+/);
+          assert.doesNotMatch(out.stdout + out.stderr, /mansio_[A-Za-z0-9_-]+/);
         }
         await cli(server, "tenants", ["revoke-key", first.keyId]);
         await refused(first.key);
@@ -59,7 +59,7 @@ test("e2e/7-admin-lifecycle: issue, revoke, deactivate and secret-safe CLI outpu
         await refused(second);
         const show = await cli(server, "tenants", ["show", first.id]);
         assert.match(show.stdout, /deactivated/);
-        assert.doesNotMatch(show.stdout + show.stderr, /tsdb_[A-Za-z0-9_-]+/);
+        assert.doesNotMatch(show.stdout + show.stderr, /mansio_[A-Za-z0-9_-]+/);
       }
       const wrong = await cli(server, "tenants", ["list"], { ADMIN_TOKEN: "wrong" }, false);
       assert.notEqual(wrong.code, 0);

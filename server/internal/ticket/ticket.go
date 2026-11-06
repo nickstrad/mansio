@@ -34,7 +34,7 @@ const Version = 1
 
 // Context is prepended to the signed bytes (domain separation: a ticket signature cannot be valid for any other
 // message the issuer key signs).
-const Context = "ts-db access ticket\x00"
+const Context = "mansio access ticket\x00"
 
 // Limits on claim sizes. They bound the work an unauthenticated client can cause.
 const (

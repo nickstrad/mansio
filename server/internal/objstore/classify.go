@@ -11,7 +11,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 
-	"github.com/nickstrad/ts-db-go/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
 // Kind is what an S3 error means for the caller (object-storage guide R1). Callers branch on it, never on

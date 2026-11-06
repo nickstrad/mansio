@@ -263,8 +263,8 @@ a reader that exited, timed out or broke the protocol → 502 per call; the writ
 a handler defect → 500 Defect with the trace id; the cause is logged under that trace ...
 ------- post-test output -------
 timestamp=1970-01-01T00:00:00.000Z level=ERROR fiber=#1782 message="request handler defect" cause="Error: analysis handler blew up
-    at answer (file:///root/Software/tsdb-work/ffi06/tests/unit/http_test.ts:137:56)
-    at file:///root/Software/tsdb-work/ffi06/tests/unit/http_test.ts:149:23" traceId=t-defect
+    at answer (file:///root/Software/mansio-work/ffi06/tests/unit/http_test.ts:137:56)
+    at file:///root/Software/mansio-work/ffi06/tests/unit/http_test.ts:149:23" traceId=t-defect
 ----- post-test output end -----
 a handler defect → 500 Defect with the trace id; the cause is logged under that trace ... ok (28ms)
 POST /admin/backup/:appId takes a backup under the request's trace id ... ok (85ms)
@@ -312,7 +312,7 @@ overflowing the queue drops records visibly: emit never fails and the drops are 
 drop reports are written even when the level gate would suppress a warning ... ok (13ms)
 an unwritable LOG_DIR degrades instead of failing emit or shutdown ...
 ------- post-test output -------
-ts-db event sink (server): 3 record(s) lost to I/O failure; latest: mkdir /tmp/ts-db-logger-90f0cf909bd59130/blocked/server/2026-10-14: NotADirectory: Not a directory (os error 20): mkdir '/tmp/ts-db-logger-90f0cf909bd59130/blocked/server/2026-10-14'
+mansio event sink (server): 3 record(s) lost to I/O failure; latest: mkdir /tmp/mansio-logger-90f0cf909bd59130/blocked/server/2026-10-14: NotADirectory: Not a directory (os error 20): mkdir '/tmp/mansio-logger-90f0cf909bd59130/blocked/server/2026-10-14'
 ----- post-test output end -----
 an unwritable LOG_DIR degrades instead of failing emit or shutdown ... ok (17ms)
 Effect.log* flows into the same JSONL records, with annotations and log spans ... ok (19ms)
@@ -874,9 +874,9 @@ sustained writes over many rotations and sweeps: every accepted event ingested o
 error: AssertionError: the run must exercise the size cap, not only age
     assert.ok(capPruned > 0, "the run must exercise the size cap, not only age");
            ^
-    at file:///root/Software/tsdb-work/ffi06/tests/unit/retention_ingest_test.ts:899:12
-    at async withWorld (file:///root/Software/tsdb-work/ffi06/tests/unit/retention_ingest_test.ts:69:5)
-    at async NodeTestContext.<anonymous> (file:///root/Software/tsdb-work/ffi06/tests/unit/retention_ingest_test.ts:731:3)
+    at file:///root/Software/mansio-work/ffi06/tests/unit/retention_ingest_test.ts:899:12
+    at async withWorld (file:///root/Software/mansio-work/ffi06/tests/unit/retention_ingest_test.ts:69:5)
+    at async NodeTestContext.<anonymous> (file:///root/Software/mansio-work/ffi06/tests/unit/retention_ingest_test.ts:731:3)
 
  FAILURES 
 

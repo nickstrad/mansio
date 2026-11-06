@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nickstrad/ts-db-go/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/ratelimit"
 )
 
 // The ticket filter's per-request costs: a cache hit, a full verify (miss), garbage refused at parse, and a

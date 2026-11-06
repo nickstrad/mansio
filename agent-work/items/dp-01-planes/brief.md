@@ -1,9 +1,9 @@
 # DP-01 — Control-plane / data-plane C4 dataset: tenants own many databases (brief)
 
-Unit: new design item DP-01 in the ts-db repo. Builder: Codex Sol (`gpt-6.1-sol`), actor `sol-dp-01`.
-Branch `item/dp-01-planes` off `main` `351a51b`. Worktree `/root/Software/tsdb-work/dp01` (already created).
+Unit: new design item DP-01 in the mansio repo. Builder: Codex Sol (`gpt-6.1-sol`), actor `sol-dp-01`.
+Branch `item/dp-01-planes` off `main` `351a51b`. Worktree `/root/Software/mansio-work/dp01` (already created).
 Reviewer afterwards: Codex Astra (design review + tweak suggestions), then ONE repair round by Sol.
-Date: 2026-10-20. Authorization: Nick, in chat — "Have a codex sol agent make a c4 diagram in ts-db in
+Date: 2026-10-20. Authorization: Nick, in chat — "Have a codex sol agent make a c4 diagram in mansio in
 which there is control plane that does crud for tenants SQLite files and tenants can have arbitrary
 amounts of these. And then the data plane is logic that takes queries and executes them in right node
 with that tenants SQLite db. If anything seems useful from current scale out diagrams it can use it.
@@ -20,17 +20,17 @@ Keep existing scale out diagrams in the codebase too."
   any of a customer's databases is reachable through the same access path regardless of which node
   hosts it. This deliberately replaces the "one big SQLite file per tenant" model: no monolithic
   per-tenant file, no tenant-wide lock domain.
-- Reuse anything useful from the existing scale-out design (`tsdb-lanes-proposal`: placement table,
+- Reuse anything useful from the existing scale-out design (`mansio-lanes-proposal`: placement table,
   forwarder, lane supervisor, statement lanes, WAL frames) — adapted so placement/lifecycle are
   keyed by **database**, not by tenant.
 
 ## Orientation (in order)
 
 1. `AGENTS.md`, `CLAUDE.md`, `agent-work/event-log.md`, `agent-work/COORDINATION.md`; `pages/README.md`.
-2. `pages/content/tsdb-current/inventory.md` and `pages/content/tsdb-lanes-proposal/inventory.md` —
+2. `pages/content/mansio-current/inventory.md` and `pages/content/mansio-lanes-proposal/inventory.md` —
    conversion decisions D1–D5 / P1–P5 stand; mirror the datasets' status conventions
    (`existing` / `planned` / `mixed` with notes) and document conventions (plain + STE write-ups).
-3. `pages/public/architectures/tsdb-current.json` and `pages/public/architectures/tsdb-lanes-proposal.json`
+3. `pages/public/architectures/mansio-current.json` and `pages/public/architectures/mansio-lanes-proposal.json`
    — the bundle shapes that decode; mirror their structure, element/relationship/document grammar, and
    how datasets are registered for the site's architecture dropdown.
 4. `docs/knowledge/` for the landed facts the design builds on: the `ControlPlaneRouter` seam in
@@ -42,13 +42,13 @@ Environment: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$HOME/.deno/bin
 
 ## Build (one implementation commit on `item/dp-01-planes`)
 
-Owns: `pages/public/architectures/tsdb-planes-proposal.json` (new),
-`pages/content/tsdb-planes-proposal/**` (new), `pages/tests/**` (extend only if the harness requires
+Owns: `pages/public/architectures/mansio-planes-proposal.json` (new),
+`pages/content/mansio-planes-proposal/**` (new), `pages/tests/**` (extend only if the harness requires
 per-dataset coverage; never weaken), `pages/README.md` (dataset section only),
 `agent-work/items/dp-01-planes/**`. The two existing dataset bundles and their content must remain
 **byte-identical** — this dataset is an addition, never a replacement.
 
-Dataset id: `tsdb-planes-proposal`. Contents:
+Dataset id: `mansio-planes-proposal`. Contents:
 
 1. **System context** and **container** views that make the control plane / data plane split the
    headline structure: control plane (management path) vs data plane (query path) vs the nodes that
@@ -75,7 +75,7 @@ Dataset id: `tsdb-planes-proposal`. Contents:
 5. **Deployment view** (`environment: "illustrative"`): a small multi-node fleet with databases
    distributed unevenly across nodes (one tenant with several databases on different nodes; one
    node hosting databases of several tenants), marked proposed/illustrative in its documents.
-6. **Inventory** at `pages/content/tsdb-planes-proposal/inventory.md`: every element/relationship/
+6. **Inventory** at `pages/content/mansio-planes-proposal/inventory.md`: every element/relationship/
    step mapped to its source (this brief, the lanes-proposal sources, or landed code), with the
    design decisions and any discrepancies recorded. Documents: plain + STE write-ups for every new
    diagram and element, and the write-ups must state the core shift plainly: tenant → many
@@ -98,7 +98,7 @@ Dataset id: `tsdb-planes-proposal`. Contents:
 
 - Log events via `work-scripts/bash/log-event.sh --actor sol-dp-01 --branch item/dp-01-planes`.
 - Commits: the brief (`git add -f` if ignored), then ONE implementation commit
-  `pages: add tsdb-planes-proposal dataset (control plane / data plane, tenant → many databases)`;
+  `pages: add mansio-planes-proposal dataset (control plane / data plane, tenant → many databases)`;
   trailer `Co-Authored-By: Codex Sol <noreply@openai.com>`. Push the branch; never touch `main`.
 - Report: SHAs, acceptance outputs, registration mechanism found, design decisions taken, anything
   from the lanes proposal you reused or deliberately dropped (and why), reviewer hand-off notes.

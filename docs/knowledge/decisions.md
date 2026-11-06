@@ -18,7 +18,7 @@ Decision (PG-01 D3, applied again in PG-02 P12; landed `f52c817`): in `pages/`, 
 a component view next to the component being drawn is tagged `external`. Why: c4-sdk rejects a non-component,
 non-person member of a component view without that tag, and the site must build. The cost is that tags are per
 element, so the tag spreads to the container views: `reader`, `files`, `registry` and `jsonl` in
-`tsdb-current`, and `api`, `files` and `lane-jsonl` in `tsdb-lanes-proposal`, render grey on every view
+`mansio-current`, and `api`, `files` and `lane-jsonl` in `mansio-lanes-proposal`, render grey on every view
 although they sit inside the platform boundary. Each dataset's container-view keys say so and the boundary
 groups show membership. This is wrong for the model (the scope system's own sibling containers are not
 external), so the standing c4-sdk hand-off asks upstream to allow sibling containers of the scope's system on
@@ -29,7 +29,7 @@ the same change. Details: `pages/content/*/inventory.md`.
 ## 2026-10-15 — Architecture diagrams site in `pages/` on an interim c4-sdk copy
 
 Decision (Nick, relayed by Twin on 2026-10-14; plan `docs/plans/pages-diagrams.md` on `plan/c4-react`; built
-by PG-01): ts-db gets an interactive C4 site in `pages/`, a separate npm project, showing what runs on `main`
+by PG-01): mansio gets an interactive C4 site in `pages/`, a separate npm project, showing what runs on `main`
 next to proposed designs, for use while designing features. Until c4-sdk 0.1.0 is on npm, the site renders
 through a copy of the c4-sdk source in `pages/vendor/c4-sdk/`. Why this shape: the swap must be "delete the
 directory and add the dependency", so the copy is reached only through the package's own specifiers (`c4-sdk`,

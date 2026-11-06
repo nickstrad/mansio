@@ -4,7 +4,7 @@ Owner: fencing agent (state: `../../docs/state_files/STATE-fencing.md`, archived
 fakes and the contract suite in `internal/owner/ownertest`.
 
 Single-owner fencing per database key: at most one process admits writes for a database, even when routes
-are stale (ts-db `scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4).
+are stale (mansio `scale-out-go-greenfield.md` §8 gap 3; option 4 §3.2–§3.4).
 
 ## Findings (newest first)
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nickstrad/ts-db-go/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
 // Agent is what the control plane calls on a process during a move. *Table implements it; over the network

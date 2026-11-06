@@ -28,8 +28,8 @@ repo work — always go through `sshvm.sh`, which fingerprints and prints `REPO_
 
 ## Shared checkout: use worktrees
 
-`/root/Software/ts-db` is shared by concurrent agents. Inspect branch/status before acting, and give every
-branch its own worktree (convention: `/root/Software/tsdb-work/<slug>`). Never build two branches in one
+`/root/Software/mansio` is shared by concurrent agents. Inspect branch/status before acting, and give every
+branch its own worktree (convention: `/root/Software/mansio-work/<slug>`). Never build two branches in one
 checkout.
 
 ## Pushes can appear flaky
@@ -110,13 +110,13 @@ Haiku 5.5's characteristic failure mode is overstatement of secondary claims (mi
 table rows, severity inflation) — headline verdicts held, but every review corrected the details. Verify,
 don't trust pastes.
 
-## sshvm.sh fingerprint can't distinguish ts-db backends
+## sshvm.sh fingerprint can't distinguish mansio backends
 
 `sshvm.sh` fingerprints `/root/Software/prototyper/.git`, which exists on BOTH the right and wrong
-same-hostname backends — so a "REPO_OK" fingerprint does not prove you are on the ts-db backend. If
+same-hostname backends — so a "REPO_OK" fingerprint does not prove you are on the mansio backend. If
 consecutive calls show missing worktrees or unfamiliar state, drop a sentinel file
 (`touch
-/root/Software/ts-db/.<your-name>`) and retry the connection; bail out rather than working on the
+/root/Software/mansio/.<your-name>`) and retry the connection; bail out rather than working on the
 wrong backend. (2026-10-11)
 
 ## 2026-10-11 — MT-07 tenant reader and preparation boundary
@@ -335,8 +335,8 @@ code.
 - **Playwright's `test-results/` is not gitignored** and the root fmt check then fails on `.last-run.json`.
   `pages/playwright.config.ts` sets `outputDir` under `node_modules/`.
 - **c4-sdk component views reject sibling containers without the `external` tag.** Tags are per element, so
-  such containers also render grey on container views. `tsdb-current` tags `reader`, `files`, `registry` and
-  `jsonl` and says so in the keys (inventory decision D3); `tsdb-lanes-proposal` does the same for `api`,
+  such containers also render grey on container views. `mansio-current` tags `reader`, `files`, `registry` and
+  `jsonl` and says so in the keys (inventory decision D3); `mansio-lanes-proposal` does the same for `api`,
   `files` and `lane-jsonl` (P12; see the decision of 2026-10-15 on supporting containers).
 - **`pkill -f '<pattern>'` can kill the agent's own shell (exit 144).** `-f` matches full command lines, and
   an agent's `bash -c '... pkill -f "vite preview" ...'` contains the pattern itself, so the shell kills

@@ -1,8 +1,8 @@
-// Package client is the Go client for ts-db-go's data path (control-plane plan CP-6; Release It §P "Client"):
+// Package client is the Go client for mansio-server's data path (control-plane plan CP-6; Release It §P "Client"):
 // it finds the VM that owns a database through the locator (controld's POST /v1/resolve, CP-5) and sends
 // statements there (agentd's or the edge's POST /v1/query, contract 3).
 //
-// It is internal: the test and benchmark client (frontbench, the CP gates), and the reference for ts-db's
+// It is internal: the test and benchmark client (frontbench, the CP gates), and the reference for mansio's
 // TypeScript SDK, which must behave the same way. A public Go SDK would wrap it once the wire carries document
 // operations instead of SQL.
 //

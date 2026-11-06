@@ -92,7 +92,7 @@ async function spyingOnFetch<A>(body: (log: Exchange[]) => Promise<A>): Promise<
 }
 
 test("end to end: caller traces through the SDK, server and reader child", { timeout: 180_000 }, async () => {
-  const root = await Deno.makeTempDir({ prefix: "ts-db-trace-e2e-" });
+  const root = await Deno.makeTempDir({ prefix: "mansio-trace-e2e-" });
   const port = freePort();
   const base = `http://127.0.0.1:${port}`;
   const env = {
