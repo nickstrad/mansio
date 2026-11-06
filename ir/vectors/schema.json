@@ -1,0 +1,736 @@
+{
+  "category": "schema",
+  "version": 1,
+  "description": "Registered schema JSON -> its fingerprint text and sha256 fingerprint, or the declaration error.",
+  "vectors": [
+    {
+      "name": "vector schema, columns",
+      "why": "the schema every other vector uses",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": true,
+        "text": "{\"notes\":{\"fields\":{\"title\":{\"node\":{\"kind\":\"string\"}},\"score\":{\"node\":{\"kind\":\"number\"}},\"rank\":{\"node\":{\"kind\":\"integer\"}},\"done\":{\"node\":{\"kind\":\"boolean\"}},\"tag\":{\"node\":{\"kind\":\"enum\",\"values\":[\"a\",\"b\"],\"nullable\":true}},\"tags\":{\"node\":{\"kind\":\"array\",\"item\":{\"kind\":\"string\"}}},\"grid\":{\"node\":{\"kind\":\"array\",\"item\":{\"kind\":\"integer\"},\"length\":3}},\"owner\":{\"node\":{\"kind\":\"string\",\"nullable\":true}}},\"storage\":\"columns\",\"indexes\":[{\"name\":\"by_rank\",\"fields\":[\"rank\"]}]},\"lists\":{\"fields\":{\"name\":{\"node\":{\"kind\":\"string\"}}},\"storage\":\"columns\",\"indexes\":[]},\"entries\":{\"fields\":{\"listId\":{\"node\":{\"kind\":\"string\"}},\"n\":{\"node\":{\"kind\":\"integer\"}}},\"storage\":\"columns\",\"indexes\":[{\"name\":\"by_list\",\"fields\":[\"listId\",\"n\"]}]}}",
+        "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb"
+      }
+    },
+    {
+      "name": "vector schema, json",
+      "why": "the layout is part of the fingerprint",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": true,
+        "text": "{\"notes\":{\"fields\":{\"title\":{\"node\":{\"kind\":\"string\"}},\"score\":{\"node\":{\"kind\":\"number\"}},\"rank\":{\"node\":{\"kind\":\"integer\"}},\"done\":{\"node\":{\"kind\":\"boolean\"}},\"tag\":{\"node\":{\"kind\":\"enum\",\"values\":[\"a\",\"b\"],\"nullable\":true}},\"tags\":{\"node\":{\"kind\":\"array\",\"item\":{\"kind\":\"string\"}}},\"grid\":{\"node\":{\"kind\":\"array\",\"item\":{\"kind\":\"integer\"},\"length\":3}},\"owner\":{\"node\":{\"kind\":\"string\",\"nullable\":true}}},\"storage\":\"json\",\"indexes\":[{\"name\":\"by_rank\",\"fields\":[\"rank\"]}]},\"lists\":{\"fields\":{\"name\":{\"node\":{\"kind\":\"string\"}}},\"storage\":\"json\",\"indexes\":[]},\"entries\":{\"fields\":{\"listId\":{\"node\":{\"kind\":\"string\"}},\"n\":{\"node\":{\"kind\":\"integer\"}}},\"storage\":\"json\",\"indexes\":[{\"name\":\"by_list\",\"fields\":[\"listId\",\"n\"]}]}}",
+        "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41"
+      }
+    },
+    {
+      "name": "empty schema",
+      "why": "no tables is a schema",
+      "schema": {},
+      "expect": {
+        "ok": true,
+        "text": "{}",
+        "fingerprint": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      }
+    },
+    {
+      "name": "reserved field",
+      "why": "_-prefixed names are metadata",
+      "schema": {
+        "t": {
+          "fields": {
+            "_x": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "reserved-field",
+            "path": "_x"
+          }
+        }
+      }
+    },
+    {
+      "name": "reserved table _",
+      "why": "_-prefixed tables are the platform's",
+      "schema": {
+        "_t": {
+          "fields": {},
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "reserved-table",
+            "path": "_t"
+          }
+        }
+      }
+    },
+    {
+      "name": "reserved table sqlite_",
+      "why": "SQLite's prefix, any case",
+      "schema": {
+        "SQLite_t": {
+          "fields": {},
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "reserved-table",
+            "path": "SQLite_t"
+          }
+        }
+      }
+    },
+    {
+      "name": "field not an identifier",
+      "why": "names are interpolated, so only identifiers",
+      "schema": {
+        "t": {
+          "fields": {
+            "1a": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "invalid-identifier",
+            "path": "1a"
+          }
+        }
+      }
+    },
+    {
+      "name": "table not an identifier",
+      "why": "same rule for tables",
+      "schema": {
+        "t-1": {
+          "fields": {},
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "invalid-identifier",
+            "path": "t-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "enum member with U+0000",
+      "why": "no value of it could be stored",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a\u0000"
+                ]
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "f"
+          }
+        }
+      }
+    },
+    {
+      "name": "enum without values",
+      "why": "values is required",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "enum"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.fields.f.node.values"
+          }
+        }
+      }
+    },
+    {
+      "name": "enum with no values",
+      "why": "IN () is not SQL: the DDL refuses",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "enum",
+                "values": []
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "CompileError",
+          "status": 400,
+          "fields": {
+            "reason": "empty-enum",
+            "field": "f"
+          }
+        }
+      }
+    },
+    {
+      "name": "enum duplicate values",
+      "why": "members are distinct",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "a"
+                ]
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.fields.f.node.values"
+          }
+        }
+      }
+    },
+    {
+      "name": "array without item",
+      "why": "arrays declare their element",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "array"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.fields.f.node.item"
+          }
+        }
+      }
+    },
+    {
+      "name": "length on a scalar",
+      "why": "only arrays have a length",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "string",
+                "length": 2
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.fields.f.node.length"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown node kind",
+      "why": "the kinds are closed",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "object"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.fields.f.node.kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown node member",
+      "why": "strict decode",
+      "schema": {
+        "t": {
+          "fields": {
+            "f": {
+              "node": {
+                "kind": "string",
+                "default": "x"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "schema.t.fields.f.node.default"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown storage",
+      "why": "columns | json",
+      "schema": {
+        "t": {
+          "fields": {},
+          "storage": "rows",
+          "indexes": []
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema.t.storage"
+          }
+        }
+      }
+    },
+    {
+      "name": "index on an array",
+      "why": "arrays are JSON text; not indexable",
+      "schema": {
+        "t": {
+          "fields": {
+            "a": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_a",
+              "fields": [
+                "a"
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unindexable-field",
+            "path": "a"
+          }
+        }
+      }
+    },
+    {
+      "name": "index on an unknown field",
+      "why": "indexes cover declared fields",
+      "schema": {
+        "t": {
+          "fields": {},
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_a",
+              "fields": [
+                "a"
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unindexable-field",
+            "path": "a"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty index",
+      "why": "an index covers one or more fields",
+      "schema": {
+        "t": {
+          "fields": {},
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by",
+              "fields": []
+            }
+          ]
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "empty-index",
+            "path": "by"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate index",
+      "why": "index names are unique per table",
+      "schema": {
+        "t": {
+          "fields": {
+            "a": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by",
+              "fields": [
+                "a"
+              ]
+            },
+            {
+              "name": "by",
+              "fields": [
+                "a"
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "duplicate-index",
+            "path": "by"
+          }
+        }
+      }
+    }
+  ]
+}

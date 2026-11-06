@@ -1,0 +1,3403 @@
+{
+  "category": "validation",
+  "version": 1,
+  "description": "A body for table `notes` of the vector schema -> the validated body or an error. insert = full body, patch = partial.",
+  "vectors": [
+    {
+      "name": "full body",
+      "why": "every kind at a valid value",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer max safe",
+      "why": "on point: 2^53-1",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 9007199254740991,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 9007199254740991,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer 2^53",
+      "why": "off point: not a safe integer",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 9007199254740992,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "rank"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer min safe",
+      "why": "on point: -(2^53-1)",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": -9007199254740991,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": -9007199254740991,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer -2^53",
+      "why": "off point",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": -9007199254740992,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "rank"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer 1.5",
+      "why": "not integral",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 1.5,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "rank"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "integer \"1\"",
+      "why": "no string coercion",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": "1",
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "rank"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "number 2^53",
+      "why": "a number may exceed the safe range",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 9007199254740992,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 9007199254740992,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "number max double",
+      "why": "finite",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 1.7976931348623157e+308,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 1.7976931348623157e+308,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "number as boolean",
+      "why": "no coercion",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": true,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "score"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "empty string",
+      "why": "empty text is text",
+      "mode": "insert",
+      "value": {
+        "title": "",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "string with U+0000",
+      "why": "text storage contract (ADR 0005)",
+      "mode": "insert",
+      "value": {
+        "title": "a\u0000b",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "title",
+            "expected": "text without U+0000"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "U+0000 alone",
+      "why": "on point: one NUL",
+      "mode": "insert",
+      "value": {
+        "title": "\u0000",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "title"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "U+0001",
+      "why": "only U+0000 is refused",
+      "mode": "insert",
+      "value": {
+        "title": "\u0001",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "\u0001",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "U+0000 in an array element",
+      "why": "the path names the element",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "ok",
+          "b\u0000"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "tags[1]"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "U+0000 in a nullable string",
+      "why": "storable applies to every string",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": "\u0000"
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "owner"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "enum member",
+      "why": "declared value",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "a",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "a",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "enum non-member",
+      "why": "undeclared value",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "c",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "tag"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "enum case",
+      "why": "members are case-sensitive",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "A",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "tag"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "nullable enum null",
+      "why": "nullable accepts null",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": null,
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": null,
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "non-nullable null",
+      "why": "null needs nullable",
+      "mode": "insert",
+      "value": {
+        "title": null,
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "title"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "missing field",
+      "why": "a full body needs every field",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ]
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "owner"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "boolean false",
+      "why": "valid",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": false,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": false,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "boolean as 0",
+      "why": "no coercion",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": 0,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "done"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed array exact",
+      "why": "on point: length 3",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          0,
+          0,
+          0
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [
+            "p",
+            "q"
+          ],
+          "grid": [
+            0,
+            0,
+            0
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed array short",
+      "why": "off point: length 2",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          0,
+          0
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "grid"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed array long",
+      "why": "off point: length 4",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "grid"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "array element type",
+      "why": "elements are validated",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          0,
+          "1",
+          0
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "grid[1]"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "unbounded array empty",
+      "why": "no length: any length",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "title": "new",
+          "score": 0.5,
+          "rank": 7,
+          "done": true,
+          "tag": "b",
+          "tags": [],
+          "grid": [
+            4,
+            5,
+            6
+          ],
+          "owner": null
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "array as object",
+      "why": "an array is required",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": {
+          "0": "a"
+        },
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "tags"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown field",
+      "why": "unknown keys are rejected before any field",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null,
+        "colour": "red"
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "colour"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "metadata in a body",
+      "why": "_id is server-owned",
+      "mode": "insert",
+      "value": {
+        "title": "new",
+        "score": 0.5,
+        "rank": 7,
+        "done": true,
+        "tag": "b",
+        "tags": [
+          "p",
+          "q"
+        ],
+        "grid": [
+          4,
+          5,
+          6
+        ],
+        "owner": null,
+        "_id": "x"
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "_id"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "_version in a patch",
+      "why": "versions move only by +1 in SQL",
+      "mode": "patch",
+      "value": {
+        "_version": 9
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "_version"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "body not an object",
+      "why": "bodies are objects",
+      "mode": "insert",
+      "value": [
+        "a"
+      ],
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "not-an-object",
+            "path": ""
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "body null",
+      "why": "bodies are objects",
+      "mode": "patch",
+      "value": null,
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "not-an-object",
+            "path": ""
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "empty patch",
+      "why": "a patch may change nothing (and still bumps _version)",
+      "mode": "patch",
+      "value": {},
+      "expect": {
+        "ok": true,
+        "value": {}
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "partial patch",
+      "why": "absent keys are skipped",
+      "mode": "patch",
+      "value": {
+        "rank": 3
+      },
+      "expect": {
+        "ok": true,
+        "value": {
+          "rank": 3
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "patch null into non-nullable",
+      "why": "partial still validates present keys",
+      "mode": "patch",
+      "value": {
+        "rank": null
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "rank"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "patch U+0000",
+      "why": "the storage contract applies to patches",
+      "mode": "patch",
+      "value": {
+        "title": "\u0000"
+      },
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "title"
+          }
+        }
+      },
+      "fields": {
+        "title": {
+          "node": {
+            "kind": "string"
+          }
+        },
+        "score": {
+          "node": {
+            "kind": "number"
+          }
+        },
+        "rank": {
+          "node": {
+            "kind": "integer"
+          }
+        },
+        "done": {
+          "node": {
+            "kind": "boolean"
+          }
+        },
+        "tag": {
+          "node": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ],
+            "nullable": true
+          }
+        },
+        "tags": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "string"
+            }
+          }
+        },
+        "grid": {
+          "node": {
+            "kind": "array",
+            "item": {
+              "kind": "integer"
+            },
+            "length": 3
+          }
+        },
+        "owner": {
+          "node": {
+            "kind": "string",
+            "nullable": true
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1182 @@
+{
+  "category": "decode",
+  "version": 1,
+  "description": "Request bytes -> accepted (with the canonical encoding of the decoded request) or an error.",
+  "vectors": [
+    {
+      "name": "minimal query",
+      "why": "one select, no requestId",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "query may carry a requestId",
+      "why": "reads ignore it, as ts-db-go does",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"requestId\":\"q-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"requestId\":\"q-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "every mutation op",
+      "why": "the full v1 vocabulary in one request",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"insert\",\"table\":\"entries\",\"value\":{\"listId\":{\"$ref\":0},\"n\":1},\"id\":\"01890a5d-ac96-774b-bcce-b302099a8057\"},{\"op\":\"get\",\"table\":\"lists\",\"id\":{\"$ref\":0}},{\"op\":\"patch\",\"table\":\"entries\",\"id\":{\"$ref\":1},\"value\":{\"n\":2},\"expect\":{\"version\":1}},{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true,\"version\":1,\"fields\":{\"rank\":1}}},{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n2\"},{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n3\",\"expect\":{\"exists\":false}},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"rank\",\"op\":\"gt\",\"value\":1},{\"field\":\"tag\",\"op\":\"eq\",\"value\":null}],\"limit\":10,\"order\":{\"field\":\"score\",\"direction\":\"desc\"}},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"aggregate\":{\"kind\":\"count\"}},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"aggregate\":{\"kind\":\"countBy\",\"field\":\"tag\"}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"id\":\"01890a5d-ac96-774b-bcce-b302099a8057\",\"op\":\"insert\",\"table\":\"entries\",\"value\":{\"listId\":{\"$ref\":0},\"n\":1}},{\"id\":{\"$ref\":0},\"op\":\"get\",\"table\":\"lists\"},{\"expect\":{\"version\":1},\"id\":{\"$ref\":1},\"op\":\"patch\",\"table\":\"entries\",\"value\":{\"n\":2}},{\"expect\":{\"exists\":true,\"fields\":{\"rank\":1},\"version\":1},\"id\":\"n1\",\"op\":\"assert\",\"table\":\"notes\"},{\"id\":\"n2\",\"op\":\"delete\",\"table\":\"notes\"},{\"expect\":{\"exists\":false},\"id\":\"n3\",\"op\":\"delete\",\"table\":\"notes\"},{\"filters\":[{\"field\":\"rank\",\"op\":\"gt\",\"value\":1},{\"field\":\"tag\",\"op\":\"eq\",\"value\":null}],\"limit\":10,\"op\":\"select\",\"order\":{\"direction\":\"desc\",\"field\":\"score\"},\"table\":\"notes\"},{\"aggregate\":{\"kind\":\"count\"},\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"aggregate\":{\"field\":\"tag\",\"kind\":\"countBy\"},\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "$ref inside an array value",
+      "why": "a reference may sit anywhere in a value tree",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"a\",{\"$ref\":0}],\"grid\":[4,5,6],\"owner\":null}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"done\":true,\"grid\":[4,5,6],\"owner\":null,\"rank\":7,\"score\":0.5,\"tag\":\"b\",\"tags\":[\"a\",{\"$ref\":0}],\"title\":\"new\"}}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "whitespace and member order are not significant",
+      "why": "the canonical form sorts members and drops whitespace",
+      "raw": " { \"ops\" : [ { \"limit\" : 10 , \"filters\" : [ ] , \"table\" : \"notes\" , \"op\" : \"select\" } ] ,\n \"schema\" : \"sha256:0000000000000000000000000000000000000000000000000000000000000000\" , \"kind\" : \"query\" , \"db\" : { \"app\" : \"notes\" , \"tenant\" : \"acme\" } , \"v\" : 1 } ",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "limit 0 decodes",
+      "why": "the limit range is the compiler's rule (CompileError)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":0}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":0,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "limit 10.0",
+      "why": "a number literal is its value: 10.0 is 10",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10.0}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "64 ops",
+      "why": "on point of MAX_OPS",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "64-byte ids",
+      "why": "on point of the id length",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"a\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"a\",\"tenant\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "id charset",
+      "why": "every allowed id character",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"Az09._:-x\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"requestId\":\"Az09._:-x\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "unicode text",
+      "why": "non-ASCII and astral characters are ordinary text",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":\"héllo 🌍\"}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":\"héllo 🌍\"}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "body at the cap",
+      "why": "on point: exactly 65536 bytes is accepted",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "pad": 65536,
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "U+0000 in a filter value decodes",
+      "why": "NUL is refused at execution (SchemaError on the field), not by decode",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":\"a\\u0000\"}],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":\"a\\u0000\"}],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "body over the cap",
+      "why": "off point: 65537 bytes",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "pad": 65537,
+      "expect": {
+        "error": {
+          "tag": "RequestTooLarge",
+          "status": 413,
+          "fields": {
+            "limit": 65536
+          }
+        }
+      }
+    },
+    {
+      "name": "not JSON",
+      "why": "malformed text",
+      "raw": "{",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "body"
+          }
+        }
+      }
+    },
+    {
+      "name": "trailing text",
+      "why": "one value only",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]} x",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "body"
+          }
+        }
+      }
+    },
+    {
+      "name": "byte-order mark",
+      "why": "a BOM is not JSON whitespace",
+      "raw": "﻿{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "body"
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid UTF-8",
+      "why": "bytes must be UTF-8",
+      "base64": "eyJ2Ijr/fQ==",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "body"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate member",
+      "why": "JSON.parse keeps the last; the protocol refuses rather than guess",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"kind\":\"mutation\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "duplicate member inside an op",
+      "why": "the path names the duplicate; op names its index",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"table\":\"lists\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].table"
+          }
+        }
+      }
+    },
+    {
+      "name": "lone surrogate",
+      "why": "Go would read it as U+FFFD; refusing keeps both sides equal",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":\"\\ud800\"}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].value"
+          }
+        }
+      }
+    },
+    {
+      "name": "number out of double range",
+      "why": "JSON.parse would produce Infinity",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":1e400}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].limit"
+          }
+        }
+      }
+    },
+    {
+      "name": "body is an array",
+      "why": "the envelope is an object",
+      "raw": "[]",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "not-an-object",
+            "path": "body"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown envelope member",
+      "why": "strict decode",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}],\"extra\":1}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "extra"
+          }
+        }
+      }
+    },
+    {
+      "name": "v 2",
+      "why": "only version 1 exists",
+      "raw": "{\"v\":2,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "v"
+          }
+        }
+      }
+    },
+    {
+      "name": "v \"1\"",
+      "why": "a string is not the number 1",
+      "raw": "{\"v\":\"1\",\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "v"
+          }
+        }
+      }
+    },
+    {
+      "name": "missing db",
+      "why": "db is required",
+      "raw": "{\"v\":1,\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db"
+          }
+        }
+      }
+    },
+    {
+      "name": "db unknown member",
+      "why": "strict decode",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"b\",\"region\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "db.region"
+          }
+        }
+      }
+    },
+    {
+      "name": "tenant with a slash",
+      "why": "ids are [A-Za-z0-9._:-]",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a/b\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.tenant"
+          }
+        }
+      }
+    },
+    {
+      "name": "app starting with a dot",
+      "why": "ids may become file names",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\".x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
+      "name": "65-byte tenant",
+      "why": "off point of the id length",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"app\":\"x\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.tenant"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty app",
+      "why": "ids are 1..64 bytes",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"a\",\"app\":\"\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "db.app"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown kind",
+      "why": "query | mutation",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"write\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "mutation without requestId",
+      "why": "a mutation's idempotency key is required",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "requestId"
+          }
+        }
+      }
+    },
+    {
+      "name": "requestId with a space",
+      "why": "same rule as ids",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r 1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "requestId"
+          }
+        }
+      }
+    },
+    {
+      "name": "requestId 65 bytes",
+      "why": "off point",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "requestId"
+          }
+        }
+      }
+    },
+    {
+      "name": "missing schema",
+      "why": "the fingerprint is required",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema"
+          }
+        }
+      }
+    },
+    {
+      "name": "uppercase fingerprint",
+      "why": "sha256:<64 lowercase hex>",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "schema"
+          }
+        }
+      }
+    },
+    {
+      "name": "no ops",
+      "why": "at least one op",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops"
+          }
+        }
+      }
+    },
+    {
+      "name": "65 ops",
+      "why": "off point of MAX_OPS",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown op",
+      "why": "the v1 vocabulary is closed",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"upsert\",\"table\":\"notes\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].op"
+          }
+        }
+      }
+    },
+    {
+      "name": "op not an object",
+      "why": "ops are objects",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[\"get\"]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "not-an-object",
+            "path": "ops[0]"
+          }
+        }
+      }
+    },
+    {
+      "name": "query containing an insert",
+      "why": "a query may contain only select and get",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10},{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 1,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[1].op"
+          }
+        }
+      }
+    },
+    {
+      "name": "query containing assert",
+      "why": "assert is a mutation op",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].op"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown op member",
+      "why": "get has no value",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\",\"value\":{}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].value"
+          }
+        }
+      }
+    },
+    {
+      "name": "select without limit",
+      "why": "limit is required",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[]}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].limit"
+          }
+        }
+      }
+    },
+    {
+      "name": "select without filters",
+      "why": "filters is required, even empty",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters"
+          }
+        }
+      }
+    },
+    {
+      "name": "limit as a string",
+      "why": "limit is a number",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":\"10\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].limit"
+          }
+        }
+      }
+    },
+    {
+      "name": "filter op ne",
+      "why": "eq | gt only",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"rank\",\"op\":\"ne\",\"value\":1}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].op"
+          }
+        }
+      }
+    },
+    {
+      "name": "filter without value",
+      "why": "value is required (null is a value)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"rank\",\"op\":\"eq\"}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].value"
+          }
+        }
+      }
+    },
+    {
+      "name": "direction ASC",
+      "why": "lowercase only",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"order\":{\"field\":\"rank\",\"direction\":\"ASC\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].order.direction"
+          }
+        }
+      }
+    },
+    {
+      "name": "aggregate sum",
+      "why": "count | countBy",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"aggregate\":{\"kind\":\"sum\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].aggregate.kind"
+          }
+        }
+      }
+    },
+    {
+      "name": "count with a field",
+      "why": "count takes no field",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"aggregate\":{\"kind\":\"count\",\"field\":\"rank\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].aggregate.field"
+          }
+        }
+      }
+    },
+    {
+      "name": "countBy without a field",
+      "why": "countBy needs its grouping field",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10,\"aggregate\":{\"kind\":\"countBy\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].aggregate.field"
+          }
+        }
+      }
+    },
+    {
+      "name": "table not a string",
+      "why": "tables are named",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":1,\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].table"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty id",
+      "why": "ids are non-empty",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "id with U+0000",
+      "why": "text storage contract (ADR 0005)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n\\u00001\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert value is an array",
+      "why": "a body is an object",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":[]}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "not-an-object",
+            "path": "ops[0].value"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert with expect",
+      "why": "an insert's precondition is implicit (exists:false)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null},\"expect\":{\"exists\":false}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].expect"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert id UUIDv4",
+      "why": "client ids are UUIDv7",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null},\"id\":\"1b4e28ba-2fa1-41d2-883f-0016d3cca427\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert id uppercase",
+      "why": "canonical lowercase only, so one id has one spelling",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null},\"id\":\"01890A5D-AC96-774B-BCCE-B302099A8057\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert id wrong variant",
+      "why": "RFC 9562 variant bits 10",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null},\"id\":\"01890a5d-ac96-774b-7cce-b302099a8057\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "insert id as $ref",
+      "why": "an insert's id is literal",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"m\"},\"id\":{\"$ref\":0}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 1,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[1].id"
+          }
+        }
+      }
+    },
+    {
+      "name": "patch without value",
+      "why": "value is required",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"patch\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].value"
+          }
+        }
+      }
+    },
+    {
+      "name": "assert without expect",
+      "why": "an assert is its precondition",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\"}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref forward",
+      "why": "references only point backwards",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":{\"$ref\":1}},{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].id.$ref"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref to itself",
+      "why": "an op cannot use its own result",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":{\"$ref\":0}}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].value.name.$ref"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref to a non-insert",
+      "why": "only insert results are ids",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"},{\"op\":\"delete\",\"table\":\"notes\",\"id\":{\"$ref\":0}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 1,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[1].id.$ref"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref not an integer",
+      "why": "an index is an integer",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"get\",\"table\":\"lists\",\"id\":{\"$ref\":0.5}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 1,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[1].id.$ref"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref with an extra member",
+      "why": "a reference is exactly {$ref}",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"get\",\"table\":\"lists\",\"id\":{\"$ref\":0,\"x\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 1,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[1].id.x"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref in a query",
+      "why": "a query has no inserts to reference",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"select\",\"table\":\"notes\",\"filters\":[{\"field\":\"title\",\"op\":\"eq\",\"value\":{\"$ref\":0}}],\"limit\":10}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].filters[0].value.$ref"
+          }
+        }
+      }
+    },
+    {
+      "name": "$ref in expect.fields",
+      "why": "allowed: fields values may reference",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"op\":\"assert\",\"table\":\"entries\",\"id\":\"e1\",\"expect\":{\"fields\":{\"listId\":{\"$ref\":0}}}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"op\":\"insert\",\"table\":\"lists\",\"value\":{\"name\":\"l\"}},{\"expect\":{\"fields\":{\"listId\":{\"$ref\":0}}},\"id\":\"e1\",\"op\":\"assert\",\"table\":\"entries\"}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "empty expect",
+      "why": "an expect states at least one check",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect"
+          }
+        }
+      }
+    },
+    {
+      "name": "expect version 0",
+      "why": "versions start at 1",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"version\":0}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.version"
+          }
+        }
+      }
+    },
+    {
+      "name": "expect version 1.5",
+      "why": "versions are integers",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"version\":1.5}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.version"
+          }
+        }
+      }
+    },
+    {
+      "name": "expect version 2^53",
+      "why": "off point of the safe-integer range",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"version\":9007199254740992}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.version"
+          }
+        }
+      }
+    },
+    {
+      "name": "expect exists \"yes\"",
+      "why": "exists is a boolean",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":\"yes\"}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.exists"
+          }
+        }
+      }
+    },
+    {
+      "name": "exists false with version",
+      "why": "contradictory: version implies existence",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"delete\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":false,\"version\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.exists"
+          }
+        }
+      }
+    },
+    {
+      "name": "patch expecting absence",
+      "why": "a patch of a missing document can never succeed",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"patch\",\"table\":\"notes\",\"id\":\"n1\",\"value\":{},\"expect\":{\"exists\":false}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.exists"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty expect.fields",
+      "why": "fields names at least one field",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"fields\":{}}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.fields"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown expect member",
+      "why": "strict decode; range is reserved for v1.1",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"range\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].expect.range"
+          }
+        }
+      }
+    }
+  ]
+}
