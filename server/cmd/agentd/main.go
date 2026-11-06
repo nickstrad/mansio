@@ -44,6 +44,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/eventlog"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/metrics"
@@ -160,6 +161,7 @@ type agent struct {
 	tls        *tls.Config                 // the query listener's TLS (tls.go); nil = plain HTTP
 	background []func(ctx context.Context) // started once listening; stopped first at shutdown
 	cleanup    func()
+	events     *eventlog.Log // the event log (events.go); nil = none
 }
 
 // backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
@@ -185,8 +187,13 @@ type backend struct {
 // newAgent wires the pipeline. Databases open (static) or reconcile (durable) in the background once serve
 // listens; the canary database opens here, so readiness can run from the start.
 func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string, sec *Secrets) (*agent, error) {
+	events, err := openEventLog(cfg, log)
+	if err != nil {
+		return nil, err
+	}
 	canary, cleanCanary, err := openCanary(cfg)
 	if err != nil {
+		closeEventLog(events, time.Second)
 		return nil, err
 	}
 	canaryHost := front.NewStaticHost(map[string]*actor.Actor{front.CanaryDB: canary})
@@ -200,6 +207,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if err != nil {
 		canaryHost.Close()
 		cleanCanary()
+		closeEventLog(events, time.Second)
 		return nil, err
 	}
 	srv := front.NewServer(front.Config{
@@ -208,7 +216,11 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, WriteGrace: cfg.ReplyGrace.Duration + time.Second,
 	}, ticket.NewCache(ticket.Verifier{Keys: keys, VM: cfg.VM, Skew: cfg.ClockSkew.Duration, MaxTTL: cfg.MaxTicketTTL.Duration}, cfg.TicketCache),
 		depAdmitter{be.admitter}, depExecutor{be.executor}, nil)
-	srv.EnableOps(front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache})
+	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache}
+	if events != nil {
+		ops.Observer = opsObserver(events, cfg.EventLog.TraceSQL)
+	}
+	srv.EnableOps(ops)
 	probe := cfg.ReadyTimeout.Duration
 	ready := front.NewReadiness(probe, 3*cfg.ReadyInterval.Duration, nil,
 		front.Check{Name: "startup", Run: be.ready},
@@ -221,6 +233,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	frontMetrics(reg, srv)
 	lifecycleMetrics(reg, be.pending, ready, time.Now())
 	be.metrics(reg)
+	eventLogMetrics(reg, events)
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, reg.Handler())
 	mux.Handle(front.HealthPath, front.HealthHandler(srv))
@@ -229,7 +242,13 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if be.routes != nil {
 		be.routes(mux, srv)
 	}
-	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanCanary,
+	cleanup := func() {
+		if err := closeEventLog(events, 2*time.Second); err != nil {
+			log.Warn("event log not closed cleanly", "event", "EVENTLOG.CLOSE_FAILED", "error", err.Error())
+		}
+		cleanCanary()
+	}
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events,
 		background: append(be.background, func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
 }
 
@@ -338,6 +357,8 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	log.Info("serving", "addr", addr, "health_addr", cfg.HealthListen, "admin_addr", cfg.AdminListen, "vm", cfg.VM, "protocols", cfg.Protocols,
 		"dev", cfg.Dev)
 	fmt.Fprintf(stderr, "agentd: serving on %s\n", addr)
+	a.events.Emit(eventlog.Event{TraceID: lifecycleTrace, Payload: eventlog.Lifecycle{Phase: "startup",
+		Detail: map[string]any{"addr": addr, "vm": cfg.VM, "durable": cfg.Durable()}}})
 	bctx, stopBackground := context.WithCancel(context.Background())
 	var bg sync.WaitGroup
 	for _, job := range a.background {
