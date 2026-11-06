@@ -55,6 +55,11 @@ type Request struct {
 	// one read-only snapshot transaction. Its Output lands in Result.Body and Result.Value. StmtTimeout bounds
 	// the whole closure; MaxRows is ignored (each Tx.Query takes its own bound).
 	Fn Func
+	// Check, if set, runs first, in the request's savepoint (a write) or read transaction (a read), before the
+	// request id is claimed: a precondition that must hold even for a duplicate (ir/spec/v1.md §6.1: the
+	// fingerprint check runs before the duplicate check). Its Tx is read-only. Its error is the request's
+	// answer, and the savepoint rolls back.
+	Check func(tx *Tx) error
 
 	// StmtTimeout bounds execution of this statement; SQLite is interrupted when it passes. 0 = no limit.
 	StmtTimeout time.Duration
@@ -454,6 +459,18 @@ func (a *Actor) runInSavepoint(ctx context.Context, r *Request, now time.Time) (
 //	      res.Body (closure)
 //	post: res.Duplicate ⇒ res.Err == nil, r did not run and nothing changed
 func (a *Actor) apply(ctx context.Context, r *Request, now time.Time) Result {
+	if r.Check != nil {
+		cctx, cancel := ctx, context.CancelFunc(func() {})
+		if r.StmtTimeout > 0 {
+			cctx, cancel = det.WithTimeout(ctx, a.cfg.Clock, r.StmtTimeout)
+		}
+		err := runCheck(cctx, a.w, r, now)
+		timedOut := err != nil && cctx.Err() != nil
+		cancel()
+		if err != nil {
+			return Result{Err: err, TimedOut: timedOut, QueueWait: a.since(r.enqueued)}
+		}
+	}
 	if r.RequestID == "" {
 		return a.run1(a.w, r, now, true)
 	}

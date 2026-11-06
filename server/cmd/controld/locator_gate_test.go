@@ -93,6 +93,23 @@ func (c *cluster) metric(name string) float64 {
 	return 0
 }
 
+// agentMetric reads one unlabeled sample from an agent's /metrics (lifecycle listener); -1 if unreadable.
+func agentMetric(a *agentProc, name string) float64 {
+	res, err := http.Get("http://" + a.life + "/metrics")
+	if err != nil {
+		return -1
+	}
+	defer res.Body.Close()
+	sc := bufio.NewScanner(res.Body)
+	for sc.Scan() {
+		if v, ok := strings.CutPrefix(sc.Text(), name+" "); ok {
+			f, _ := strconv.ParseFloat(v, 64)
+			return f
+		}
+	}
+	return -1
+}
+
 func freeAddr(t *testing.T) string {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -167,6 +184,12 @@ func TestLocatorGate(t *testing.T) {
 		code, ra, _ := c.resolve(apiKey, "gate", "mv", 0)
 		return code == 503 && ra == "1"
 	})
+
+	// Every agent refuses tickets (ticket_invalid) until its first key fetch from controld: wait for both, or
+	// the move in step 1 can land on an agent that has no key set yet.
+	for vm, a := range c.agents {
+		waitFor(t, vm+" has fetched ticket keys", func() bool { return agentMetric(a, "agentd_ticket_keys") > 0 })
+	}
 
 	// The client's first route; agents verify its ticket with keys fetched from controld.
 	_, _, r1 := c.resolve(apiKey, "gate", "loc", 0)

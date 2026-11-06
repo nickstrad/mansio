@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/panicx"
@@ -36,10 +37,14 @@ import (
 //	pre: Fn is deterministic given the database state and tx.Now(): it reads no other clock and no randomness
 //	     (request ids replay the stored Body, and a retry after RequestTTL runs Fn again)
 //	pre: with a request id, Output.Body is the canonical JSON of the result (ir/spec/v1.md §9)
+//	pre: Fn creates no TEMP objects (refused when the guard sees TEMP/TEMPORARY in a CREATE): a temp trigger or
+//	     table would outlive the closure on the long-lived connection
 //	post (actor): Fn's transaction-control statements are refused (ErrTxControl), so Fn cannot leave or end its
-//	     savepoint; a statement that ends the transaction anyway (INSERT OR ROLLBACK, an interrupt) aborts the
-//	     batch as for a SQL write; a panic in Fn is recovered and answered as a *panicx.Panic error (a bug), with
-//	     Fn's statements rolled back
+//	     savepoint; in a write closure the first statement error poisons the Tx: every later statement answers
+//	     that error and the request fails with it even if Fn returns nil (a statement that ended the transaction,
+//	     INSERT OR ROLLBACK, RAISE(ROLLBACK), an I/O error or an interrupt, would otherwise let later statements
+//	     autocommit); such an error aborts the batch as for a SQL write; a panic in Fn is recovered and answered
+//	     as a *panicx.Panic error (a bug), with Fn's statements rolled back
 type Func func(tx *Tx) (Output, error)
 
 // Output is what a closure request answers.
@@ -70,8 +75,10 @@ var (
 	ErrTxDone = errors.New("actor: closure transaction used after the closure returned")
 	// ErrMaxRows: Tx.Query was called without a positive row bound (every result set is bounded, RI B6).
 	ErrMaxRows = errors.New("actor: closure query needs maxRows > 0")
-	// ErrRecordKind: a request id was applied by a request of the other kind (a SQL write and a closure share
-	// one id space), so its stored result cannot answer this one. Nothing ran.
+	// ErrRecordKind: a request id was claimed by a request of the other kind (a SQL write and a closure share
+	// one id space), so its stored result cannot answer this one. Nothing ran. The claim may be a batch-mate's
+	// that was then rolled back with its batch (the answer is an own error, so it stays): a retry may then
+	// succeed. IR-2b: map it as a client error (the id was reused across kinds), not a server fault.
 	ErrRecordKind = errors.New("actor: request id was applied by a request of another kind")
 )
 
@@ -82,7 +89,8 @@ type Tx struct {
 	ctx      context.Context // bounded by the request's StmtTimeout
 	now      time.Time
 	readOnly bool
-	done     bool
+	done     atomic.Bool // set when the closure returns; a stray use from any goroutine then answers ErrTxDone
+	failed   error       // a write closure's first statement error: it poisons the Tx (see Func)
 	stmts    int
 }
 
@@ -107,6 +115,7 @@ func (tx *Tx) Exec(sql string, args ...any) (int64, error) {
 	}
 	tx.stmts++
 	res := tx.k.exec(tx.ctx, &Request{SQL: sql, Args: args, Write: true})
+	tx.fail(res.Err)
 	return res.Rows, res.Err
 }
 
@@ -123,34 +132,66 @@ func (tx *Tx) Query(sql string, maxRows int, args ...any) (Rows, error) {
 	}
 	tx.stmts++
 	res := tx.k.exec(tx.ctx, &Request{SQL: sql, Args: args, MaxRows: maxRows})
+	tx.fail(res.Err)
 	return Rows{Columns: res.Columns, Values: res.Values}, res.Err
+}
+
+// Err is the error that poisoned a write closure's Tx (its first statement error), or nil.
+func (tx *Tx) Err() error { return tx.failed }
+
+// fail poisons a write closure's Tx with its first statement error. A read closure is not poisoned: it runs in
+// a transaction that is rolled back whatever happens, on a connection that cannot write.
+func (tx *Tx) fail(err error) {
+	if err != nil && !tx.readOnly && tx.failed == nil {
+		tx.failed = err
+	}
 }
 
 func (tx *Tx) check(sql string) error {
 	switch {
-	case tx.done:
+	case tx.done.Load():
 		return ErrTxDone
+	case tx.failed != nil:
+		return tx.failed
 	case !closureSafe(sql):
 		return ErrTxControl
 	}
 	return nil
 }
 
-// runFn runs r.Fn on k. A panic is recovered into a *panicx.Panic error (the statements it ran are rolled back
-// by the caller with the rest of its savepoint or read transaction).
+// runFn runs r.Fn on k (after r.Check, if any, on the same transaction). A panic is recovered into a
+// *panicx.Panic error (the statements it ran are rolled back by the caller with the rest of its savepoint or
+// read transaction).
 //
 //	post: the Tx given to Fn is dead (every later use answers ErrTxDone)
-func runFn(ctx context.Context, k executor, r *Request, now time.Time) (res Result) {
-	tx := &Tx{k: k, ctx: ctx, now: now, readOnly: !r.Write}
+//	post: a statement error poisoned the Tx ⇒ res.Err != nil, even if Fn returned nil
+func runFn(ctx context.Context, k executor, r *Request, now time.Time) Result {
+	return withTx(ctx, k, !r.Write, now, r.Fn)
+}
+
+// runCheck runs r.Check on k in a read-only Tx (Exec refused); nil when there is none.
+func runCheck(ctx context.Context, k executor, r *Request, now time.Time) error {
+	if r.Check == nil {
+		return nil
+	}
+	return withTx(ctx, k, true, now, func(tx *Tx) (Output, error) { return Output{}, r.Check(tx) }).Err
+}
+
+// withTx gives fn a fresh Tx on k and kills it afterwards.
+func withTx(ctx context.Context, k executor, readOnly bool, now time.Time, fn Func) (res Result) {
+	tx := &Tx{k: k, ctx: ctx, now: now, readOnly: readOnly}
 	defer func() {
-		tx.done = true
+		tx.done.Store(true)
 		if p := panicx.From(recover()); p != nil {
 			res = Result{Err: p}
 		}
 	}()
-	out, err := r.Fn(tx)
-	if err != nil {
+	out, err := fn(tx)
+	switch {
+	case err != nil:
 		return Result{Err: err}
+	case tx.failed != nil: // Fn swallowed a statement error: the transaction may be gone
+		return Result{Err: tx.failed}
 	}
 	return Result{Body: out.Body, Value: out.Value}
 }
@@ -174,13 +215,18 @@ func readFn(ctx context.Context, k executor, r *Request, now time.Time, onWriter
 	if err := k.run(bg, "BEGIN"); err != nil {
 		return Result{Err: err}, true
 	}
-	res = runFn(ctx, k, r, now)
+	if err := runCheck(ctx, k, r, now); err != nil {
+		res = Result{Err: err}
+	} else {
+		res = runFn(ctx, k, r, now)
+	}
 	_ = k.run(bg, "ROLLBACK") // fails only if a statement already ended the transaction: nothing left open
 	return res, true
 }
 
 // closureSafe reports whether sql is one statement that does not control the transaction or the connection:
 // its first word is not BEGIN, COMMIT, END, ROLLBACK, SAVEPOINT, RELEASE, PRAGMA, ATTACH, DETACH or VACUUM,
+// a CREATE has no unquoted word TEMP or TEMPORARY (a temp object would outlive the closure on the connection),
 // and nothing but whitespace, comments and semicolons follows its first top-level ';'. Comments and quoted
 // strings and identifiers are skipped, so a ';' inside them does not count. One pass, no allocation beyond the
 // first word.
@@ -190,11 +236,21 @@ func closureSafe(sql string) bool {
 	for j < len(sql) && isWordByte(sql[j]) {
 		j++
 	}
-	if j == i || txControl[strings.ToUpper(sql[i:j])] { // empty, or not starting with a keyword
+	first := strings.ToUpper(sql[i:j])
+	if j == i || txControl[first] { // empty, or not starting with a keyword
 		return false
 	}
+	create := first == "CREATE"
 	for k := j; k < len(sql); {
 		switch c := sql[k]; {
+		case create && isWordByte(c): // CREATE TEMP …, CREATE TABLE temp.x …: refused
+			w := k
+			for k < len(sql) && isWordByte(sql[k]) {
+				k++
+			}
+			if word := strings.ToUpper(sql[w:k]); word == "TEMP" || word == "TEMPORARY" {
+				return false
+			}
 		case c == ';':
 			for k = skipTrivia(sql, k+1); k < len(sql) && sql[k] == ';'; k = skipTrivia(sql, k+1) {
 			}

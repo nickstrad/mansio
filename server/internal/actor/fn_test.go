@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,12 @@ func TestClosureSafe(t *testing.T) {
 		{`ATTACH 'x' AS y`, false},
 		{`DETACH y`, false},
 		{`VACUUM`, false},
+		{`CREATE TEMP TABLE t (x)`, false},
+		{`create temporary trigger g after insert on kv begin select 1; end`, false},
+		{`CREATE TABLE temp.t (x)`, false},
+		{`CREATE TABLE t (x)`, true}, // on point: ordinary DDL (IR-2b creates an app's tables)
+		{`CREATE TABLE t (temp_x TEXT DEFAULT 'temp')`, true},
+		{`INSERT INTO kv (id, v) SELECT 1, 2 WHERE 'TEMP' <> ''`, true},
 	} {
 		if got := closureSafe(tc.sql); got != tc.want {
 			t.Errorf("closureSafe(%q) = %v, want %v", tc.sql, got, tc.want)
@@ -436,5 +443,126 @@ func TestClosureStatementTimeout(t *testing.T) {
 	}
 	if r := a.Do(ctx(t), `SELECT v FROM kv WHERE id = 1`, false); r.First != 10 {
 		t.Fatalf("timed-out closure's write committed: %+v", r)
+	}
+}
+
+// A write closure that swallows a statement error that ended the transaction (INSERT OR ROLLBACK, a
+// RAISE(ROLLBACK) trigger) must not go on in autocommit: its Tx is poisoned, later statements are refused, the
+// request fails with that error, and nothing of the batch commits (the review's repro).
+func TestSwallowedTransactionEndingErrorCommitsNothing(t *testing.T) {
+	ddl := kvDDL + `; CREATE TRIGGER kv_neg BEFORE INSERT ON kv WHEN NEW.v < 0 BEGIN SELECT RAISE(ROLLBACK, 'negative'); END`
+	for _, ends := range []string{`INSERT OR ROLLBACK INTO kv (id, v) VALUES (1, 99)`, `INSERT INTO kv (id, v) VALUES (50, -1)`} {
+		t.Run(ends, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "db.sqlite")
+			if err := Seed(path, Config{}, ddl, fillKV(1)); err != nil {
+				t.Fatal(err)
+			}
+			a := New(0, path, Config{})
+			t.Cleanup(a.Close)
+			var later error
+			fn := &Request{Write: true, RequestID: "req-1", Fn: func(tx *Tx) (Output, error) {
+				tx.Exec(ends) // the error is ignored
+				_, later = tx.Exec(`INSERT INTO kv (id, v) VALUES (7, 70)`)
+				return Output{Body: []byte(`[]`)}, nil
+			}}
+			res := submitAll(t, a, write(`INSERT INTO kv (id, v) VALUES (2, 20)`), fn)
+			if !errors.Is(res[0].Err, ErrAborted) || res[1].Err == nil || errors.Is(res[1].Err, ErrAborted) || later == nil || !errors.Is(later, res[1].Err) {
+				t.Fatalf("results %v / %v, later statement %v", res[0].Err, res[1].Err, later)
+			}
+			if n := count(t, a); n != 1 {
+				t.Fatalf("count %d: a statement after the transaction ended committed", n)
+			}
+			if r := a.Do(ctx(t), `SELECT count(*) FROM sqlite_schema WHERE name = '_mansio_requests'`, false); r.First != 0 {
+				t.Fatalf("the id table committed")
+			}
+		})
+	}
+}
+
+// A write closure's own statement error fails the request even when Fn returns nil (fault level: no SQLite).
+func TestPoisonedTxFailsTheRequest(t *testing.T) {
+	boom := errors.New("constraint")
+	f := &faultExec{FailOn: map[string]error{"bad": boom}}
+	var later error
+	r := &Request{Write: true, Fn: func(tx *Tx) (Output, error) {
+		tx.Exec("bad")
+		_, later = tx.Exec("good")
+		return Output{}, nil
+	}}
+	res := submitAll(t, fakeActor(t, Config{}, f, nil), r)
+	if !errors.Is(res[0].Err, boom) || !errors.Is(later, boom) || strings.Contains(strings.Join(f.statements(), ","), "good") {
+		t.Fatalf("result %v, later %v, statements %v", res[0].Err, later, f.statements())
+	}
+}
+
+// Request.Check runs before the id claim, so a failing check answers even a duplicate (spec §6.1: the
+// fingerprint check, then the duplicate check).
+func TestCheckRunsBeforeTheDuplicateAnswer(t *testing.T) {
+	a := startedKV(t, Config{}, 0)
+	ok := func(*Tx) (Output, error) { return Output{Body: []byte(`[1]`)}, nil }
+	if res := a.DoFn(ctx(t), true, "req-1", ok); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	drift := errors.New("SchemaDriftError")
+	var sawReadOnly bool
+	r := &Request{Write: true, RequestID: "req-1", Fn: ok, Check: func(tx *Tx) error {
+		_, err := tx.Exec(`DELETE FROM kv`)
+		sawReadOnly = errors.Is(err, ErrReadOnly)
+		return drift
+	}}
+	a.Submit(r)
+	if res := r.Wait(ctx(t)); !errors.Is(res.Err, drift) || res.Duplicate || !sawReadOnly {
+		t.Fatalf("failing check on a duplicate: %+v (check tx read-only: %v)", res, sawReadOnly)
+	}
+	r = &Request{Write: true, RequestID: "req-1", Fn: ok, Check: func(*Tx) error { return nil }}
+	a.Submit(r)
+	if res := r.Wait(ctx(t)); res.Err != nil || !res.Duplicate || string(res.Body) != `[1]` {
+		t.Fatalf("passing check on a duplicate: %+v", res)
+	}
+	// A failing check on a new id leaves the id unused.
+	r = &Request{Write: true, RequestID: "req-2", Fn: ok, Check: func(*Tx) error { return drift }}
+	a.Submit(r)
+	if res := r.Wait(ctx(t)); !errors.Is(res.Err, drift) || idList(t, a, ctx(t)) != "req-1" {
+		t.Fatalf("failing check, new id: %+v, ids %q", res, idList(t, a, ctx(t)))
+	}
+	// Reads run the check first too.
+	ran := false
+	res := doReadWithCheck(t, a, func(*Tx) error { return drift }, func(*Tx) (Output, error) { ran = true; return Output{}, nil })
+	if !errors.Is(res.Err, drift) || ran {
+		t.Fatalf("read with a failing check: %+v, fn ran %v", res, ran)
+	}
+}
+
+// doReadWithCheck submits a read closure with a check.
+func doReadWithCheck(t *testing.T, a *Actor, check func(*Tx) error, fn Func) Result {
+	t.Helper()
+	r := &Request{Fn: fn, Check: check}
+	if err := a.Submit(r); err != nil {
+		t.Fatal(err)
+	}
+	return r.Wait(ctx(t))
+}
+
+// The check runs in the savepoint before the claim (statement order).
+func TestCheckStatementOrder(t *testing.T) {
+	f := &faultExec{}
+	r := fnWrite(`[]`, "c1")
+	r.RequestID, r.Check = "id-1", func(tx *Tx) error { _, err := tx.Query("chk", 1); return err }
+	submitAll(t, fakeActor(t, Config{}, f, nil), r)
+	want := "BEGIN IMMEDIATE|" + RequestTableDDL[0] + "|" + RequestTableDDL[1] + "|SAVEPOINT w|chk|" + sqlClaimRequest + "|c1|" + sqlRecordResult + "|RELEASE w|COMMIT"
+	if got := strings.Join(f.statements(), "|"); got != want {
+		t.Fatalf("statements:\n got %s\nwant %s", got, want)
+	}
+}
+
+// A Tx used from another goroutine after the closure returned answers ErrTxDone (race-free).
+func TestTxDoneAcrossGoroutines(t *testing.T) {
+	a := startedKV(t, Config{}, 0)
+	var kept *Tx
+	a.DoFn(ctx(t), true, "", func(tx *Tx) (Output, error) { kept = tx; return Output{}, nil })
+	errc := make(chan error, 1)
+	go func() { _, err := kept.Query(`SELECT 1`, 1); errc <- err }()
+	if err := <-errc; !errors.Is(err, ErrTxDone) {
+		t.Fatalf("stray use: %v", err)
 	}
 }

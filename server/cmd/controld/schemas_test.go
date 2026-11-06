@@ -79,6 +79,12 @@ func (m *memSchemas) AppRegistered(_ context.Context, app string) (bool, error) 
 // schemaAPI serves controld's routes over store (no Postgres, agents or locator behind the other routes).
 func schemaAPI(t *testing.T, store schemaStore) *httptest.Server {
 	t.Helper()
+	srv, _ := schemaDaemon(t, store)
+	return srv
+}
+
+func schemaDaemon(t *testing.T, store schemaStore) (*httptest.Server, *daemon) {
+	t.Helper()
 	cfg := defaults()
 	cfg.APITimeout = load.Duration{Duration: 5 * time.Second}
 	d := &daemon{cfg: &cfg, log: slog.New(slog.NewTextHandler(io.Discard, nil)), token: adminToken, control: controlToken,
@@ -86,7 +92,25 @@ func schemaAPI(t *testing.T, store schemaStore) *httptest.Server {
 	d.ready.Store(true)
 	srv := httptest.NewServer(d.routes(metrics.NewRegistry()))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, d
+}
+
+// The agents' schema read has its own bulkhead (the locator's): it is served while admin calls fill theirs.
+func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
+	store := &memSchemas{regs: map[[2]string][]byte{}}
+	srv, d := schemaDaemon(t, store)
+	fp := schemareg.Fingerprint([]byte(schemaText))
+	store.RegisterSchema(context.Background(), "tic-tac-toe", fp, []byte(schemaText))
+	for range cap(d.sem) {
+		d.sem <- struct{}{}
+	}
+	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 200 {
+		t.Fatalf("GET with the admin bulkhead full: %d %v", code, out)
+	}
+	body, _ := json.Marshal(map[string]string{"fingerprint": fp, "schema": schemaText})
+	if code, _ := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != 503 {
+		t.Fatalf("PUT with the admin bulkhead full: %d, want 503", code)
+	}
 }
 
 // do sends one request with token and decodes the answer into a map.
@@ -133,7 +157,9 @@ func TestRegisterSchema(t *testing.T) {
 		{"reformatted text (the fingerprint is over the exact bytes)", "/v1/apps/x/schema", adminToken, indented, 400},
 		{"unknown member", "/v1/apps/x/schema", adminToken, []byte(`{"fingerprint":"` + fp + `","schema":{},"x":1}`), 400},
 		{"not an object", "/v1/apps/x/schema", adminToken, []byte(`{"fingerprint":"` + schemareg.Fingerprint([]byte("[]")) + `","schema":[]}`), 400},
-		{"over the body cap", "/v1/apps/x/schema", adminToken, []byte(`{"fingerprint":"","schema":"` + strings.Repeat("x", maxSchemaBody) + `"}`), 400},
+		{"over the body cap", "/v1/apps/x/schema", adminToken, []byte(`{"fingerprint":"","schema":"` + strings.Repeat("x", maxSchemaBody) + `"}`), 413},
+		{"trailing data", "/v1/apps/x/schema", adminToken, append(append([]byte{}, asObject...), []byte(` {}`)...), 400},
+		{"trailing whitespace is fine (on point)", "/v1/apps/x/schema", adminToken, append(append([]byte{}, asObject...), []byte(" \n")...), 200},
 	} {
 		if code, out := do(t, srv, http.MethodPut, tc.path, tc.token, tc.body); code != tc.code {
 			t.Errorf("%s: %d %v, want %d", tc.name, code, out, tc.code)

@@ -45,3 +45,15 @@ Branch `ir/02a-actor-registry`. Plan: `docs/plans/ir-protocol.md` §4, IR-2 (the
 - `POST /v1/resolve {"tenant","app"[,"create"]}`; `create` makes the locator answer `ErrCreatable` (also
   `ErrNotFound`) for a never-registered database when the key may write; controld then creates it (app must have
   a registered schema) and resolves again from the primary. Explicit create: `POST /v1/apps/{app}/databases`.
+
+## Review fixes (same day)
+
+- **A swallowed transaction-ending error must poison the closure.** After `INSERT OR ROLLBACK` / `RAISE(ROLLBACK)`
+  / an I/O error ends the batch transaction, the next statement on the connection *autocommits*: a closure that
+  ignored the error and wrote again committed that row while both requests answered `ErrAborted`. Now a write
+  closure's first statement error poisons its `Tx` (`Tx.Err()`): later statements answer it and the request
+  fails with it even if Fn returns nil. Fuzz mode 7 covers it.
+- `Request.Check func(*Tx) error` runs first (read-only Tx), before the id claim, in the savepoint or read
+  transaction: the spec's fingerprint check precedes the duplicate answer.
+- Guard also refuses `CREATE` with an unquoted `TEMP`/`TEMPORARY` word (a temp trigger would outlive the closure).
+- The agents' schema GET uses the locator's bulkhead and deadline, not the admin API's.

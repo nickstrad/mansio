@@ -24,7 +24,9 @@ var errInjected = errors.New("injected closure failure")
 //
 //	kind%5 == 0  closure write: k1 = v, k2 = v+1, then count(*); Body {"n":count,"v":v}. b&7 injects a
 //	             failure after the writes: 3 returns an error, 4 runs a failing statement (NOT NULL), 5 panics,
-//	             6 runs INSERT OR ROLLBACK (ends the batch transaction, PG-01); 0–2 and 7 succeed. Bit 3 first
+//	             6 runs INSERT OR ROLLBACK (ends the batch transaction, PG-01), 7 does that too but ignores the
+//	             error, writes again and returns success (the poisoned Tx must refuse the write and fail the
+//	             request; nothing may autocommit); 0–2 succeed. Bit 3 first
 //	             tries COMMIT, which must be refused (ErrTxControl) without harm.
 //	kind%5 == 1  closure read of k1 (ReadConns from the script's first byte): it also tries to write, which must
 //	             be refused (ErrReadOnly); Body is the value or -1
@@ -139,11 +141,11 @@ func FuzzActorClosureModel(f *testing.F) {
 				case res.Err != nil:
 					var pp *panicx.Panic
 					ok := p.closure && !p.del && (p.mode == 3 && errors.Is(res.Err, errInjected) ||
-						p.mode == 4 || p.mode == 6 || p.mode == 5 && errors.As(res.Err, &pp))
+						p.mode == 4 || p.mode == 6 || p.mode == 7 || p.mode == 5 && errors.As(res.Err, &pp))
 					if !ok {
 						fail("unexpected error %v", res.Err)
 					}
-				case p.closure && !p.del && p.mode >= 3 && p.mode <= 6:
+				case p.closure && !p.del && p.mode >= 3:
 					fail("an injected failure succeeded")
 				case p.del:
 					rows := int64(0)
@@ -264,6 +266,11 @@ func FuzzActorClosureModel(f *testing.F) {
 					case 6:
 						if _, err := tx.Exec(`INSERT OR ROLLBACK INTO kv (id, v) VALUES (100, NULL)`); err != nil {
 							return Output{}, err
+						}
+					case 7: // swallow the error that ended the transaction, write again, claim success
+						tx.Exec(`INSERT OR ROLLBACK INTO kv (id, v) VALUES (100, NULL)`)
+						if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (id, v) VALUES (?, ?)`, p.k1, p.v+2); !errors.Is(err, tx.Err()) {
+							return Output{}, fmt.Errorf("a statement after the poisoning error ran: %v", err)
 						}
 					}
 					return Output{Body: fmt.Appendf(nil, `{"n":%d,"v":%d}`, n.Values[0][0], p.v)}, nil

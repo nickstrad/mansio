@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/nickstrad/mansio/server/internal/control"
@@ -22,7 +24,7 @@ import (
 //
 // A database is (tenant, app): the registry's database tenant ":" app, so an app is named by the database-name
 // domain (pg.ValidName) and every existing path (move, drop, the agents, durable.KeyPrefix) works on it
-// unchanged. "schema" is the fingerprint text (ir/spec/v1.md §2): either the JSON object itself, whose bytes are
+// unchanged; resolve's {"tenant": T, "app": X} and raw {"tenant": T, "db": X} name the same database T:X. "schema" is the fingerprint text (ir/spec/v1.md §2): either the JSON object itself, whose bytes are
 // taken exactly as sent (a TS client's JSON.stringify({fingerprint, schema}) embeds JSON.stringify(schema)), or a
 // JSON string holding that text. Either way the fingerprint must be SHA-256 of those exact bytes.
 // Registration is idempotent: created is false when the app already registered that fingerprint.
@@ -62,8 +64,20 @@ func (d *daemon) schemaRoutes(mux *http.ServeMux) {
 		}
 		dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxSchemaBody))
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			return nil, errBadRequest("body must be a JSON object {\"fingerprint\", \"schema\"}: " + err.Error())
+		var tooBig *http.MaxBytesError
+		err := dec.Decode(&req)
+		if err == nil {
+			if err = dec.Decode(&json.RawMessage{}); err == io.EOF {
+				err = nil
+			} else if !errors.As(err, &tooBig) {
+				err = errors.New("trailing data after the object")
+			}
+		}
+		switch {
+		case errors.As(err, &tooBig):
+			return nil, &apiError{"too_large", http.StatusRequestEntityTooLarge, fmt.Sprintf("body over %d bytes", maxSchemaBody), false}
+		case err != nil:
+			return nil, errBadRequest("body must be one JSON object {\"fingerprint\", \"schema\"}: " + err.Error())
 		}
 		text := []byte(req.Schema)
 		if len(text) > 0 && text[0] == '"' { // the text as a JSON string
@@ -87,7 +101,10 @@ func (d *daemon) schemaRoutes(mux *http.ServeMux) {
 		}
 		return schemaAnswer{Code: "ok", App: app, Fingerprint: req.Fingerprint, Created: &created}, nil
 	}))
-	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleAs([]string{d.token, d.control}, "admin or control", "",
+	// The agents' read is on the data path (a database's first request per schema): the locator's bulkhead and
+	// deadline, not the admin API's.
+	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleIn(d.resolveSem, d.cfg.Locator.Timeout.Duration,
+		[]string{d.token, d.control}, "admin or control", "",
 		func(ctx context.Context, r *http.Request) (any, error) {
 			app, fp := r.PathValue("app"), r.PathValue("fingerprint")
 			if !pg.ValidName(app) || !schemareg.ValidFingerprint(fp) {

@@ -639,3 +639,11 @@ Branch `ir/02a-actor-registry`. Details: `knowledge/front/2026-11-05-ir2a-closur
   (exactly one of db/app). `handleAs` takes a token list. Hook `daemon.checkSchema` for IR-2b.
 - **agentd:** config `schemas_url`, `schemas_timeout` (3 s), `schema_cache` (1024); breaker "schemas"; metrics
   `agentd_schema_*`; `durableAgent.schemas` for IR-2b.
+
+## 2026-11-05 22:11 — ir-2a: IR-2a review fixes — API additions
+
+Branch `ir/02a-actor-registry`. actor: `Request.Check func(*Tx) error` (runs before the request-id claim; read-only
+Tx), `Tx.Err()`; a write closure's first statement error now poisons its Tx and fails the request even if Fn
+returns nil; `CREATE TEMP…` refused (`ErrTxControl`). controld: schema PUT answers 413 `too_large` over its cap
+and 400 on trailing data; schema GET runs in the locator bulkhead. Spec §4/§11 + ADR 0011: `db.tenant`/`db.app`
+use the registry domains (decoder narrowing is TODO(IR-2b)).
