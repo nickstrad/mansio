@@ -4,8 +4,7 @@
  * The descriptors and the validation logic live in `core/schema.ts`, where they are total:
  * every rejection comes back as a `SchemaError` in an `Either`. This module re-exports the core
  * types and builders, plus `formatSchemaError`, which renders a `SchemaError` back into the exact
- * `Error` message the pre-port code produced (`sdk/functions.ts` and `platform/sqlite.ts` use it
- * at their legacy boundaries).
+ * `Error` message the pre-port code produced, for the callers that still need an `Error`.
  *
  * `AppTable.index` and `defineTable`/`defineSchema` still throw: they run at module load in
  * `app/schema.ts`, which has nowhere to put an `Either`. Item 26 deleted the throwing wrappers
