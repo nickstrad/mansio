@@ -116,8 +116,12 @@ test("scale_out", () =>
         assert.equal(now.vm, other(from), `move ${move}: owner`);
         assert.ok(now.epoch > epoch, `move ${move}: epoch ${now.epoch} after ${epoch}`);
         epoch = now.epoch;
-        await delay(400);
-        assert.ok(ledger.acked.size > before, `move ${move}: no write acknowledged during and after it`);
+        // Writers resume after the move (a request that met it re-resolves after the locator's moving hint).
+        const deadline = Date.now() + 10_000;
+        while (ledger.acked.size < before + 20) {
+          assert.ok(Date.now() < deadline, `move ${move}: writes did not resume after it`);
+          await delay(50);
+        }
       }
       stop = true;
       await Promise.all(writers);
