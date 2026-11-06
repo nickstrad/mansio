@@ -95,7 +95,8 @@ write: S3 faults on that database's calls; stalls of any call while its committi
 tick writes back one database after another); that VM's breaker open; a partition cutting that VM from S3 or
 Postgres; storms (global). Partitions of clients, the edge or controld excuse nothing. A write whose commit a restore lost before
 its ok arrived is judged when the ok arrives. Losses inside the RPO are counted (`Stats.LostInRPO`; of those, `Stats.LostExcused` were older than the RPO
-and excused only by faults: 1 loss in 100 swarm seeds, so nearly every excused loss is inside the plain window).
+and excused only by faults: 2990 losses in 115 of 2000 swarm seeds, mostly storms and the database's own S3
+faults; every other excused loss is inside the plain RPO window).
 
 Teeth (production mutants, by hand, reverted): request-id dedupe off (actor) — caught by 6/6 seeds (applied
 twice, final answer `ConflictError` for an applied transfer, non-linearizable registers); `Fence` without its
@@ -145,6 +146,8 @@ No seed produced an `Internal` (defect) answer.
 | plain (no swarm), final code | 1–1000 | 1000 pass |
 | swarm, final code | 5001–5500 | 500 pass |
 | determinism | 60 plain + 60 swarm, twice | byte-identical |
+| swarm, after review fixes (scoped RPO health, exact post-crash start states) | 1001–3000 | 1999 pass; 2761 (open finding 2) |
+| determinism, after review fixes | 30 plain + 30 swarm twice; defaults `-count=3`, swarm `-race -count=3` | byte-identical |
 
 ## Swarm and shrink (DST-3)
 
