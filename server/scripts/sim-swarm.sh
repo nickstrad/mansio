@@ -3,9 +3,10 @@
 #
 # DST-3, the nightly swarm (IR protocol plan §6.4 item 4): runs <seeds> cluster simulations (default 2000) with
 # fault rates varied per seed (MANSIO_SIM_SWARM=1), and <seeds>/4 single-node (DST-1) seeds, from <first>
-# (default: a new range each day). Each failing cluster seed is shrunk (sim.ShrinkCluster) and written as a
-# regression vector, internal/sim/testdata/cluster/seed-<s>.json: fix the bug, edit the vector's "why",
-# commit both. Output, replay commands and vectors under results/sim-swarm/<time>/. Exits 1 on any failure.
+# (default: a new range each day). Each failing cluster seed is shrunk (sim.ShrinkCluster) and its vector
+# written to results/sim-swarm/<time>/seed-<s>.json, next to the output and replay commands; nothing is written
+# under internal/sim. Triage by hand: copy a vector to internal/sim/testdata/open while the bug is open, and
+# to testdata/cluster (where it must pass) with the fix. Exits 1 on any failure.
 # No CI runs it; run it by hand or from cron. About 0.5–5 s per cluster seed per core.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -27,7 +28,7 @@ single="$(grep -oE -- '--- FAIL: TestSeeds/[0-9]+' "$out/single.txt" | sed 's|.*
 for s in $failing; do
   echo "cluster seed $s failed; replay: MANSIO_SIM_SWARM=1 MANSIO_SIM_SEED=$s MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestClusterSeeds -v"
   if [ "${SIM_SHRINK:-1}" != 0 ]; then
-    MANSIO_SIM_SWARM=1 MANSIO_SIM_SHRINK="$s" MANSIO_SIM_SAVE=1 "$out/sim.test" -test.run '^TestClusterShrink$' -test.v \
+    MANSIO_SIM_SWARM=1 MANSIO_SIM_SHRINK="$s" MANSIO_SIM_SAVE="$out" "$out/sim.test" -test.run '^TestClusterShrink$' -test.v \
       -test.timeout 2h > "$out/shrink-$s.txt" 2>&1 || true
     grep -E "shrunk in|^\s+cluster_test.go:[0-9]+:   (op|t=)" "$out/shrink-$s.txt" || true
   fi

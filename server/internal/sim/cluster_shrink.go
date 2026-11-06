@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -13,11 +14,14 @@ import (
 // script is cut down by delta debugging (halves, then smaller chunks, then single ops); then each fault class
 // is turned off, the clients and boot databases reduced. Each change is kept while the run still fails. Every
 // stream is per class, database and client, so a cut leaves the other draws alone; the failure may still
-// change shape. run runs one config (each in its own synctest bubble). log, if set, hears each kept step.
+// change shape, so a change is kept only while the run fails in the same class (FailureClass) as res: the
+// shrinker does not drift to a different bug. run runs one config (each in its own synctest bubble). log, if
+// set, hears each kept step.
 //
 //	pre: res = run(cfg) failed
 func ShrinkCluster(cfg ClusterConfig, res ClusterResult, run func(ClusterConfig) ClusterResult, log func(string)) (ClusterConfig, ClusterResult) {
-	fails := func(r ClusterResult) bool { return r.Err != nil || len(r.Violations) > 0 }
+	class := FailureClass(res)
+	fails := func(r ClusterResult) bool { return FailureClass(r) == class }
 	note := func(format string, args ...any) {
 		if log != nil {
 			log(fmt.Sprintf(format, args...))
@@ -32,7 +36,7 @@ func ShrinkCluster(cfg ClusterConfig, res ClusterResult, run func(ClusterConfig)
 			return false
 		}
 		c, res = next, r
-		note("kept: %s (%d ops, %v): %s", what, len(c.Script), c.Duration, r.Violations[0].What[:min(len(r.Violations[0].What), 120)])
+		note("kept: %s (%d ops, %v): %s", what, len(c.Script), c.Duration, firstFailure(r))
 		return true
 	}
 	if !try(c, "the drawn schedule as a script") {
@@ -92,11 +96,48 @@ func ShrinkCluster(cfg ClusterConfig, res ClusterResult, run func(ClusterConfig)
 	return c, res
 }
 
+// failureClasses name the checker's violations by a phrase each message carries, in this order (the first
+// match wins).
+var failureClasses = []struct{ class, phrase string }{
+	{"split-brain", "two owners serve writes"}, {"epoch-order", "committed a write at epoch"},
+	{"conservation", "conservation:"}, {"not-linearizable", "not linearizable"},
+	{"applied-twice", "applied twice"}, {"applied-though-failed", "is applied though"},
+	{"bad-duplicate", "answered duplicate"}, {"unknown-mark", "unknown mark"},
+	{"lost-at-handoff", "a hand-off loses nothing"}, {"lost-after-publish", "before a write-back or fence that published"},
+	{"lost-beyond-rpo", "(RPO "}, {"lost", "is lost"}, {"missing", "is missing"},
+	{"generations", "generation"},
+}
+
+// FailureClass names how a run failed: "" (it passed), "error" (the harness failed: Err), or the class of
+// its first violation ("other" for a message no class names).
+func FailureClass(r ClusterResult) string {
+	switch {
+	case r.Err != nil:
+		return "error"
+	case len(r.Violations) == 0:
+		return ""
+	}
+	for _, c := range failureClasses {
+		if strings.Contains(r.Violations[0].What, c.phrase) {
+			return c.class
+		}
+	}
+	return "other"
+}
+
+func firstFailure(r ClusterResult) string {
+	if r.Err != nil {
+		return r.Err.Error()
+	}
+	return r.Violations[0].What[:min(len(r.Violations[0].What), 120)]
+}
+
 // Vector is a regression vector: a shrunk failing run, committed under testdata/cluster once fixed, so it
 // runs (and must pass) in every `go test`.
 type Vector struct {
 	Name   string        `json:"name"`
-	Why    string        `json:"why"` // the violation it found, and the fix
+	Why    string        `json:"why"`              // the violation it found, and the fix
+	Expect string        `json:"expect,omitempty"` // an open finding's FailureClass (testdata/open)
 	Config ClusterConfig `json:"config"`
 }
 

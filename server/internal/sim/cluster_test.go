@@ -95,8 +95,9 @@ func TestClusterSameSeedSameTrace(t *testing.T) {
 }
 
 // MANSIO_SIM_SHRINK=s shrinks failing cluster seed s (sim.ShrinkCluster; MANSIO_SIM_SWARM as for the run) and
-// prints the smallest failing config. MANSIO_SIM_SAVE=1 writes it as testdata/cluster/seed-<s>.json, the
-// regression vector to commit with the fix.
+// prints the smallest config that fails in the same class. MANSIO_SIM_SAVE=<dir> writes it as
+// <dir>/seed-<s>.json (MANSIO_SIM_SAVE=1: testdata/open, an open finding with its expected class); once the bug
+// is fixed, move it to testdata/cluster by hand, where it must pass.
 func TestClusterShrink(t *testing.T) {
 	s := os.Getenv("MANSIO_SIM_SHRINK")
 	if s == "" {
@@ -121,19 +122,23 @@ func TestClusterShrink(t *testing.T) {
 	for _, v := range sres.Violations {
 		t.Logf("  %s", v)
 	}
-	if os.Getenv("MANSIO_SIM_SAVE") != "" {
-		path := fmt.Sprintf("testdata/cluster/seed-%d.json", seed)
+	if dir := os.Getenv("MANSIO_SIM_SAVE"); dir != "" {
+		if dir == "1" {
+			dir = "testdata/open" // replayed only with MANSIO_SIM_OPEN=1, so plain go test stays green
+		}
+		path := filepath.Join(dir, fmt.Sprintf("seed-%d.json", seed))
 		why := ""
 		if len(sres.Violations) > 0 {
-			why = sres.Violations[0].What
+			why = "OPEN: " + sres.Violations[0].What
 		}
-		if err := os.MkdirAll("testdata/cluster", 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := sim.WriteVector(path, sim.Vector{Name: fmt.Sprintf("seed-%d", seed), Why: why, Config: small}); err != nil {
+		v := sim.Vector{Name: fmt.Sprintf("seed-%d", seed), Why: why, Expect: sim.FailureClass(sres), Config: small}
+		if err := sim.WriteVector(path, v); err != nil {
 			t.Fatal(err)
 		}
-		t.Logf("wrote %s (edit its why, commit it with the fix)", path)
+		t.Logf("wrote %s: once the bug is fixed, move it to testdata/cluster (drop its expect, edit its why)", path)
 	}
 }
 
@@ -172,6 +177,9 @@ func TestClusterOpenFindings(t *testing.T) {
 			if !clusterFailed(res) {
 				t.Errorf("%s passes now: move it to testdata/cluster (and update its why)", path)
 				return
+			}
+			if got := sim.FailureClass(res); v.Expect != "" && got != v.Expect {
+				t.Errorf("%s fails as %s now, want %s:\n%v", path, got, v.Expect, res.Violations)
 			}
 			for _, x := range res.Violations {
 				t.Logf("still open: %s", x)
