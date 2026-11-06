@@ -32,6 +32,10 @@ func TestDurableConfig(t *testing.T) {
 		{"admin on every interface", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":":7072"`, "loopback"},
 		{"admin on a routable address", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"10.0.0.5:7072"`, "loopback"},
 		{"admin without a port", `"s3":{"endpoint":"e:1","bucket":"b"},"admin_listen":"127.0.0.1"`, "loopback"},
+		{"schema registry", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://controld:7443"`, ""},
+		{"schema registry with the control CA", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://c","control_ca_file":"ca.pem"`, ""},
+		{"schema registry not a url", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"controld:7443"`, "schemas_url"},
+		{"schema cache 0 (off point)", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://c","schema_cache":0`, "schema_cache"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := parseConfig(strings.NewReader(base+tc.fields+`}`), "/")
@@ -45,6 +49,17 @@ func TestDurableConfig(t *testing.T) {
 				t.Fatalf("err %v, want %q", err, tc.problem)
 			}
 		})
+	}
+	static := `{"vm":"v","keys_file":"k","db_dir":"d","schemas_url":"https://c"}`
+	if _, err := parseConfig(strings.NewReader(static), "/"); err == nil || !strings.Contains(err.Error(), "schemas_url needs durable mode") {
+		t.Fatalf("schemas_url in static mode: %v", err)
+	}
+	plain, err := parseConfig(strings.NewReader(base+`"s3":{"endpoint":"e:1","bucket":"b","secure":true},"schemas_url":"http://c"}`), "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plain.checkDev(); err == nil || !strings.Contains(err.Error(), "schemas_url is plain HTTP") {
+		t.Fatalf("plain-HTTP schemas_url without -dev: %v", err)
 	}
 	c, err := parseConfig(strings.NewReader(base+`"s3":{"endpoint":"e:1","bucket":"b","secure":true,"ca_file":"ca.pem"}}`), "/etc/agentd")
 	if err != nil || c.S3.CAFile != "/etc/agentd/ca.pem" {

@@ -113,3 +113,24 @@ select vm_id, dead_attested_at is null as alive from vms order by vm_id;
 select database_id, is_default, state, target_vm from databases order by database_id;
 select key_id, tenant_id, length(principal) as principal_len, perms from api_keys order by key_id;
 select version from schema_version order by version;
+
+-- 0006 schemas: the fingerprint is SHA-256 of the exact text (on point: the right hash; off points: another
+-- text's hash, the hash of the same text indented), its domain (lowercase hex, 64 digits), the size check.
+insert into schemas (fingerprint, body) values ('sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', '{}');
+insert into schemas (fingerprint, body) values ('sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', '{ }');
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to('{ }', 'UTF8')), 'hex'), '{}');
+insert into schemas (fingerprint, body) values ('sha256:44136FA355B3678A1146AD16F7E8649E94FB4FC21FE77E8310C060F61CAAFF8A', '{}');
+insert into schemas (fingerprint, body) values ('sha256:44136fa355', '{}');
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to('{', 'UTF8')), 'hex'), '{');
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to(repeat('x', 65537), 'UTF8')), 'hex'), repeat('x', 65537));
+
+-- app_schemas: the app is a database name (no colon, lowercase); the fingerprint must be stored; one row per
+-- (app, fingerprint).
+insert into app_schemas (app, fingerprint) values ('tic-tac-toe', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+insert into app_schemas (app, fingerprint) values ('tic-tac-toe', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+insert into app_schemas (app, fingerprint) values ('Tic', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+insert into app_schemas (app, fingerprint) values ('a:b', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+insert into app_schemas (app, fingerprint) values ('chess', 'sha256:' || repeat('0', 64));
+
+-- A registered schema cannot be deleted from under its registration.
+delete from schemas where body = '{}';

@@ -58,7 +58,17 @@ var (
 	ErrMoving       = errors.New("locator: database is moving or being created; retry after the hint")
 	ErrSuspended    = errors.New("locator: database is suspended")
 	ErrRateLimited  = errors.New("locator: too many api key lookups from this source; retry after the hint")
+	// ErrCreatable: no such database, but the request asked to create it on first use (Request.Create) and the
+	// key may write: the caller creates it and resolves again. It also matches ErrNotFound, so a caller that
+	// cannot create answers not found.
+	ErrCreatable = errors.New("locator: no such database yet; the key may create it")
 )
+
+// creatable is ErrCreatable, which is also ErrNotFound.
+type creatable struct{}
+
+func (creatable) Error() string        { return ErrCreatable.Error() }
+func (creatable) Is(target error) bool { return target == ErrCreatable || target == ErrNotFound }
 
 // limited is ErrRateLimited with a retry hint (front.RetryHint).
 type limited struct{ after time.Duration }

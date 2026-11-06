@@ -71,10 +71,16 @@ type Config struct {
 	// CA); default the system roots.
 	ControlCAFile string        `json:"control_ca_file"`
 	KeysRefresh   load.Duration `json:"keys_refresh"` // default 30 s; controld's ticket_keys.activate must be at least twice this
-	KeysTimeout   load.Duration `json:"keys_timeout"` // one fetch; default 3 s
-	ClockSkew     load.Duration `json:"clock_skew"`
-	MaxTicketTTL  load.Duration `json:"max_ticket_ttl"`
-	TicketCache   int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	// SchemasURL is controld's API base URL for the app schema registry (GET /v1/apps/{app}/schemas/{fingerprint}
+	// with the control token; internal/schemareg, IR-2). Durable mode only; "" = no registry client. An https URL
+	// with a private CA uses control_ca_file.
+	SchemasURL     string        `json:"schemas_url"`
+	SchemasTimeout load.Duration `json:"schemas_timeout"` // one fetch; default 3 s
+	SchemaCache    int           `json:"schema_cache"`    // schemas cached (by app and fingerprint); default 1024
+	KeysTimeout    load.Duration `json:"keys_timeout"`    // one fetch; default 3 s
+	ClockSkew      load.Duration `json:"clock_skew"`
+	MaxTicketTTL   load.Duration `json:"max_ticket_ttl"`
+	TicketCache    int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 
 	// Static mode's admitter: every served database is owned at default_epoch unless epochs overrides it.
 	DefaultEpoch uint64            `json:"default_epoch"`
@@ -168,7 +174,7 @@ func defaults() Config {
 	return Config{
 		Listen: "127.0.0.1:7070", Protocols: []string{"h1", "h2c"},
 		ClockSkew: d(5 * time.Second), MaxTicketTTL: d(10 * time.Minute), TicketCache: 65536, DefaultEpoch: 1,
-		KeysRefresh: d(30 * time.Second), KeysTimeout: d(3 * time.Second),
+		KeysRefresh: d(30 * time.Second), KeysTimeout: d(3 * time.Second), SchemasTimeout: d(3 * time.Second), SchemaCache: 1024,
 		Limits:         front.Limits{}.WithDefaults(),
 		DefaultTimeout: d(2 * time.Second), MaxTimeout: d(30 * time.Second), StatementTimeout: d(time.Second),
 		ReplyGrace: d(time.Second), DrainTimeout: d(10 * time.Second), ShutdownBudget: d(time.Minute), ReadHeaderTimeout: d(5 * time.Second), BodyReadTimeout: d(5 * time.Second),
@@ -210,8 +216,19 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 			bad("keys_refresh and keys_timeout must be > 0, keys_timeout shorter than keys_refresh")
 		}
 	}
-	if c.ControlCAFile != "" && !strings.HasPrefix(c.KeysURL, "https:") {
-		bad("control_ca_file needs an https keys_url (it would be unused)")
+	if c.ControlCAFile != "" && !strings.HasPrefix(c.KeysURL, "https:") && !strings.HasPrefix(c.SchemasURL, "https:") {
+		bad("control_ca_file needs an https keys_url or schemas_url (it would be unused)")
+	}
+	if c.SchemasURL != "" {
+		if u, err := url.Parse(c.SchemasURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("schemas_url %q must be an http(s) URL", c.SchemasURL)
+		}
+		if !c.Durable() {
+			bad("schemas_url needs durable mode (the control token comes from the secrets file)")
+		}
+		if c.SchemasTimeout.Duration <= 0 || c.SchemaCache <= 0 {
+			bad("schemas_timeout and schema_cache must be > 0")
+		}
 	}
 	if c.Listen == "" {
 		bad("listen is required")
@@ -390,6 +407,10 @@ func (c *Config) checkDev() error {
 	if strings.HasPrefix(c.KeysURL, "http:") && !c.Dev {
 		return errs.Wrap(module, nil, "keys_url is plain HTTP: whoever can change the answer can mint tickets; use https, or pass -dev "+
 			"for a local run").With("keys_url", c.KeysURL)
+	}
+	if strings.HasPrefix(c.SchemasURL, "http:") && !c.Dev {
+		return errs.Wrap(module, nil, "schemas_url is plain HTTP: the control token and the schemas would travel in the clear; use https, "+
+			"or pass -dev for a local run").With("schemas_url", c.SchemasURL)
 	}
 	if c.Durable() && !c.S3.Secure && !c.Dev {
 		return errs.Wrap(module, nil, "s3.secure is false: plain-HTTP S3 is for local development only; set \"secure\": true "+

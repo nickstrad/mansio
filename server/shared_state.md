@@ -618,3 +618,32 @@ Branch `dst/0-hygiene`. Details: `knowledge/determinism/README.md`.
   → `Config.Clock`. New optional fields (nil = real): `actor.Config.Clock`, `client.Config.Clock/Rand/IDs`,
   `owner.ReconcileOptions.Clock/Rand`, `control.Controller.Clock`, `edge.RegistryConfig.Clock`,
   `keyfetch.Config.Clock`. `fronttest.Clock` is now a `det.Clock`.
+
+## 2026-11-05 21:52 — ir-2a: IR-2a actor closures, schema registry, (tenant, app) identity — API changes
+
+Branch `ir/02a-actor-registry`. Details: `knowledge/front/2026-11-05-ir2a-closures-and-registry.md`.
+
+- **actor (additive):** `Request.Fn Func` (`func(*Tx) (Output, error)`), `Output{Body []byte; Value any}`,
+  `Tx.Exec/Query(sql, maxRows, args...)/Now/ReadOnly/Statements`, `Rows{Columns, Values}`, `(*Actor).DoFn(ctx,
+  write, requestID, fn)`; `Result.Body`, `Result.Value`. Errors `ErrReadOnly`, `ErrTxControl`, `ErrTxDone`,
+  `ErrMaxRows`, `ErrRecordKind`. `_mansio_requests.result` is now `0x01`+varint (SQL) or `0x02`+Body (closure).
+  Existing SQL path unchanged. New fuzz `FuzzActorClosureModel`.
+- **placement/pg:** migration `0006_app_schemas.sql` (`schemas`, `app_schemas`, domain `schema_fingerprint`);
+  `RegisterSchema`, `GetSchema`, `AppRegistered`; exported `pg.NamePattern`.
+- **New package `internal/schemareg`** (adapter + pure check/cache): `Fingerprint`, `ValidFingerprint`, `Check`,
+  `MaxText`, `Client` (`NewClient`, `Get(ctx, app, fp)`, `Stats`, `Breaker`; `Config.Validate` hook for docschema),
+  errors `ErrInvalid/ErrNotFound/ErrUnavailable`; fake `schemaregtest`. Not added to the det lint (adapter, like keyfetch).
+- **locator:** `Request.Create`, `ErrCreatable` (also matches `ErrNotFound`).
+- **controld:** `PUT /v1/apps/{app}/schema`, `GET /v1/apps/{app}/schemas/{fingerprint}` (admin or control token),
+  `POST /v1/apps/{app}/databases {"tenant"}`; `POST /v1/resolve` also takes `{"tenant","app"[,"create"]}`
+  (exactly one of db/app). `handleAs` takes a token list. Hook `daemon.checkSchema` for IR-2b.
+- **agentd:** config `schemas_url`, `schemas_timeout` (3 s), `schema_cache` (1024); breaker "schemas"; metrics
+  `agentd_schema_*`; `durableAgent.schemas` for IR-2b.
+
+## 2026-11-05 22:11 — ir-2a: IR-2a review fixes — API additions
+
+Branch `ir/02a-actor-registry`. actor: `Request.Check func(*Tx) error` (runs before the request-id claim; read-only
+Tx), `Tx.Err()`; a write closure's first statement error now poisons its Tx and fails the request even if Fn
+returns nil; `CREATE TEMP…` refused (`ErrTxControl`). controld: schema PUT answers 413 `too_large` over its cap
+and 400 on trailing data; schema GET runs in the locator bulkhead. Spec §4/§11 + ADR 0011: `db.tenant`/`db.app`
+use the registry domains (decoder narrowing is TODO(IR-2b)).

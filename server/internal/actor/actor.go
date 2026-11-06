@@ -1,7 +1,8 @@
 // Package actor runs one goroutine per SQLite database ("database actor").
 //
 // Each actor owns its database's write connection and serves requests from a bounded mailbox, one batch at a
-// time. A request is a SQL string plus arguments. Callers never block on enqueue: a full mailbox returns
+// time. A request is a SQL string plus arguments, or a Go closure that runs several statements on the
+// connection as one unit (fn.go). Callers never block on enqueue: a full mailbox returns
 // ErrMailboxFull at once. The actor never blocks on reply: every reply channel has a buffer of one.
 //
 // A batch runs every write in one transaction (group commit: N queued writes, one commit), answers the writes
@@ -14,6 +15,9 @@
 //
 // A write with a request id applies at most once per database: the id is claimed in _mansio_requests inside the
 // write's savepoint, and a retry is answered from the record without running (reqid.go, CP-2).
+//
+// A closure write (Request.Fn) runs in the same savepoint slot as a SQL write; a closure read runs in one read
+// transaction and cannot write (fn.go).
 //
 // Per-request errors are returned in Result.Err as the driver produced them (or as one of this package's
 // sentinels); they are data for the caller to classify, not wrapped. Errors from opening or seeding a database
@@ -42,11 +46,20 @@ var (
 	ErrTooManyRows = errors.New("actor: read returned more rows than its limit")
 )
 
-// Request is one SQL statement for one database.
+// Request is one SQL statement, or one closure, for one database.
 type Request struct {
 	SQL   string
 	Args  []any
 	Write bool // runs inside the batch's write transaction; reads never do
+	// Fn, if set, runs instead of SQL and Args (fn.go): a write inside its own savepoint in the batch, a read in
+	// one read-only snapshot transaction. Its Output lands in Result.Body and Result.Value. StmtTimeout bounds
+	// the whole closure; MaxRows is ignored (each Tx.Query takes its own bound).
+	Fn Func
+	// Check, if set, runs first, in the request's savepoint (a write) or read transaction (a read), before the
+	// request id is claimed: a precondition that must hold even for a duplicate (ir/spec/v1.md §6.1: the
+	// fingerprint check runs before the duplicate check). Its Tx is read-only. Its error is the request's
+	// answer, and the savepoint rolls back.
+	Check func(tx *Tx) error
 
 	// StmtTimeout bounds execution of this statement; SQLite is interrupted when it passes. 0 = no limit.
 	StmtTimeout time.Duration
@@ -59,7 +72,9 @@ type Request struct {
 	MaxRows int
 	// RequestID, on a write, makes it apply at most once per database (CP-2): a write whose id this database
 	// already applied does not run and is answered with the original's Rows and Duplicate set. Ids are scoped
-	// to the database and remembered for Config.RequestTTL. "" = no deduplication. Reads ignore it.
+	// to the database and remembered for Config.RequestTTL. "" = no deduplication. Reads ignore it. A closure
+	// write's record is its Output.Body (version 0x02), answered in Result.Body; SQL writes and closures share
+	// the id space, and an id applied by the other kind answers ErrRecordKind.
 	RequestID string
 
 	enqueued time.Time
@@ -81,6 +96,8 @@ type Result struct {
 	Duplicate bool          // a write whose RequestID was applied before: it did not run; Rows is the original's
 	Columns   []string      // reads with Request.MaxRows > 0: column names
 	Values    [][]any       // reads with Request.MaxRows > 0: one slice per row, len(Values) == Rows
+	Body      []byte        // closure requests: Output.Body, or on a Duplicate the stored one
+	Value     any           // closure requests that ran: Output.Value (nil on a Duplicate)
 }
 
 // boundBy makes ctx's deadline, if any, r's Deadline and StmtTimeout. The timeout is measured from now, so it
@@ -130,6 +147,8 @@ type Actor struct {
 	reqReady  bool // _mansio_requests is known to exist in the open database
 	lastSweep time.Time
 	sweepMore bool // the last sweep hit sweepBatch: run again in the next batch
+
+	wStuck bool // a read closure could not switch the writer back from query_only: close it after this batch
 }
 
 // New creates an actor; it does not open the database or start the goroutine.
@@ -189,6 +208,17 @@ func (a *Actor) Submit(r *Request) error {
 //	post: ctx has a deadline d ⇒ the statement is not running after about d (plus the interrupt latency)
 func (a *Actor) Do(ctx context.Context, sql string, write bool, args ...any) Result {
 	r := &Request{SQL: sql, Args: args, Write: write}
+	r.boundBy(ctx, a.cfg.Clock.Now())
+	if err := a.Submit(r); err != nil {
+		return Result{Err: err}
+	}
+	return r.Wait(ctx)
+}
+
+// DoFn submits one closure request (fn.go) and waits for its result or ctx, bounded by ctx as in Do. write
+// picks a write (savepoint in the batch) or a read (read-only snapshot); requestID applies to writes only.
+func (a *Actor) DoFn(ctx context.Context, write bool, requestID string, fn Func) Result {
+	r := &Request{Fn: fn, Write: write, RequestID: requestID}
 	r.boundBy(ctx, a.cfg.Clock.Now())
 	if err := a.Submit(r); err != nil {
 		return Result{Err: err}
@@ -338,8 +368,12 @@ func (a *Actor) process(batch []*Request) {
 				meta.fail(r, ErrMailboxFull)
 			}
 		default:
-			meta.reply(r, a.run1(a.w, r))
+			meta.reply(r, a.run1(a.w, r, time.Time{}, true))
 		}
+	}
+	if a.wStuck { // the writer is stuck query_only (readFn): drop it; the next batch reopens
+		a.wStuck = false
+		a.closeDB()
 	}
 }
 
@@ -378,7 +412,7 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 			results[i] = Result{QueueWait: a.since(r.enqueued)}
 			continue
 		}
-		results[i], aborted = a.runInSavepoint(ctx, r, now.UnixMilli())
+		results[i], aborted = a.runInSavepoint(ctx, r, now)
 	}
 	end := "COMMIT"
 	if aborted {
@@ -404,11 +438,11 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 //
 //	pre:  a transaction is open on a.w
 //	post: !gone ⇒ the transaction is still open and holds r's effects iff res.Err == nil
-func (a *Actor) runInSavepoint(ctx context.Context, r *Request, nowMS int64) (res Result, gone bool) {
+func (a *Actor) runInSavepoint(ctx context.Context, r *Request, now time.Time) (res Result, gone bool) {
 	if err := a.w.run(ctx, "SAVEPOINT w"); err != nil {
 		return Result{Err: err, QueueWait: a.since(r.enqueued)}, true
 	}
-	res = a.apply(ctx, r, nowMS)
+	res = a.apply(ctx, r, now)
 	if res.Err != nil && a.w.run(ctx, "ROLLBACK TO w") != nil {
 		return res, true
 	}
@@ -417,34 +451,49 @@ func (a *Actor) runInSavepoint(ctx context.Context, r *Request, nowMS int64) (re
 
 // apply runs one write inside its savepoint. With a request id it first claims the id (reqid.go): a claim that
 // inserts nothing is a duplicate, answered from the stored result without running the statement. The claim and
-// the result record share the savepoint with the statement, so a failure anywhere rolls all three back.
+// the result record share the savepoint with the statement, so a failure anywhere rolls all three back. now is
+// the batch's clock reading: the id's applied_ms and a closure's Tx.Now.
 //
 //	pre:  a savepoint is open on a.w
-//	post: res.Err == nil && !res.Duplicate ⇒ r ran and, with an id, the id row records res.Rows
+//	post: res.Err == nil && !res.Duplicate ⇒ r ran and, with an id, the id row records res.Rows (SQL) or
+//	      res.Body (closure)
 //	post: res.Duplicate ⇒ res.Err == nil, r did not run and nothing changed
-func (a *Actor) apply(ctx context.Context, r *Request, nowMS int64) Result {
+func (a *Actor) apply(ctx context.Context, r *Request, now time.Time) Result {
+	if r.Check != nil {
+		cctx, cancel := ctx, context.CancelFunc(func() {})
+		if r.StmtTimeout > 0 {
+			cctx, cancel = det.WithTimeout(ctx, a.cfg.Clock, r.StmtTimeout)
+		}
+		err := runCheck(cctx, a.w, r, now)
+		timedOut := err != nil && cctx.Err() != nil
+		cancel()
+		if err != nil {
+			return Result{Err: err, TimedOut: timedOut, QueueWait: a.since(r.enqueued)}
+		}
+	}
 	if r.RequestID == "" {
-		return a.run1(a.w, r)
+		return a.run1(a.w, r, now, true)
 	}
 	t0 := a.cfg.Clock.Now()
 	var res Result
-	switch claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}, Write: true}); {
+	switch claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, now.UnixMilli()}, Write: true}); {
 	case claim.Err != nil:
 		res.Err = claim.Err
 	case claim.Rows == 0:
-		res = a.priorResult(ctx, r.RequestID)
+		res = a.priorResult(ctx, r.RequestID, r.Fn != nil)
 	default:
-		res = a.run1(a.w, r)
+		res = a.run1(a.w, r, now, true)
 		if res.Err == nil {
-			res.Err = a.w.exec(ctx, &Request{SQL: sqlRecordResult, Args: []any{encodeOutcome(res), r.RequestID}, Write: true}).Err
+			res.Err = a.w.exec(ctx, &Request{SQL: sqlRecordResult, Args: []any{encodeRecord(r, res), r.RequestID}, Write: true}).Err
 		}
 	}
 	res.QueueWait, res.Exec = t0.Sub(r.enqueued), a.since(t0) // the claim and record count as execution
 	return res
 }
 
-// priorResult answers a duplicate of id from its stored result.
-func (a *Actor) priorResult(ctx context.Context, id string) Result {
+// priorResult answers a duplicate of id from its stored result; closure says the duplicate is a closure
+// request, which needs a closure's record (and a SQL write a SQL write's).
+func (a *Actor) priorResult(ctx context.Context, id string, closure bool) Result {
 	prior := a.w.exec(ctx, &Request{SQL: sqlPriorResult, Args: []any{id}, MaxRows: 1})
 	if prior.Err != nil {
 		return Result{Err: prior.Err}
@@ -453,8 +502,14 @@ func (a *Actor) priorResult(ctx context.Context, id string) Result {
 	if len(prior.Values) == 1 {
 		b, _ = prior.Values[0][0].([]byte)
 	}
-	rows, err := decodeOutcome(b)
-	return Result{Rows: rows, Err: err, Duplicate: true}
+	rec, err := decodeRecord(b)
+	switch {
+	case err != nil:
+		return Result{Err: err}
+	case rec.closure != closure:
+		return Result{Err: ErrRecordKind}
+	}
+	return Result{Rows: rec.rows, Body: rec.body, Duplicate: true}
 }
 
 // createRequestTable runs RequestTableDDL in the open batch transaction; a.reqReady is set once it commits.
@@ -473,7 +528,7 @@ func (a *Actor) createRequestTable(ctx context.Context) error {
 func (a *Actor) sweep(ctx context.Context, now time.Time) (gone bool) {
 	cutoff := now.Add(-a.cfg.RequestTTL).UnixMilli()
 	r := &Request{SQL: sqlSweepRequests, Args: []any{cutoff, sweepBatch}, Write: true, enqueued: now}
-	res, gone := a.runInSavepoint(ctx, r, 0)
+	res, gone := a.runInSavepoint(ctx, r, now)
 	a.lastSweep, a.sweepMore = now, res.Err == nil && res.Rows >= sweepBatch
 	return gone
 }
@@ -489,15 +544,21 @@ func (a *Actor) reader(k executor) {
 			single.fail(r, ErrExpired)
 			continue
 		}
-		single.reply(r, a.run1(k, r))
+		single.reply(r, a.run1(k, r, time.Time{}, false))
 	}
 }
 
 func (a *Actor) since(t time.Time) time.Duration { return det.Since(a.cfg.Clock, t) }
 
-// run1 executes one statement under its statement timeout.
-func (a *Actor) run1(k executor, r *Request) Result {
+// run1 executes one statement (or closure, or snapshot) under its statement timeout. now is a write's batch
+// time (zero for a read: the closure's clock reading is taken here); onWriter says k is the write connection.
+//
+//	pre: onWriter ⇔ k == a.w, and only the run goroutine passes onWriter (it owns a.w)
+func (a *Actor) run1(k executor, r *Request, now time.Time, onWriter bool) Result {
 	t0 := a.cfg.Clock.Now()
+	if now.IsZero() {
+		now = t0
+	}
 	ctx := context.Background()
 	if r.StmtTimeout > 0 {
 		var cancel context.CancelFunc
@@ -505,9 +566,17 @@ func (a *Actor) run1(k executor, r *Request) Result {
 		defer cancel()
 	}
 	var res Result
-	if r.backupTo != "" {
+	switch {
+	case r.backupTo != "":
 		res.Err = k.backup(ctx, r.backupTo)
-	} else {
+	case r.Fn != nil && r.Write:
+		res = runFn(ctx, k, r, now)
+	case r.Fn != nil:
+		var ok bool
+		if res, ok = readFn(ctx, k, r, now, onWriter); !ok && onWriter { // only the run goroutine writes wStuck
+			a.wStuck = true
+		}
+	default:
 		res = k.exec(ctx, r)
 	}
 	res.TimedOut = res.Err != nil && ctx.Err() != nil

@@ -51,26 +51,52 @@ const sweepBatch = 1000
 // errBadPriorResult: the stored result of an applied request cannot be decoded (a bug or a damaged file).
 var errBadPriorResult = errors.New("actor: request id was applied but its stored result is unreadable")
 
-// outcomeV1 tags the stored result encoding: one version byte, then the rows affected as a varint.
-const outcomeV1 = 1
+// Stored result encodings: one version byte, then the payload (ir/spec/v1.md §7).
+const (
+	outcomeV1 = 1 // a SQL write: the rows it affected, as a varint
+	outcomeV2 = 2 // a closure write: its Output.Body as is (for the IR, the canonical JSON of the result array)
+)
 
-// encodeOutcome is what a retry of an applied write is answered with: today the rows it affected.
+// encodeOutcome is what a retry of an applied SQL write is answered with: the rows it affected.
 func encodeOutcome(res Result) []byte {
 	return binary.AppendVarint([]byte{outcomeV1}, res.Rows)
 }
 
-// decodeOutcome is the inverse of encodeOutcome.
+// encodeBody is what a retry of an applied closure write is answered with: its Body, byte for byte.
+func encodeBody(body []byte) []byte {
+	return append([]byte{outcomeV2}, body...)
+}
+
+// encodeRecord is r's stored result once it applied with res.
+func encodeRecord(r *Request, res Result) []byte {
+	if r.Fn != nil {
+		return encodeBody(res.Body)
+	}
+	return encodeOutcome(res)
+}
+
+// record is a decoded stored result.
+type record struct {
+	closure bool   // version 0x02
+	rows    int64  // version 0x01
+	body    []byte // version 0x02; non-nil (empty for an empty Body)
+}
+
+// decodeRecord is the inverse of encodeOutcome and encodeBody.
 //
-//	post: err == nil ⇒ encodeOutcome(Result{Rows: rows}) == b
-func decodeOutcome(b []byte) (rows int64, err error) {
-	if len(b) < 2 || b[0] != outcomeV1 {
-		return 0, errBadPriorResult
+//	post: err == nil && !rec.closure ⇒ encodeOutcome(Result{Rows: rec.rows}) == b
+//	post: err == nil && rec.closure ⇒ encodeBody(rec.body) == b
+func decodeRecord(b []byte) (rec record, err error) {
+	switch {
+	case len(b) >= 1 && b[0] == outcomeV2:
+		return record{closure: true, body: b[1:]}, nil
+	case len(b) >= 2 && b[0] == outcomeV1:
+		rows, n := binary.Varint(b[1:])
+		if n == len(b)-1 {
+			return record{rows: rows}, nil
+		}
 	}
-	rows, n := binary.Varint(b[1:])
-	if n != len(b)-1 {
-		return 0, errBadPriorResult
-	}
-	return rows, nil
+	return record{}, errBadPriorResult
 }
 
 // hasRequestID reports whether any write carries a request id.

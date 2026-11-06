@@ -25,6 +25,10 @@
 
 ## Consequences
 
+- The database key is derived, not mapped: `(tenant, app)` is the control plane's registry row
+  `tenant ":" app` (mansio-server CP-4), so `tenant` and `app` are the registry's lowercase domains
+  (`ir/spec/v1.md` §4), narrower than wire ids. Resolving `{"tenant", "app"}` and the raw `{"tenant", "db"}`
+  reach the same key space.
 - Ids issued by the server before this decision (UUIDv4 from `IdGenLive`, `id-N` in tests) stay valid ids: the
   UUIDv7 rule applies to client-supplied insert ids only. Every other id position accepts any non-empty string
   without U+0000.

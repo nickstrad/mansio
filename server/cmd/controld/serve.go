@@ -57,6 +57,13 @@ type daemon struct {
 	keys        *keyDir
 	resolveSem  chan struct{}
 	resolveShed atomic.Int64
+
+	// The app schema registry (schemas.go).
+	schemas schemaStore
+	control string // the agents' control token: it may read schemas
+	// checkSchema, if set, validates a schema text before it is registered: IR-2b's docschema check (a valid
+	// schema in fingerprint form). nil = schemareg.Check only (fingerprint, size, one JSON object).
+	checkSchema func(fingerprint string, text []byte) error
 }
 
 func serveMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
@@ -120,6 +127,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 		return nil, err
 	}
 	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
+		schemas: p, control: sec.ControlToken,
 		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,

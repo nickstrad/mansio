@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 //	code         | status | meaning
 //	-------------+--------+---------------------------------------------------------------------------
 //	bad_request  | 400    | malformed body, tenant, name or key
+//	too_large    | 413    | a schema registration over its body cap
 //	unauthorized | 401    | missing or wrong admin token; resolve: unknown, malformed or revoked api key
 //	forbidden    | 403    | resolve: the api key belongs to another tenant
 //	not_found    | 404    | no such database or vm
@@ -62,6 +64,7 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 		w.Write([]byte("ok\n"))
 	})
 	d.resolveRoutes(mux)
+	d.schemaRoutes(mux)
 	mux.HandleFunc("POST /v1/databases", d.handle("create", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ Tenant, Name string }
 		if err := decode(r, &req); err != nil {
@@ -97,7 +100,7 @@ func (d *daemon) routes(reg *metrics.Registry) http.Handler {
 	}))
 	if d.edge != "" {
 		// The edges' resolver (edge.RegistryRoutes): every VM not attested dead → its query endpoint.
-		mux.HandleFunc("GET /v1/agents", d.handleAs(d.edge, "edge", "", func(ctx context.Context, r *http.Request) (any, error) {
+		mux.HandleFunc("GET /v1/agents", d.handleAs([]string{d.edge}, "edge", "", func(ctx context.Context, r *http.Request) (any, error) {
 			vms, err := d.replica.LiveVMs(ctx, maxAgents)
 			if err != nil {
 				return nil, err
@@ -162,18 +165,25 @@ func decode(r *http.Request, v any) error {
 // handle runs fn under the admin identity, a slot and the API deadline, and writes its answer. A named
 // action (not "") is logged once when it succeeds.
 func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
-	return d.handleAs(d.token, "admin", action, fn)
+	return d.handleAs([]string{d.token}, "admin", action, fn)
 }
 
-// handleAs is handle for the holder of token (named who in the refusal).
-func (d *daemon) handleAs(token, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
+// handleAs is handle for the holder of any of tokens (named who in the refusal). An empty token never matches.
+func (d *daemon) handleAs(tokens []string, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
+	return d.handleIn(d.sem, d.cfg.APITimeout.Duration, tokens, who, action, fn)
+}
+
+// handleIn is handleAs in the bulkhead sem under timeout: data-path reads (schema fetches) use the locator's,
+// so they never queue behind admin moves (Release It B1).
+func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []string, who, action string,
+	fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(tok), []byte(token)) != 1 {
+		if !ok || !slices.ContainsFunc(tokens, func(t string) bool { return t != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(t)) == 1 }) {
 			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
-		d.call(w, r, d.sem, nil, d.cfg.APITimeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
+		d.call(w, r, sem, nil, timeout, func(ctx context.Context, r *http.Request) (any, error) {
 			out, err := fn(ctx, r)
 			if err == nil && action != "" {
 				d.log.Info("control action", "event", "CONTROLD."+strings.ToUpper(strings.ReplaceAll(action, "-", "_")), "path", r.URL.Path)

@@ -260,4 +260,50 @@ version
 3
 4
 5
-(5 rows)
+6
+(6 rows)
+
+-- 0006 schemas: the fingerprint is SHA-256 of the exact text (on point: the right hash; off points: another
+-- text's hash, the hash of the same text indented), its domain (lowercase hex, 64 digits), the size check.
+insert into schemas (fingerprint, body) values ('sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', '{}');
+INSERT 0 1
+insert into schemas (fingerprint, body) values ('sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', '{ }');
+ERROR:  new row for relation "schemas" violates check constraint "schemas_fingerprint_is_sha256"
+  sqlstate 23514, constraint schemas_fingerprint_is_sha256
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to('{ }', 'UTF8')), 'hex'), '{}');
+ERROR:  new row for relation "schemas" violates check constraint "schemas_fingerprint_is_sha256"
+  sqlstate 23514, constraint schemas_fingerprint_is_sha256
+insert into schemas (fingerprint, body) values ('sha256:44136FA355B3678A1146AD16F7E8649E94FB4FC21FE77E8310C060F61CAAFF8A', '{}');
+ERROR:  value for domain schema_fingerprint violates check constraint "schema_fingerprint_check"
+  sqlstate 23514, constraint schema_fingerprint_check
+insert into schemas (fingerprint, body) values ('sha256:44136fa355', '{}');
+ERROR:  value for domain schema_fingerprint violates check constraint "schema_fingerprint_check"
+  sqlstate 23514, constraint schema_fingerprint_check
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to('{', 'UTF8')), 'hex'), '{');
+ERROR:  new row for relation "schemas" violates check constraint "schemas_body_size"
+  sqlstate 23514, constraint schemas_body_size
+insert into schemas (fingerprint, body) values ('sha256:' || encode(sha256(convert_to(repeat('x', 65537), 'UTF8')), 'hex'), repeat('x', 65537));
+ERROR:  new row for relation "schemas" violates check constraint "schemas_body_size"
+  sqlstate 23514, constraint schemas_body_size
+
+-- app_schemas: the app is a database name (no colon, lowercase); the fingerprint must be stored; one row per
+-- (app, fingerprint).
+insert into app_schemas (app, fingerprint) values ('tic-tac-toe', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+INSERT 0 1
+insert into app_schemas (app, fingerprint) values ('tic-tac-toe', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+ERROR:  duplicate key value violates unique constraint "app_schemas_pkey"
+  sqlstate 23505, constraint app_schemas_pkey
+insert into app_schemas (app, fingerprint) values ('Tic', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+ERROR:  value for domain database_name violates check constraint "database_name_check"
+  sqlstate 23514, constraint database_name_check
+insert into app_schemas (app, fingerprint) values ('a:b', 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+ERROR:  value for domain database_name violates check constraint "database_name_check"
+  sqlstate 23514, constraint database_name_check
+insert into app_schemas (app, fingerprint) values ('chess', 'sha256:' || repeat('0', 64));
+ERROR:  insert or update on table "app_schemas" violates foreign key constraint "app_schemas_fingerprint_fkey"
+  sqlstate 23503, constraint app_schemas_fingerprint_fkey
+
+-- A registered schema cannot be deleted from under its registration.
+delete from schemas where body = '{}';
+ERROR:  update or delete on table "schemas" violates foreign key constraint "app_schemas_fingerprint_fkey" on table "app_schemas"
+  sqlstate 23503, constraint app_schemas_fingerprint_fkey

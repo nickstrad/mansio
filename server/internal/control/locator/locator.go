@@ -67,6 +67,10 @@ type Request struct {
 	// MinEpoch > 0 says the caller saw this epoch refused (last seen + 1): a cached row below it is not used
 	// and the primary is read.
 	MinEpoch uint64
+	// Create asks to create the database on first use (an app's database, ADR 0011): a database that was never
+	// registered answers ErrCreatable instead of ErrNotFound when the key has write permission. The locator
+	// creates nothing itself; a dropped name stays not found.
+	Create bool
 }
 
 // Route is a resolve's answer: where the database is and a ticket for it.
@@ -138,8 +142,8 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 //
 //	post: err == nil ⇒ the ticket names r.Tenant ":" r.Name, the row's VM, epoch and generation, and the
 //	      key's principal and permissions, and expires TicketTTL from now
-//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound, ErrMoving or ErrRateLimited (with a RetryAfter
-//	      hint), ErrSuspended, the ctx's error, or the store's own error
+//	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound (and ErrCreatable, with r.Create), ErrMoving or
+//	      ErrRateLimited (with a RetryAfter hint), ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
@@ -157,6 +161,8 @@ func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 		return fail(err)
 	}
 	switch {
+	case !pl.Found && pl.Intent == "" && r.Create && k.Perms&ticket.Write != 0:
+		return fail(creatable{})
 	case pl.Intent == control.StateDropping || pl.Intent == control.StateDropped || !pl.Found && pl.Intent == "":
 		return fail(ErrNotFound)
 	case pl.Intent == control.StateSuspended:

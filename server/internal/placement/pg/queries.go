@@ -17,6 +17,8 @@ type queries struct {
 	heartbeat, attestDead, vm, ownedBy, createDatabase, getDatabase, setDatabaseState, pending, dropPlacement string
 	// Locator and API keys (0003, 0004, CP-5).
 	locate, apiKey, createAPIKey, revokeAPIKey string
+	// The app schema registry (0006, IR-2).
+	registerSchema, getSchema, appRegistered string
 }
 
 // q is read-only after init.
@@ -44,6 +46,10 @@ var q = queries{
 	apiKey:       mustQuery("api_key"),
 	createAPIKey: mustQuery("create_api_key"),
 	revokeAPIKey: mustQuery("revoke_api_key"),
+
+	registerSchema: mustQuery("register_schema"),
+	getSchema:      mustQuery("get_schema"),
+	appRegistered:  mustQuery("app_registered"),
 }
 
 func mustQuery(name string) string {
