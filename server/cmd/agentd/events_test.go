@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/docexec"
+	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/eventlog"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/ir"
@@ -180,5 +181,17 @@ func TestStatementKindAndTable(t *testing.T) {
 		if k, tb := statementKind(sql), tableName(sql); k != want[0] || tb != want[1] {
 			t.Errorf("%s: %s %q, want %v", sql, k, tb, want)
 		}
+	}
+}
+
+func TestBackupRecord(t *testing.T) {
+	ok := backupRecord("acme:ttt", backupAnswer{Manifest: durable.Manifest{Object: "o/1", Size: 42, SHA256: "ab"}}, nil, time.Millisecond)
+	b := ok.Payload.(eventlog.Backup)
+	if ok.AppID != "ttt" || b.Phase != "publish-latest" || b.Emitter != "backups" || b.Outcome != "ok" || b.Bytes != 42 || b.Key != "o/1" || b.RunID == "" {
+		t.Errorf("ok: %+v %+v", ok, b)
+	}
+	failed := backupRecord("acme:ttt", backupAnswer{}, &controlError{"wrong_owner", 409, "not active"}, time.Millisecond)
+	if b := failed.Payload.(eventlog.Backup); b.Outcome != "error" || b.ErrorTag != "wrong_owner" || failed.Level != eventlog.Warn {
+		t.Errorf("failed: %+v", b)
 	}
 }

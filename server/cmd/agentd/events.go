@@ -144,6 +144,25 @@ func opsRecords(o front.OpsEvent, traceSQL bool, newID func() string) []eventlog
 		Outcome: outcome, Duration: o.Ops.Pipeline, ErrorTag: tag}))
 }
 
+// backupRecord is a forced write-back (POST /admin/backup) as backup-history's record: one "publish-latest"
+// phase of the "backups" emitter, the run's success marker (agentd has no separate snapshot or upload phases
+// to report: the write-back is one step). key is tenant:app; the record's app is the app.
+func backupRecord(key string, a backupAnswer, err error, took time.Duration) eventlog.Event {
+	_, app, _ := strings.Cut(key, ":")
+	b := eventlog.Backup{Phase: "publish-latest", Emitter: "backups", RunID: eventlog.NewID(), Key: a.Object,
+		Bytes: a.Size, SHA256: a.SHA256, Attempts: -1, Duration: took, Outcome: "ok"}
+	level := eventlog.Info
+	if err != nil {
+		b.Outcome, b.Bytes, level = "error", -1, eventlog.Warn
+		b.ErrorTag, b.ErrorDetail = "BackupError", map[string]any{"message": err.Error()}
+		var ce *controlError
+		if errors.As(err, &ce) {
+			b.ErrorTag = ce.code
+		}
+	}
+	return eventlog.Event{Level: level, TraceID: lifecycleTrace, AppID: app, Payload: b}
+}
+
 // levelOf is platform/http/router.ts levelOf.
 func levelOf(status int) eventlog.Level {
 	switch {

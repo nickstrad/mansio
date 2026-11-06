@@ -783,8 +783,8 @@ Branch `ir/04c-observability`. Details: `docs/knowledge/ir/2026-11-06-ir-4c-obse
 - **New package `internal/eventlog`** (adapter): `Open(Config)`, `Emit(Event)` (never blocks; full queue →
   dropped, counted, reported as a `queue events dropped` record), `Close(ctx)`, `Stats`. Payloads `HTTP`,
   `Handler`, `SQL`, `Tx`, `Queue`, `Backup`, `Lifecycle`: byte-identical to `core/events.ts` `toJsonLine`
-  (goldens). **IR-4b:** emit `eventlog.Backup{Phase, Emitter: "backups"|"object-store", RunID, …}` through the
-  agent's log (`agent.events`, nil-safe) for `backup-history`.
+  (goldens). `POST /admin/backup` (IR-4b) emits one `eventlog.Backup` (`publish-latest`, `backups`) through
+  `agent.events` (nil-safe) for `backup-history`.
 - **front (additive):** `OpsConfig.Observer` (`OpsObserver func(OpsEvent)`), `Input.Trace *OpsTrace`, constants
   `HandlerHeader` (`X-Mansio-Handler`) and `OpsName`. With an observer the adapter echoes `X-Trace-Id` (a
   generated UUIDv7 if absent/invalid) and traces the request's transaction via `docactor.Call.Wrap`.

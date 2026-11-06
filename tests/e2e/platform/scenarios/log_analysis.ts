@@ -229,7 +229,7 @@ const onGo = (dir: string) =>
           traceId,
           handlers: ["createGame", "getGame", "makeMove", "listGames", "winsByMark"],
           errors: [["listGames", "SchemaDriftError"]],
-          backups: false, // agentd's backups are IR-4b's
+          backups: false, // static mode: backups are durable mode's (POST /admin/backup)
         },
       );
       await cliAgrees(server, env, throughput);

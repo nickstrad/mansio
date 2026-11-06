@@ -279,9 +279,10 @@ emitter's bounded queue was full: `Emit` never blocks a request; a drop is count
 (`mansio_eventlog_records_total{result="dropped"}`) and reported before the next batch. Differences from the
 Deno server: the SDK runs handlers in the client, so an app error (`makeMove`'s `ConflictError`, a
 `RuleError`) never reaches agentd and is not in its log; there is one `handler` record per request, not per
-handler run; no `reader` role (agentd has no reader process); `backup` records are IR-4b's. The `errorDetail`
-of a failed request is the error body the client received (the cause stays in agentd's operational log, with
-its log id).
+handler run; no `reader` role (agentd has no reader process); a backup is one `backup` record
+(`publish-latest`, emitter `backups`) per durable-mode `POST /admin/backup`, with no per-phase records. The
+`errorDetail` of a failed request is the error body the client received (the cause stays in agentd's
+operational log, with its log id).
 
 ## Named queries
 

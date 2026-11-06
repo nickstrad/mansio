@@ -36,6 +36,9 @@ and what do its records mean when handlers run in the SDK? Built on `ir/04c-obse
 - **Redaction** is core/events.ts's (Bearer tokens, X-Amz-* parameters, secret-named keys, line breaks, depth
   32); bind values are never logged (no opt-in in Go). `errorDetail` is the error body the client got, not the
   Go cause (that stays in the slog log with its log id).
+- **Backups** (after IR-4b landed): a durable-mode `POST /admin/backup` is one `backup` record
+  (`publish-latest`, emitter `backups`, the manifest's object, size, sha256); the write-back has no phases to
+  report. Not e2e-covered: `log_analysis` runs a static-mode agent.
 - **Trace ids**: `X-Trace-Id` accepted when it is a TRACE_TOKEN (1–128 of `[A-Za-z0-9._:-]`), else a UUIDv7
   from the server's id source; echoed on every `/v1/ops` answer while the event log is on.
 
