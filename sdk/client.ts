@@ -35,7 +35,8 @@
  *
  * One `X-Trace-Id` per call: the `traceId` argument verbatim, else `newTraceId()` (default
  * `crypto.randomUUID()`), sent on every request of the call (each read, the commit, every retry). Servers
- * accept 1–128 of `[A-Za-z0-9._:-]` and replace anything else.
+ * accept 1–128 of `[A-Za-z0-9._:-]` and replace anything else. The handler's name goes with it as
+ * `X-Mansio-Handler`, so a server's event log can name the handler a request belongs to.
  *
  * `createLegacyClient` is the pre-IR client (server-side handlers on the Deno platform's
  * `/apps/:app/:kind/:name`), kept for the tests and tools that exercise that route until IR-6 deletes it.
@@ -279,9 +280,10 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       }
     });
 
-  const context = (traceId?: string): CallContext => ({
+  const context = (name: string, traceId?: string): CallContext => ({
     traceId: traceId ?? newTraceId(),
     deadline: now() + timeoutMs,
+    handler: name,
   });
 
   return {
@@ -290,13 +292,16 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       args: ArgsOf<F[N]>,
       traceId?: string,
     ): Effect.Effect<ResultOf<F[N]>, ClientError> =>
-      Effect.suspend(() => query(name, args, context(traceId))) as Effect.Effect<ResultOf<F[N]>, ClientError>,
+      Effect.suspend(() => query(name, args, context(name, traceId))) as Effect.Effect<
+        ResultOf<F[N]>,
+        ClientError
+      >,
     mutation: <N extends Names<F, "mutation">>(
       name: N,
       args: ArgsOf<F[N]>,
       traceId?: string,
     ): Effect.Effect<ResultOf<F[N]>, ClientError> =>
-      Effect.suspend(() => mutation(name, args, context(traceId))) as Effect.Effect<
+      Effect.suspend(() => mutation(name, args, context(name, traceId))) as Effect.Effect<
         ResultOf<F[N]>,
         ClientError
       >,

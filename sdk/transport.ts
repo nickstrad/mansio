@@ -9,7 +9,9 @@
  *   bytes, so a retried mutation keeps its `requestId` and a commit that already applied answers
  *   `duplicate: true` instead of applying twice (spec §7).
  * - **Headers.** `Authorization: Bearer <ticket | token>`, `X-Trace-Id` (one per call, the same on every
- *   attempt and every request of a handler run), `X-Timeout-Ms` a little below the time left.
+ *   attempt and every request of a handler run), `X-Timeout-Ms` a little below the time left, and
+ *   `X-Mansio-Handler` (the handler's name, when the call has one: informational, the server's event log
+ *   records it as the request's handler; agentd ignores an invalid one).
  * - **One retry layer.** `shed`, `unavailable`, `aborted` and `expired` retry after
  *   `max(Retry-After, jittered backoff)` while the policy, the shared windowed budget and the deadline
  *   allow. `wrong_owner`/`fenced` (re-resolve with `min_epoch = epoch + 1`), `ticket_invalid` (a fresh
@@ -79,10 +81,11 @@ export interface TransportOptions {
   readonly sleep?: (ms: number) => Effect.Effect<void>;
 }
 
-/** Per call: the trace id and the absolute deadline (ms, on `now`'s clock). */
+/** Per call: the trace id, the absolute deadline (ms, on `now`'s clock) and the handler's name, if any. */
 export interface CallContext {
   readonly traceId: string;
   readonly deadline: number;
+  readonly handler?: string;
 }
 
 export type Send = (
@@ -158,6 +161,7 @@ export function makeTransport(options: TransportOptions): Send {
             authorization: `Bearer ${target.token}`,
             "x-trace-id": call.traceId,
             "x-timeout-ms": String(timeoutHeader(remaining)),
+            ...(call.handler === undefined ? {} : { "x-mansio-handler": call.handler }),
           },
           body,
           signal: AbortSignal.timeout(Math.max(1, remaining)),

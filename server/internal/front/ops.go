@@ -58,13 +58,16 @@ type OpsConfig struct {
 	IDs det.IDGen
 	// SchemaCache bounds the decoded schemas kept (docexec.NewSchemas); default 256.
 	SchemaCache int
+	// Observer, if set, receives every /v1/ops request's trace from the HTTP adapter (opstrace.go).
+	Observer OpsObserver
 }
 
 // ops is the enabled protocol's state.
 type ops struct {
-	schemas SchemaSource
-	ids     det.IDGen
-	cache   *docexec.Schemas
+	observer OpsObserver
+	schemas  SchemaSource
+	ids      det.IDGen
+	cache    *docexec.Schemas
 }
 
 // EnableOps turns on /v1/ops (without it the route is an unknown path).
@@ -75,7 +78,7 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 	if cfg.IDs == nil {
 		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
 	}
-	s.ops = &ops{schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
+	s.ops = &ops{observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs, cache: docexec.NewSchemas(cfg.SchemaCache)}
 }
 
 // OpsEnabled reports whether EnableOps was called.
@@ -102,8 +105,15 @@ type OpsOutput struct {
 //	post: the answer is counted in Stats (by Code, and its latency)
 func (s *Server) HandleOps(ctx context.Context, in Input) OpsOutput {
 	t0 := s.clock.Now()
+	if in.Trace != nil {
+		in.Trace.now = s.clock.Now
+	}
 	out := s.handleOps(ctx, in)
-	s.latency.Observe(det.Since(s.clock, t0))
+	took := det.Since(s.clock, t0)
+	s.latency.Observe(took)
+	if in.Trace != nil {
+		in.Trace.update(func(t *OpsTraceSnapshot) { t.Pipeline = took })
+	}
 	amb := 0
 	if out.Ambiguous {
 		amb = 1
@@ -132,6 +142,9 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 		return opsAnswer(nil, nil, Reply{}, &docexec.Failure{Err: e})
 	}
 	db := req.DB.Tenant + ":" + req.DB.App // the placement key (ADR 0011)
+	if in.Trace != nil {
+		in.Trace.update(func(t *OpsTraceSnapshot) { t.Kind, t.App = req.Kind, req.DB.App })
+	}
 	kind := KindRead
 	if req.Kind == ir.Mutation {
 		kind = KindWrite
@@ -144,6 +157,9 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 	claims, err := s.tickets.Verify(in.Ticket, now, ticket.Want{DB: db, Perm: kind.Perm()})
 	if err != nil {
 		return opsAnswer(req, nil, Reply{}, err)
+	}
+	if in.Trace != nil {
+		in.Trace.update(func(t *OpsTraceSnapshot) { t.Tenant = claims.TID })
 	}
 	release, err := s.admitter.Admit(db, claims.Epoch)
 	if err != nil {
@@ -169,7 +185,16 @@ func (s *Server) handleOps(ctx context.Context, in Input) (out OpsOutput) {
 		if kind == KindWrite {
 			c.RequestID = req.RequestID // a query's request id is ignored (spec §7)
 		}
-		return run(c)
+		if in.Trace == nil {
+			return run(c)
+		}
+		dc.Wrap = in.Trace.wrap
+		submitted := s.clock.Now()
+		in.Trace.update(func(t *OpsTraceSnapshot) { t.Submitted, t.Began = submitted, time.Time{} })
+		reply, err := run(c)
+		ended := s.clock.Now()
+		in.Trace.update(func(t *OpsTraceSnapshot) { t.Ended = ended })
+		return reply, err
 	}
 	reply, err := call()
 	if errors.Is(err, docexec.ErrUninitialized) { // a new database: create it with the request's schema, then retry

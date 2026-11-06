@@ -97,6 +97,12 @@ type opsRig struct {
 
 func newOpsRig(t testing.TB, cfg front.Config, dbs ...string) *opsRig {
 	t.Helper()
+	return newObservedOpsRig(t, cfg, nil, dbs...)
+}
+
+// newObservedOpsRig is newOpsRig with an OpsObserver.
+func newObservedOpsRig(t testing.TB, cfg front.Config, observe front.OpsObserver, dbs ...string) *opsRig {
+	t.Helper()
 	iss := tickettest.NewIssuer("k1")
 	r := &opsRig{iss: iss, schemas: &schemaSource{texts: map[[2]string]string{}}, dir: t.TempDir(),
 		adm: fronttest.NewAdmitter(map[string]uint64{}), host: front.NewStaticHost(nil), log: &syncBuf{}}
@@ -106,7 +112,7 @@ func newOpsRig(t testing.TB, cfg front.Config, dbs ...string) *opsRig {
 	v := ticket.Verifier{Keys: ticket.NewKeyRing(iss.Keys()), VM: vm, Skew: 5 * time.Second, MaxTTL: time.Hour}
 	// The system clock: the actors run on it, and the executor times its wait on theirs.
 	r.s = front.NewServer(cfg, v, r.adm, front.ActorExecutor{Host: r.host}, nil)
-	r.s.EnableOps(front.OpsConfig{Schemas: r.schemas, IDs: &seqIDs{}})
+	r.s.EnableOps(front.OpsConfig{Schemas: r.schemas, IDs: &seqIDs{}, Observer: observe})
 	r.srv = httptest.NewServer(front.NewHandler(r.s, logx.New(r.log, slog.LevelDebug)))
 	t.Cleanup(r.srv.Close)
 	t.Cleanup(r.host.Close)

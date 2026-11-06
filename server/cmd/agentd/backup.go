@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/errs"
@@ -75,7 +76,9 @@ func (ad *admin) backupHandler(ctx context.Context, r *http.Request) (any, error
 	if err := front.CheckDBID(key); err != nil {
 		return nil, badRequest("key: " + err.Error())
 	}
+	start := time.Now()
 	a, err := ad.be.backup(ctx, key)
+	ad.events.Emit(backupRecord(key, a, err, time.Since(start)))
 	if err != nil {
 		return nil, err
 	}

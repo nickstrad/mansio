@@ -27,6 +27,19 @@ failures, and `perf/lib/api.js`'s `http.setResponseCallback` also counts non-200
 thresholds and makes k6 exit non-zero — the script never reports a vacuous pass when it can't actually reach
 the API.
 
+## Against agentd (`BACKEND=go`)
+
+Every script runs against the Go agent with `BACKEND=go`: `perf/lib/api.js` then sends each handler as the SDK
+sends it to `POST /v1/ops` (`perf/lib/ir.js`: reads as one query; `makeMove` reads, applies the rules locally
+and commits `[assert, patch, insert]`; app conflicts fail locally, as in the SDK). It needs tickets and the
+schema fingerprint, which `tests/integration.ts`'s `startScratchAgent` mints:
+
+```sh
+BACKEND=go BASE_URL=http://127.0.0.1:7070 READ_TICKET=… WRITE_TICKET=… SCHEMA_FINGERPRINT=sha256:… \
+  k6 run perf/smoke.js
+BACKEND=go deno run -A tests/e2e/observability_test.ts   # builds agentd, mints, runs k6 smoke, joins
+```
+
 ## Run it
 
 Start the server with a scratch data directory so test data doesn't collide with real app data:
