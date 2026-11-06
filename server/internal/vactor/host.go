@@ -386,10 +386,11 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			return Result{}, errs.Wrap(module, ErrClosed, "cannot activate %s", key)
 		}
 		e, ok := h.entries[key]
-		if ok && e.gone != nil { // passivating: wait until it is gone, then start over
+		if ok && e.gone != nil { // passivating: wait until it is gone (or the passivation gave up), then start over
+			gone := e.gone
 			h.mu.Unlock()
 			select {
-			case <-e.gone:
+			case <-gone:
 				continue
 			case <-ctx.Done():
 				return Result{}, h.gaveUp(key, ctx)

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
@@ -40,8 +41,19 @@ type Faults struct {
 	LoseUploadReply bool
 	FailList        bool          // ListKey and ListKeys fail
 	FailDelete      bool          // DeleteGenerations deletes the first half of the names, then fails
-	Delay           time.Duration // every call sleeps this long first (or until ctx ends)
+	Delay           time.Duration // every call sleeps this long first (or until ctx ends), on the store's clock
+	// LandLate: PublishManifest answers ErrInjected at once (no reply) but the request is still in flight: it
+	// lands LandLate later on the store's clock, its condition checked then, like a PUT S3 completes after the
+	// client gave up. A zombie of a crashed process lands too.
+	LandLate time.Duration
+	// LandTag labels a LandLate request for the predicate SetLandIf installs (a simulation tags each request
+	// with the process that sent it, and decides whether a dead process's request still lands).
+	LandTag uint64
 }
+
+// CallFaults decides the switches for one call (SetCallFaults): op is the call's durable.Op* name
+// (PublishManifest is durable.OpPublish), key the database it is for, static the switches SetFaults set.
+type CallFaults func(op, key string, static Faults) Faults
 
 var _ durable.GCStore = (*Store)(nil)
 
@@ -54,7 +66,10 @@ type Store struct {
 	mod       map[string]time.Time // object name → when it was stored (the store's LastModified)
 	next      uint64               // version counter
 	f         Faults
-	clock     func() time.Time
+	call      CallFaults // nil: every call gets f
+	landIf    func(tag uint64) bool
+	clk       det.Clock        // Delay waits and fetch timings
+	clock     func() time.Time // stamps LastModified (and Seed's manifest)
 
 	puts, publishes, fetches int
 	requests                 map[string]int64 // calls by durable.Op* name, failed ones included (RequestCounts)
@@ -69,10 +84,36 @@ type stored struct {
 
 func NewStore() *Store {
 	return &Store{objects: map[string][]byte{}, meta: map[string]durable.GenInfo{}, manifests: map[string]stored{},
-		mod: map[string]time.Time{}, clock: time.Now, requests: map[string]int64{}}
+		mod: map[string]time.Time{}, clk: det.System(), clock: time.Now, requests: map[string]int64{}}
+}
+
+// UseClock puts the whole store on c: Delay waits (so a stall ends when c reaches it, or its ctx ends on c),
+// fetch timings, and the LastModified stamps (as SetClock(c.Now)). A simulation passes its manual clock.
+func (s *Store) UseClock(c det.Clock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clk, s.clock = det.Or(c), det.Or(c).Now
+}
+
+// SetLandIf installs the predicate asked when a LandLate request lands, with its LandTag; false drops it. nil:
+// every one lands.
+func (s *Store) SetLandIf(f func(tag uint64) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.landIf = f
+}
+
+// SetCallFaults has f decide the switches of every later call (nil: back to SetFaults alone). f runs once per
+// call, before the call does anything, outside the store's lock; a deterministic simulation draws per-call
+// faults (a lost reply, one stalled request) from its own seeded source there.
+func (s *Store) SetCallFaults(f CallFaults) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.call = f
 }
 
 // SetClock sets the store's own clock, which stamps LastModified on every write (the server's clock in S3).
+// Delay still waits on the clock UseClock set (default: real time).
 func (s *Store) SetClock(now func() time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -196,7 +237,7 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 		}
 		gen++
 	}
-	m := durable.NextManifest(key, gen, epoch, DigestOf(data), time.Now())
+	m := durable.NextManifest(key, gen, epoch, DigestOf(data), s.clock())
 	s.objects[m.Object] = bytes.Clone(data)
 	s.meta[m.Object] = m.ObjectInfo()
 	s.mod[m.Object] = s.clock()
@@ -220,19 +261,21 @@ func (s *Store) RequestCounts() map[string]int64 {
 	return maps.Clone(s.requests)
 }
 
-// begin counts one request of each op, applies Delay and Down, and returns a snapshot of the switches.
-func (s *Store) begin(ctx context.Context, ops ...string) (Faults, error) {
+// begin counts one request of each op, decides the call's switches (SetFaults, then SetCallFaults with the
+// last op), applies Delay and Down, and returns the switches.
+func (s *Store) begin(ctx context.Context, key string, ops ...string) (Faults, error) {
 	s.mu.Lock()
 	for _, op := range ops {
 		s.requests[op]++
 	}
-	f := s.f
+	f, call, clk := s.f, s.call, s.clk
 	s.mu.Unlock()
+	if call != nil {
+		f = call(ops[len(ops)-1], key, f)
+	}
 	if f.Delay > 0 {
-		select {
-		case <-time.After(f.Delay):
-		case <-ctx.Done():
-			return f, ctx.Err()
+		if err := det.Sleep(ctx, clk, f.Delay); err != nil {
+			return f, err
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -245,7 +288,7 @@ func (s *Store) begin(ctx context.Context, ops ...string) (Faults, error) {
 }
 
 func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest, durable.Version, error) {
-	f, err := s.begin(ctx, durable.OpGetManifest)
+	f, err := s.begin(ctx, key, durable.OpGetManifest)
 	if err != nil {
 		return durable.Manifest{}, durable.NoVersion, err
 	}
@@ -265,7 +308,7 @@ func (s *Store) ReadManifest(ctx context.Context, key string) (durable.Manifest,
 }
 
 func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path string) error {
-	f, err := s.begin(ctx, durable.OpPutGen)
+	f, err := s.begin(ctx, m.Key, durable.OpPutGen)
 	if err != nil {
 		return err
 	}
@@ -295,8 +338,15 @@ func (s *Store) PutGeneration(ctx context.Context, m durable.Manifest, path stri
 	return nil
 }
 
+// keyOf is the key a stored generation object belongs to ("" if it is not stored).
+func (s *Store) keyOf(object string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.meta[object].Key
+}
+
 func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenInfo, error) {
-	if _, err := s.begin(ctx, durable.OpHead); err != nil {
+	if _, err := s.begin(ctx, s.keyOf(object), durable.OpHead); err != nil {
 		return durable.GenInfo{}, err
 	}
 	s.mu.Lock()
@@ -311,8 +361,11 @@ func (s *Store) StatGeneration(ctx context.Context, object string) (durable.GenI
 }
 
 func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path string) (durable.Fetched, error) {
-	t0 := time.Now()
-	f, err := s.begin(ctx, durable.OpFetch)
+	s.mu.Lock()
+	clk := s.clk
+	s.mu.Unlock()
+	t0 := clk.Now()
+	f, err := s.begin(ctx, m.Key, durable.OpFetch)
 	if err != nil {
 		return durable.Fetched{}, err
 	}
@@ -323,7 +376,7 @@ func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path st
 	if !ok {
 		return durable.Fetched{}, fmt.Errorf("fetch %s: %w", m.Object, durable.ErrNotFound)
 	}
-	ttfb := time.Since(t0)
+	ttfb := det.Since(clk, t0)
 	tmp := path + ".part"
 	if f.FailFetch {
 		os.WriteFile(tmp, data[:len(data)/2], 0o644)
@@ -344,17 +397,37 @@ func (s *Store) FetchGeneration(ctx context.Context, m durable.Manifest, path st
 	s.mu.Lock()
 	s.fetches++
 	s.mu.Unlock()
-	return durable.Fetched{Bytes: int64(len(data)), TTFB: ttfb, Total: time.Since(t0)}, nil
+	return durable.Fetched{Bytes: int64(len(data)), TTFB: ttfb, Total: det.Since(clk, t0)}, nil
 }
 
 func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev durable.Version) (durable.Version, error) {
-	f, err := s.begin(ctx, durable.OpGetManifest, durable.OpPublish)
+	f, err := s.begin(ctx, m.Key, durable.OpGetManifest, durable.OpPublish)
 	if err != nil {
 		return durable.NoVersion, err
 	}
 	if f.FailPublish {
 		return durable.NoVersion, fmt.Errorf("publish %s: %w", m.Key, ErrInjected)
 	}
+	if f.LandLate > 0 {
+		s.mu.Lock()
+		clk := s.clk
+		s.mu.Unlock()
+		tag := f.LandTag
+		clk.AfterFunc(f.LandLate, func() {
+			s.mu.Lock()
+			land := s.landIf
+			s.mu.Unlock()
+			if land == nil || land(tag) {
+				_, _ = s.publish(m, prev, Faults{})
+			}
+		})
+		return durable.NoVersion, fmt.Errorf("publish %s: no reply (the request is still in flight): %w", m.Key, ErrInjected)
+	}
+	return s.publish(m, prev, f)
+}
+
+// publish applies a conditional publish under the lock, then reports as f says.
+func (s *Store) publish(m durable.Manifest, prev durable.Version, f Faults) (durable.Version, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.manifests[m.Key]
@@ -378,7 +451,7 @@ func (s *Store) PublishManifest(ctx context.Context, m durable.Manifest, prev du
 }
 
 func (s *Store) DeleteGenerations(ctx context.Context, key string, names []string) error {
-	f, err := s.begin(ctx, durable.OpDelete)
+	f, err := s.begin(ctx, key, durable.OpDelete)
 	if err != nil {
 		return err
 	}
@@ -399,7 +472,7 @@ func (s *Store) DeleteGenerations(ctx context.Context, key string, names []strin
 }
 
 func (s *Store) ListKey(ctx context.Context, key string) (durable.Listing, error) {
-	f, err := s.begin(ctx, durable.OpList)
+	f, err := s.begin(ctx, key, durable.OpList)
 	if err != nil {
 		return durable.Listing{}, err
 	}
@@ -422,7 +495,7 @@ func (s *Store) ListKey(ctx context.Context, key string) (durable.Listing, error
 }
 
 func (s *Store) ListKeys(ctx context.Context, shard string, fn func(key string) error) error {
-	f, err := s.begin(ctx, durable.OpList)
+	f, err := s.begin(ctx, "", durable.OpList)
 	if err != nil {
 		return err
 	}

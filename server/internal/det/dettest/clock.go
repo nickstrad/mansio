@@ -47,40 +47,64 @@ func (c *Clock) Advance(d time.Duration) {
 	c.mu.Lock()
 	target := c.now.Add(d)
 	c.mu.Unlock()
-	for {
-		c.mu.Lock()
-		if len(c.timers) == 0 || c.timers[0].when.After(target) {
-			if target.After(c.now) {
-				c.now = target
-			}
-			c.mu.Unlock()
-			return
-		}
-		t := heap.Pop(&c.timers).(*timer)
-		if t.when.After(c.now) {
-			c.now = t.when
-		}
-		if t.period > 0 {
-			// Coalesce like time.Ticker: ticks nobody could receive during one jump are dropped, so the next
-			// is the last period multiple at or before target (or the next one after it).
-			t.when = t.when.Add(t.period)
-			if !t.when.After(target) {
-				t.when = t.when.Add(target.Sub(t.when) / t.period * t.period)
-			}
-			c.push(t)
-		}
-		now, f := c.now, t.f
-		if t.ch != nil {
-			select {
-			case t.ch <- now:
-			default:
-			}
-		}
+	for c.fireOne(target) {
+	}
+	c.mu.Lock()
+	if target.After(c.now) {
+		c.now = target
+	}
+	c.mu.Unlock()
+}
+
+// Step fires the earliest pending timer alone, moving Now to its due time (never back), and reports that due
+// time; ok is false, and nothing happens, when no timer is pending. A simulation that lets every goroutine
+// settle between two timers steps instead of advancing, so timers due at the same instant still fire one at a
+// time, in (due time, creation) order.
+func (c *Clock) Step() (fired time.Time, ok bool) {
+	next, ok := c.Next()
+	if !ok {
+		return time.Time{}, false
+	}
+	c.mu.Lock()
+	if c.now.After(next) {
+		next = c.now // a re-entrant or concurrent Advance moved past it
+	}
+	c.mu.Unlock()
+	return next, c.fireOne(next)
+}
+
+// fireOne fires the earliest timer if it is due by target and reports whether it did.
+func (c *Clock) fireOne(target time.Time) bool {
+	c.mu.Lock()
+	if len(c.timers) == 0 || c.timers[0].when.After(target) {
 		c.mu.Unlock()
-		if f != nil {
-			f()
+		return false
+	}
+	t := heap.Pop(&c.timers).(*timer)
+	if t.when.After(c.now) {
+		c.now = t.when
+	}
+	if t.period > 0 {
+		// Coalesce like time.Ticker: ticks nobody could receive during one jump are dropped, so the next
+		// is the last period multiple at or before target (or the next one after it).
+		t.when = t.when.Add(t.period)
+		if !t.when.After(target) {
+			t.when = t.when.Add(target.Sub(t.when) / t.period * t.period)
+		}
+		c.push(t)
+	}
+	now, f := c.now, t.f
+	if t.ch != nil {
+		select {
+		case t.ch <- now:
+		default:
 		}
 	}
+	c.mu.Unlock()
+	if f != nil {
+		f()
+	}
+	return true
 }
 
 // Next is when the earliest pending timer fires; ok is false when none is pending. A simulation's event loop

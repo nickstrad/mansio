@@ -281,3 +281,35 @@ func TestEndedParentWinsOverPastDeadline(t *testing.T) {
 		t.Fatalf("err %v cause %v", ctx.Err(), context.Cause(ctx))
 	}
 }
+
+// Step fires one timer at a time, even when several are due at the same instant, and moves Now to each.
+func TestStepFiresOneTimerAtATime(t *testing.T) {
+	clk := dettest.NewClock(t0)
+	var order []string
+	a := clk.NewTimer(time.Second)
+	clk.AfterFunc(time.Second, func() { order = append(order, "f") })
+	tk := clk.NewTicker(2 * time.Second)
+	defer tk.Stop()
+	if at, ok := clk.Step(); !ok || !at.Equal(t0.Add(time.Second)) {
+		t.Fatalf("first Step = %v, %v", at, ok)
+	}
+	if _, ok := fired(a.C()); !ok || len(order) != 0 {
+		t.Fatalf("first Step: timer fired %v, funcs %v; want the timer alone", ok, order)
+	}
+	if at, ok := clk.Step(); !ok || !at.Equal(t0.Add(time.Second)) || len(order) != 1 {
+		t.Fatalf("second Step = %v, %v, funcs %v; want the func at the same instant", at, ok, order)
+	}
+	for i := 1; i <= 2; i++ { // the ticker, once per Step, never coalesced
+		at, ok := clk.Step()
+		if want := t0.Add(time.Duration(2*i) * time.Second); !ok || !at.Equal(want) || !clk.Now().Equal(want) {
+			t.Fatalf("tick %d: Step = %v, %v, Now %v; want %v", i, at, ok, clk.Now(), want)
+		}
+		if _, ok := fired(tk.C()); !ok {
+			t.Fatalf("tick %d not delivered", i)
+		}
+	}
+	tk.Stop()
+	if at, ok := clk.Step(); ok {
+		t.Fatalf("Step with nothing pending fired at %v", at)
+	}
+}

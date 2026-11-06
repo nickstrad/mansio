@@ -157,8 +157,8 @@ func (h *Host) keep(key string, e *entry) {
 
 // closeDB closes e's database, if any, keeping its file. pre: e.done is closed.
 func (e *entry) closeDB() {
-	e.wb.Lock()
-	defer e.wb.Unlock()
+	e.wb.lock()
+	defer e.wb.unlock()
 	if e.db != nil {
 		e.db.Close()
 	}

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
@@ -117,5 +120,37 @@ func testPlacementSwitches(t *testing.T) {
 	p.SetDown(true)
 	if _, err := p.Get(ctx, "k"); !errors.Is(err, ownertest.ErrDown) {
 		t.Fatalf("down Get = %v", err)
+	}
+}
+
+// Delay waits on the placement's clock, and a deadline on that clock cuts it short.
+func TestPlacementDelayWaitsOnItsClock(t *testing.T) {
+	clk := dettest.NewClock(time.Unix(1000, 0))
+	p := ownertest.NewPlacement()
+	p.UseClock(clk)
+	p.Create("k", owner.Place{Owner: "a", Epoch: 1, State: owner.PlaceActive})
+	p.SetDelay(time.Minute)
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Get(context.Background(), "k")
+		done <- err
+	}()
+	if !clk.AwaitPending(1) {
+		t.Fatal("Get never waited on the clock")
+	}
+	clk.Advance(time.Minute)
+	if err := <-done; err != nil {
+		t.Fatalf("Get after the delay: %v", err)
+	}
+	ctx, cancel := det.WithTimeout(context.Background(), clk, time.Second)
+	defer cancel()
+	go func() {
+		_, err := p.Get(ctx, "k")
+		done <- err
+	}()
+	clk.AwaitPending(2)
+	clk.Advance(time.Second)
+	if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Get past its deadline: %v", err)
 	}
 }

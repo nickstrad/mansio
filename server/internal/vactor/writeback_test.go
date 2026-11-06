@@ -8,7 +8,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -396,6 +398,151 @@ func TestLostPublishReplyIsReconciled(t *testing.T) {
 	}
 }
 
+// Found by the DST-1 simulation (seeds 192, 373): a publish applies but its reply is lost and the re-read
+// fails, so it stays pending; the next publish (conditional on the old version) gets 412 because of it, and
+// its re-read fails too. That 412 is our own doing, so it must not come back as ErrStale (the owner.WriteBack
+// contract: ErrStale only when a re-read shows another writer; the owner table fences the key superseded on
+// it, and a superseded key's unpublished writes are discarded). The next write-back adopts the publish that
+// did apply and goes on.
+func TestOwnPendingPublishIsNotAnotherWriter(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{ // per op, consumed in call order
+		durable.OpPublish:     {{LosePublishReply: true}, {}},
+		durable.OpGetManifest: {{FailRead: true}, {FailRead: true}},
+	}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	r.put("t/a", "v2")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("lost publish reply, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v3")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("412 caused by our own pending publish, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v4")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v4" {
+		t.Fatalf("write-back once S3 answers = %+v, %v (published %q); want v4 published", res, err, r.published("t/a"))
+	}
+}
+
+// DST-1 seed 1586: a publish applies on a re-send and answers 412 (ApplyThenStale) while its re-read fails.
+// Nothing else is pending, but the 412 is still our own: not ErrStale; the next write-back adopts it.
+func TestOwnResentPublishIsNotAnotherWriter(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{durable.OpPublish: {{ApplyThenStale: true}}, durable.OpGetManifest: {{FailRead: true}}}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("412 from our own re-send, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v2")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v2" {
+		t.Fatalf("next write-back = %+v, %v (published %q); want v2", res, err, r.published("t/a"))
+	}
+}
+
+// Waiting is not working: a Passivate or WriteBack queued behind a write-back stalled in the store gives up at
+// its own deadline, changes nothing, and leaves the key warm and serving.
+func TestWaitersBehindAStalledWriteBackHonourTheirDeadline(t *testing.T) {
+	r := newDurable(t, nil)
+	clk := r.clk.(*clock)
+	r.s.UseClock(clk)
+	r.put("t/a", "v1")
+	r.s.SetFaults(durabletest.Faults{Delay: time.Hour})
+	stalled := make(chan error, 1)
+	go func() { _, err := r.h.WriteBack(ctx, "t/a"); stalled <- err }()
+	if !clk.AwaitPending(1) {
+		t.Fatal("the write-back never reached the store")
+	}
+	for _, op := range []string{"Passivate", "WriteBack"} {
+		c, cancel := det.WithTimeout(ctx, clk, time.Second)
+		done := make(chan error, 1)
+		go func() {
+			if op == "Passivate" {
+				done <- r.h.Passivate(c, "t/a")
+			} else {
+				_, err := r.h.WriteBack(c, "t/a")
+				done <- err
+			}
+		}()
+		clk.AwaitPending(2)
+		clk.Advance(time.Second)
+		if err := <-done; !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s behind a stalled write-back: %v, want its deadline", op, err)
+		}
+		cancel()
+		if r.h.Active() != 1 || r.local("t/a") != "v1" {
+			t.Fatalf("after the %s gave up: active %d", op, r.h.Active())
+		}
+	}
+	r.get("t/a") // still serving: the given-up passivation's mark is gone
+	r.s.SetFaults(durabletest.Faults{})
+	clk.Advance(time.Hour)
+	if err := <-stalled; err != nil {
+		t.Fatalf("the stalled write-back: %v", err)
+	}
+	if err := r.h.Passivate(ctx, "t/a"); err != nil || r.h.Active() != 0 || r.published("t/a") != "v1" {
+		t.Fatalf("Passivate afterwards: %v, active %d", err, r.h.Active())
+	}
+}
+
+// DST-1 review: publish P1 gets no reply but is still in flight; its re-read shows our version, so P1 is kept
+// pending. P2 fails the same way (FailPublish). P1 then lands late. The next publish gets 412 and the re-read
+// shows P1: still pending (a later one must not drop it), so ours, adopted; not another writer.
+func TestLatePendingPublishIsStillOurs(t *testing.T) {
+	r := newDurable(t, nil)
+	clk := r.clk.(*clock)
+	r.s.UseClock(clk)
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{durable.OpPublish: {{LandLate: 10 * time.Second}, {FailPublish: true}}}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	for _, v := range []string{"v2", "v3"} { // P1 (in flight), P2 (failed)
+		r.put("t/a", v)
+		if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+			t.Fatalf("publish of %s: %v; want a failure that is not ErrStale", v, err)
+		}
+	}
+	clk.Advance(10 * time.Second) // P1 lands
+	if r.published("t/a") != "v2" {
+		t.Fatalf("P1 did not land: published %q", r.published("t/a"))
+	}
+	r.put("t/a", "v4")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v4" {
+		t.Fatalf("write-back after P1 landed = %+v, %v (published %q); want P1 adopted and v4 published", res, err, r.published("t/a"))
+	}
+}
+
 func TestHigherEpochMakesWriteBackStale(t *testing.T) {
 	r := newDurable(t, nil)
 	r.s.Seed("t/a", 1, []byte("v1"))
@@ -624,6 +771,26 @@ func TestTickEvictsIdleAndOverBudget(t *testing.T) {
 	r.clk.Add(time.Minute)
 	if rep, _ = r.h.Tick(ctx); len(rep.Plan.Passivate) != 2 || r.h.Active() != 0 {
 		t.Fatalf("idle plan %+v, active %d", rep.Plan, r.h.Active())
+	}
+}
+
+// A tick's plan does not depend on map order (DST: a run must replay from its seed): idle passivations come
+// in key order. With 8 keys a random order is sorted by chance once in 40320 runs.
+func TestTickPlansIdleKeysInKeyOrder(t *testing.T) {
+	r := newDurable(t, func(o *vactor.Options) { o.Policy = vactor.Policy{IdleAfter: time.Minute} })
+	keys := []string{"t/h", "t/c", "t/f", "t/a", "t/g", "t/b", "t/e", "t/d"}
+	for _, k := range keys {
+		r.put(k, k)
+	}
+	r.clk.Add(time.Minute)
+	rep, _ := r.h.Tick(ctx)
+	var got []string
+	for _, ev := range rep.Plan.Passivate {
+		got = append(got, ev.Key)
+	}
+	want := slices.Sorted(slices.Values(keys))
+	if !slices.Equal(got, want) {
+		t.Fatalf("idle passivations %v, want key order %v", got, want)
 	}
 }
 

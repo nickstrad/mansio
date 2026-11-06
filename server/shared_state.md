@@ -695,3 +695,38 @@ Branch `ir/02b-docexec`. `docexec.Call`, `InitFn`, `InitRequest` moved to the ne
 `execute.json`: the `_mansio_requests` expectation is now the vector's sibling key `finalRequests` (was
 `final.requests`). `/v1/ops`: a registry wait or a creation write past the deadline answers `expired` (never
 ambiguous); a bad `X-Timeout-Ms` is `SchemaError` at path `header:X-Timeout-Ms` (spec §11.14).
+## 2026-11-05 23:31 — dst-1: DST-1 single-node simulation — API changes and a vactor publish fix
+
+Branch `dst/1-single-node`. Details: `knowledge/determinism/2026-11-05-dst1-single-node-sim.md`.
+
+- **New package `internal/sim`** (test harness, not domain code; not in the det lint): `sim.Run(Config, io.Writer)
+  Result` (must run inside `synctest.Test`), `sim.Shrink`, the `sim.Workload` port (`Name/Seed/Send/Observe`) with
+  `sim.SQL`, and `sim.Agent` (`Front()`; **IR-2b: add the `/v1/ops` entry point there**). `sim/glue.go` mirrors
+  `cmd/agentd/glue.go` + `unavailable.go`: if you change those, mirror it (or lift both into a package).
+- **durabletest (additive):** `Store.UseClock(det.Clock)` (Delay stalls, fetch timings and LastModified on the
+  clock), `Store.SetCallFaults(func(op, key string, static Faults) Faults)` (per-call faults), type `CallFaults`.
+  `Seed` now stamps with the store's clock. `SetClock` unchanged.
+- **vactortest:** `Fetcher.Clock det.Clock` (nil = real time). **ownertest:** `Placement.UseClock(det.Clock)`.
+- **dettest:** `Clock.Step() (time.Time, bool)` fires exactly one timer.
+- **vactor (behaviour fix):** `publish` keeps every publish whose outcome was never seen (`pendingPub`), adopts
+  whichever the re-read shows, and never returns a 412 whose re-read failed as `durable.ErrStale` (it was fencing
+  single-node keys superseded after a lost publish reply or a re-sent publish + a failed re-read); a publish the
+  breaker refused is not pending. `Tick` plans in key order.
+- **owner:** `ReconcileAll` reconciles in key order.
+
+## 2026-11-05 23:52 — dst-1: DST-1 review fixes — API additions and an open finding
+
+Branch `dst/1-single-node` (rebased on main 12047d4).
+
+- **vactor:** `e.wb` is a ctx-aware one-slot channel lock; `Passivate`, `WriteBack`, `Stamp` give up at their ctx
+  deadline (a given-up passivation leaves the key warm). Every pending publish is kept (cap 8, then re-read
+  first); a store's 412 alone is never returned as `durable.ErrStale` (`unknownOutcome`).
+- **durabletest (additive):** `Faults.LandLate` (publish answers ErrInjected, lands later on the store clock)
+  `Faults.LandTag` + `Store.SetLandIf(func(tag uint64) bool)` (decides whether a late request still lands).
+- **sim:** `Config.Zombies`, `Mix.Passivate`; env `MANSIO_SIM_ZOMBIES`, `MANSIO_SIM_KEEPGOING`.
+- **Open finding for owner/agentd (not fixed):** after a crash the restarted agent reopens keys at the same
+  epoch without re-stamping the manifest, so a publish the dead process still had in flight can land after
+  the restart read the manifest; the new process then goes stale on its next publish and cannot publish its
+  newer acknowledged writes. Repro: `MANSIO_SIM_ZOMBIES=1 MANSIO_SIM_SEED=180 go test ./internal/sim -run
+  TestSeeds -v`. Suggested fix: re-stamp on reopen, or reopen at a new epoch.
+- **Before DST-2:** lift `cmd/agentd/glue.go` + `unavailable.go` into a package shared with `internal/sim`.

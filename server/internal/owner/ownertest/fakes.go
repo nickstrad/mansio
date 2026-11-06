@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
@@ -103,10 +104,14 @@ type Placement struct {
 	delay     time.Duration
 	keyDelay  map[string]time.Duration
 	loseReply bool
+	clk       det.Clock // Delay and KeyDelay wait on it
 	CASes     int
 }
 
-func NewPlacement() *Placement { return &Placement{rows: map[string]owner.Place{}} }
+func NewPlacement() *Placement { return &Placement{rows: map[string]owner.Place{}, clk: det.System()} }
+
+// UseClock makes Delay and KeyDelay wait on c (default real time): a simulation's stalls end in simulated time.
+func (p *Placement) UseClock(c det.Clock) { p.mu.Lock(); p.clk = det.Or(c); p.mu.Unlock() }
 
 // Create sets a row directly (test setup).
 func (p *Placement) Create(key string, pl owner.Place) {
@@ -154,13 +159,11 @@ func (p *Placement) SetStale(v bool) {
 
 func (p *Placement) wait(ctx context.Context, key string) error {
 	p.mu.Lock()
-	d, down := p.delay+p.keyDelay[key], p.down
+	d, down, clk := p.delay+p.keyDelay[key], p.down, p.clk
 	p.mu.Unlock()
 	if d > 0 {
-		select {
-		case <-time.After(d):
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := det.Sleep(ctx, clk, d); err != nil {
+			return err
 		}
 	}
 	if down {
