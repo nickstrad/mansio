@@ -260,7 +260,7 @@ func TestHTTPMethodPathAndHealth(t *testing.T) {
 // Rows with blobs come back as {"b64": ...}; a REAL that JSON cannot carry is internal, not a broken body.
 func TestHTTPEncodesValues(t *testing.T) {
 	r := newRig(t, front.Config{})
-	s := front.NewServer(front.Config{}, r.tv, r.adm, valueExec{}, r.clock.Now)
+	s := front.NewServer(front.Config{}, r.tv, r.adm, valueExec{}, r.clock)
 	srv := httptest.NewServer(front.NewHandler(s, slog.New(slog.DiscardHandler)))
 	defer srv.Close()
 	res, out := post(t, srv.URL, "Bearer "+r.tok(t, "db-1", nil), get(1), nil)

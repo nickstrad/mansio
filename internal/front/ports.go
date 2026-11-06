@@ -85,6 +85,3 @@ type Host interface {
 	// Lookup returns db's started actor, or an error wrapping ErrUnknownDB.
 	Lookup(ctx context.Context, db string) (*actor.Actor, error)
 }
-
-// Clock is the time port. nil means time.Now.
-type Clock func() time.Time

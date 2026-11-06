@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/owner"
 )
@@ -21,6 +22,8 @@ type Controller struct {
 	Policy    Policy
 	// LoadLimit bounds the VMs the policy reads (RI B6). Default 1000.
 	LoadLimit int
+	// Clock times the per-key deadlines of Restore and ResumeStuck. Default det.System().
+	Clock det.Clock
 }
 
 func (c *Controller) loadLimit() int {
@@ -404,7 +407,7 @@ func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duratio
 			return rep, errs.Wrap(module, err, "cannot list the databases of vm %s; restore again to continue", vm)
 		}
 		for _, r := range rows {
-			kctx, cancel := withTimeout(ctx, perKey)
+			kctx, cancel := c.withTimeout(ctx, perKey)
 			to, skipped, err := c.restoreOne(kctx, r.Key, vm, pk)
 			cancel()
 			switch {
@@ -486,7 +489,7 @@ func (c *Controller) ResumeStuck(ctx context.Context, olderThan time.Duration, l
 			return
 		}
 		done[key] = true
-		kctx, cancel := withTimeout(ctx, perKey)
+		kctx, cancel := c.withTimeout(ctx, perKey)
 		defer cancel()
 		if err := fn(kctx); err != nil {
 			rep.Failed[key] = err
@@ -539,9 +542,9 @@ func (c *Controller) resume(ctx context.Context, key string) error {
 	return err
 }
 
-func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+func (c *Controller) withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
 	if d <= 0 {
 		return context.WithCancel(ctx)
 	}
-	return context.WithTimeout(ctx, d)
+	return det.WithTimeout(ctx, det.Or(c.Clock), d)
 }

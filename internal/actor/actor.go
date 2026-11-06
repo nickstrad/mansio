@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
@@ -84,10 +85,10 @@ type Result struct {
 
 // boundBy makes ctx's deadline, if any, r's Deadline and StmtTimeout. The timeout is measured from now, so it
 // also covers time spent queued; a deadline already past still gets 1 ms (the queue check answers ErrExpired).
-func (r *Request) boundBy(ctx context.Context) {
+func (r *Request) boundBy(ctx context.Context, now time.Time) {
 	if d, ok := ctx.Deadline(); ok {
 		r.Deadline = d
-		r.StmtTimeout = max(time.Until(d), time.Millisecond)
+		r.StmtTimeout = max(d.Sub(now), time.Millisecond)
 	}
 }
 
@@ -126,8 +127,7 @@ type Actor struct {
 	commits    atomic.Uint64 // write transactions committed since New
 
 	// Request ids (reqid.go); owned by the run goroutine.
-	now       func() time.Time // clock for applied_ms and retention; time.Now outside tests
-	reqReady  bool             // _tsdb_requests is known to exist in the open database
+	reqReady  bool // _tsdb_requests is known to exist in the open database
 	lastSweep time.Time
 	sweepMore bool // the last sweep hit sweepBatch: run again in the next batch
 }
@@ -140,12 +140,14 @@ func New(id int, path string, cfg Config) *Actor {
 		Path:    path,
 		cfg:     cfg,
 		open:    openSQLite,
-		now:     time.Now,
 		mailbox: make(chan *Request, cfg.MailboxSize),
 		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
 	}
 }
+
+// Clock is the actor's clock (Config.Clock): callers that wait for its answers time the wait on it.
+func (a *Actor) Clock() det.Clock { return a.cfg.Clock }
 
 // Start starts the actor goroutine, opening the database first if openNow (otherwise on the first request).
 func (a *Actor) Start(openNow bool) error {
@@ -170,7 +172,7 @@ func (a *Actor) Submit(r *Request) error {
 	if r.reply == nil {
 		r.reply = make(chan Result, 1)
 	}
-	r.enqueued = time.Now()
+	r.enqueued = a.cfg.Clock.Now()
 	select {
 	case a.mailbox <- r:
 		return nil
@@ -187,7 +189,7 @@ func (a *Actor) Submit(r *Request) error {
 //	post: ctx has a deadline d ⇒ the statement is not running after about d (plus the interrupt latency)
 func (a *Actor) Do(ctx context.Context, sql string, write bool, args ...any) Result {
 	r := &Request{SQL: sql, Args: args, Write: write}
-	r.boundBy(ctx)
+	r.boundBy(ctx, a.cfg.Clock.Now())
 	if err := a.Submit(r); err != nil {
 		return Result{Err: err}
 	}
@@ -231,7 +233,7 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err error) {
 	commits = a.Commits()
 	r := &Request{backupTo: path}
-	r.boundBy(ctx)
+	r.boundBy(ctx, a.cfg.Clock.Now())
 	if err := a.Submit(r); err != nil {
 		return commits, err
 	}
@@ -241,15 +243,15 @@ func (a *Actor) Snapshot(ctx context.Context, path string) (commits uint64, err 
 func (a *Actor) run() {
 	defer close(a.stopped)
 	batch := make([]*Request, 0, a.cfg.MaxBatch)
-	var idle *time.Timer
+	var idle det.Timer
 	if a.cfg.IdleClose > 0 {
-		idle = time.NewTimer(a.cfg.IdleClose)
+		idle = a.cfg.Clock.NewTimer(a.cfg.IdleClose)
 	}
 	for {
 		var idleC <-chan time.Time
 		if idle != nil && a.w != nil {
 			idle.Reset(a.cfg.IdleClose)
-			idleC = idle.C
+			idleC = idle.C()
 		}
 		select {
 		case r := <-a.mailbox:
@@ -291,6 +293,7 @@ func (a *Actor) drain() {
 type batchMeta struct {
 	n        int
 	reopened bool
+	clock    det.Clock
 }
 
 func (m batchMeta) reply(r *Request, res Result) {
@@ -299,13 +302,13 @@ func (m batchMeta) reply(r *Request, res Result) {
 }
 
 func (m batchMeta) fail(r *Request, err error) {
-	m.reply(r, Result{Err: err, QueueWait: time.Since(r.enqueued)})
+	m.reply(r, Result{Err: err, QueueWait: det.Since(m.clock, r.enqueued)})
 }
 
 // process runs one batch: writes in one transaction, then reads. Reads never run inside the write transaction,
 // so a slow read cannot hold the database's write lock.
 func (a *Actor) process(batch []*Request) {
-	meta := batchMeta{n: len(batch)}
+	meta := batchMeta{n: len(batch), clock: a.cfg.Clock}
 	if a.w == nil {
 		if err := a.openDB(); err != nil {
 			for _, r := range batch {
@@ -315,7 +318,7 @@ func (a *Actor) process(batch []*Request) {
 		}
 		meta.reopened = true
 	}
-	expired, writes, reads := split(batch, time.Now())
+	expired, writes, reads := split(batch, a.cfg.Clock.Now())
 	for _, r := range expired {
 		meta.fail(r, ErrExpired)
 	}
@@ -324,7 +327,7 @@ func (a *Actor) process(batch []*Request) {
 	}
 	for _, r := range reads {
 		switch {
-		case r.expiredAt(time.Now()): // may have expired while the writes ran
+		case r.expiredAt(a.cfg.Clock.Now()): // may have expired while the writes ran
 			meta.fail(r, ErrExpired)
 		case a.readQ != nil && (r.backupTo == "" || a.cfg.JournalMode == "WAL"):
 			a.readQueued.Add(1)
@@ -359,7 +362,7 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 		failAll(err)
 		return
 	}
-	now := a.now()
+	now := a.cfg.Clock.Now()
 	creating := !a.reqReady && hasRequestID(writes)
 	if creating {
 		if err := a.createRequestTable(ctx); err != nil {
@@ -372,7 +375,7 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	aborted := sweepDue(a.reqReady, a.sweepMore, a.lastSweep, now, a.cfg.RequestSweep) && a.sweep(ctx, now)
 	for i, r := range writes {
 		if aborted { // the transaction is gone; settle answers these ErrAborted
-			results[i] = Result{QueueWait: time.Since(r.enqueued)}
+			results[i] = Result{QueueWait: a.since(r.enqueued)}
 			continue
 		}
 		results[i], aborted = a.runInSavepoint(ctx, r, now.UnixMilli())
@@ -381,9 +384,9 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 	if aborted {
 		end = "ROLLBACK" // usually fails with "no transaction is active"; it matters only if one is left open
 	}
-	c0 := time.Now()
+	c0 := a.cfg.Clock.Now()
 	endErr := a.w.run(ctx, end)
-	commit := time.Since(c0)
+	commit := a.since(c0)
 	checkEnd(aborted, endErr)
 	if !aborted && endErr == nil {
 		a.commits.Add(1) // before the replies: a caller that saw its write acknowledged sees it counted
@@ -403,7 +406,7 @@ func (a *Actor) writeBatch(writes []*Request, meta batchMeta) {
 //	post: !gone ⇒ the transaction is still open and holds r's effects iff res.Err == nil
 func (a *Actor) runInSavepoint(ctx context.Context, r *Request, nowMS int64) (res Result, gone bool) {
 	if err := a.w.run(ctx, "SAVEPOINT w"); err != nil {
-		return Result{Err: err, QueueWait: time.Since(r.enqueued)}, true
+		return Result{Err: err, QueueWait: a.since(r.enqueued)}, true
 	}
 	res = a.apply(ctx, r, nowMS)
 	if res.Err != nil && a.w.run(ctx, "ROLLBACK TO w") != nil {
@@ -423,7 +426,7 @@ func (a *Actor) apply(ctx context.Context, r *Request, nowMS int64) Result {
 	if r.RequestID == "" {
 		return a.run1(a.w, r)
 	}
-	t0 := time.Now()
+	t0 := a.cfg.Clock.Now()
 	var res Result
 	switch claim := a.w.exec(ctx, &Request{SQL: sqlClaimRequest, Args: []any{r.RequestID, nowMS}, Write: true}); {
 	case claim.Err != nil:
@@ -436,7 +439,7 @@ func (a *Actor) apply(ctx context.Context, r *Request, nowMS int64) Result {
 			res.Err = a.w.exec(ctx, &Request{SQL: sqlRecordResult, Args: []any{encodeOutcome(res), r.RequestID}, Write: true}).Err
 		}
 	}
-	res.QueueWait, res.Exec = t0.Sub(r.enqueued), time.Since(t0) // the claim and record count as execution
+	res.QueueWait, res.Exec = t0.Sub(r.enqueued), a.since(t0) // the claim and record count as execution
 	return res
 }
 
@@ -479,10 +482,10 @@ func (a *Actor) sweep(ctx context.Context, now time.Time) (gone bool) {
 func (a *Actor) reader(k executor) {
 	defer a.readers.Done()
 	defer k.close()
-	single := batchMeta{n: 1}
+	single := batchMeta{n: 1, clock: a.cfg.Clock}
 	for r := range a.readQ {
 		a.readQueued.Add(-1)
-		if r.expiredAt(time.Now()) {
+		if r.expiredAt(a.cfg.Clock.Now()) {
 			single.fail(r, ErrExpired)
 			continue
 		}
@@ -490,13 +493,15 @@ func (a *Actor) reader(k executor) {
 	}
 }
 
+func (a *Actor) since(t time.Time) time.Duration { return det.Since(a.cfg.Clock, t) }
+
 // run1 executes one statement under its statement timeout.
 func (a *Actor) run1(k executor, r *Request) Result {
-	t0 := time.Now()
+	t0 := a.cfg.Clock.Now()
 	ctx := context.Background()
 	if r.StmtTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.StmtTimeout)
+		ctx, cancel = det.WithTimeout(ctx, a.cfg.Clock, r.StmtTimeout)
 		defer cancel()
 	}
 	var res Result
@@ -507,7 +512,7 @@ func (a *Actor) run1(k executor, r *Request) Result {
 	}
 	res.TimedOut = res.Err != nil && ctx.Err() != nil
 	res.QueueWait = t0.Sub(r.enqueued)
-	res.Exec = time.Since(t0)
+	res.Exec = a.since(t0)
 	return res
 }
 

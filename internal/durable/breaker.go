@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
@@ -35,13 +36,13 @@ func IsSystemFailure(err error) bool {
 // WithBreaker returns s guarded by b: a call b refuses fails at once with ErrUnavailable (wrapping
 // breaker.ErrOpen) and a RetryAfter hint, and a call that fails with a system failure (isFailure; nil means
 // IsSystemFailure) counts against b and is marked ErrUnavailable, its chain kept. Answers count as successes;
-// a call whose ctx ended (the caller gave up or its deadline passed) is ignored. now is the breaker's clock (nil: time.Now).
+// a call whose ctx ended (the caller gave up or its deadline passed) is ignored. now is the breaker's clock (nil: det.System().Now).
 func WithBreaker(s Store, b *breaker.Breaker, isFailure func(error) bool, now func() time.Time) Store {
 	if isFailure == nil {
 		isFailure = IsSystemFailure
 	}
 	if now == nil {
-		now = time.Now
+		now = det.System().Now
 	}
 	return &guarded{s: s, b: b, isFailure: isFailure, now: now}
 }

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/det"
 )
 
 // Config applies to every actor. The zero value is valid: WithDefaults fills it in.
@@ -26,6 +28,9 @@ type Config struct {
 	// RequestSweep is the least time between retention sweeps of request ids; a sweep piggybacks on a write
 	// batch. Default 1m.
 	RequestSweep time.Duration
+	// Clock is the time for deadlines, queue expiry, idle passivation, request-id stamps and timings. Default
+	// det.System().
+	Clock det.Clock
 }
 
 // JournalModes and SynchronousModes are the values Config accepts (upper case; input is case-insensitive).
@@ -60,6 +65,7 @@ func (c Config) WithDefaults() Config {
 	if c.RequestSweep <= 0 {
 		c.RequestSweep = time.Minute
 	}
+	c.Clock = det.Or(c.Clock)
 	return c
 }
 

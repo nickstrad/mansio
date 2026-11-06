@@ -4,13 +4,15 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/det"
 )
 
 // Admission is the concurrent wrapper around the pure limiter: one mutex, and a channel per waiter.
 type Admission struct {
 	mu  sync.Mutex
 	l   *limiter
-	now Clock
+	now func() time.Time
 
 	// Guarded by mu: for Stats (Release It O1: in use, high water, times full) and the shed Retry-After.
 	shed            int64
@@ -19,10 +21,10 @@ type Admission struct {
 }
 
 // NewAdmission returns admission with lim's caps (zero fields take defaults).
-func NewAdmission(lim AdmissionLimits) *Admission { return newAdmission(lim, time.Now) }
+func NewAdmission(lim AdmissionLimits) *Admission { return newAdmission(lim, det.System()) }
 
-func newAdmission(lim AdmissionLimits, now Clock) *Admission {
-	return &Admission{l: newLimiter(lim), now: now}
+func newAdmission(lim AdmissionLimits, clock det.Clock) *Admission {
+	return &Admission{l: newLimiter(lim), now: clock.Now}
 }
 
 // Acquire takes a slot for (tenant, db), waiting in the queue until ctx ends if both are at their caps.

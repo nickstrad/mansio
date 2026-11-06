@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 )
 
 // CP-2 / PG-09: request ids. Spec tests for the pure parts, fault tests for the statement order, and
@@ -93,7 +95,7 @@ func (f *failDDL) run(ctx context.Context, q string) error {
 func doID(t testing.TB, a *Actor, id, sql string, args ...any) Result {
 	t.Helper()
 	r := &Request{SQL: sql, Args: args, Write: true, RequestID: id}
-	r.boundBy(ctx(t))
+	r.boundBy(ctx(t), time.Now())
 	if err := a.Submit(r); err != nil {
 		t.Fatal(err)
 	}
@@ -288,9 +290,8 @@ func TestRequestIDAfterMove(t *testing.T) {
 // Retention: ids older than RequestTTL are deleted in bounded, set-based sweeps on write batches. After that, a
 // retry of an expired id applies again: the TTL must outlast every client retry window.
 func TestRequestIDRetention(t *testing.T) {
-	clock := time.Unix(1_000_000, 0)
-	a := newKV(t, Config{RequestTTL: time.Hour, RequestSweep: time.Minute}, 1)
-	a.now = func() time.Time { return clock }
+	clk := dettest.NewClock(time.Unix(1_000_000, 0))
+	a := newKV(t, Config{RequestTTL: time.Hour, RequestSweep: time.Minute, Clock: clk}, 1)
 	if err := a.Start(true); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestRequestIDRetention(t *testing.T) {
   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2500) SELECT 'bulk-' || i, 0 FROM n`, true); r.Err != nil {
 		t.Fatal(r.Err)
 	}
-	clock = clock.Add(time.Hour + time.Minute)
+	clk.Advance(time.Hour + time.Minute)
 	want := []int64{2501 + 1 - sweepBatch, 2501 + 2 - 2*sweepBatch, 3} // each write adds its own id
 	for i, w := range want {
 		if r := doID(t, a, fmt.Sprintf("new-%d", i), `UPDATE kv SET v = v WHERE id = 1`); r.Err != nil {
@@ -316,7 +317,7 @@ func TestRequestIDRetention(t *testing.T) {
 		t.Fatalf("expired id: %+v (want applied again)", r)
 	}
 	// Within the TTL nothing is swept: the young ids stay.
-	clock = clock.Add(2 * time.Minute)
+	clk.Advance(2 * time.Minute)
 	if r := doID(t, a, "young", bump); r.Err != nil {
 		t.Fatal(r.Err)
 	}

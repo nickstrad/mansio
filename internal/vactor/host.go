@@ -38,6 +38,7 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/retry"
@@ -172,8 +173,11 @@ type Options struct {
 	GC durable.GCPolicy
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
-	// Now is the clock (tests). Default time.Now.
-	Now func() time.Time
+	// Clock is the time for activation deadlines, failure backoff, idle and write-back ages, manifest stamps and
+	// timings. Default det.System().
+	Clock det.Clock
+	// Rand jitters the failure backoff. Default det.SystemRand().
+	Rand det.Rand
 
 	// CheckActivation, if set, runs after the manifest is read and before anything is fetched; an error
 	// fails the activation (fencing: owner.Table.CheckActivation). m is the zero manifest for a new key.
@@ -263,7 +267,7 @@ type Host struct {
 
 	activations, failures, fetches, localHits    atomic.Int64
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
-	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Now; 0 = never
+	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Clock; 0 = never
 	generationsDeleted, retentionFailures        atomic.Int64
 	requests                                     durable.RequestCounter // opts.Store, if it counts; else nil
 }
@@ -289,9 +293,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		opts.Workers = 8
 	}
 	opts.GC = opts.GC.Normalize()
-	if opts.Now == nil {
-		opts.Now = time.Now
-	}
+	opts.Clock, opts.Rand = det.Or(opts.Clock), det.RandOr(opts.Rand)
 	if err := os.RemoveAll(opts.CacheDir); err != nil {
 		return nil, errs.Wrap(module, err, "cannot clear cache directory %s", opts.CacheDir)
 	}
@@ -351,7 +353,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{fetch: f, size: size, requests: reqs, gens: gens, open: o, opts: opts, ctx: ctx, cancel: cancel, entries: make(map[string]*entry),
-		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		tombs: make(map[string]tomb), backoff: backoff, rng: rand.New(opts.Rand),
 		gate: newFetchGate(opts.MaxFetches, opts.MaxFetchBytes, opts.MaxFetchQueue)}, nil
 }
 
@@ -406,7 +408,7 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 			}
 			e = &entry{done: make(chan struct{})}
 			e.epoch.Store(epoch)
-			e.touch(h.opts.Now())
+			e.touch(h.opts.Clock.Now())
 			h.entries[key] = e
 			h.mu.Unlock()
 			go h.activate(key, e) // own goroutine: one caller's cancel must not fail the others
@@ -419,7 +421,7 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 		}
 		h.mu.Unlock()
 		e.raiseEpoch(epoch)
-		e.touch(h.opts.Now())
+		e.touch(h.opts.Clock.Now())
 		select {
 		case <-e.done:
 			return e.result(nil, false)
@@ -455,9 +457,9 @@ func (h *Host) activate(key string, e *entry) {
 			h.forget(key, e)
 		}
 	}()
-	t0 := time.Now()
+	t0 := h.opts.Clock.Now()
 	e.db, e.err = h.load(t0, key, e)
-	e.act.Total = time.Since(t0)
+	e.act.Total = h.since(t0)
 	h.activations.Add(1)
 	// Invariant: an activation either fully succeeded (db open) or left nothing behind.
 	assert.That((e.err == nil) == (e.db != nil), "activate(%s): err=%v but db=%v", key, e.err, e.db)
@@ -482,7 +484,7 @@ func (h *Host) forget(key string, e *entry) {
 		delete(h.entries, key)
 	}
 	if e.err != nil && h.backsOff(e.err) {
-		now := h.opts.Now()
+		now := h.opts.Clock.Now()
 		t := h.tombs[key]
 		if t.stale(now, h.opts.MaxFailBackoff) {
 			t.n = 0 // the last failure is long past: start the backoff over
@@ -543,9 +545,9 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 		}
 	}
 
-	t := time.Now()
+	t := h.opts.Clock.Now()
 	db, err := h.open.Open(path)
-	act.Open = time.Since(t)
+	act.Open = h.since(t)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot activate %s: open failed; safe to retry", key)
 	}
@@ -556,25 +558,25 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 			return nil, errs.Wrap(module, nil, "cannot activate %s: the Opener's database (%T) cannot be written back; use a DurableDB opener", key, db)
 		}
 		e.pubCommits.Store(ddb.Commits())
-		e.lastWB.Store(h.opts.Now().UnixNano())
+		e.lastWB.Store(h.opts.Clock.Now().UnixNano())
 	}
 
-	t = time.Now()
+	t = h.opts.Clock.Now()
 	err = h.query(ctx, db, h.opts.FirstQuery)
-	act.FirstQuery = time.Since(t)
+	act.FirstQuery = h.since(t)
 	if err != nil {
 		db.Close()
 		return nil, errs.Wrap(module, err, "cannot activate %s: first query failed; safe to retry", key)
 	}
 
-	t = time.Now()
+	t = h.opts.Clock.Now()
 	for _, q := range h.opts.WarmQueries {
 		if err := h.query(ctx, db, q); err != nil {
 			db.Close()
 			return nil, errs.Wrap(module, err, "cannot activate %s: warm query %q failed; safe to retry", key, q)
 		}
 	}
-	act.Warm = time.Since(t)
+	act.Warm = h.since(t)
 	return db, nil
 }
 
@@ -621,7 +623,7 @@ func (h *Host) tombstoned(key string) (tomb, time.Duration, bool) {
 	if !ok {
 		return t, 0, false
 	}
-	wait := t.until.Sub(h.opts.Now())
+	wait := t.until.Sub(h.opts.Clock.Now())
 	return t, wait, wait > 0
 }
 
@@ -647,9 +649,11 @@ func (e *hinted) Error() string             { return e.err.Error() }
 func (e *hinted) Unwrap() error             { return e.err }
 func (e *hinted) RetryAfter() time.Duration { return e.after }
 
+func (h *Host) since(t time.Time) time.Duration { return det.Since(h.opts.Clock, t) }
+
 // activationCtx is the activation's ctx for a generation of size bytes (0: unknown), from h.ctx.
 func (h *Host) activationCtx(start time.Time, size int64) (context.Context, context.CancelFunc) {
-	return context.WithDeadlineCause(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(size, h.opts.MinThroughput)), errActivationTimeout)
+	return h.opts.Clock.WithDeadlineCause(h.ctx, start.Add(h.opts.ActivationTimeout+transferTime(size, h.opts.MinThroughput)), errActivationTimeout)
 }
 
 // gatedFetch runs fetch through the fetch bulkhead and records it in e.act.
@@ -671,7 +675,7 @@ func transferTime(size, bytesPerSec int64) time.Duration {
 }
 
 func (h *Host) query(ctx context.Context, db DB, q string) error {
-	ctx, cancel := context.WithTimeout(ctx, h.opts.QueryTimeout)
+	ctx, cancel := det.WithTimeout(ctx, h.opts.Clock, h.opts.QueryTimeout)
 	defer cancel()
 	return db.Query(ctx, q)
 }

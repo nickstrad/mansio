@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/durable"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
@@ -178,7 +179,7 @@ func (h *Host) WriteBack(ctx context.Context, key string) (WriteBackResult, erro
 	snap := h.LocalPath(key) + ".snap"
 	RemoveDB(snap)
 	defer RemoveDB(snap)
-	t := time.Now()
+	t := h.opts.Clock.Now()
 	commits, err := e.db.(DurableDB).Snapshot(ctx, snap)
 	if err != nil {
 		h.writeBackFailures.Add(1)
@@ -186,7 +187,7 @@ func (h *Host) WriteBack(ctx context.Context, key string) (WriteBackResult, erro
 			"cannot write back %s: snapshot failed; nothing uploaded, database still warm, safe to retry", key)
 	}
 	res, err := h.upload(ctx, key, e, snap, commits)
-	res.Snapshot = time.Since(t) - res.Hash - res.Upload - res.Publish
+	res.Snapshot = h.since(t) - res.Hash - res.Upload - res.Publish
 	return res, err
 }
 
@@ -209,22 +210,22 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		h.writeBackFailures.Add(1)
 		return res, errs.Wrap(module, err, format, args...).With("key", key).With("local", path)
 	}
-	t := time.Now()
+	t := h.opts.Clock.Now()
 	d, err := hashFile(path)
-	res.Hash = time.Since(t)
+	res.Hash = h.since(t)
 	if err != nil {
 		return fail(err, "cannot write back %s: reading the snapshot failed; nothing uploaded, database still warm, safe to retry", key)
 	}
 	res.Bytes = d.Size
 
-	t = time.Now()
+	t = h.opts.Clock.Now()
 	var next durable.Manifest
 	// The object is named by the epoch we upload at, so no other owner can collide with it; the loop on
 	// ErrExists is only a defence against our own orphans (guide I2).
 	for try := 0; ; try++ {
 		gen := max(e.man.Generation, e.lastGen) + 1
 		e.lastGen = gen // never reuse a number we tried: its object may exist (orphan)
-		next = durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Now())
+		next = durable.NextManifest(key, gen, e.epoch.Load(), d, h.opts.Clock.Now())
 		err = h.opts.Store.PutGeneration(ctx, next, path)
 		if err != nil && h.holds(ctx, next.Object, d) {
 			err = nil // the PUT applied and its reply was lost (or a re-send of it found it): it is ours
@@ -234,20 +235,20 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		}
 	}
 	gen := next.Generation
-	res.Upload = time.Since(t)
+	res.Upload = h.since(t)
 	if err != nil {
 		return fail(err, "cannot write back %s: upload of generation %d failed; manifest unchanged (generation %d), database still warm, safe to retry",
 			key, gen, e.man.Generation)
 	}
 
-	t = time.Now()
+	t = h.opts.Clock.Now()
 	obj := next
 	next, err = h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
 		m := obj
 		m.Epoch = max(m.Epoch, e.epoch.Load()) // raised since the upload (GetAt): the object keeps its name
 		return m, durable.CheckPublish(cur, m)
 	})
-	res.Publish = time.Since(t)
+	res.Publish = h.since(t)
 	if err != nil {
 		if e.stale.Load() {
 			return fail(err, "cannot write back %s: the manifest moved on or a higher epoch owns it; generation %d uploaded but not published, database still warm; not safe to retry, re-check ownership",
@@ -258,7 +259,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	h.retain(ctx, key, e, next.Object)
 	e.pubCommits.Store(commits)
 	e.forceDirty.Store(false)
-	now := h.opts.Now().UnixNano()
+	now := h.opts.Clock.Now().UnixNano()
 	e.lastWB.Store(now)
 	h.lastWriteBackOK.Store(now)
 	h.writeBacks.Add(1)
@@ -506,7 +507,7 @@ func (h *Host) closedCopy(key string) (string, func(), error) {
 	}
 	snap := path + ".snap"
 	RemoveDB(snap)
-	ctx, cancel := context.WithTimeout(context.Background(), h.opts.WriteBackTimeout)
+	ctx, cancel := det.WithTimeout(context.Background(), h.opts.Clock, h.opts.WriteBackTimeout)
 	defer cancel()
 	if _, err := ddb.Snapshot(ctx, snap); err != nil {
 		RemoveDB(snap)
@@ -587,7 +588,7 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 	}
 	e := h.active(key)
 	if e == nil {
-		m, _, err := durable.Stamp(ctx, h.opts.Store, key, epoch, gen, h.opts.Now())
+		m, _, err := durable.Stamp(ctx, h.opts.Store, key, epoch, gen, h.opts.Clock.Now())
 		if err != nil {
 			return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp %s", key)
 		}
@@ -599,7 +600,7 @@ func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durabl
 		if err := durable.CheckStamp(cur, key, epoch, gen); err != nil {
 			return durable.Manifest{}, err
 		}
-		return durable.Stamped(cur, key, epoch, h.opts.Now()), nil
+		return durable.Stamped(cur, key, epoch, h.opts.Clock.Now()), nil
 	})
 	if err != nil {
 		return durable.Manifest{}, errs.Wrap(module, err, "cannot stamp warm %s at epoch %d; re-read the manifest before retrying", key, epoch)
@@ -625,7 +626,7 @@ func (h *Host) PassivateAll(workers int) error {
 		keys = append(keys, k)
 	}
 	errsOut := h.parallel(keys, workers, func(k string) error {
-		ctx, cancel := context.WithTimeout(context.Background(), h.opts.WriteBackTimeout)
+		ctx, cancel := det.WithTimeout(context.Background(), h.opts.Clock, h.opts.WriteBackTimeout)
 		defer cancel()
 		return h.release(ctx, k, marked[k])
 	})

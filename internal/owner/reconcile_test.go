@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 	"github.com/nickstrad/ts-db-go/internal/owner"
+	"github.com/nickstrad/ts-db-go/internal/retry"
 )
 
 // restarted places n keys on "a", writes once to each, then restarts "a": every key is Closed.
@@ -164,5 +168,63 @@ func TestOnChangeSeesTransitions(t *testing.T) {
 	}
 	if !a.State("k").Superseded {
 		t.Fatal("not superseded")
+	}
+}
+
+// DST-0: on a simulated clock and a seeded Rand the backoff between rounds is exact and the same every run;
+// time moves only when the test advances it.
+func TestReconcileUntilDoneOnSimulatedClock(t *testing.T) {
+	run := func() []time.Duration {
+		w, _ := restarted(t, 2)
+		w.pl.SetDown(true)
+		clk := dettest.NewClock(time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC))
+		o := owner.ReconcileOptions{Workers: 1, Clock: clk, Rand: det.NewRand(42)}
+		reports := make(chan owner.ReconcileReport, 8)
+		done := make(chan error, 1)
+		go func() {
+			done <- w.tab("a").ReconcileUntilDone(ctx, o, func(r owner.ReconcileReport, _ error) { reports <- r })
+		}()
+		var waits []time.Duration
+		for round := 1; ; round++ {
+			r := <-reports
+			if r.Round != round || r.Took != 0 {
+				t.Fatalf("report %+v: want round %d taking no simulated time", r, round)
+			}
+			if r.Failed == 0 {
+				break
+			}
+			if !clk.AwaitPending(1) {
+				t.Fatalf("round %d: no backoff timer", round)
+			}
+			next, _ := clk.Next()
+			wait := next.Sub(clk.Now())
+			waits = append(waits, wait)
+			clk.Advance(wait - time.Nanosecond)
+			select {
+			case r := <-reports:
+				t.Fatalf("round %d started before its backoff ended", r.Round)
+			default:
+			}
+			if round == 3 {
+				w.pl.SetDown(false)
+			}
+			clk.Advance(time.Nanosecond)
+		}
+		must(t, <-done)
+		return waits
+	}
+	a, b := run(), run()
+	p := retry.Policy{Backoff: retry.Exponential, Jitter: retry.Equal, Base: 100 * time.Millisecond, Max: 5 * time.Second}
+	must(t, p.Normalize())
+	rng := rand.New(det.NewRand(42))
+	var prev time.Duration
+	for i := range a {
+		prev = p.Delay(rng, i+2, prev)
+		if a[i] != b[i] || a[i] != prev {
+			t.Fatalf("waits %v and %v; wait %d want %v", a, b, i, prev)
+		}
+	}
+	if len(a) != 3 {
+		t.Fatalf("waits %v: want 3 backoffs", a)
 	}
 }

@@ -24,7 +24,7 @@ type rig struct {
 	h   *vactor.Host
 	f   *vactortest.Fetcher
 	o   *vactortest.Opener
-	clk *clock
+	clk *shifted
 }
 
 func newRig(t *testing.T, keep bool, keys ...string) rig {
@@ -33,12 +33,12 @@ func newRig(t *testing.T, keep bool, keys ...string) rig {
 	for _, k := range keys {
 		f.Put(k, []byte("db:"+k))
 	}
-	clk := &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	clk := newShifted()
 	h, err := vactor.NewHost(f, o, vactor.Options{
 		CacheDir:    filepath.Join(t.TempDir(), "cache"),
 		WarmQueries: []string{"warm"},
 		KeepLocal:   keep,
-		Now:         clk.Now,
+		Clock:       clk,
 	})
 	if err != nil {
 		t.Fatal(err)

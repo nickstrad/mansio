@@ -28,7 +28,7 @@ type faultRig struct {
 	fake  *s3test.Server
 	proxy *faultnet.Proxy
 	b     *breaker.Breaker
-	clk   *clock
+	clk   *shifted
 }
 
 func newFaultRig(t *testing.T, mod func(*vactor.Options)) *faultRig {
@@ -48,12 +48,12 @@ func newFaultRig(t *testing.T, mod func(*vactor.Options)) *faultRig {
 	if err := st.EnsureBucket(ctx); err != nil {
 		t.Fatal(err)
 	}
-	clk := &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	clk := newShifted() // a real network: real deadlines
 	b, err := breaker.New(breaker.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), CreateMissing: true, Now: clk.Now,
+	opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), CreateMissing: true, Clock: clk,
 		Store: durable.WithBreaker(objstore.NewDurable(st, ""), b, s3Transient, clk.Now)}
 	if mod != nil {
 		mod(&opts)

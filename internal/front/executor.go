@@ -11,6 +11,7 @@ import (
 
 	"github.com/nickstrad/ts-db-go/internal/actor"
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 
 	"modernc.org/sqlite"
@@ -47,7 +48,7 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 	if grace <= 0 {
 		grace = time.Second
 	}
-	wctx, cancel := context.WithDeadline(context.WithoutCancel(ctx), c.Deadline.Add(grace))
+	wctx, cancel := det.WithDeadline(context.WithoutCancel(ctx), a.Clock(), c.Deadline.Add(grace))
 	defer cancel()
 	res := r.Wait(wctx)
 	if res.Err != nil {

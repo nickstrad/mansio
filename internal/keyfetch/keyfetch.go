@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 	"github.com/nickstrad/ts-db-go/internal/fsx"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
@@ -46,7 +47,8 @@ type Config struct {
 	Client         *http.Client  // default: a client trusting CAFile
 	CAFile         string        // PEM CA bundle that signs the issuer's certificate (a private CA); "" = system roots
 	Log            *slog.Logger
-	Event          string // log event prefix, e.g. AGENT → AGENT.KEYS_UPDATED
+	Event          string    // log event prefix, e.g. AGENT → AGENT.KEYS_UPDATED
+	Clock          det.Clock // fetch cadence and deadlines, key age; default det.System()
 }
 
 // Fetcher is a running fetch loop's state.
@@ -69,6 +71,7 @@ func Open(ctx context.Context, cfg Config) (*ticket.KeyRing, *Fetcher, error) {
 		}
 		cfg.Client = c
 	}
+	cfg.Clock = det.Or(cfg.Clock)
 	f := &Fetcher{cfg: cfg, ring: ticket.NewKeyRing(nil)}
 	if cfg.Cache != "" {
 		ring, err := LoadFile(cfg.Cache)
@@ -103,14 +106,14 @@ func LoadFile(path string) (*ticket.KeyRing, error) {
 
 // Run fetches now, then every period until ctx ends; a fetch never overlaps the next (Release It S1).
 func (f *Fetcher) Run(ctx context.Context) {
-	t := time.NewTicker(f.cfg.Every)
+	t := f.cfg.Clock.NewTicker(f.cfg.Every)
 	defer t.Stop()
 	for first := true; ; first = false {
 		if !first {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
+			case <-t.C():
 			}
 		}
 		if err := f.Fetch(ctx); err != nil {
@@ -139,7 +142,7 @@ func (f *Fetcher) Failing() bool   { return f.failing.Load() }
 
 // Fetch GETs the key set once and installs it if it changed.
 func (f *Fetcher) Fetch(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, f.cfg.Timeout)
+	ctx, cancel := det.WithTimeout(ctx, f.cfg.Clock, f.cfg.Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.cfg.URL, nil)
 	if err != nil {
@@ -158,7 +161,7 @@ func (f *Fetcher) Fetch(ctx context.Context) error {
 	if err != nil {
 		return errs.Wrap(module, err, "invalid ticket key set from %s; the current set stays", f.cfg.URL)
 	}
-	f.lastOK.Store(time.Now().UnixNano())
+	f.lastOK.Store(f.cfg.Clock.Now().UnixNano())
 	if f.ring.Equal(keys) {
 		return nil
 	}
@@ -193,7 +196,7 @@ func (f *Fetcher) Register(reg *metrics.Registry, prefix string) {
 	reg.Add(prefix+"_keys_age_seconds", "Seconds since the last successful key fetch (-1: never).", metrics.Gauge, func(e *metrics.Emit) {
 		v := -1.0
 		if t := f.lastOK.Load(); t != 0 {
-			v = time.Since(time.Unix(0, t)).Seconds()
+			v = det.Since(f.cfg.Clock, time.Unix(0, t)).Seconds()
 		}
 		e.Value(nil, v)
 	})

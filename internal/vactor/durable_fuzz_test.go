@@ -56,11 +56,11 @@ func FuzzDurableHostModel(f *testing.F) {
 		faults := []durabletest.Faults{{}, {FailUpload: true}, {FailPublish: true}, {LosePublishReply: true},
 			{FailRead: true}, {Down: true}, {FailFetch: true}, {ApplyThenStale: true}, {LoseUploadReply: true}}
 		keys := []string{"t/k0", "t/k1", "t/k2", "t/k3"}
-		s, o, clk := durabletest.NewStore(), &vactortest.Opener{}, &clock{t: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+		s, o, clk := durabletest.NewStore(), &vactortest.Opener{}, newClock()
 		var server atomic.Int64 // the store's clock: strictly increasing, one second per write
 		s.SetClock(func() time.Time { return time.Unix(0, server.Add(int64(time.Second))) })
 		gc := durable.GCPolicy{Keep: 2, Grace: time.Nanosecond}
-		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Now: clk.Now, Workers: 2,
+		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Clock: clk, Workers: 2,
 			GenCacheBytes: 12, // the generation cache on (OS-10), small enough to evict: values are "s<step>"
 			FailBackoff:   -1, // tombstones are tested on their own
 			Policy:        vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}

@@ -64,6 +64,9 @@ Full: `go-coding-style.md` §4–5, `concurrency-in-go/README.md`, Release It §
 - Recover panics inside goroutines and re-panic in the parent.
 - **No slow I/O while holding a lock the request path takes** (vactor activates outside `h.mu`).
 - **Waiting is not working**: if a caller gives up, the work it started is interrupted or bounded too.
+- **No wall clock, global rand or fresh ids in simulated packages** (the list in `internal/det/lint_test.go`):
+  take a `det.Clock` (also for ctx deadlines: `det.WithTimeout`), `det.Rand` and `det.IDGen`, defaulting to
+  `det.System()` / `det.SystemRand()` / `det.SystemIDs`; `go test ./internal/det` enforces it (DST-0).
 
 Full: `go-coding-style.md` §6, `concurrency-in-go/README.md`, Release It T5, B5.
 

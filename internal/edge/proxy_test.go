@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/breaker"
+	"github.com/nickstrad/ts-db-go/internal/det/dettest"
 	"github.com/nickstrad/ts-db-go/internal/front"
 	"github.com/nickstrad/ts-db-go/internal/metrics"
 	"github.com/nickstrad/ts-db-go/internal/ratelimit"
@@ -168,7 +169,7 @@ func TestBadTicketsNeverReachAgents(t *testing.T) {
 	// An expired ticket that was cached is refused from the cache.
 	short := f.is.mint(t, "vm-a", "db-1", now, 2*time.Second)
 	f.do(t, "192.0.2.1", short, nil)
-	f.e.cfg.Now = func() time.Time { return now.Add(time.Minute) }
+	f.e.cfg.Clock = dettest.NewClock(now.Add(time.Minute))
 	if r := f.do(t, "192.0.2.1", short, nil); r.status != 401 {
 		t.Fatalf("expired cached ticket: %d %v", r.status, r.resp)
 	}

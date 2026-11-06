@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/ts-db-go/internal/assert"
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/panicx"
 )
 
@@ -56,14 +57,14 @@ func (d *Directory) Grow(n int, path func(i int) string, seed func(i int) error,
 	if n <= start {
 		return GrowStats{}, nil
 	}
-	t0 := time.Now()
+	t0 := d.cfg.Clock.Now()
 	if err := parallel(start, n, workers, seed); err != nil {
 		return GrowStats{}, err
 	}
-	seedDur := time.Since(t0)
+	seedDur := det.Since(d.cfg.Clock, t0)
 
 	added := make([]*Actor, n-start)
-	t1 := time.Now()
+	t1 := d.cfg.Clock.Now()
 	err := parallel(start, n, workers, func(i int) error {
 		a := New(i, path(i), d.cfg)
 		if err := a.Start(true); err != nil {
@@ -87,7 +88,7 @@ func (d *Directory) Grow(n int, path func(i int) string, seed func(i int) error,
 		}
 	}
 	d.actors.Store(&next)
-	return GrowStats{Added: len(added), Seed: seedDur, Open: time.Since(t1)}, nil
+	return GrowStats{Added: len(added), Seed: seedDur, Open: det.Since(d.cfg.Clock, t1)}, nil
 }
 
 // Close stops every actor.

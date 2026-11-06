@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nickstrad/ts-db-go/internal/det"
 	"github.com/nickstrad/ts-db-go/internal/errs"
 )
 
@@ -27,7 +28,7 @@ type ShutdownReport struct {
 
 // Close is Shutdown with a total budget of Options.WriteBackTimeout (not a budget per database).
 func (h *Host) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), h.opts.WriteBackTimeout)
+	ctx, cancel := det.WithTimeout(context.Background(), h.opts.Clock, h.opts.WriteBackTimeout)
 	defer cancel()
 	_, err := h.Shutdown(ctx)
 	return err
@@ -44,7 +45,7 @@ func (h *Host) Close() error {
 //	post: err != nil ⇒ rep.Kept are closed with their local files in rep.CacheDir; the error names how many,
 //	      and matches context.DeadlineExceeded when the budget ended first
 func (h *Host) Shutdown(ctx context.Context) (ShutdownReport, error) {
-	start := time.Now()
+	start := h.opts.Clock.Now()
 	h.mu.Lock()
 	h.closed = true
 	marked := make(map[string]*entry, len(h.entries))
@@ -73,7 +74,7 @@ func (h *Host) Shutdown(ctx context.Context) (ShutdownReport, error) {
 			mu.Unlock()
 			return nil
 		}
-		kctx, cancel := context.WithTimeout(ctx, h.opts.WriteBackTimeout)
+		kctx, cancel := det.WithTimeout(ctx, h.opts.Clock, h.opts.WriteBackTimeout)
 		defer cancel()
 		err := h.release(kctx, k, e) // on failure the key is warm again; closeRemaining keeps it below
 		mu.Lock()
@@ -92,7 +93,7 @@ func (h *Host) Shutdown(ctx context.Context) (ShutdownReport, error) {
 	kept, busy := h.closeRemaining(ctx)
 	rep.Kept, rep.Busy = append(rep.Kept, kept...), busy
 	slices.Sort(rep.Kept)
-	rep.Took = time.Since(start)
+	rep.Took = h.since(start)
 	if len(rep.Kept) == 0 && rep.Busy == 0 {
 		return rep, os.RemoveAll(h.opts.CacheDir)
 	}
