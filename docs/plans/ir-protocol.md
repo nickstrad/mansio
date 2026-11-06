@@ -128,15 +128,15 @@ commit, deadlines and shedding apply unchanged.
 
 Every step lands with its tests from §6. "Gate" means the tests named there pass in CI.
 
-| Step                   | Work                                                                                                                                                                                | Gate                                                                                                                                     |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **IR-0 Spec**          | This doc → ADR; JSON Schema for v1; a shared **test-vector corpus** `ir/vectors/*.json` (request, schema, initial rows → expected result, error or SQL), consumed by both TS and Go | Vectors run in TS against today's Deno engine and match (via the reference executor `platform/ir/executor.ts`; `Storage` parity is IR-3) |
-| **IR-1 Go core**       | `ir`, `docschema`, `doccompile` (pure)                                                                                                                                              | Vectors (SQL and decode) green in Go; `GENERATED_SQL.txt` byte-identical; differential fuzz vs TS (§6.2) clean for 1M plans              |
-| **IR-2 Execution**     | `docexec` + actor closure + `/v1/ops` + schema registry + `(tenant, app)` identity. Built (IR-2a, IR-2b): execute 122/122 on a real actor, `FuzzDocExecModel` clean                 | Vectors (results and errors) green against a real actor; model-based fuzz (§6.3) clean                                                   |
-| **IR-3 SDK**           | Recording executor, derived preconditions, handler retry, ops transport, resolve/ticket client. Built: e2e documents/queries green on Go and Deno (both layouts), SDK vectors       | e2e `documents`, `queries` green with the SDK → Go (both storage layouts); same scenarios still green → Deno via a TS shim               |
-| **IR-4 Port the rest** | Tenancy/auth, durability, observability phases of [replace-platform-with-go.md](replace-platform-with-go.md) §5 (3–5), over IR                                                      | e2e `auth`, `tenant_isolation`, `admin_lifecycle`, `backup_restore`, `log_analysis` green on Go                                          |
-| **IR-5 Multi-node**    | Edge + locator path for `/v1/ops`; controld create/move for `(tenant, app)`                                                                                                         | Cluster DST (§6.4) and the new e2e `scale_out` green                                                                                     |
-| **IR-6 Cut over**      | Delete the Deno platform (replace plan phase 7)                                                                                                                                     | e2e green on Go only                                                                                                                     |
+| Step                   | Work                                                                                                                                                                                     | Gate                                                                                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **IR-0 Spec**          | This doc → ADR; JSON Schema for v1; a shared **test-vector corpus** `ir/vectors/*.json` (request, schema, initial rows → expected result, error or SQL), consumed by both TS and Go      | Vectors run in TS against today's Deno engine and match (via the reference executor `platform/ir/executor.ts`; `Storage` parity is IR-3) |
+| **IR-1 Go core**       | `ir`, `docschema`, `doccompile` (pure)                                                                                                                                                   | Vectors (SQL and decode) green in Go; `GENERATED_SQL.txt` byte-identical; differential fuzz vs TS (§6.2) clean for 1M plans              |
+| **IR-2 Execution**     | `docexec` + actor closure + `/v1/ops` + schema registry + `(tenant, app)` identity. Built (IR-2a, IR-2b): execute 122/122 on a real actor, `FuzzDocExecModel` clean                      | Vectors (results and errors) green against a real actor; model-based fuzz (§6.3) clean                                                   |
+| **IR-3 SDK**           | Recording executor, derived preconditions, handler retry, ops transport, resolve/ticket client. Built: e2e documents/queries green on Go and Deno (both layouts), SDK vectors            | e2e `documents`, `queries` green with the SDK → Go (both storage layouts); same scenarios still green → Deno via a TS shim               |
+| **IR-4 Port the rest** | Tenancy/auth, durability, observability phases of [replace-platform-with-go.md](replace-platform-with-go.md) §5 (3–5), over IR                                                           | e2e `auth`, `tenant_isolation`, `admin_lifecycle`, `backup_restore`, `log_analysis` green on Go                                          |
+| **IR-5 Multi-node**    | Edge + locator path for `/v1/ops`; controld create/move for `(tenant, app)`                                                                                                              | Cluster DST (§6.4) and the new e2e `scale_out` green                                                                                     |
+| **IR-6 Cut over**      | Delete the Deno platform (replace plan phase 7). Built (2026-11-06, `ir/06-cutover`, ADR 0013): `platform/` and its tests deleted; event-log CLI kept in `eventlog/`; e2e 8/8 on Go only | e2e green on Go only                                                                                                                     |
 
 IR-5 carry-over from IR-4a (ADR 0012): controld's locator must accept legacy keys and sessions through
 `internal/tenancy`, and `create_api_key.sql` must refuse a deactivated tenant (today it inserts for any
@@ -205,16 +205,16 @@ a seed, with simulated time, network and faults. Any failure then replays exactl
      history of IR requests and results.
 
    Status (2026-11-06, `dst/2-cluster`): built, `internal/sim` `RunCluster`; real agentd path (via
-   `internal/agentglue`), controller, locator, issuer rotation and edge over a placement fake, `durabletest` and a
-   simulated network; register and bank IR workloads; kill -9 losses judged against a parameterized RPO
+   `internal/agentglue`), controller, locator, issuer rotation and edge over a placement fake, `durabletest`
+   and a simulated network; register and bank IR workloads; kill -9 losses judged against a parameterized RPO
    (§9 still open). Note: `server/knowledge/determinism/2026-11-06-dst2-dst3-cluster-sim.md`.
 4. **DST-3, swarm.** Run many seeds nightly with fault probabilities varied per run (swarm testing), shrink
    failures to a minimal seed and op script, and commit them as regression vectors. Later option: run the real
    binaries under a deterministic hypervisor (e.g. Antithesis) to cover code that DST can't reach.
 
-   Status (2026-11-06): built: `ClusterConfig.Swarm`, `ShrinkCluster` (op scripts, delta debugging), vectors in
-   `server/internal/sim/testdata/cluster`, `server/scripts/sim-swarm.sh` (`make sim-swarm`, `deno task
-   sim:swarm`). No CI runs it yet.
+   Status (2026-11-06): built: `ClusterConfig.Swarm`, `ShrinkCluster` (op scripts, delta debugging), vectors
+   in `server/internal/sim/testdata/cluster`, `server/scripts/sim-swarm.sh` (`make sim-swarm`,
+   `deno task sim:swarm`). No CI runs it yet.
 
 Real SQLite stays in the sim (modernc is pure Go and deterministic for a given op order). Crash points are
 modeled at fsync boundaries: the sim snapshots the file on each fsync and restores the last snapshot on a
@@ -285,13 +285,19 @@ Still open:
 
 - leases, and the WAL degraded mode (from mansio-server);
 - the durability promise: today `synchronous=FULL`, versus mansio-server's write-back RPO;
-- **PAUSED (user, 2026-11-06): S3 backup work is on hold; the code stays working as is, and LiteFS or similar will be evaluated instead of full-file copies. Open issues: `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`. Correction: with the shipped default (`write_back_every` 10 s, 1 s tick) a kill -9 can lose about 11 s of acknowledged writes; the 170 ms below is the Jepsen test config (200 ms). A rollback also reuses `_version` numbers (open sim vector `server/internal/sim/testdata/open/version-reuse-after-rollback.json`).** Earlier text: acknowledged writes lost to kill -9. A
-  durable agent killed with kill -9 and restarted serves each database from its last published generation, so
-  writes acknowledged inside the write-back window are lost (the RPO; `server/knowledge/writeback`, DST-1's
-  RPO rule). Measured in the IR-5a Jepsen-style run (`server/cmd/controld/jepsen_test.go`, write-back every
-  200 ms, about 400 register writes/s): about 170 ms of acknowledged writes lost in one crash; in a 2.5-minute
-  run, 5 crashes of the register database's owner lost an estimated 40, 12, 14, 35 and 0 acknowledged register
-  writes (with S3 paused before a crash, the window grows by the pause). Options: accept the RPO (and document
-  it to app developers), shorten the window, acknowledge only after a publish, or WAL shipping. The Jepsen
-  checker currently accepts the loss (it checks each database's history per crash-free segment of its owner);
+- **PAUSED (user, 2026-11-06): S3 backup work is on hold; the code stays working as is, and LiteFS or similar
+  will be evaluated instead of full-file copies. Open issues:
+  `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`. Correction: with the shipped default
+  (`write_back_every` 10 s, 1 s tick) a kill -9 can lose about 11 s of acknowledged writes; the 170 ms below
+  is the Jepsen test config (200 ms). A rollback also reuses `_version` numbers (open sim vector
+  `server/internal/sim/testdata/open/version-reuse-after-rollback.json`).** Earlier text: acknowledged writes
+  lost to kill -9. A durable agent killed with kill -9 and restarted serves each database from its last
+  published generation, so writes acknowledged inside the write-back window are lost (the RPO;
+  `server/knowledge/writeback`, DST-1's RPO rule). Measured in the IR-5a Jepsen-style run
+  (`server/cmd/controld/jepsen_test.go`, write-back every 200 ms, about 400 register writes/s): about 170 ms
+  of acknowledged writes lost in one crash; in a 2.5-minute run, 5 crashes of the register database's owner
+  lost an estimated 40, 12, 14, 35 and 0 acknowledged register writes (with S3 paused before a crash, the
+  window grows by the pause). Options: accept the RPO (and document it to app developers), shorten the window,
+  acknowledge only after a publish, or WAL shipping. The Jepsen checker currently accepts the loss (it checks
+  each database's history per crash-free segment of its owner);
 - whether `find` reads inside mutations should be guarded by default once v1.1 exists.

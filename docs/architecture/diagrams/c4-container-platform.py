@@ -6,63 +6,63 @@ from textwrap import wrap
 from canvas import Canvas
 
 TITLE = 'Container — request path'
-BOUNDARY = 'Platform host and central registry'
+BOUNDARY = 'Mansio cluster'
 NODES = [('client',
-  'Typed client SDK',
+  'Client SDK',
   'Library in caller process',
-  'sdk/client.ts',
-  'Named handlers, bearer, X-Trace-Id',
+  'sdk/client.ts; sdk/transport.ts',
+  'Runs handlers; sends IR; resolves and caches tickets',
   False),
- ('server',
-  'Server process',
-  'Deno process',
-  'platform/server.ts',
-  'HTTP auth, SQLite document reads/writes, backup and ingest timers',
+ ('edge',
+  'Edge',
+  'Go process',
+  'server/cmd/edge',
+  "Forwards /v1/ops to the ticket's VM; registry from controld",
   True),
- ('reader',
-  'Reader process',
-  'Deno child process',
-  'platform/reader.ts',
-  'Event-log DuckDB; ingest and named analysis',
+ ('agentd',
+  'Agent',
+  'Go process',
+  'server/cmd/agentd',
+  'IR front (/v1/ops); one actor per database; static, tenancy or durable mode',
   True),
- ('files',
-  'Application documents',
-  'SQLite 3 WAL files',
-  'DATA_DIR; TENANTS_DIR',
-  'Legacy app.sqlite; TENANTS_DIR/tenantId.db; one file per tenant',
+ ('files', 'Databases', 'SQLite 3 files', 'agentd db_dir', 'One file per (tenant, app): tenant:app.db', True),
+ ('controld',
+  'Control plane',
+  'Go process',
+  'server/cmd/controld',
+  'Resolve and tickets; create, move, attest-dead, restore; tenancy admin and auth',
   True),
  ('pg',
-  'Central registry',
-  'Postgres 17 process/store',
-  'docker-compose.yml; platform/tenants/',
-  'Tenants, hashed keys, users, sessions, memberships',
+  'Control store',
+  'Postgres 17',
+  'schema control',
+  'Placement, issuer keys, tenants, API keys, users, sessions',
   True),
- ('tenants',
-  'Tenant/auth CLI',
-  'Deno process',
-  'scripts/tenants.ts; scripts/auth.ts',
-  'Tenant administration and headless email/password',
-  True),
- ('migration',
-  'Migration runner',
-  'Deno process',
-  'scripts/db/migrate.ts',
-  'Journaled, advisory-locked SQL migrations',
+ ('tools',
+  'Operator CLIs',
+  'Go and Deno processes',
+  'server/cmd/dbtool; scripts/tenants.ts',
+  'Restore, import, verify; tenant and key admin',
   True),
  ('objects',
   'Object storage',
-  'External system / filesystem',
-  'S3_BASE_URL or LOCAL_OBJECT_DIR',
-  'apps/appId/ snapshots and manifests',
+  'External system',
+  'S3 (SeaweedFS in dev)',
+  'SQLite generations and manifests',
   False)]
-EDGES = [('client', 'server', 'HTTP JSON + bearer + trace'),
- ('server', 'reader', 'JSONL IPC ping/ingest/analysis'),
- ('server', 'files', 'FFI binding over system libsqlite3; read-only queries and serialized mutations'),
- ('server', 'pg', 'Postgres protocol; registry SQL and session auth'),
- ('tenants', 'pg', 'Postgres protocol; tenant/key or auth operations'),
- ('migration', 'pg', 'Postgres protocol; journal and migration SQL'),
- ('server', 'objects', 'Snapshot verification/hash; S3 HTTPS or local publication')]
-NOTES = 'The writer and reader remain separate OS processes and native module graphs. The central Postgres\nconnection is acquired lazily for registry use; TENANCY=off preserves app tokens and legacy files.\nEach app has a LocalFolderRouter over the shared TENANTS_DIR/tenantId.db path.\nDifferent physical layouts need distinct tenants because the schema guard rejects switching layouts. Document queries use fresh read-only connections in the server, opened through the FFI SQLite binding over system libsqlite3 (node:sqlite is no longer loaded), with authenticated tenant routing selecting the file. Unbounded SQLite reads (any select that is not a primary-key lookup, count, countBy) run nonblocking under a statement deadline (default 5 s) and fail HTTP 504 when it passes; writes and point reads stay blocking (FFI-05). The DuckDB SQLite extension stays in the separate reader process, so the two SQLite copies never share an address space. Application documents stay in SQLite.\nBetter Auth is mounted in the server at /api/auth/*; scripts/auth.ts is the headless CLI. The future\ncontrol-plane router is not implemented. E2E uses ephemeral Postgres, distinct tenants for layouts, and fresh Better Auth servers per layout.'
+EDGES = [('client', 'controld', 'HTTP POST /v1/resolve; API key or session; ticket and endpoint back'),
+ ('client', 'edge', 'HTTP POST /v1/ops (IR); ticket; X-Trace-Id'),
+ ('edge', 'agentd', "HTTP /v1/ops, routed by the ticket's VM"),
+ ('edge', 'controld', 'HTTP VM registry and ticket keys'),
+ ('agentd', 'files', 'modernc SQLite; group-committed writes and reads'),
+ ('agentd', 'objects', 'S3 HTTP; write-back of generations, restore on claim'),
+ ('agentd', 'controld', 'HTTP ticket keys and registered schemas (keys_url, schemas_url)'),
+ ('controld', 'agentd', 'HTTP lifecycle: claim, release, move'),
+ ('agentd', 'pg', 'Postgres protocol; placement rows (placement_pg)'),
+ ('controld', 'pg', 'Postgres protocol; placement, tenancy, issuer'),
+ ('tools', 'objects', 'S3 HTTP; dbtool restore, import, verify'),
+ ('tools', 'agentd', 'Admin HTTP; /admin/tenants, /admin/backup')]
+NOTES = 'This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs alone: static mode (a\nkeys file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or\nsessions on /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or\nplacement_pg); then the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are\nacknowledged before write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts\ntalks to whichever process mounts /admin/tenants (agentd or controld).'
 NAME = 'c4-container-platform'
 
 
@@ -107,7 +107,7 @@ def mermaid():
 
 
 def document(github):
-    text = '# ' + TITLE + '\n\nAudited against landed main `643b706` on 2026-10-11 (item 27); re-checked for FFI-01 to FFI-05 at `f2bf1c9`\non 2026-10-14, and re-audited at `aa26b27` (FFI-06 and FFI-07 change no element here; FFI-08 changes none). Both formats are generated from\n'
+    text = '# ' + TITLE + '\n\nRedrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone and\nthe server is the Go server in `server/`. Both formats are generated from\n'
     text += '`diagrams/' + NAME + '.py`; numbered relationships are identical. All boxes describe landed code.\n\n'
     if github:
         text += '```mermaid\n' + mermaid() + '\n```\n'

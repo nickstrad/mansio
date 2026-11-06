@@ -6,56 +6,51 @@ from textwrap import wrap
 from canvas import Canvas
 
 TITLE = 'System Context'
-BOUNDARY = 'Document DB platform'
+BOUNDARY = 'Mansio'
 NODES = [('developer',
   'App developer',
   'Person',
   'app/; sdk/',
-  'Declares schemas and Effect handlers',
+  'Declares schemas and Effect handlers; the handlers run in the SDK',
   False),
- ('caller',
-  'Application caller',
-  'Person',
-  'sdk/client.ts',
-  'Players and authenticated tenant users',
-  False),
+ ('caller', 'Application caller', 'Person', 'sdk/client.ts', 'Players and authenticated tenant users', False),
  ('operator',
-  'Platform operator',
+  'Operator',
   'Person',
-  'scripts/',
-  'Tenants, auth, backups and log analysis',
+  'scripts/tenants.ts; server/cmd/dbtool',
+  'Tenants, keys, placement, backups and log analysis',
   False),
  ('db',
-  'Document DB platform',
+  'Mansio',
   'Software system',
-  'platform/',
-  'Effect; SQLite document reads/writes; DuckDB event log and analysis',
+  'server/ (Go)',
+  'agentd, controld, edge; one SQLite database per (tenant, app); IR over HTTP',
   True),
  ('objects',
   'Object storage',
   'External system',
-  'S3_BASE_URL or LOCAL_OBJECT_DIR',
-  'Immutable snapshots and manifests',
+  'S3 (SeaweedFS in dev)',
+  'SQLite generations and manifests (durable mode)',
   False),
  ('analytics',
   'Analytics consumer',
   'External system',
   'scripts/logs.ts; scripts/duckdb/',
-  'Named catalog or offline SQL',
+  'Offline DuckDB event log: named catalog or SQL',
   False),
  ('k6',
   'k6 load generator',
   'External system',
   'perf/*.js',
-  'HTTP load and raw metric points',
+  'IR load over /v1/ops; raw metric points',
   False)]
-EDGES = [('developer', 'db', 'Schema and named handlers (TypeScript)'),
- ('caller', 'db', 'HTTP JSON; bearer credentials; X-Trace-Id'),
- ('operator', 'db', 'Admin HTTP / CLI; tenant and backup operations'),
- ('db', 'objects', 'S3 HTTPS or local files; snapshots and manifests'),
- ('db', 'analytics', 'Query results; derived event-log rows'),
- ('k6', 'db', 'HTTP scenarios and trace headers')]
-NOTES = 'Tenant identity comes from API keys or headless Better Auth session bearers when enabled. Postgres is\npart of the platform, shown at Level 2; no external identity provider is wired. No application SQL crosses\nthe client boundary. This audit includes items 23, 25, 26 and MT-01 through MT-10.'
+EDGES = [('developer', 'db', 'Registered schema JSON; handlers stay in the app (TypeScript SDK)'),
+ ('caller', 'db', 'IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id'),
+ ('operator', 'db', 'Admin HTTP and CLIs; tenants, keys, moves, backups'),
+ ('db', 'objects', 'S3 HTTP; write-back of SQLite generations, restore'),
+ ('db', 'analytics', 'JSONL event log, ingested offline into DuckDB'),
+ ('k6', 'db', 'IR scenarios over /v1/ops and trace headers')]
+NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired.'
 NAME = 'c4-context-document-db'
 
 
@@ -100,7 +95,7 @@ def mermaid():
 
 
 def document(github):
-    text = '# ' + TITLE + '\n\nAudited against landed main `643b706` on 2026-10-11 (item 27). Both formats are generated from\n'
+    text = '# ' + TITLE + '\n\nRedrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone and\nthe server is the Go server in `server/`. Both formats are generated from\n'
     text += '`diagrams/' + NAME + '.py`; numbered relationships are identical. All boxes describe landed code.\n\n'
     if github:
         text += '```mermaid\n' + mermaid() + '\n```\n'

@@ -5,10 +5,13 @@ assignment, side quests), see `AGENTS.md` — this file does not repeat it.
 
 ## What this repo is
 
-A document-db MVP: TypeScript document API (`sdk/`), SQLite-backed storage and a DuckDB reader (`platform/`),
-a tic-tac-toe sample app (`app/`), and tests/scripts. It is mid-way through the Effect-TS port and
-observability plan at `docs/plans/effect-port-and-observability.md` — read that plan's §0 and §1 before
-touching `core/`, `platform/`, or `sdk/`.
+A document DB: a TypeScript client SDK (`sdk/`) that runs app handlers and speaks the IR protocol
+(`ir/spec/v1.md`, `POST /v1/ops`) to the Go server (`server/`: agentd, controld, the edge, dbtool), a
+tic-tac-toe sample app (`app/`), the shared core (`core/`: schema, plan, errors, the TS compiler that is the
+oracle for Go, IR rules, the event-log record format), the shared IR vectors (`ir/vectors/`), the offline
+event-log CLI (`eventlog/`, `scripts/logs.ts`), and tests/scripts. The Deno platform was deleted at IR-6 (ADR
+0013). The current plan is `docs/plans/ir-protocol.md`; the Go side has its own `server/AGENTS.md` and
+`server/shared_state.md`.
 
 ## Environment
 
@@ -16,9 +19,11 @@ touching `core/`, `platform/`, or `sdk/`.
 export PATH="$HOME/.deno/bin:$PATH"   # deno 2.9.5 is not on PATH in agent shells
 ```
 
-Use `deno task <name>` for everything (see the plan's §2.3 for the full task list once item 01 lands:
-`fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`, `explain`, `integration`, `serve`, `logs:*`,
-`perf:*`). Don't hand-roll `deno run`/`deno test` invocations when a task exists.
+Use `deno task <name>` for everything (`deno.json`: `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`,
+`go:ci`, `ci:all`, `explain`, `logs:*`, `perf:*`, `sim:swarm`; `e2e` is in `package.json`). Don't hand-roll
+`deno run`/`deno test` invocations when a task exists. Run `deno task ci` on Linux
+(`work-scripts/bash/deno-linux.sh 'deno task ci'`): the DuckDB event-log suites hang on macOS. Run e2e with
+`work-scripts/bash/e2e-linux.sh`. See `docs/testing.md`.
 
 ## Branch and worktree etiquette
 
@@ -35,8 +40,8 @@ Use `deno task <name>` for everything (see the plan's §2.3 for the full task li
 
 Some sessions in this repo are explicitly docs-only (updating `docs/side-quests.md`, `AGENTS.md`, `CLAUDE.md`,
 or writing findings files) and must not implement plan items. If a task description says docs-only, stay out
-of `core/`, `platform/`, `sdk/`, `app/`, `tests/`, `scripts/`, `perf/`, and `deno.json` entirely, even if a
-fix looks trivial.
+of `core/`, `eventlog/`, `sdk/`, `app/`, `server/`, `tests/`, `scripts/`, `perf/`, and `deno.json` entirely,
+even if a fix looks trivial.
 
 ## Commit style
 

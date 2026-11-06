@@ -313,7 +313,7 @@ async function runPromise<A>(effect: Effect.Effect<A, ClientError>): Promise<A> 
   throw failure instanceof Error ? failure : new Error(String(failure));
 }
 
-/** The promise-shaped client, for callers that are not Effect programs (`scripts/demo.ts`). */
+/** The promise-shaped client, for callers that are not Effect programs. */
 export function createPromiseClient<F extends Functions>(options: ClientOptions<F>) {
   const client = createClient(options);
   return {

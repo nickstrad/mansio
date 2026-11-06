@@ -1,15 +1,17 @@
 # DuckDB analysis queries (starter set)
 
 Starter `.sql` files for exploring mansio's event logs with the `duckdb` CLI, written against the **v2** event
-log schema (`core/eventlog/ddl.ts`). These are ad-hoc reference queries. The supported interface is the named
-query catalog — `platform/analysis/catalog.ts` via `deno task logs:query <name>` — documented in
+log schema (`core/eventlog/ddl.ts`). The event log is the JSONL that agentd writes when its config has an
+`event_log` section (`<dir>/server/<date>/events-*.jsonl`). These are ad-hoc reference queries. The supported
+interface is the named query catalog — `eventlog/catalog.ts` via `deno task logs:query <name>` — documented in
 `docs/observability.md`; the files here overlap it where noted and otherwise stay free-form.
 
 ## Status
 
-- **Schema:** the event log is populated by `deno task logs:ingest` into `<DATA_DIR>/eventlog.duckdb`
-  (`EVENTLOG_DUCKDB`), so `duckdb <that file>` is where these run. The queries were last checked against a v2
-  file through DuckDB's Node API (all but `log-level-distribution.sql`, which reads raw JSONL).
+- **Schema:** the DuckDB event log is populated by `deno task logs:ingest` (with `LOG_DIR` set to agentd's
+  `event_log.dir`) into `<DATA_DIR>/eventlog.duckdb` (`EVENTLOG_DUCKDB`), so `duckdb <that file>` is where
+  these run. The queries were last checked against a v2 file through DuckDB's Node API (all but
+  `log-level-distribution.sql`, which reads raw JSONL).
 - **`duckdb` CLI:** not installed on this machine (`which duckdb` finds nothing). To get it:
   `curl -fsSL https://install.duckdb.org | sh`, then `export PATH="$HOME/.duckdb/cli/latest:$PATH"`.
 - **v2 columns:** `platform_events.kind` is now `event_kind` (the record's kind) plus `handler_kind`
@@ -26,11 +28,12 @@ query catalog — `platform/analysis/catalog.ts` via `deno task logs:query <name
   unions the five tables that do (`platform_events`, `sql_events`, `tx_events`, `http_events`, `k6_points`).
   Typed events appear in both `platform_events` and their typed table, so that file lists them twice; the
   catalog's `trace` query lists them once.
-- `sql_events` are only written when `TRACE_SQL=true` (or `LOG_LEVEL=debug`); without it `slowest-sql.sql`
-  returns nothing.
+- agentd writes a `sql` record per statement only with `event_log.trace_sql: true` (failed statements are
+  always recorded); without it `slowest-sql.sql` returns little or nothing.
 - `BackupPhase` (`core/errors.ts`) is `snapshot | verify | hash | put-object | put-manifest | publish-latest`.
   `backup-durations.sql` keeps only `emitter = 'backups'` rows (the phases) and treats a successful
-  `publish-latest` as "backup completed".
+  `publish-latest` as "backup completed". agentd records one `publish-latest` row (emitter `backups`) per
+  `POST /admin/backup`, so its backups have no per-phase rows.
 
 ## Running a query
 
@@ -38,7 +41,7 @@ Query files use DuckDB CLI **named parameters** (`$start_ts`, `$end_ts`, `$trace
 set with the shell's `.parameter set` dot-command before piping the file in:
 
 ```sh
-duckdb logs/duckdb/events.duckdb \
+duckdb "$EVENTLOG_DUCKDB" \
   -c ".parameter set start_ts '2026-10-01 00:00:00'" \
   -c ".parameter set end_ts   '2026-10-02 00:00:00'" \
   < scripts/duckdb/slowest-sql.sql

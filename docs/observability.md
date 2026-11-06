@@ -5,6 +5,15 @@ append-only DuckDB file, and a fixed catalog of named, parameterized, read-only 
 questions about it. This page is the reference for all three: where the files are, what the tables hold, what
 each query answers, how retention works, and worked examples.
 
+> **Since IR-6 (ADR 0013):** the writer of the event log is the Go agent (agentd's `event_log` config: `dir`,
+> `level`, `trace_sql`; records byte-identical to `core/events.ts`, role `server`). The Deno server, its
+> reader child process and the `/admin/logs/*` routes are gone; ingest, retention and the named catalog run
+> only in the offline CLI (`deno task logs:*`, `scripts/logs.ts` over `eventlog/`), whose own records use the
+> `reader` role. Where this page names the Deno platform's modules, the code now lives in `eventlog/` under
+> the same file names (`ingest.ts`, `tables.ts`, `retention.ts`, `logger.ts`, `catalog.ts`), and its
+> configuration is `eventlog/config.ts`. The data model, tables, catalog and retention rules below are
+> unchanged.
+
 Plan references: `docs/plans/effect-port-and-observability.md` §4 (data model) and items 21–24, 35, 36.
 Decisions: ADR 0004 (DuckDB only in the reader), ADR 0006 (event identity, schema v2), ADR 0007 (ingest before
 retention).

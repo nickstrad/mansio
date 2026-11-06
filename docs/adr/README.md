@@ -14,3 +14,4 @@
 | [0010](0010-compiler-port-with-ts-oracle.md)     | Compiler ported to Go; the TS compiler is the oracle (vectors)     |
 | [0011](0011-database-identity-and-client-ids.md) | `(tenant, app)` identifies a database; client ids are UUIDv7       |
 | [0012](0012-single-node-auth-port.md)            | Single node: agentd checks credentials; multi-node: controld       |
+| [0013](0013-go-server-replaces-deno-platform.md) | The Go server replaces the Deno platform (IR-6)                    |

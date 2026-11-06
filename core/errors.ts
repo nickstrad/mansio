@@ -361,7 +361,7 @@ export class SnapshotIntegrityError extends Data.TaggedError("SnapshotIntegrityE
   readonly detail?: string;
 }> {}
 
-/** A `scripts/restore.ts` run refused to continue. CLI-only; never reaches an HTTP response. */
+/** A restore run refused to continue (the Deno platform's restore script; unused since IR-6). CLI-only. */
 export class RestoreError extends Data.TaggedError("RestoreError")<{
   readonly reason: RestoreFailure;
   readonly detail?: string;

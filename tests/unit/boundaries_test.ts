@@ -8,7 +8,7 @@
  * - no `Deno.env` in the shipped library outside `eventlog/config.ts`;
  * - no `throw new Error` in `core/` or `eventlog/` (errors go through the tagged channel).
  *
- * Until IR-6 these rules covered the Deno platform (`platform/`), and a second group kept `node:sqlite`
+ * Until IR-6 these rules covered the Deno platform too, and a second group kept `node:sqlite`
  * out of the processes that opened files through the FFI SQLite binding (one SQLite copy per process).
  * The platform and the binding are gone, so that group went with them.
  *
