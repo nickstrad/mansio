@@ -74,7 +74,10 @@ Related rules:
 - Example: `e.lastGen = gen // never reuse a number we tried` (`vactor/writeback.go`). Since OS-05, the
   epoch in the name also rules out collisions between owners. An earlier activation of ours (before a
   restart) may have tried numbers this one does not know: on `ErrExists` for an object that is not ours,
-  `skipTaken` HEADs past the run at doubling strides. No LIST.
+  `skipTaken` HEADs past the run at doubling strides. No LIST. A HEAD that is neither found nor 404 (on AWS a
+  missing object answers 403 unless the identity has `s3:ListBucket`) makes it probe with the create-only PUT
+  itself at doubling strides: correct, but each probe is a full upload. Deployment: grant `s3:ListBucket` on the
+  key prefix (no LIST call is made) so HEAD answers 404.
 
 **I3. Write data first, publish it second, and trust only the published pointer.**
 - Why: S3 has no transactions across objects. Only a conditional write to one object makes a set of
@@ -212,8 +215,13 @@ only after a grace window.**
 - Why: every publish naming the orphan was conditional on a manifest version that no longer exists, and
   can never return (W3). The grace window bounds delayed requests. This is stronger than the book's
   "reachability manifest" (Ch 9), which works only if writers check that same object.
+- How the bound holds: a writer gives up on a request after `OpTimeout` (5 s) plus its transfer time, and on a
+  write-back after `WriteBackTimeout` (agentd: 60 s). The default grace is 10 min. That S3 applies no request
+  more than the grace after it was sent is an assumption about the server, not something the client enforces.
+  agentd uses the default grace (not configurable); `dbtool gc -grace` must not be shorter. The host keeps a
+  publish in doubt pending for the same grace (R3).
 - Example: `o.LastModified + grace < manifest.LastModified && now − o.LastModified > grace`, with
-  grace = 2 × `WriteBackTimeout`. `durable.Sweep` takes the manifest's LastModified from the listing and
+  grace = `durable.DefaultGCPolicy.Grace`. `durable.Sweep` takes the manifest's LastModified from the listing and
   skips the key if the listed version is not the one `ReadManifest` returns (it moved in between).
 
 **GC4. GC never writes the manifest, and never deletes from more than one key's prefix per decision.**

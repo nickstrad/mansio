@@ -603,22 +603,39 @@ func TestUploadSkipsGenerationsTakenByOrphans(t *testing.T) {
 	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
 		t.Fatal(err)
 	}
-	m, _ := r.s.Manifest("t/a")
-	for g := m.Generation + 1; g <= m.Generation+40; g++ { // a crashed incarnation's orphans
+	orphan := func(g, epoch uint64) {
 		path := filepath.Join(t.TempDir(), "orphan")
 		data := []byte(fmt.Sprintf("orphan%d", g))
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := r.s.PutGeneration(ctx, durable.NextManifest("t/a", g, m.Epoch, durabletest.DigestOf(data), time.Now()), path); err != nil {
+		if err := r.s.PutGeneration(ctx, durable.NextManifest("t/a", g, epoch, durabletest.DigestOf(data), time.Now()), path); err != nil {
 			t.Fatal(err)
 		}
+	}
+	m, _ := r.s.Manifest("t/a")
+	for g := m.Generation + 1; g <= m.Generation+40; g++ { // a crashed incarnation's orphans
+		orphan(g, m.Epoch)
 	}
 	r.restart()
 	r.put("t/a", "v2")
 	res, err := r.h.WriteBack(ctx, "t/a")
 	if err != nil || !res.Wrote || r.published("t/a") != "v2" || res.Generation <= m.Generation+40 {
 		t.Fatalf("write-back over 40 orphans = %+v, %v (published %q); want a generation above them", res, err, r.published("t/a"))
+	}
+
+	// Without s3:ListBucket a HEAD of a missing object is 403, not 404: the host probes with create-only PUTs
+	// at doubling strides instead (8 tries cover 255 taken numbers).
+	r.s.SetDenyMissingHead(true)
+	m, _ = r.s.Manifest("t/a")
+	for g := m.Generation + 1; g <= m.Generation+100; g++ {
+		orphan(g, m.Epoch)
+	}
+	r.restart()
+	r.put("t/a", "v3")
+	res, err = r.h.WriteBack(ctx, "t/a")
+	if err != nil || !res.Wrote || r.published("t/a") != "v3" || res.Generation <= m.Generation+100 {
+		t.Fatalf("write-back over 100 orphans, HEAD denied = %+v, %v (published %q)", res, err, r.published("t/a"))
 	}
 }
 

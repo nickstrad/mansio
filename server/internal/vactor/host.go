@@ -173,7 +173,8 @@ type Options struct {
 	// GC is owner-side retention (object-storage guide GC1, GC2): after each publish the host deletes the
 	// generations it published more than GC.Keep publishes ago (default 2; negative: keep none but the
 	// current). GC.Grace also bounds how long a publish whose outcome is unknown may still land: the host keeps it
-	// pending that long (maxPending); use the sweeper's (durable.Sweep) grace. Durable mode only.
+	// pending that long (maxPending). It must not exceed the sweeper's (durable.Sweep, dbtool -grace); agentd
+	// leaves it at the default (10 min, not configurable). Durable mode only.
 	GC durable.GCPolicy
 	// Workers bounds concurrent write-backs and passivations in Tick, PassivateAll and Close. Default 8.
 	Workers int
@@ -230,6 +231,9 @@ type Stats struct {
 	// RetentionFailures counts failed retention deletes (those objects are left to the orphan sweeper).
 	GenerationsDeleted int64
 	RetentionFailures  int64
+	// PublishesInDoubt counts write-backs and stamps that sent nothing because maxPending publishes of the key
+	// were in doubt (ErrInDoubt). Non-zero after an S3 brownout: those keys publish again within GC.Grace.
+	PublishesInDoubt int64
 
 	// Requests counts store requests by operation (durable.Op* names), retries included, when the Store
 	// counts them (durable.RequestCounter); nil otherwise. A Store shared by several hosts counts them all.
@@ -273,6 +277,7 @@ type Host struct {
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Clock; 0 = never
 	generationsDeleted, retentionFailures        atomic.Int64
+	publishesInDoubt                             atomic.Int64           // ErrInDoubt answers
 	requests                                     durable.RequestCounter // opts.Store, if it counts; else nil
 }
 
@@ -722,6 +727,7 @@ func (h *Host) Stats() Stats {
 
 		GenerationsDeleted: h.generationsDeleted.Load(),
 		RetentionFailures:  h.retentionFailures.Load(),
+		PublishesInDoubt:   h.publishesInDoubt.Load(),
 	}
 }
 

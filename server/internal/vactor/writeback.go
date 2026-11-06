@@ -295,7 +295,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		// Taken by an orphan we did not upload: a crashed incarnation of ours tried it (lastGen restarts at the
 		// manifest's generation) and may have tried the next ones too. Skip past them with HEADs, doubling the
 		// stride, rather than one upload per taken number (guide I2: any number above every tried one will do).
-		if err = h.skipTaken(ctx, key, e, gen); err != nil {
+		if err = h.skipTaken(ctx, key, e, gen, try); err != nil {
 			break
 		}
 	}
@@ -336,9 +336,12 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 // skipTaken raises e.lastGen past a run of taken generation numbers starting at gen (taken: its object
 // exists), probing gen+1, gen+2, gen+4, ... with StatGeneration (HEAD, not LIST: guide K2), so the next try
 // uses the first number found free. Numbers in between may stay unused: generations need only rise (W3).
+// A HEAD that neither finds the object nor says it is missing (S3 answers 403, not 404, for a missing object
+// when the identity lacks s3:ListBucket; or a failed call) proves nothing: the next try then probes with the
+// create-only PUT itself (safe: guide I1) at a stride that doubles with each try (try is the upload loop's).
 //
 //	pre: e.wb is held; the object of gen exists
-func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64) error {
+func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64, try int) error {
 	epoch := e.epoch.Load()
 	for stride := uint64(1); stride < 1<<40; stride *= 2 {
 		_, err := h.opts.Store.StatGeneration(ctx, durable.GenObject(key, gen+stride, epoch))
@@ -346,8 +349,11 @@ func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64) 
 		case errors.Is(err, durable.ErrNotFound):
 			e.lastGen = max(e.lastGen, gen+stride-1)
 			return nil
+		case ctx.Err() != nil:
+			return errs.Wrap(module, err, "generation %d of %s is taken and probing past it was cancelled", gen, key)
 		case err != nil:
-			return errs.Wrap(module, err, "generation %d of %s is taken and probing past it failed", gen, key)
+			e.lastGen = max(e.lastGen, gen+max(stride, uint64(1)<<(try+1))-1) // probe by PUT
+			return nil
 		}
 		e.lastGen = max(e.lastGen, gen+stride) // taken too: never try it
 	}
@@ -394,6 +400,9 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 // nothing and fails, safe to retry (at the latest once the oldest is past the grace window).
 const maxPending = 8
 
+// MaxPendingPublishes is maxPending: how many publishes of one key may be in doubt before ErrInDoubt.
+const MaxPendingPublishes = maxPending
+
 // publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
 // version, and records it in e. build also decides whether the publish is allowed (durable.CheckPublish,
 // durable.CheckStamp); a refusal returns its error. Write-back and Stamp both go through here, so they settle
@@ -439,6 +448,8 @@ func (h *Host) publishOnce(ctx context.Context, key string, e *entry, build func
 			return durable.Manifest{}, err
 		}
 	}
+	// Taken just before the real send, so a pending publish's recorded time errs early: it is dropped (grace
+	// window) no later than the bound requires.
 	now := h.opts.Clock.Now()
 	for try := 0; ; try++ {
 		var cur *durable.Manifest
@@ -502,8 +513,10 @@ func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 		horizon := h.opts.Clock.Now().Add(-h.opts.GC.Grace)
 		e.pending = slices.DeleteFunc(e.pending, func(p pendingPub) bool { return p.sent.Before(horizon) })
 		if len(e.pending) >= maxPending {
-			return errs.Wrap(module, ErrInDoubt, "cannot publish %s: %d earlier publishes of ours are in doubt and may still land; nothing sent, safe to retry once the oldest (sent %v) is past the grace window of %v",
-				key, len(e.pending), e.pending[0].sent, h.opts.GC.Grace)
+			h.publishesInDoubt.Add(1)
+			wait := e.pending[0].sent.Add(h.opts.GC.Grace).Sub(h.opts.Clock.Now())
+			return &hinted{after: max(wait, time.Second), err: errs.Wrap(module, ErrInDoubt, "cannot publish %s: %d earlier publishes of ours are in doubt and may still land; nothing sent, safe to retry once the oldest (sent %v) is past the grace window of %v",
+				key, len(e.pending), e.pending[0].sent, h.opts.GC.Grace)}
 		}
 	default:
 		e.stale.Store(true)

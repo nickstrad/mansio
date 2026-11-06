@@ -257,7 +257,7 @@ func classifyControl(err error) *controlError {
 	case errors.Is(err, owner.ErrIllegal):
 		return &controlError{"illegal", http.StatusConflict, "not allowed in the key's current state"}
 	case errors.Is(err, owner.ErrUnavailable), errors.Is(err, durable.ErrUnavailable), errors.Is(err, vactor.ErrBusy),
-		errors.Is(err, vactor.ErrClosed), errors.Is(err, pg.ErrUnavailable):
+		errors.Is(err, vactor.ErrInDoubt), errors.Is(err, vactor.ErrClosed), errors.Is(err, pg.ErrUnavailable):
 		return &controlError{"unavailable", http.StatusServiceUnavailable, "a dependency cannot do it now; nothing acknowledged, retry later"}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return &controlError{"timeout", http.StatusGatewayTimeout, "deadline passed; nothing acknowledged, safe to call again"}

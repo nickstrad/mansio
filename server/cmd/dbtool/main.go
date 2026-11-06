@@ -73,7 +73,7 @@ func realMain(ctx context.Context, args []string, getenv func(string) string, st
 	bucket := fs.String("bucket", "coldload", "bucket")
 	root := fs.String("root", "", "prefix before dbs/ (tests)")
 	keep := fs.Int("keep", durable.DefaultGCPolicy.Keep, "gc: generations kept below the current one (K)")
-	grace := fs.Duration("grace", durable.DefaultGCPolicy.Grace, "gc: grace window (2 × the agents' write-back timeout)")
+	grace := fs.Duration("grace", durable.DefaultGCPolicy.Grace, "gc: grace window; never shorter than the agents' (agentd uses the 10 min default)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "deadline for the whole command")
 	fs.Usage = func() { fmt.Fprintln(stderr, usage); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
