@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -565,5 +566,76 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not reached")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// fakeCreds accepts "legacy-<tenant>" as a credential of tenant, refuses everything else, and counts lookups.
+type fakeCreds struct {
+	mu      sync.Mutex
+	cached  map[string]bool
+	lookups int
+}
+
+func (c *fakeCreds) Authenticate(_ context.Context, token, app string) (string, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lookups++
+	if c.cached == nil {
+		c.cached = map[string]bool{}
+	}
+	c.cached[token] = true
+	if t, ok := strings.CutPrefix(token, "legacy-"); ok && app != "" {
+		return t, "session", nil
+	}
+	return "", "", ErrUnauthorized
+}
+
+func (c *fakeCreds) Cached(token string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cached[token]
+}
+
+// IR-5 (ADR 0012, multi-node half): an app resolve accepts what the tenancy port accepts (legacy keys,
+// sessions); the tenant comes from the credential (an empty request tenant takes it, another one is
+// forbidden); a raw database resolve still takes API keys only; uncached credentials are charged to the source.
+func TestCredentialsResolveApps(t *testing.T) {
+	creds := &fakeCreds{}
+	f := newFixture(t, Config{Credentials: creds, Limiter: ratelimit.NewSourceLimiter(1, 3, 100)})
+	f.st.set("globex:notes", Placement{Intent: "active", Found: true, VM: "vm-b", Endpoint: "10.0.0.2:7070", Epoch: 2})
+	ctx := context.Background()
+
+	r, err := f.l.Resolve(ctx, Request{Name: "notes", App: true, APIKey: "legacy-globex", Source: "s"})
+	if err != nil || r.DB != "globex:notes" || r.Tenant != "globex" || r.Perms != "read|write" {
+		t.Fatalf("empty tenant takes the credential's: %+v %v", r, err)
+	}
+	if c, err := ticket.Parse(r.Ticket); err != nil || c.TID != "globex" || c.DBID != "globex:notes" || c.Sub != "session" {
+		t.Fatalf("ticket %+v %v", c, err)
+	}
+	if _, err := f.l.Resolve(ctx, Request{Tenant: "acme", Name: "db", App: true, APIKey: "legacy-globex", Source: "s"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("another tenant: %v", err)
+	}
+	if _, err := f.l.Resolve(ctx, Request{Tenant: "globex", Name: "notes", APIKey: "legacy-globex", Source: "s"}); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("raw database resolve with a non-API-key credential: %v", err)
+	}
+	// The API key path is unchanged with credentials configured, and an empty tenant takes the key's.
+	if r, err := f.l.Resolve(ctx, Request{Name: "db", App: true, APIKey: f.key, Source: "s"}); err != nil || r.DB != "acme:db" {
+		t.Fatalf("api key, empty tenant: %+v %v", r, err)
+	}
+	// Create on first use answers the credential's database to create.
+	r, err = f.l.Resolve(ctx, Request{Name: "fresh", App: true, Create: true, APIKey: "legacy-globex", Source: "s"})
+	if !errors.Is(err, ErrCreatable) || r.DB != "globex:fresh" || r.Tenant != "globex" {
+		t.Fatalf("creatable: %+v %v", r, err)
+	}
+	// Uncached garbage: one token per lookup (the burst was 3: legacy-globex and the API key spent two).
+	before := creds.lookups
+	_, err1 := f.l.Resolve(ctx, Request{Name: "notes", App: true, APIKey: "junk-1", Source: "s"})
+	_, err2 := f.l.Resolve(ctx, Request{Name: "notes", App: true, APIKey: "junk-2", Source: "s"})
+	if !errors.Is(err1, ErrUnauthorized) || !errors.Is(err2, ErrRateLimited) || creds.lookups != before+1 {
+		t.Fatalf("garbage: %v, %v, lookups %d", err1, err2, creds.lookups-before)
+	}
+	// A cached credential is never charged.
+	if _, err := f.l.Resolve(ctx, Request{Name: "notes", App: true, APIKey: "legacy-globex", Source: "s"}); err != nil {
+		t.Fatalf("cached credential with the source out of tokens: %v", err)
 	}
 }

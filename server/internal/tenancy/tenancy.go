@@ -152,8 +152,11 @@ type Config struct {
 	AppTokens map[string]string
 	OffTenant string // off mode's tenant; default "default"
 	// Apps are the apps a credential may be used for (api-key and session modes; off mode: AppTokens' keys).
-	// Any other app is refused (mismatch) before the database is looked up or created. Required.
+	// Any other app is refused (mismatch) before the database is looked up or created. Required unless AnyApp.
 	Apps []string
+	// AnyApp accepts credentials for every app: the caller checks the app itself (controld: an app must have
+	// registered a schema before a database of it is created). Apps must then be empty.
+	AnyApp bool
 	// CacheTTL bounds how long a credential's answer is reused (and how long another process may still
 	// accept a revoked key); default 1 s. CacheMax bounds the entries; default 10 000.
 	CacheTTL time.Duration
@@ -221,8 +224,11 @@ func New(store Store, cfg Config) (*Service, error) {
 			problems = append(problems, fmt.Sprintf("app %q: token shorter than %d bytes", app, minToken))
 		}
 	}
-	if cfg.Mode != Off && len(cfg.Apps) == 0 {
+	if cfg.Mode != Off && len(cfg.Apps) == 0 && !cfg.AnyApp {
 		problems = append(problems, "api-key and session modes need the apps credentials may reach")
+	}
+	if cfg.AnyApp && (len(cfg.Apps) > 0 || cfg.Mode == Off) {
+		problems = append(problems, "any_app goes with api-key or session mode and no apps list")
 	}
 	if cfg.Mode != Off && store == nil {
 		problems = append(problems, "api-key and session modes need a store")

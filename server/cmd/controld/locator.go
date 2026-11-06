@@ -128,10 +128,13 @@ type resolveAnswer struct {
 }
 
 // resolve is POST /v1/resolve (Authorization: Bearer <api key>; body {"tenant", "db"[, "min_epoch"]}, or
-// {"tenant", "app"[, "create"][, "min_epoch"]} for an app's database tenant:app, ADR 0011). It runs under
+// {["tenant",] "app"[, "create"][, "min_epoch"]} for an app's database tenant:app, ADR 0011). It runs under
 // locator.timeout with its own bulkhead (locator.concurrency): resolves never queue behind admin calls. With
-// "create": true a missing app database is created on first use when the key may write and the app has a
-// registered schema (schemas.go); the answer may then be moving + Retry-After while its owner claims it.
+// "create": true a missing app database is created on first use when the key may write, the app has a
+// registered schema (schemas.go) and the caps allow (tenancy.go); the answer may then be moving + Retry-After
+// while its owner claims it. An app resolve may omit "tenant" (the credential's), and with a "tenancy"
+// section may carry any credential tenancy accepts (tenancy.go); a "tenant" other than the credential's is
+// forbidden.
 func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	d.call(w, r, d.resolveSem, &d.resolveShed, d.cfg.Locator.Timeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
@@ -148,11 +151,14 @@ func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 		if (req.DB == "") == (req.App == "") || req.Create && req.App == "" {
 			return nil, errBadRequest(`give exactly one of "db" and "app"; "create" goes with "app"`)
 		}
-		name := req.DB + req.App
-		if !pg.ValidTenant(req.Tenant) || !pg.ValidName(name) {
-			return nil, errBadRequest("tenant and db (or app) must be a valid tenant id and database name")
+		name, app := req.DB+req.App, req.App != ""
+		if !pg.ValidTenant(req.Tenant) && !(app && req.Tenant == "") || !pg.ValidName(name) {
+			return nil, errBadRequest("tenant (optional with app) and db (or app) must be a valid tenant id and database name")
 		}
-		rt, err := d.resolveApp(ctx, locator.Request{Tenant: req.Tenant, Name: name, APIKey: key, MinEpoch: req.MinEpoch,
+		if app && !d.appAllowed(name) {
+			return nil, &apiError{"not_found", http.StatusNotFound, "no such database: app " + name + " is not in tenancy.apps", false}
+		}
+		rt, err := d.resolveApp(ctx, locator.Request{Tenant: req.Tenant, Name: name, App: app, APIKey: key, MinEpoch: req.MinEpoch,
 			Source: r.RemoteAddr, Create: req.Create})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, &apiError{"timeout", http.StatusGatewayTimeout, "resolve deadline passed; retry with backoff", false}

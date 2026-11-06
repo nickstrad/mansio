@@ -35,7 +35,7 @@ func (s *Service) Authenticate(ctx context.Context, token, app string) (Principa
 		return Principal{}, &AuthError{Reason: ReasonMalformed}
 	case s.cfg.Mode == Off:
 		return s.appToken(token, app)
-	case !s.apps[app]:
+	case !s.cfg.AnyApp && !s.apps[app]:
 		return Principal{}, &AuthError{Reason: ReasonMismatch} // not an app this agent serves: no lookup, no cache
 	}
 	now := s.cfg.Clock.Now()
@@ -55,6 +55,17 @@ func (s *Service) Authenticate(ctx context.Context, token, app string) (Principa
 		s.remember(h, gen, cached{p: p, err: err, expires: now.Add(s.cfg.CacheTTL)})
 	}
 	return p, err
+}
+
+// Cached reports whether token's answer (an acceptance or a refusal) is cached and fresh: Authenticate then
+// reads no store. Callers that rate-limit store reads charge only uncached tokens.
+func (s *Service) Cached(token string) bool {
+	h := sha256.Sum256([]byte(token))
+	now := s.cfg.Clock.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, hit := s.cache[h]
+	return hit && now.Before(c.expires)
 }
 
 // appToken is off mode: token must be app's own token (constant time, also for an unknown app).

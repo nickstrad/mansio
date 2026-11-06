@@ -90,7 +90,11 @@ func schemaDaemon(t *testing.T, store schemaStore) (*httptest.Server, *daemon) {
 	d := &daemon{cfg: &cfg, log: slog.New(slog.NewTextHandler(io.Discard, nil)), token: adminToken, control: controlToken,
 		sem: make(chan struct{}, 4), resolveSem: make(chan struct{}, 4), schemas: store}
 	d.ready.Store(true)
-	srv := httptest.NewServer(d.routes(metrics.NewRegistry()))
+	h, err := d.routes(metrics.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv, d
 }

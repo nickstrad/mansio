@@ -145,19 +145,24 @@ func (d *daemon) createAppDatabase(ctx context.Context, tenant, app string) (con
 	return d.ctl.Create(ctx, tenant, app)
 }
 
-// resolveApp is resolve for (tenant, app) with create on first use: when the locator says the key may create
-// the missing database (locator.ErrCreatable), it is created (createAppDatabase) and resolved again from the
-// primary. Creating runs under the resolve deadline; if that passes, the create is recorded and resumes (the
-// lifecycle controller finishes pending creates), and the client's next resolve follows it.
+// resolveApp is resolve for (tenant, app) with create on first use: when the locator says the credential may
+// create the missing database (locator.ErrCreatable, naming the credential's tenant), it is created
+// (createAppDatabase) within the caps (checkCaps) and resolved again from the primary. Creating runs under the
+// resolve deadline; if that passes, the create is recorded and resumes (the lifecycle controller finishes
+// pending creates), and the client's next resolve follows it.
 func (d *daemon) resolveApp(ctx context.Context, req locator.Request) (locator.Route, error) {
 	rt, err := d.loc.Resolve(ctx, req)
 	if !req.Create || !errors.Is(err, locator.ErrCreatable) {
 		return rt, err
 	}
-	if _, err := d.createAppDatabase(ctx, req.Tenant, req.Name); err != nil {
+	if err := d.checkCaps(ctx, rt.Tenant); err != nil {
 		return locator.Route{}, err
 	}
-	d.log.Info("app database created on first use", "event", "CONTROLD.APP_DATABASE_CREATED", "db", req.Tenant+":"+req.Name)
+	if _, err := d.createAppDatabase(ctx, rt.Tenant, req.Name); err != nil {
+		return locator.Route{}, err
+	}
+	d.log.Info("app database created on first use", "event", "CONTROLD.APP_DATABASE_CREATED", "db", rt.DB)
+	req.Tenant = rt.Tenant
 	req.MinEpoch = max(req.MinEpoch, 1) // read the primary: a replica may not have the new row yet
 	return d.loc.Resolve(ctx, req)
 }

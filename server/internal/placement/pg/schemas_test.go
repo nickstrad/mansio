@@ -106,3 +106,28 @@ func TestSchemaRegistryConcurrent(t *testing.T) {
 		t.Fatalf("%d registrations reported created, want 2 (one per app)", n)
 	}
 }
+
+// CountDatabases counts live databases, of one tenant and in all; dropped ones do not count.
+func TestCountDatabases(t *testing.T) {
+	p, _ := newPlacement(t, nil)
+	for _, k := range [][2]string{{"acme", "a"}, {"acme", "b"}, {"globex", "a"}} {
+		if _, err := p.CreateDatabase(ctx, k[0], k[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, all, err := p.CountDatabases(ctx, "acme"); err != nil || n != 2 || all != 3 {
+		t.Fatalf("acme: %d of %d, %v", n, all, err)
+	}
+	if err := p.SetDatabaseState(ctx, "acme:b", "creating", "dropped", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n, all, err := p.CountDatabases(ctx, "acme"); err != nil || n != 1 || all != 2 {
+		t.Fatalf("after a drop: %d of %d, %v", n, all, err)
+	}
+	if n, _, err := p.CountDatabases(ctx, "nobody"); err != nil || n != 0 {
+		t.Fatalf("unknown tenant: %d, %v", n, err)
+	}
+	if _, _, err := p.CountDatabases(ctx, "Bad"); !errors.Is(err, owner.ErrInvalid) {
+		t.Fatalf("bad tenant: %v", err)
+	}
+}

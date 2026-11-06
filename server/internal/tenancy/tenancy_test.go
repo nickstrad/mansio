@@ -56,6 +56,8 @@ func TestConfigRefusals(t *testing.T) {
 		"session ttl too low": {Mode: tenancy.Sessions, SessionTTL: time.Second, Apps: []string{"a"}},
 		"negative cache ttl":  {Mode: tenancy.APIKeys, CacheTTL: -1, Apps: []string{"a"}},
 		"no apps":             {Mode: tenancy.APIKeys},
+		"any app and apps":    {Mode: tenancy.APIKeys, AnyApp: true, Apps: []string{"a"}},
+		"any app in off mode": {Mode: tenancy.Off, AnyApp: true, AppTokens: map[string]string{"app": "0123456789abcdef"}},
 	} {
 		var store tenancy.Store = f
 		if name == "api-key, no store" {
@@ -348,5 +350,36 @@ func TestAppsAllowlistAndShapeRefusals(t *testing.T) {
 	}
 	if f.Calls != before || tenancy.CacheLen(s) != 0 {
 		t.Fatalf("%d store calls, %d cached, want none", f.Calls-before, tenancy.CacheLen(s))
+	}
+}
+
+// AnyApp (controld): every app reaches the store, which still decides; Cached says when a token needs no read.
+func TestAnyAppAndCached(t *testing.T) {
+	s, f, clock := newService(t, tenancy.APIKeys, func(c *tenancy.Config) { c.Apps, c.AnyApp = nil, true })
+	tn, key, err := s.CreateTenant(ctx, "Acme", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Cached(key.Plaintext) {
+		t.Fatal("cached before any use")
+	}
+	if p, err := s.Authenticate(ctx, key.Plaintext, "never-listed"); err != nil || p.Tenant != tn.ID {
+		t.Fatalf("any app: %+v %v", p, err)
+	}
+	if !s.Cached(key.Plaintext) {
+		t.Fatal("not cached after use")
+	}
+	reason(t, func() error { _, err := s.Authenticate(ctx, "mansio_0123456789abcdef_"+strings.Repeat("A", 43), "x"); return err }())
+	if !s.Cached("mansio_0123456789abcdef_" + strings.Repeat("A", 43)) {
+		t.Fatal("a refusal the store decided is cached")
+	}
+	before := f.Calls
+	s.Authenticate(ctx, key.Plaintext, "other")
+	if f.Calls != before {
+		t.Fatal("a cached token read the store")
+	}
+	clock.Advance(2 * time.Second)
+	if s.Cached(key.Plaintext) {
+		t.Fatal("cached past cache_ttl")
 	}
 }

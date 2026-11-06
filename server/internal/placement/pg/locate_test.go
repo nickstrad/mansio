@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
 func TestLocate(t *testing.T) {
@@ -70,6 +71,18 @@ func TestAPIKeyRegistry(t *testing.T) {
 	}
 	if err := p.RevokeAPIKey(ctx, "ffffffffffffffff"); !errors.Is(err, owner.ErrNotFound) {
 		t.Fatalf("revoke missing key: %v", err)
+	}
+
+	// A deactivated tenant gets no new key (IR-5; tenancy_create_key.sql has the same rule).
+	if _, err := p.Tenancy().DeactivateTenant(ctx, "acme"); err != nil {
+		t.Fatal(err)
+	}
+	k2 := APIKey{ID: "fedcba9876543210", Tenant: "acme", Principal: "late", Perms: 3, Hash: [32]byte{4}}
+	if err := p.CreateAPIKey(ctx, k2); !errors.Is(err, tenancy.ErrDeactivated) {
+		t.Fatalf("deactivated tenant: %v", err)
+	}
+	if _, err := p.GetAPIKey(ctx, k2.ID); !errors.Is(err, owner.ErrNotFound) {
+		t.Fatalf("a key was stored for a deactivated tenant: %v", err)
 	}
 }
 

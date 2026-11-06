@@ -58,3 +58,15 @@ func (p *Placement) AppRegistered(ctx context.Context, app string) (bool, error)
 	})
 	return ok, err
 }
+
+// CountDatabases returns the live (not dropped) databases of tenant, and in all: create on first use checks its
+// caps with them.
+func (p *Placement) CountDatabases(ctx context.Context, tenant string) (tenantLive, total int64, err error) {
+	if !ValidTenant(tenant) {
+		return 0, 0, errs.Wrap(module, owner.ErrInvalid, "cannot count databases of tenant %q: a tenant must match %s; nothing sent", tenant, tenantPattern)
+	}
+	err = p.call(ctx, "count databases of tenant", tenant, retryRead, func(ctx context.Context) error {
+		return p.pool.QueryRow(ctx, q.countDatabases, tenant).Scan(&tenantLive, &total)
+	})
+	return tenantLive, total, err
+}

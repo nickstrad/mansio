@@ -45,6 +45,19 @@ type Store interface {
 	APIKey(ctx context.Context, id string) (StoredKey, error)
 }
 
+// Credentials authenticates the bearers that are not this package's API keys: the Deno platform's legacy keys
+// and user sessions (internal/tenancy, ADR 0012). Such a credential reaches its tenant's database of an app,
+// read and write; it never resolves a raw database name.
+//
+//	Authenticate(token, app): post: err == nil ⇒ tenant != ""; a refusal matches ErrUnauthorized; anything
+//	                          else is the store's failure (unavailable)
+//	Cached(token):            whether token's answer is cached (an uncached one costs a store read, so the
+//	                          Limiter charges its source first)
+type Credentials interface {
+	Authenticate(ctx context.Context, token, app string) (tenant, sub string, err error)
+	Cached(token string) bool
+}
+
 // Signer mints tickets with the current signing key (*ticket.Signer).
 type Signer interface {
 	Mint(c ticket.Claims) (string, error)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
 // The locator's reads and the API-key registry (CP-5; schema 0003, 0004).
@@ -91,15 +92,25 @@ var principalRE = regexp.MustCompile(PrincipalPattern)
 func ValidPrincipal(s string) bool { return principalRE.MatchString(s) }
 
 // CreateAPIKey stores a key's row (creating the tenant if new). Invalid fields match owner.ErrInvalid
-// (nothing sent); a duplicate id matches ErrInvariant.
+// (nothing sent); a duplicate id matches ErrInvariant; a deactivated tenant matches tenancy.ErrDeactivated
+// (nothing stored).
 func (p *Placement) CreateAPIKey(ctx context.Context, k APIKey) error {
 	if !ValidTenant(k.Tenant) || !ValidPrincipal(k.Principal) || k.Perms < 1 || k.Perms > 3 || len(k.ID) != 16 {
 		return errs.Wrap(module, owner.ErrInvalid, "cannot create api key: tenant must match %s, principal %s, perms 1..3; nothing sent",
 			tenantPattern, PrincipalPattern)
 	}
 	return p.call(ctx, "create api key", k.ID, retryWrite, func(ctx context.Context) error {
-		var id string
-		return p.pool.QueryRow(ctx, q.createAPIKey, k.ID, k.Tenant, k.Principal, k.Hash[:], int16(k.Perms)).Scan(&id)
+		var status, id *string
+		if err := p.pool.QueryRow(ctx, q.createAPIKey, k.ID, k.Tenant, k.Principal, k.Hash[:], int16(k.Perms)).Scan(&status, &id); err != nil {
+			return err
+		}
+		switch {
+		case id != nil:
+			return nil
+		case status == nil: // the tenant was created by a concurrent statement this one's snapshot cannot see
+			return fmt.Errorf("%w: tenant created concurrently; retry", owner.ErrConflict)
+		}
+		return tenancy.ErrDeactivated // nothing stored
 	})
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
@@ -87,7 +88,19 @@ type Config struct {
 			Burst      float64 `json:"burst"`              // default 50
 			MaxSources int     `json:"max_sources"`        // default 100 000
 		} `json:"rate_limit"`
+		// MaxDBs and MaxDBsPerTenant cap create on first use (a resolve with "create"; Release It S, B6): past
+		// either, live databases (not dropped) in the registry, the answer is quota_exceeded (429) and nothing
+		// is created. Defaults 10 000 and 100, as agentd's single-node create_dbs. Explicit creates are not
+		// capped (the operator decides). Concurrent first uses may pass a cap by up to locator.concurrency.
+		MaxDBs          int `json:"max_dbs"`
+		MaxDBsPerTenant int `json:"max_dbs_per_tenant"`
 	} `json:"locator"`
+
+	// Tenancy, if set, makes resolve accept the credentials of mansio's tenancy (internal/tenancy, ADR 0012)
+	// for app databases: legacy (Deno platform) API keys and, in session mode, user sessions; new API keys
+	// always work. It also serves the tenant admin API (/admin/tenants…, the admin token) and, in session
+	// mode, /api/auth sign-up and sign-in. The tables live in controld's schema.
+	Tenancy *TenancyConfig `json:"tenancy"`
 
 	// TicketKeys is the issuer's Ed25519 key ring: one file per key in dir (0700, files 0600; never shared with
 	// agents, which fetch the public keys from GET /v1/keys). A key is created every rotate, published at
@@ -109,6 +122,16 @@ type Config struct {
 	LogLevel string `json:"log_level"` // debug | info (default) | warn
 }
 
+// TenancyConfig is controld's "tenancy" section.
+type TenancyConfig struct {
+	Mode string `json:"mode"` // api-key | session
+	// Apps, if set, are the only apps any credential may resolve or create; default every app with a
+	// registered schema (a database is only created for one).
+	Apps       []string      `json:"apps"`
+	CacheTTL   load.Duration `json:"cache_ttl"`   // a credential's answer reused this long; default 1 s
+	SessionTTL load.Duration `json:"session_ttl"` // a new session's lifetime; default 7 days
+}
+
 // AgentConfig is one agent: its VM id, the query endpoint clients reach (host:port, recorded in the
 // registry), and its lifecycle listener (a URL).
 type AgentConfig struct {
@@ -127,6 +150,7 @@ func defaults() Config {
 	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
 	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
 	c.Locator.RateLimit.PerSecond, c.Locator.RateLimit.Burst, c.Locator.RateLimit.MaxSources = 20, 50, 100_000
+	c.Locator.MaxDBs, c.Locator.MaxDBsPerTenant = 10_000, 100
 	c.Locator.MovingRetry, c.Locator.ClaimRetry, c.Locator.ListenPing = d(time.Second), d(50*time.Millisecond), d(5*time.Second)
 	c.TicketKeys.Rotate, c.TicketKeys.Activate, c.TicketKeys.Check = d(24*time.Hour), d(5*time.Minute), d(time.Minute)
 	return c
@@ -193,6 +217,22 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if lc.CacheMax < 1 || lc.Concurrency < 1 || tk.Activate.Duration < 0 {
 		bad("locator.cache_max and locator.concurrency must be >= 1, ticket_keys.activate >= 0")
+	}
+	if lc.MaxDBs < 1 || lc.MaxDBsPerTenant < 1 {
+		bad("locator.max_dbs and locator.max_dbs_per_tenant must be >= 1")
+	}
+	if t := c.Tenancy; t != nil {
+		if m, ok := tenancy.ParseMode(t.Mode); !ok || m == tenancy.Off {
+			bad("tenancy.mode %q: want api-key or session (off mode's app tokens are single-node)", t.Mode)
+		}
+		for _, a := range t.Apps {
+			if !pg.ValidName(a) {
+				bad("tenancy.apps: %q is not an app name", a)
+			}
+		}
+		if t.CacheTTL.Duration < 0 || t.SessionTTL.Duration < 0 {
+			bad("tenancy: cache_ttl and session_ttl must be >= 0")
+		}
 	}
 	if tk.Rotate.Duration <= tk.Activate.Duration {
 		bad("ticket_keys.rotate %v must exceed ticket_keys.activate %v", tk.Rotate, tk.Activate)
