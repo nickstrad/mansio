@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,6 +90,66 @@ func TestClusterSameSeedSameTrace(t *testing.T) {
 				}
 			}
 			t.Fatalf("seed %d: traces differ in length: %d vs %d lines", seed, len(a.Trace), len(b.Trace))
+		})
+	}
+}
+
+// MANSIO_SIM_SHRINK=s shrinks failing cluster seed s (sim.ShrinkCluster; MANSIO_SIM_SWARM as for the run) and
+// prints the smallest failing config. MANSIO_SIM_SAVE=1 writes it as testdata/cluster/seed-<s>.json, the
+// regression vector to commit with the fix.
+func TestClusterShrink(t *testing.T) {
+	s := os.Getenv("MANSIO_SIM_SHRINK")
+	if s == "" {
+		t.Skip("set MANSIO_SIM_SHRINK=<seed> to shrink a failing cluster seed")
+	}
+	seed, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		t.Fatalf("MANSIO_SIM_SHRINK=%q: %v", s, err)
+	}
+	cfg := sim.ClusterConfig{Seed: seed, Swarm: os.Getenv("MANSIO_SIM_SWARM") != ""}
+	res := runCluster(t, cfg)
+	if !clusterFailed(res) {
+		t.Fatalf("seed %d passes: nothing to shrink", seed)
+	}
+	runs := 1
+	small, sres := sim.ShrinkCluster(cfg, res, func(c sim.ClusterConfig) sim.ClusterResult { runs++; return runCluster(t, c) },
+		func(s string) { t.Log(s) })
+	t.Logf("seed %d shrunk in %d runs to: %s", seed, runs, sres.Settings)
+	for _, op := range small.Script {
+		t.Logf("  op %s", op)
+	}
+	for _, v := range sres.Violations {
+		t.Logf("  %s", v)
+	}
+	if os.Getenv("MANSIO_SIM_SAVE") != "" {
+		path := fmt.Sprintf("testdata/cluster/seed-%d.json", seed)
+		why := ""
+		if len(sres.Violations) > 0 {
+			why = sres.Violations[0].What
+		}
+		if err := os.MkdirAll("testdata/cluster", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := sim.WriteVector(path, sim.Vector{Name: fmt.Sprintf("seed-%d", seed), Why: why, Config: small}); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s (edit its why, commit it with the fix)", path)
+	}
+}
+
+// TestClusterVectors replays every committed regression vector (shrunk failures since fixed): each must pass.
+func TestClusterVectors(t *testing.T) {
+	paths, _ := filepath.Glob("testdata/cluster/*.json")
+	for _, path := range paths {
+		v, err := sim.ReadVector(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(v.Name, func(t *testing.T) {
+			t.Parallel()
+			if res := runCluster(t, v.Config); clusterFailed(res) {
+				reportCluster(t, res, fmt.Sprintf("go test ./internal/sim -run 'TestClusterVectors/%s' -v  (%s)", v.Name, v.Why))
+			}
 		})
 	}
 }

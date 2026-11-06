@@ -566,7 +566,7 @@ func (w *cworld) callFaults(op, key string, f durabletest.Faults) durabletest.Fa
 // startNemesis schedules the run's operations: the given script, or each class's own exponential schedule
 // (each from its own stream, so turning one class off leaves the others' schedules alone).
 func (w *cworld) startNemesis() {
-	if w.s.Script != nil {
+	if w.s.Scripted {
 		for _, op := range w.s.Script {
 			w.at(max(op.At-w.clk.Now().Sub(w.t0), 0), op.Kind, func() { w.apply(op) })
 		}

@@ -1,0 +1,53 @@
+{
+  "name": "move-handoff",
+  "why": "A graceful move must lose nothing. Shrunk (TestClusterShrink) from seed 1 under the mutant \"owner.Table.Fence skips its final write-back\"; with the mutant every write acknowledged since the last tick write-back was lost at the destination's claim. Passes on the real code; kept as the move hand-off regression (one move, one client, 10 s).",
+  "config": {
+    "Seed": 1,
+    "Duration": 10000000000,
+    "VMs": 4,
+    "DBs": 1,
+    "Clients": 1,
+    "Policy": {
+      "WriteBackEvery": 2000000000,
+      "WriteBackCommits": 0,
+      "IdleAfter": 60000000000,
+      "MaxActive": 0,
+      "MaxBytes": 0
+    },
+    "Tick": 1000000000,
+    "Faults": {
+      "Drop": 0,
+      "Duplicate": 0,
+      "Spike": 0,
+      "SpikeMax": 200000000,
+      "Stall": 0,
+      "StallMax": 0,
+      "FailCall": 0,
+      "LoseReply": 0,
+      "PartitionEvery": 60000000000,
+      "PartitionMax": 15000000000,
+      "KillEvery": 30000000000,
+      "RestartMax": 1000000000,
+      "AttestDead": 0.3,
+      "MoveEvery": 10000000000,
+      "CreateEvery": 60000000000,
+      "RotateEvery": 60000000000,
+      "CacheLossEvery": 60000000000,
+      "StormEvery": 0,
+      "StormMax": 0,
+      "PGDownEvery": 60000000000,
+      "PGDownMax": 10000000000,
+      "Notify": 0
+    },
+    "RPO": 4000000000,
+    "Swarm": false,
+    "Scripted": true,
+    "Script": [
+      {
+        "at": 8371599423,
+        "kind": "move",
+        "node": "t:db0"
+      }
+    ]
+  }
+}

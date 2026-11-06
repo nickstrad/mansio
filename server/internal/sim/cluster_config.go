@@ -28,9 +28,10 @@ type ClusterConfig struct {
 	// each class off with probability 1/3): swarm testing (Groce et al.), so runs differ in which faults
 	// dominate.
 	Swarm bool
-	// Script, if set, replaces the drawn nemesis schedule (create, move, kill, …) with these operations: the
-	// op script a shrink cuts down (ClusterResult.Script is the schedule a run drew).
-	Script []Op
+	// Scripted replaces the drawn nemesis schedule (create, move, kill, …) with Script, the op script a shrink
+	// cuts down (ClusterResult.Script is the schedule a run drew; an empty Script means no operations).
+	Scripted bool
+	Script   []Op
 	// KeepGoing runs to the end after a violation (default: stop at the first one).
 	KeepGoing bool `json:"-"`
 }

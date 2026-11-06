@@ -46,7 +46,8 @@
 // adds split brain (one VM per epoch, epochs rising in commit order), loss across a graceful move, loss at a
 // kill -9 beyond the RPO, and per-database linearizability (internal/linearize). Requests reaching an actor
 // pass a door (doors, cluster_agent.go) that the loop opens one per step, so requests woken together reach
-// the actor in arrival order.
+// the actor in arrival order. ShrinkCluster (DST-3) cuts a failing run down to a small op script; Vector
+// files under testdata/cluster replay fixed failures.
 //
 // Run must be called inside a synctest bubble (synctest.Test). Error module: "sim" (it returns violations, not
 // wrapped errors).
