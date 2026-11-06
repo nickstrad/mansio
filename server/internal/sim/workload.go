@@ -49,9 +49,9 @@ type Answer struct {
 type Agent interface {
 	// Front is the request pipeline (today's raw-SQL path, the /v1/query body).
 	Front() *front.Server
-	// IR hook (IR-2b): add the /v1/ops entry point here (e.g. Ops() returning docexec's handler or a
-	// front.Server wired with the docexec Executor), set it in agent.go next to Front, and write an IR
-	// workload whose Send posts IR requests to it.
+	// Ops is the same pipeline with the document protocol (/v1/ops, front.Server.HandleOps) enabled, when the
+	// workload is a front.SchemaSource (IR is); nil otherwise.
+	Ops() *front.Server
 }
 
 // Workload is the port between the simulated clients and the checker: how a database starts, how a request

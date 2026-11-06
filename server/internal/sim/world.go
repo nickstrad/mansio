@@ -251,19 +251,25 @@ func (w *world) checkGenerations() {
 
 // marks reads the generation m names, as a restarted process would start from it.
 func (w *world) marks(m durable.Manifest) ([]string, error) {
+	return oracleMarks(w.store, w.s.Dir, m, w.s.Workload.Observe)
+}
+
+// oracleMarks lists the marks in the generation m names (none for generation 0): the object is copied to
+// dir/oracle.db and read with observe.
+func oracleMarks(store *durabletest.Store, dir string, m durable.Manifest, observe func(path string) ([]string, error)) ([]string, error) {
 	if m.Generation == 0 {
 		return nil, nil
 	}
-	data, ok := w.store.Object(m.Object)
+	data, ok := store.Object(m.Object)
 	if !ok {
 		return nil, fmt.Errorf("object %s is missing", m.Object)
 	}
-	path := filepath.Join(w.s.Dir, "oracle.db")
+	path := filepath.Join(dir, "oracle.db")
 	defer os.Remove(path)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return nil, err
 	}
-	return w.s.Workload.Observe(path)
+	return observe(path)
 }
 
 // crash kills the running incarnation, if any, and checks what a restart will start from.

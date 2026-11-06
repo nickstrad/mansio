@@ -161,3 +161,19 @@ front-fuzz:
 
 front-bench:
 	LOCK_WHO=front scripts/lock.sh results/.bench-lock scripts/front/bench.sh
+
+# ---------------------------------------------------------------------------------------------------------
+# sim (owner: DST builder): deterministic simulation, IR protocol plan §6.4. knowledge/determinism/
+#
+#   make sim-test                        the simulations' default seeds (DST-1 single node, DST-2 cluster)
+#   make sim-swarm SEEDS=2000            DST-3 nightly swarm: many seeds, varied fault rates, shrink failures
+
+SEEDS ?= 2000
+
+.PHONY: sim-test sim-swarm
+
+sim-test:
+	go test -count=1 ./internal/sim
+
+sim-swarm:
+	scripts/sim-swarm.sh $(SEEDS)

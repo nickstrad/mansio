@@ -14,7 +14,10 @@ import (
 
 // Seeds to run: MANSIO_SIM_SEED=s runs that one seed; MANSIO_SIM_SEEDS=n runs n seeds from
 // MANSIO_SIM_FIRST (default 1). Default: defaultSeeds (8; 3 under -race), so `go test ./...` stays quick.
-func seeds(t *testing.T) []uint64 {
+func seeds(t *testing.T) []uint64 { return seedsN(t, defaultSeeds) }
+
+// seedsN is seeds with def seeds by default.
+func seedsN(t *testing.T, def int) []uint64 {
 	if s := os.Getenv("MANSIO_SIM_SEED"); s != "" {
 		v, err := strconv.ParseUint(s, 10, 64)
 		if err != nil {
@@ -22,7 +25,7 @@ func seeds(t *testing.T) []uint64 {
 		}
 		return []uint64{v}
 	}
-	n, first := uint64(defaultSeeds), uint64(1)
+	n, first := uint64(def), uint64(1)
 	for name, p := range map[string]*uint64{"MANSIO_SIM_SEEDS": &n, "MANSIO_SIM_FIRST": &first} {
 		if s := os.Getenv(name); s != "" {
 			v, err := strconv.ParseUint(s, 10, 64)
@@ -83,13 +86,41 @@ func TestSeeds(t *testing.T) {
 	}
 }
 
-// The same seed gives a byte-identical trace: every run of it, under -race and -count=N too.
-func TestSameSeedSameTrace(t *testing.T) {
-	for seed := range uint64(determinismSeeds) {
-		seed++
+// TestIRSeeds is DST-1 with the document-protocol workload: the same checker over /v1/ops and docexec.
+func TestIRSeeds(t *testing.T) {
+	for _, seed := range seedsN(t, defaultIRSeeds) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
 			t.Parallel()
-			a, b := run(t, sim.Config{Seed: seed}), run(t, sim.Config{Seed: seed})
+			res := run(t, sim.Config{Seed: seed, Workload: &sim.IR{}})
+			if res.Err == nil && len(res.Violations) == 0 {
+				if res.Stats.Acked == 0 {
+					t.Fatalf("seed %d: no write acknowledged: %+v", seed, res.Stats)
+				}
+				t.Logf("seed %d: %+v", seed, res.Stats)
+				return
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "seed %d failed (%s)\n", seed, res.Settings)
+			for _, v := range res.Violations {
+				fmt.Fprintf(&b, "  %s\n", v)
+			}
+			tail := res.Trace[max(0, len(res.Trace)-40):]
+			fmt.Fprintf(&b, "last %d trace lines:\n  %s\nreplay: MANSIO_SIM_SEED=%d MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestIRSeeds -v\n", len(tail), strings.Join(tail, "\n  "), seed)
+			t.Error(b.String())
+		})
+	}
+}
+
+// The same seed gives a byte-identical trace: every run of it, under -race and -count=N too.
+func TestSameSeedSameTrace(t *testing.T) {
+	for i := range uint64(determinismSeeds + 1) {
+		seed, name, cfg := i+1, strconv.FormatUint(i+1, 10), func() sim.Config { return sim.Config{Seed: i + 1} }
+		if i == determinismSeeds { // one seed of the IR workload too
+			seed, name, cfg = 2, "ir-2", func() sim.Config { return sim.Config{Seed: 2, Workload: &sim.IR{}} }
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			a, b := run(t, cfg()), run(t, cfg())
 			if a.Hash == b.Hash {
 				if len(a.Trace) < 50 {
 					t.Fatalf("seed %d: only %d trace lines; the run did nothing worth comparing", seed, len(a.Trace))

@@ -2,6 +2,20 @@
 
 Owner: DST builder (IR protocol plan §6.4, `mansio/docs/plans/ir-protocol.md`). Newest first.
 
+## 2026-11-06 DST-2 and DST-3: cluster simulation, swarm, shrinking (branch `dst/2-cluster`)
+
+[Full note](2026-11-06-dst2-dst3-cluster-sim.md). `sim.RunCluster` runs 2–4 agents (agentd's request path via
+the new `internal/agentglue`), the real controller, locator, edge and ticket rotation (`ticket.Rotate`), a
+linearizable placement fake, S3 fake, and a simulated network (delay, loss, duplication, spikes, partitions)
+from one seed; nemesis ops: partition, kill -9, restart, attest-dead + restore, move, create, cache loss, S3
+storms, Postgres down. Checker: one owner per epoch, epochs rise, nothing applied twice, no write lost across a
+move, kill -9 losses only inside a parameterized RPO, per-database linearizability with the IR-5a crash
+segments, bank conservation. Determinism needs doors (one request per actor per step), sub-ms phases and
+per-goroutine trace streams. DST-3: `MANSIO_SIM_SWARM=1` varies fault rates per seed, `ShrinkCluster` cuts
+a failure to a minimal script, vectors in `testdata/cluster`, nightly `scripts/sim-swarm.sh`. Found: periodic
+write-backs stopped while a fence was pending (RPO; fixed in `owner.Table.Publish`); **open**: `_version`
+reuse after a kill -9 rollback breaks `expect` (`testdata/open`).
+
 ## 2026-11-05 DST-1: single-node simulation (branch `dst/1-single-node`)
 
 [Full note](2026-11-05-dst1-single-node-sim.md). `internal/sim` runs one agent (front → owner → vactor → real

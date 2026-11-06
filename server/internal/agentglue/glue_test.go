@@ -1,4 +1,4 @@
-package main
+package agentglue
 
 import (
 	"context"
@@ -36,18 +36,18 @@ func newGlueRig(t *testing.T, policy vactor.Policy) *glueRig {
 	r := &glueRig{store: durabletest.NewStore(), place: ownertest.NewPlacement()}
 	var err error
 	r.host, err = vactor.NewHost(nil, actordb.Opener{}, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "cache"), Store: r.store,
-		Policy: policy, CheckActivation: activationCheck(func() *owner.Table { return r.tab }),
-		Guard: publishGuard(func() *owner.Table { return r.tab }, func() *vactor.Host { return r.host })})
+		Policy: policy, CheckActivation: ActivationCheck(nil, func() *owner.Table { return r.tab }),
+		Guard: PublishGuard(func() *owner.Table { return r.tab }, func() *vactor.Host { return r.host })})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { r.host.Close() })
 	r.tab, err = owner.Open(context.Background(), owner.Config{Self: "vm-1", Store: ownertest.NewMemStore(), Placement: r.place,
-		WriteBack: hostWriteBack{host: r.host, store: r.store}})
+		WriteBack: WriteBack{Host: r.host, Store: r.store}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.exec, r.adm = hostExecutor{host: r.host, grace: time.Second}, ownerAdmitter{r.tab}
+	r.exec, r.adm = Executor{Host: r.host, Grace: time.Second}, Admitter{r.tab}
 	return r
 }
 
@@ -116,7 +116,7 @@ func TestHostExecutorContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { h.Close() })
-		return epochOne{hostExecutor{host: h, grace: time.Second}}
+		return epochOne{Executor{Host: h, Grace: time.Second}}
 	})
 }
 
@@ -250,11 +250,11 @@ func TestAdmitterMapping(t *testing.T) {
 	// A key loaded closed after a restart is unavailable until reconciled (depAdmitter maps it).
 	st := ownertest.NewMemStore()
 	st.Put(context.Background(), owner.Record{Key: "db-2", State: owner.Active, Epoch: 1})
-	tab, err := owner.Open(context.Background(), owner.Config{Self: "vm-1", Store: st, Placement: r.place, WriteBack: hostWriteBack{r.host, r.store}})
+	tab, err := owner.Open(context.Background(), owner.Config{Self: "vm-1", Store: st, Placement: r.place, WriteBack: WriteBack{r.host, r.store}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (depAdmitter{ownerAdmitter{tab}}).Admit("db-2", 1); !errors.Is(err, front.ErrUnavailable) {
+	if _, err := (DepAdmitter{Admitter{tab}}).Admit("db-2", 1); !errors.Is(err, front.ErrUnavailable) {
 		t.Fatalf("closed = %v", err)
 	}
 }
@@ -277,12 +277,12 @@ func TestActivationErrorMapping(t *testing.T) {
 		{context.Background(), vactor.ErrBusy, vactor.ErrBusy},                 // depExecutor's
 		{context.Background(), durable.ErrUnavailable, durable.ErrUnavailable}, // depExecutor's
 	} {
-		got := activationError(tc.ctx, fmt.Errorf("wrapped: %w", tc.err))
+		got := ActivationError(tc.ctx, fmt.Errorf("wrapped: %w", tc.err))
 		if !errors.Is(got, tc.want) || !errors.Is(got, tc.err) {
 			t.Errorf("%v → %v, want %v (chain kept)", tc.err, got, tc.want)
 		}
 	}
-	if got := asUnavailable(activationError(context.Background(), durable.ErrCorrupt)); front.Classify(got) != front.Internal {
+	if got := AsUnavailable(ActivationError(context.Background(), durable.ErrCorrupt)); front.Classify(got) != front.Internal {
 		t.Errorf("a corrupt generation answers %s, want internal", front.Classify(got))
 	}
 }

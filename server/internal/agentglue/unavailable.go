@@ -1,4 +1,4 @@
-package main
+package agentglue
 
 import (
 	"context"
@@ -31,9 +31,9 @@ import (
 // passed" (expired); vactor wraps its own activation deadline in ErrBusy.
 var unavailableCauses = []error{owner.ErrUnavailable, vactor.ErrBusy, vactor.ErrInDoubt, durable.ErrUnavailable, pg.ErrUnavailable}
 
-// asUnavailable wraps err with front.ErrUnavailable when it is one of unavailableCauses, keeping the chain (and
+// AsUnavailable wraps err with front.ErrUnavailable when it is one of unavailableCauses, keeping the chain (and
 // any retry hint) for the log; any other error is returned unchanged.
-func asUnavailable(err error) error {
+func AsUnavailable(err error) error {
 	if err == nil || errors.Is(err, front.ErrUnavailable) {
 		return err
 	}
@@ -45,18 +45,20 @@ func asUnavailable(err error) error {
 	return err
 }
 
-// depAdmitter maps an Admitter's dependency failures to front.ErrUnavailable.
-type depAdmitter struct{ front.Admitter }
+// DepAdmitter maps an Admitter's dependency failures to front.ErrUnavailable.
+type DepAdmitter struct{ front.Admitter }
 
-func (a depAdmitter) Admit(db string, epoch uint64) (func(), error) {
+// Admit admits through the wrapped Admitter.
+func (a DepAdmitter) Admit(db string, epoch uint64) (func(), error) {
 	release, err := a.Admitter.Admit(db, epoch)
-	return release, asUnavailable(err)
+	return release, AsUnavailable(err)
 }
 
-// depExecutor maps an Executor's dependency failures to front.ErrUnavailable.
-type depExecutor struct{ front.Executor }
+// DepExecutor maps an Executor's dependency failures to front.ErrUnavailable.
+type DepExecutor struct{ front.Executor }
 
-func (e depExecutor) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
+// Exec runs through the wrapped Executor.
+func (e DepExecutor) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
 	r, err := e.Executor.Exec(ctx, c)
-	return r, asUnavailable(err)
+	return r, AsUnavailable(err)
 }

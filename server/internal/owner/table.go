@@ -73,10 +73,12 @@ type slot struct {
 	pub      chan struct{} // publish lock (cap 1): at most one publish per key at a time
 	onChange func(key string, from, to Local)
 
-	// Guarded by life: the final write-back of a fence succeeded at finalEpoch but FENCED is not yet durable.
-	finalOK    bool
-	finalEpoch Epoch
-	finalGen   Generation
+	// finalAt is the epoch (0: none; epochs start at 1) whose fence write-back published finalGen, stored under
+	// pub before pub is released: from then on no periodic publish of that epoch runs (admitPublish), so finalGen
+	// is its last generation, and a Fence retried after a failed Put skips the write-back. finalGen is guarded
+	// by life.
+	finalAt  atomic.Uint64
+	finalGen Generation
 }
 
 func newSlot(key string, l Local, onChange func(string, Local, Local)) *slot {
@@ -213,6 +215,21 @@ func (t *Table) Admit(key string, epoch Epoch) (Permit, error) {
 	return Permit{s}, nil
 }
 
+// admitPublish is Admit for a write-back: as a request at epoch, except that a key Fencing at epoch is
+// admitted too (Publish).
+func (s *slot) admitPublish(epoch Epoch) (Permit, error) {
+	s.inflight.Add(1) // before reading the state, as Admit
+	l := s.view.Load().l
+	if l.State == Fencing && l.Epoch == epoch && s.finalAt.Load() != uint64(epoch) {
+		return Permit{s}, nil
+	}
+	if err := decide(l, epoch); err != nil {
+		s.release()
+		return Permit{}, err
+	}
+	return Permit{s}, nil
+}
+
 // Do runs fn under a permit: Admit, fn, Done. It returns the admission error, or fn's error.
 func (t *Table) Do(key string, epoch Epoch, fn func() error) error {
 	p, err := t.Admit(key, epoch)
@@ -305,7 +322,6 @@ func (t *Table) persistSupersede(ctx context.Context, s *slot, epoch Epoch) erro
 	if l.State != Fenced || !l.Superseded || l.Epoch != epoch {
 		return nil
 	}
-	s.finalOK = false
 	return t.cfg.Store.Put(ctx, Record{Key: s.key, State: Fenced, Epoch: l.Epoch, Gen: l.Gen, Superseded: true})
 }
 
@@ -331,10 +347,15 @@ func superseded(key string, epoch Epoch, cause error, perr error) error {
 	return e
 }
 
-// Publish runs one write-back (fn, normally WriteBack.Publish) for key at epoch outside a fence: periodic
-// uploads and passivation. It holds a permit while fn runs, so Fence waits for it, and it serializes
-// publishes per key, so ErrStale from fn always means a higher epoch exists (this process stamped its own
-// epoch at Claim). On ErrStale the key is fenced durably and the error matches ErrSuperseded and ErrStale.
+// Publish runs one write-back (fn, normally WriteBack.Publish) for key at epoch outside a fence's own
+// write-back: periodic uploads and passivation. It holds a permit while fn runs, so Fence waits for it, and it
+// serializes publishes per key (with the fence's too), so ErrStale from fn always means a higher epoch exists
+// (this process stamped its own epoch at Claim). On ErrStale the key is fenced durably and the error matches
+// ErrSuperseded and ErrStale.
+//
+// A key whose fence is pending (Fencing at epoch: the fence stopped admission, then failed, and waits for the
+// control plane to call it again) still publishes: its writes are final, and publishing them keeps a crash's
+// loss window at the write-back cadence instead of the control plane's retry interval.
 //
 //	post: err == nil ⇒ gen is recorded as the key's newest generation at epoch
 func (t *Table) Publish(ctx context.Context, key string, epoch Epoch, fn func(context.Context) (Generation, error)) (Generation, error) {
@@ -345,7 +366,7 @@ func (t *Table) Publish(ctx context.Context, key string, epoch Epoch, fn func(co
 	if err := lock(ctx, s.pub); err != nil {
 		return 0, errs.Wrap(module, err, "cannot publish %q: cancelled while waiting; nothing changed, safe to retry", key)
 	}
-	p, err := t.Admit(key, epoch)
+	p, err := s.admitPublish(epoch)
 	if err != nil {
 		unlock(s.pub)
 		return 0, errs.Wrap(module, err, "cannot publish %q at epoch %d: not active here; nothing changed", key, epoch)
@@ -510,11 +531,21 @@ func (t *Table) Fence(ctx context.Context, key string) (Ack, error) {
 	if l = s.view.Load().l; l.State == Fenced {
 		return t.fencedResult(ctx, s, l)
 	}
-	if !s.finalOK || s.finalEpoch != l.Epoch {
+	if s.finalAt.Load() != uint64(l.Epoch) {
 		if err := lock(ctx, s.pub); err != nil {
 			return Ack{}, errs.Wrap(module, err, "cannot fence %q: cancelled before write-back; admission stays stopped, retry Fence", key)
 		}
+		// Re-read under pub: a periodic publish admitted after the drain (the key is Fencing) may have raised
+		// Gen, or found a higher epoch, before we got pub; the write-back below must be checked against that.
+		if l = s.view.Load().l; l.State == Fenced {
+			unlock(s.pub)
+			return t.fencedResult(ctx, s, l)
+		}
 		gen, err := t.cfg.WriteBack.Publish(ctx, key, l.Epoch)
+		if err == nil && gen >= l.Gen {
+			s.finalGen = gen
+			s.finalAt.Store(uint64(l.Epoch)) // under pub: no periodic publish of this epoch follows it
+		}
 		unlock(s.pub)
 		if errors.Is(err, ErrStale) {
 			s.supersedeNow(l.Epoch)
@@ -526,14 +557,12 @@ func (t *Table) Fence(ctx context.Context, key string) (Ack, error) {
 		if gen < l.Gen {
 			return Ack{}, errs.Wrap(module, ErrInvalid, "cannot fence %q: write-back returned generation %d, older than %d; admission stays stopped", key, gen, l.Gen)
 		}
-		s.finalOK, s.finalEpoch, s.finalGen = true, l.Epoch, gen
 	}
 	if err := t.cfg.Store.Put(ctx, Record{Key: key, State: Fenced, Epoch: l.Epoch, Gen: s.finalGen}); err != nil {
 		return Ack{}, errs.Wrap(module, err, "cannot fence %q: write-back done but the fence record was not written; admission stays stopped, retry Fence", key)
 	}
 	l, err = s.apply(Event{Kind: EvFenced, Gen: s.finalGen})
 	assert.That(err == nil && l.State == Fenced, "owner: fence of %q could not install fenced: %s %v", key, l, err)
-	s.finalOK = false
 	return Ack{Key: key, Epoch: l.Epoch, Gen: l.Gen}, nil
 }
 

@@ -287,16 +287,22 @@ func (m *model) restore(at time.Time, key string, marks []string) {
 // health records when the store was not healthy for a database's write-backs. Global: storms, an open breaker,
 // and stalls (the maintenance tick writes databases back one after another, so a stall on one delays all).
 // Per database: its own failed calls and lost or late replies (a point each); they do not hold other
-// databases' write-backs. The RPO check counts only fault-free time.
+// databases' write-backs. The RPO check counts only fault-free time. The cluster sim scopes spans further: a
+// scope is a database's key or "vm:<name>" (that VM's links and breaker), "" is global.
 type health struct {
 	mu    sync.Mutex
-	spans map[string][]span    // by database; "" = global
-	open  map[string]time.Time // named global spans still going on
+	spans map[string][]span   // by scope
+	open  map[string]openSpan // named spans still going on
 }
 
 type span struct{ from, to time.Time }
 
-func newHealth() *health { return &health{spans: map[string][]span{}, open: map[string]time.Time{}} }
+type openSpan struct {
+	scope string
+	from  time.Time
+}
+
+func newHealth() *health { return &health{spans: map[string][]span{}, open: map[string]openSpan{}} }
 
 // mark records an unhealthy span for key ("" = every database).
 func (h *health) mark(key string, from, to time.Time) {
@@ -305,29 +311,43 @@ func (h *health) mark(key string, from, to time.Time) {
 	h.mu.Unlock()
 }
 
-func (h *health) begin(name string, at time.Time) {
+// begin opens a global unhealthy span named name (beginIn with scope "").
+func (h *health) begin(name string, at time.Time) { h.beginIn("", name, at) }
+
+// beginIn opens an unhealthy span named name for scope; a second begin of an open name changes nothing.
+func (h *health) beginIn(scope, name string, at time.Time) {
 	h.mu.Lock()
 	if _, ok := h.open[name]; !ok {
-		h.open[name] = at
+		h.open[name] = openSpan{scope, at}
 	}
 	h.mu.Unlock()
 }
 
 func (h *health) end(name string, at time.Time) {
 	h.mu.Lock()
-	if from, ok := h.open[name]; ok {
+	if o, ok := h.open[name]; ok {
 		delete(h.open, name)
-		h.spans[""] = append(h.spans[""], span{from, at})
+		h.spans[o.scope] = append(h.spans[o.scope], span{o.from, at})
 	}
 	h.mu.Unlock()
 }
 
 // longestHealthy is the longest stretch of [a, b] that no unhealthy span of key, or global one, touches.
 func (h *health) longestHealthy(key string, a, b time.Time) time.Duration {
+	return h.longestHealthyIn(a, b, key)
+}
+
+// longestHealthyIn is the longest stretch of [a, b] that no global span, or span of one of scopes, touches.
+func (h *health) longestHealthyIn(a, b time.Time, scopes ...string) time.Duration {
 	h.mu.Lock()
-	spans := slices.Concat(h.spans[""], h.spans[key])
-	for _, from := range h.open {
-		spans = append(spans, span{from, b})
+	spans := slices.Clone(h.spans[""])
+	for _, s := range scopes {
+		spans = append(spans, h.spans[s]...)
+	}
+	for _, o := range h.open {
+		if o.scope == "" || slices.Contains(scopes, o.scope) {
+			spans = append(spans, span{o.from, b})
+		}
 	}
 	h.mu.Unlock()
 	slices.SortFunc(spans, func(x, y span) int { return x.from.Compare(y.from) })
