@@ -189,9 +189,6 @@ func createRow(ctx context.Context, pl *file.Placement, key string, row owner.Pl
 // snapshotFile writes a consistent standalone copy of the database at src to dst (VACUUM INTO, from a
 // read-only connection: src is not changed).
 func snapshotFile(ctx context.Context, src, dst string) error {
-	if _, err := os.Stat(src); err != nil {
-		return err
-	}
 	db, err := sql.Open("sqlite", sqlitedsn.ReadOnly(src, false))
 	if err != nil {
 		return err
