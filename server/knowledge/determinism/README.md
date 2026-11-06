@@ -2,6 +2,23 @@
 
 Owner: DST builder (IR protocol plan §6.4, `mansio/docs/plans/ir-protocol.md`). Newest first.
 
+## 2026-11-05 DST-1: single-node simulation (branch `dst/1-single-node`)
+
+[Full note](2026-11-05-dst1-single-node-sim.md). `internal/sim` runs one agent (front → owner → vactor → real
+SQLite actors → `durabletest` store behind a breaker) from one seed inside a `testing/synctest` bubble:
+`synctest.Wait` for quiescence, then exactly one clock timer (`dettest.Clock.Step`, new) or one sim event
+(crash, restart, storm) per step, so the same seed gives a byte-identical trace (`TestSameSeedSameTrace`,
+SHA-256 of the trace, green under `-race`, `-count=3`). Faults: per-call S3 stalls on the clock, failed calls,
+lost replies, 503 storms, lost client replies, statement failures, crashes (a gate cuts the dead process
+off; restart from the owner directory, whose writes are fsynced before `Put` returns, plus the S3 manifest).
+Checker: nothing applied twice, nothing applied that "did nothing", generations extend each other, writes
+acknowledged before a published write-back survive a crash, no loss across a fault-free RPO window
+(parameterized, default `WriteBackEvery + Tick + 1 s`). Found: a **false supersede after a lost publish
+reply** in `vactor.publish` (a 412 with a failed re-read came back as ErrStale; fixed) and two map-order plans (fixed). The DST-0 gaps closed: `durabletest`
+(`UseClock`, `SetCallFaults`), `vactortest.Fetcher.Clock`, `ownertest.Placement.UseClock`. Replay:
+`MANSIO_SIM_SEED=<s> MANSIO_SIM_TRACE=1 go test ./internal/sim -run TestSeeds -v`; more seeds:
+`MANSIO_SIM_SEEDS=500`.
+
 ## 2026-11-05 DST-0: determinism hygiene (branch `dst/0-hygiene`)
 
 **What exists.** `internal/det` is the one seam package:
@@ -64,9 +81,8 @@ etc. The event loop: run every runnable goroutine to quiescence (or step them ex
 
 **Still non-deterministic (left on purpose; DST-1/2 must handle):**
 
-- `durabletest.Store` (`Faults.Delay`, `Hang`) and `vactortest.Fetcher` (`Delay`) wait in real time
-  (`time.After`) and measure with `time.Now`; the sim's S3 fake must take a `det.Clock` before stalls can be
-  simulated. `s3test`/`faultnet`/`objstore` are real-network adapters (real time by nature).
+- ~~`durabletest.Store` (`Faults.Delay`, `Hang`) and `vactortest.Fetcher` (`Delay`) wait in real time~~ (DST-1:
+  on a `det.Clock` now). `s3test`/`faultnet`/`objstore` are real-network adapters (real time by nature).
 - Goroutine scheduling: the system is still concurrent (actor goroutines, vactor activations, `parallel`).
   DST-1 needs either a step-driven harness around the pure parts or one-at-a-time scheduling; the seams alone
   do not order goroutines.
