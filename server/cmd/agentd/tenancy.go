@@ -270,16 +270,24 @@ func (h *creatingHost) Lookup(ctx context.Context, db string) (*actor.Actor, err
 		return nil, &front.QuotaError{Scope: "tenant", Limit: h.cfg.MaxDBsPerTenant}
 	}
 	path := dbPath(h.cfg, db)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
+	created := false // whether this call made the file (a leftover one is kept as found)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	switch {
+	case err == nil:
+		created = true
+		f.Close()
+	case !errors.Is(err, os.ErrExist):
 		return nil, fmt.Errorf("%w: cannot create database %s: %w", front.ErrUnavailable, db, err)
 	}
-	f.Close()
-	h.next++
-	a = actor.New(h.next, path, h.cfg.Actor.Actor())
+	a = actor.New(h.next+1, path, h.cfg.Actor.Actor())
 	if err := a.Start(true); err != nil {
+		a.Close()
+		if created {
+			os.Remove(path) // the empty file this call made; nothing else refers to it
+		}
 		return nil, fmt.Errorf("%w: cannot open new database %s: %w", front.ErrUnavailable, db, err)
 	}
+	h.next++
 	if !h.StaticHost.Add(db, a) {
 		a.Close()
 		return nil, fmt.Errorf("%w: host closed", front.ErrShed)

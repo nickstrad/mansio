@@ -40,6 +40,7 @@ k as (
      on conflict (key_id) do update
              set revoked_at = excluded.revoked_at
            where api_keys.legacy
+             and api_keys.tenant_id = excluded.tenant_id
              and api_keys.revoked_at is null
              and excluded.revoked_at is not null
        returning xmax = 0 as inserted

@@ -124,3 +124,26 @@ func TestCreatingHostCaps(t *testing.T) {
 	ok("b:x")
 	refused("c:x", "agent")
 }
+
+// A database that cannot be opened is not left behind: the empty file this call made is removed, and the
+// counts and ids are not spent.
+func TestCreatingHostCleansUpAFailedOpen(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{DBDir: dir, MaxDBs: 3, MaxDBsPerTenant: 3}
+	host := front.NewStaticHost(nil)
+	defer host.Close()
+	h := newCreatingHost(host, cfg, nil)
+	// A directory where the file would be: the actor cannot open it.
+	if err := os.Mkdir(dbPath(cfg, "a:dir.db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Lookup(context.Background(), "a:dir.db"); !errors.Is(err, front.ErrUnavailable) {
+		t.Fatalf("err = %v", err)
+	}
+	if fi, err := os.Stat(dbPath(cfg, "a:dir.db")); err != nil || !fi.IsDir() {
+		t.Fatalf("a path this call did not create was removed: %v", err)
+	}
+	if h.next != 0 || h.total != 0 {
+		t.Fatalf("a failed create advanced next=%d total=%d", h.next, h.total)
+	}
+}

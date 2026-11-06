@@ -93,6 +93,15 @@ func TestImportMansio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Another tenant's key, issued here: a deactivation of acme must not touch it.
+	other, _, err := svc.CreateTenant(ctx, "Other", "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := svc.IssueKey(ctx, other.ID, "native")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// What was imported works through the Go auth: the legacy key, the password, the session.
 	if pr, err := svc.Authenticate(ctx, legacy, "app"); err != nil || pr.Tenant != acme {
@@ -158,6 +167,9 @@ func TestImportMansio(t *testing.T) {
 	}
 	if _, err := svc.Authenticate(ctx, native.Plaintext, "app"); err == nil {
 		t.Fatal("a key of the deactivated tenant still works")
+	}
+	if pr, err := svc.Authenticate(ctx, otherKey.Plaintext, "app"); err != nil || pr.Tenant != other.ID {
+		t.Fatalf("another tenant's key after acme's deactivation: %+v %v", pr, err)
 	}
 	// Never the other way: reactivating at the source does not reactivate here.
 	sc.Exec(ctx, `update tenants set status = 'active' where id = $1`, acme)
