@@ -21,7 +21,7 @@ by decision.
 
 | File                             | Vectors | Input → expected                                                                          |
 | -------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `decode.json`                    | 95      | request bytes → accepted (+ canonical encoding) or error                                  |
+| `decode.json`                    | 104     | request bytes → accepted (+ canonical encoding) or error                                  |
 | `validation.json`                | 39      | table fields + body (insert = full, patch = partial) → validated body or error            |
 | `schema.json`                    | 21      | registered schema JSON → fingerprint text and `sha256:` fingerprint, or declaration error |
 | `compile.json`                   | 70      | schema + plan / write / DDL → SQLite SQL text and binds, or compile error (both layouts)  |
