@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/nickstrad/mansio/server/internal/tenancy"
@@ -82,13 +83,18 @@ func TestImportMansio(t *testing.T) {
 	if again, err := p.ImportMansio(ctx, doc, false); err != nil || again != (ImportCounts{}) {
 		t.Fatalf("re-run: %+v %v, want nothing new", again, err)
 	}
-
-	// What was imported works through the Go auth: the legacy key, the password, the session.
+	const acme = "11111111-1111-4111-8111-111111111111"
 	svc, err := tenancy.New(p.Tenancy(), tenancy.Config{Mode: tenancy.Sessions, Apps: []string{"app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const acme = "11111111-1111-4111-8111-111111111111"
+	// A key issued here (new format) for acme, to see what a carried deactivation does to it.
+	native, err := svc.IssueKey(ctx, acme, "native")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// What was imported works through the Go auth: the legacy key, the password, the session.
 	if pr, err := svc.Authenticate(ctx, legacy, "app"); err != nil || pr.Tenant != acme {
 		t.Fatalf("legacy key: %+v %v", pr, err)
 	}
@@ -105,6 +111,59 @@ func TestImportMansio(t *testing.T) {
 	gone, err := svc.GetTenant(ctx, "22222222-2222-4222-8222-222222222222")
 	if err != nil || gone.Active || gone.Slug != "gone" {
 		t.Fatalf("deactivated tenant: %+v %v", gone, err)
+	}
+
+	// One-way changes at the source reach a re-run: a revoked key, a changed password, a deactivated tenant
+	// (which also revokes the keys issued here).
+	sc := adminConn(t, src)
+	newHash, err := tenancy.HashPassword(nil, "a brand new password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`update api_keys set revoked_at = now() where id = '33333333-3333-4333-8333-333333333333'`, nil},
+		{`update account set password = $1 where id = 'a1'`, []any{newHash}},
+	} {
+		if _, err := sc.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc, err = ReadMansio(ctx, pgURL(t), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := p.ImportMansio(ctx, doc, false); err != nil || got != (ImportCounts{KeysRevoked: 1, PasswordsChanged: 1}) {
+		t.Fatalf("re-run after revoke and password change: %+v %v", got, err)
+	}
+	svc, _ = tenancy.New(p.Tenancy(), tenancy.Config{Mode: tenancy.Sessions, Apps: []string{"app"}}) // another process: no cache
+	if _, err := svc.Authenticate(ctx, legacy, "app"); err == nil {
+		t.Fatal("the key revoked at the source still works")
+	}
+	if _, _, err := svc.SignIn(ctx, "ann@example.test", "a brand new password"); err != nil {
+		t.Fatalf("the changed password: %v", err)
+	}
+	if _, err := sc.Exec(ctx, `update tenants set status = 'deactivated' where id = $1`, acme); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ = ReadMansio(ctx, pgURL(t), src)
+	if got, err := p.ImportMansio(ctx, doc, false); err != nil || got != (ImportCounts{TenantsDeactivated: 1, KeysRevoked: 1}) {
+		t.Fatalf("re-run after deactivation: %+v %v", got, err)
+	}
+	svc, _ = tenancy.New(p.Tenancy(), tenancy.Config{Mode: tenancy.Sessions, Apps: []string{"app"}})
+	if tn, _ := svc.GetTenant(ctx, acme); tn.Active {
+		t.Fatal("the tenant deactivated at the source is still active")
+	}
+	if _, err := svc.Authenticate(ctx, native.Plaintext, "app"); err == nil {
+		t.Fatal("a key of the deactivated tenant still works")
+	}
+	// Never the other way: reactivating at the source does not reactivate here.
+	sc.Exec(ctx, `update tenants set status = 'active' where id = $1`, acme)
+	doc, _ = ReadMansio(ctx, pgURL(t), src)
+	if got, err := p.ImportMansio(ctx, doc, false); err != nil || got != (ImportCounts{}) {
+		t.Fatalf("re-run after reactivation: %+v %v", got, err)
 	}
 }
 
@@ -129,5 +188,43 @@ func TestImportMansioWithoutAuth(t *testing.T) {
 	p, _ := newPlacement(t, nil)
 	if got, err := p.ImportMansio(ctx, doc, false); err != nil || got != (ImportCounts{Tenants: 1}) {
 		t.Fatalf("import: %+v %v", got, err)
+	}
+}
+
+// Source rows the target cannot hold are reported by name, and nothing is written.
+func TestImportMansioRefusals(t *testing.T) {
+	src := mansioSource(t, "mansio_"+"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ", "SessionTokenSessionTokenSession1")
+	p, target := newPlacement(t, nil)
+	sc := adminConn(t, src)
+	// A name too long is cut at a character boundary (é is 2 bytes: 150 of them are 300 bytes).
+	if _, err := sc.Exec(ctx, `update tenants set name = repeat('é', 150) where slug = 'acme'`); err != nil {
+		t.Fatal(err)
+	}
+	// Another user here already has Ann's email.
+	if _, err := adminConn(t, target).Exec(ctx, `insert into auth_users (user_id, email, name) values ('other', 'ann@example.test', 'Other')`); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := ReadMansio(ctx, pgURL(t), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ImportMansio(ctx, doc, false); err == nil || !strings.Contains(err.Error(), "ann@example.test") {
+		t.Fatalf("email taken: %v", err)
+	}
+	adminConn(t, target).Exec(ctx, `delete from auth_users where user_id = 'other'`)
+	if _, err := p.ImportMansio(ctx, doc, false); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	adminConn(t, target).QueryRow(ctx, `select name from tenants where slug = 'acme'`).Scan(&name)
+	if len(name) != 200 || name != strings.Repeat("é", 100) {
+		t.Fatalf("name cut to %d bytes", len(name))
+	}
+	if _, err := sc.Exec(ctx, `update tenants set slug = repeat('s', 201) where slug = 'gone'`); err != nil {
+		t.Fatal(err)
+	}
+	doc, _ = ReadMansio(ctx, pgURL(t), src)
+	if _, err := p.ImportMansio(ctx, doc, false); err == nil || !strings.Contains(err.Error(), "22222222-2222-4222-8222-222222222222") {
+		t.Fatalf("long slug: %v", err)
 	}
 }

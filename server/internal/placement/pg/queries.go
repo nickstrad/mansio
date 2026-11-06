@@ -24,7 +24,7 @@ type queries struct {
 	tenancyKeyByID, tenancyKeyByLegacyHash, tenancyCreateUser, tenancyPassword, tenancyCreateSession, tenancySessionTenant,
 	tenancyLink string
 	// The Deno platform's tenancy import (IR-4a): source reads and the one target write.
-	importHasAuth, importCore, importAuth, importMansio string
+	importHasAuth, importCore, importAuth, importMansio, importEmailTaken string
 }
 
 // q is read-only after init.
@@ -75,6 +75,8 @@ var q = queries{
 	importCore:    mustQuery("import_mansio_core"),
 	importAuth:    mustQuery("import_mansio_auth"),
 	importMansio:  mustQuery("import_mansio"),
+
+	importEmailTaken: mustQuery("import_mansio_email_taken"),
 }
 
 func mustQuery(name string) string {

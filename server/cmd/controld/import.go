@@ -19,7 +19,8 @@ import (
 // The target is the secrets file's pg_dsn (search_path -schema, as controld's pg.schema), migrated first. The
 // source is the DSN in the environment variable -from-dsn-env (default: the target's), tables in -from-schema.
 // One transaction; -dry-run rolls it back and prints what a real run would add. Rows already imported are
-// skipped, so a re-run is safe. The source is opened read-only and never changed.
+// skipped and one-way changes carried (deactivations, revocations, changed passwords; never a reactivation or a
+// deletion: import_mansio.sql), so a re-run is safe. The source is opened read-only and never changed.
 func importMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("controld import-mansio", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -68,8 +69,9 @@ func importMain(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if *dry {
 		verb = "would import (dry run, nothing changed)"
 	}
-	fmt.Fprintf(stdout, "%s: %d tenants, %d api keys, %d users, %d passwords, %d sessions, %d memberships\n", verb,
-		c.Tenants, c.APIKeys, c.Users, c.Passwords, c.Sessions, c.Memberships)
+	fmt.Fprintf(stdout, "%s: %d tenants, %d api keys, %d users, %d passwords, %d sessions, %d memberships; "+
+		"carried: %d tenants deactivated, %d keys revoked, %d passwords changed\n", verb,
+		c.Tenants, c.APIKeys, c.Users, c.Passwords, c.Sessions, c.Memberships, c.TenantsDeactivated, c.KeysRevoked, c.PasswordsChanged)
 	if !src.HasAuth {
 		fmt.Fprintln(stdout, "the source has no Better Auth tables: users, passwords and sessions were not looked for")
 	}

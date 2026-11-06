@@ -2,6 +2,8 @@ package tenancy
 
 import (
 	"context"
+	crand "crypto/rand"
+	"io"
 	"regexp"
 
 	"github.com/nickstrad/mansio/server/internal/control/locator"
@@ -136,4 +138,13 @@ func checkTenantID(id string) error {
 		return errs.Wrap(module, ErrInvalid, "tenant id must be a canonical lowercase uuid")
 	}
 	return nil
+}
+
+// HashPassword returns password's Better Auth hash, salted from rand (nil: crypto/rand). For tools and tests that
+// write password rows (the import's tests); the Service hashes its own.
+func HashPassword(rand io.Reader, password string) (string, error) {
+	if rand == nil {
+		rand = crand.Reader
+	}
+	return hashPassword(rand, password)
 }
