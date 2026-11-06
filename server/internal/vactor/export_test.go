@@ -25,3 +25,6 @@ func FetchGate(h *Host) (n int, bytes int64, queued int) { return h.gate.inFligh
 
 // WaitFor polls cond until it holds (5 s at most). Test-only.
 var WaitFor = waitFor
+
+// MaxPending is maxPending, for the durable host model.
+const MaxPending = maxPending

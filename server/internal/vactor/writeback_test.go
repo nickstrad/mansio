@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -394,6 +395,69 @@ func TestLostPublishReplyIsReconciled(t *testing.T) {
 	}
 	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || res.Wrote {
 		t.Fatalf("clean WriteBack = %+v, %v; want nothing to do", res, err)
+	}
+}
+
+// Found by the DST-1 simulation (seeds 192, 373): a publish applies but its reply is lost and the re-read
+// fails, so it stays pending; the next publish (conditional on the old version) gets 412 because of it, and
+// its re-read fails too. That 412 is our own doing, so it must not come back as ErrStale (the owner.WriteBack
+// contract: ErrStale only when a re-read shows another writer; the owner table fences the key superseded on
+// it, and a superseded key's unpublished writes are discarded). The next write-back adopts the publish that
+// did apply and goes on.
+func TestOwnPendingPublishIsNotAnotherWriter(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{ // per op, consumed in call order
+		durable.OpPublish:     {{LosePublishReply: true}, {}},
+		durable.OpGetManifest: {{FailRead: true}, {FailRead: true}},
+	}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	r.put("t/a", "v2")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("lost publish reply, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v3")
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("412 caused by our own pending publish, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v4")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v4" {
+		t.Fatalf("write-back once S3 answers = %+v, %v (published %q); want v4 published", res, err, r.published("t/a"))
+	}
+}
+
+// DST-1 seed 1586: a publish applies on a re-send and answers 412 (ApplyThenStale) while its re-read fails.
+// Nothing else is pending, but the 412 is still our own: not ErrStale; the next write-back adopts it.
+func TestOwnResentPublishIsNotAnotherWriter(t *testing.T) {
+	r := newDurable(t, nil)
+	r.put("t/a", "v1")
+	var mu sync.Mutex
+	script := map[string][]durabletest.Faults{durable.OpPublish: {{ApplyThenStale: true}}, durable.OpGetManifest: {{FailRead: true}}}
+	r.s.SetCallFaults(func(op, _ string, f durabletest.Faults) durabletest.Faults {
+		mu.Lock()
+		defer mu.Unlock()
+		if q := script[op]; len(q) > 0 {
+			f, script[op] = q[0], q[1:]
+		}
+		return f
+	})
+	if _, err := r.h.WriteBack(ctx, "t/a"); err == nil || errors.Is(err, durable.ErrStale) {
+		t.Fatalf("412 from our own re-send, failed re-read: %v; want an error that is not ErrStale", err)
+	}
+	r.put("t/a", "v2")
+	if res, err := r.h.WriteBack(ctx, "t/a"); err != nil || !res.Wrote || r.published("t/a") != "v2" {
+		t.Fatalf("next write-back = %+v, %v (published %q); want v2", res, err, r.published("t/a"))
 	}
 }
 

@@ -77,10 +77,15 @@ func FuzzDurableHostModel(f *testing.F) {
 		published, local := map[string]string{}, map[string]string{}
 		warm, dirty, fenced := map[string]bool{}, map[string]bool{}, map[string]bool{}
 		known := map[string]bool{} // the host has seen ErrStale for this warm key (and could re-read)
+		// unseen counts this warm key's publishes whose outcome the host never saw (warm stamps under Down: the
+		// publish and its re-read both failed); with vactor.MaxPending of them it re-reads before it sends more.
+		unseen := map[string]int{}
 		own := map[string]uint64{} // our ownership epoch per key
 		fault := durabletest.Faults{}
 		// writeBackFails predicts a write-back of a dirty, unfenced key under the current fault.
-		writeBackFails := func() bool { return fault.FailUpload || fault.FailPublish || fault.Down }
+		writeBackFails := func(k string) bool {
+			return fault.FailUpload || fault.FailPublish || fault.Down || fault.FailRead && unseen[k] >= vactor.MaxPending
+		}
 		activationFails := func(k string) bool {
 			return fenced[k] || fault.FailRead || fault.Down || (fault.FailFetch && published[k] != "")
 		}
@@ -91,19 +96,26 @@ func FuzzDurableHostModel(f *testing.F) {
 				if !errors.Is(err, durable.ErrStale) {
 					t.Fatalf("step %d: %s(%s) known stale: %v, want ErrStale", step, what, k, err)
 				}
-			case writeBackFails():
+			case writeBackFails(k):
 				if err == nil {
 					t.Fatalf("step %d: %s(%s) succeeded under %+v", step, what, k, fault)
+				}
+			case fenced[k] && fault.FailRead:
+				// 412 and no re-read: our own write (a pending one, or a re-send) may have caused it, so the
+				// outcome is unknown, never ErrStale (guide R4); the host marks it stale once a re-read works.
+				if err == nil || errors.Is(err, durable.ErrStale) {
+					t.Fatalf("step %d: %s(%s) fenced, re-read failing: %v, want an unknown outcome", step, what, k, err)
 				}
 			case fenced[k]:
 				if !errors.Is(err, durable.ErrStale) {
 					t.Fatalf("step %d: %s(%s) fenced: %v, want ErrStale", step, what, k, err)
 				}
-				known[k] = !fault.FailRead // the host marks it stale only once a re-read shows the other writer
+				known[k] = true
 			default:
 				if err != nil {
 					t.Fatalf("step %d: %s(%s): %v (fault %+v)", step, what, k, err, fault)
 				}
+				unseen[k] = 0
 				return true
 			}
 			return false
@@ -153,7 +165,7 @@ func FuzzDurableHostModel(f *testing.F) {
 					if err != nil {
 						t.Fatalf("step %d: cold Get(%s): %v (fault %+v)", step, key, err, fault)
 					}
-					warm[key], local[key], dirty[key] = true, published[key], false
+					warm[key], local[key], dirty[key], unseen[key] = true, published[key], false, 0
 				}
 				if script[i]%11 == 1 {
 					v := fmt.Sprintf("s%d", step)
@@ -241,14 +253,21 @@ func FuzzDurableHostModel(f *testing.F) {
 				}
 				ep := own[key] + 1
 				_, err := h.Stamp(ctx, key, ep, gen)
+				switch {
+				case !warm[key] || err == nil:
+					unseen[key] = 0 // a cold stamp keeps nothing pending; a stamp that applied settled the rest
+				case fault.Down && unseen[key] < vactor.MaxPending:
+					unseen[key]++
+				}
 				if err != nil && !fault.Down && !fault.FailPublish && !fault.FailRead {
 					t.Fatalf("step %d: Stamp(%s, %d, %d) under %+v: %v", step, key, ep, gen, fault, err)
 				}
-				if m, ok := s.Manifest(key); ok && m.Epoch == ep {
-					own[key] = ep
-				} else if err == nil {
+				if m, ok := s.Manifest(key); !(ok && m.Epoch == ep) && err == nil {
 					t.Fatalf("step %d: Stamp(%s, %d) succeeded but stored %+v", step, key, ep, m)
 				}
+				// The authority granted us ep before we stamped, applied or not: another owner (Bump) only ever
+				// gets a higher epoch. (Bumping to ep itself would forge a manifest identical to our pending stamp.)
+				own[key] = ep
 			}
 
 			// Compare after every step.

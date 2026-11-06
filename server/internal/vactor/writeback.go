@@ -14,11 +14,20 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/assert"
+	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/det"
 	"github.com/nickstrad/mansio/server/internal/durable"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
+
+// pendingPub is one publish or stamp of ours whose outcome is in doubt. unseen: its re-read failed, so nothing
+// is known; otherwise the re-read still showed ver (it had not applied then, but a request still in flight
+// could land later).
+type pendingPub struct {
+	m      durable.Manifest
+	unseen bool
+}
 
 // durableState is an entry's durable-mode bookkeeping.
 //
@@ -26,12 +35,14 @@ import (
 // count that manifest's generation holds. The entry is dirty iff forceDirty or db.Commits() != pubCommits.
 // The fields without atomics are guarded by wb, which also serializes every write-back of the entry.
 type durableState struct {
-	wb       sync.Mutex
-	man      durable.Manifest
-	ver      durable.Version
-	lastGen  uint64            // highest generation this host tried to upload for the key
-	pending  *durable.Manifest // a publish or stamp of ours whose outcome we never learned (ambiguous error)
-	stranded bool              // passivation's write-back failed and the file could not be reopened
+	wb      sync.Mutex
+	man     durable.Manifest
+	ver     durable.Version
+	lastGen uint64 // highest generation this host tried to upload for the key
+	// pending are the publishes and stamps of ours that failed and might still apply, or might have, oldest
+	// first: every unseen one, and the newest seen one. All are conditional on ver, so at most one applied.
+	pending  []pendingPub
+	stranded bool // passivation's write-back failed and the file could not be reopened
 	// published are the generation objects this entry saw published, oldest first: the current one and the
 	// ones owner-side retention has not deleted yet (guide GC2).
 	published []string
@@ -299,6 +310,10 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 	return err == nil && info.Holds(d)
 }
 
+// maxPending bounds the unseen publishes in e.pending (S1: everything that accumulates has a reaper): with that
+// many in doubt, publish settles them by a re-read before it sends another. Seen ones are kept at one.
+const maxPending = 8
+
 // publish publishes the manifest build makes from e's current one (nil: none yet), conditionally on e's
 // version, and records it in e. build also decides whether the publish is allowed (durable.CheckPublish,
 // durable.CheckStamp); a refusal returns its error. Write-back and Stamp both go through here, so they settle
@@ -307,16 +322,34 @@ func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 //
 //   - the stored manifest is the one we sent: the publish did apply;
 //
-//   - it is e.pending (an earlier publish or stamp of ours whose reply was lost): adopt that (and its
-//     epoch) and build once more on top of it;
+//   - it is one of e.pending (earlier publishes or stamps of ours whose outcome we never learned): adopt that
+//     (and its epoch) and build once more on top of it;
 //
-//   - it is the version we published on, or the re-read failed: unknown, so ours becomes e.pending;
+//   - it is another writer's (the version moved to none of ours, or ours vanished): e.stale is set and the
+//     error is ErrStale;
 //
-//   - anything else is another writer: e.stale is set and the error is ErrStale.
+//   - it is still the version we published on: nothing applied yet; ours joins e.pending in place of any
+//     earlier such one (a request still in flight could land later);
 //
-//     pre:  e.wb is held
-//     post: err == nil ⇒ e.man is the returned manifest, e.ver its version, and nothing is pending
+//   - the re-read failed: ours joins e.pending, unseen, and a 412 does NOT come back as ErrStale: an earlier
+//     pending publish of ours, or a re-send of this one (ApplyThenStale), may have caused it. ErrStale means
+//     a re-read showed another writer (guide R4; the owner.WriteBack contract: owner fences a key superseded
+//     on it, and a superseded key's unpublished writes are discarded). Safety does not need the eager answer:
+//     every later publish is conditional, so another writer is still refused, and found by the next re-read.
+//
+// An unseen pending publish is never dropped by a later one: every one of ours is conditional on e.ver, so any
+// of them may be the one that applied (found by the DST-1 sim). A successful conditional publish proves none
+// did. A publish the breaker refused was never sent: it is not pending.
+//
+//	pre:  e.wb is held
+//	post: err == nil ⇒ e.man is the returned manifest, e.ver its version, and nothing is pending
+//	post: errors.Is(err, durable.ErrStale) ⇒ e.stale (a re-read showed another writer)
 func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur *durable.Manifest) (durable.Manifest, error)) (durable.Manifest, error) {
+	if unseen(e.pending) >= maxPending {
+		if err := h.settlePending(ctx, key, e); err != nil {
+			return durable.Manifest{}, err
+		}
+	}
 	for try := 0; ; try++ {
 		var cur *durable.Manifest
 		if e.ver != durable.NoVersion {
@@ -327,45 +360,94 @@ func (h *Host) publish(ctx context.Context, key string, e *entry, build func(cur
 		if sent {
 			var v durable.Version
 			if v, err = h.opts.Store.PublishManifest(ctx, next, e.ver); err == nil {
-				e.man, e.ver, e.pending = next, v, nil // a pending publish built on our old version can no longer apply
+				e.man, e.ver, e.pending = next, v, nil // the version had not moved: no pending publish applied
 				return next, nil
 			}
-		} else if e.pending == nil {
+			if errors.Is(err, breaker.ErrOpen) {
+				return durable.Manifest{}, err // the breaker sent nothing: nothing to settle
+			}
+		} else if len(e.pending) == 0 {
 			return durable.Manifest{}, err // refused on what we know, and nothing of ours is in doubt
 		}
 		stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
-		if rerr != nil && !errors.Is(rerr, durable.ErrNoManifest) {
-			if sent {
-				e.pending = &next
-			}
-			return durable.Manifest{}, err
-		}
 		switch {
+		case rerr != nil && !errors.Is(rerr, durable.ErrNoManifest):
+			if sent {
+				e.pending = append(e.pending, pendingPub{m: next, unseen: true})
+			}
+			if !errors.Is(err, durable.ErrStale) {
+				return durable.Manifest{}, err
+			}
+			return durable.Manifest{}, errs.Wrap(module, rerr,
+				"the outcome of publishing %s is unknown: the store answered 412, which a pending publish of ours or a re-send of this one may have caused, and the re-read failed; kept pending, safe to retry",
+				key).With("publish_error", err.Error())
 		case rerr == nil && sent && stored.Same(next):
 			e.man, e.ver, e.pending = stored, sv, nil
 			return stored, nil
-		case rerr == nil && try == 0 && e.pending != nil && stored.Same(*e.pending):
-			e.man, e.ver, e.pending = stored, sv, nil
-			e.raiseEpoch(stored.Epoch) // ours: a pending stamp may have raised it
-			continue
+		case rerr == nil && try == 0 && e.adoptPending(stored, sv):
+			continue // ours applied earlier: build again on top of it
 		case e.otherWriter(stored, sv, rerr):
 			e.stale.Store(true)
 			return durable.Manifest{}, errs.Wrap(module, errors.Join(durable.ErrStale, err),
 				"the re-read manifest of %s (generation %d, epoch %d) was written by another writer", stored.Key, stored.Generation, stored.Epoch)
-		case sent:
-			e.pending = &next
+		case sent: // the re-read still shows ver: not applied (yet); of those, only the newest is kept
+			e.pending = append(slices.DeleteFunc(e.pending, func(p pendingPub) bool { return !p.unseen }), pendingPub{m: next})
 		}
 		return durable.Manifest{}, err
 	}
 }
 
+// settlePending re-reads the manifest to settle e.pending before anything more is sent: one of them applied
+// (adopt it), none did (the stored version is still e.ver: drop them), or another writer moved the manifest
+// (e.stale, ErrStale). A failed re-read sends nothing and keeps them.
+//
+//	pre: e.wb is held
+func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
+	stored, sv, rerr := h.opts.Store.ReadManifest(ctx, key)
+	switch {
+	case rerr != nil && !errors.Is(rerr, durable.ErrNoManifest):
+		return errs.Wrap(module, rerr, "cannot publish %s: %d earlier publishes of ours have an unknown outcome and the re-read failed; nothing sent, safe to retry",
+			key, unseen(e.pending))
+	case rerr == nil && e.adoptPending(stored, sv):
+	case !e.otherWriter(stored, sv, rerr):
+		e.pending = nil // none applied
+	default:
+		e.stale.Store(true)
+		return errs.Wrap(module, durable.ErrStale, "the re-read manifest of %s (generation %d, epoch %d) was written by another writer", key, stored.Generation, stored.Epoch)
+	}
+	return nil
+}
+
+// unseen counts the pending publishes whose re-read failed.
+func unseen(pending []pendingPub) int {
+	n := 0
+	for _, p := range pending {
+		if p.unseen {
+			n++
+		}
+	}
+	return n
+}
+
+// adoptPending adopts the re-read manifest (stored, sv) if it is one of e.pending, and reports whether it was.
+func (e *durableState) adoptPending(stored durable.Manifest, sv durable.Version) bool {
+	for _, p := range e.pending {
+		if stored.Same(p.m) {
+			e.man, e.ver, e.pending = stored, sv, nil // the others were conditional on the old version: none can apply now
+			e.raiseEpoch(stored.Epoch)                // a pending stamp may have raised it
+			return true
+		}
+	}
+	return false
+}
+
 // otherWriter reports whether a re-read (stored, sv, rerr == nil or ErrNoManifest) shows a manifest someone
-// else wrote: ours vanished, or it is neither the version e last saw nor e.pending.
+// else wrote: ours vanished, or it is neither the version e last saw nor one of e.pending.
 func (e *durableState) otherWriter(stored durable.Manifest, sv durable.Version, rerr error) bool {
 	if rerr != nil {
 		return e.ver != durable.NoVersion
 	}
-	return sv != e.ver && (e.pending == nil || !stored.Same(*e.pending))
+	return sv != e.ver && !slices.ContainsFunc(e.pending, func(p pendingPub) bool { return stored.Same(p.m) })
 }
 
 // Passivate drops key's database. In durable mode it first closes the database (so nothing more can be
@@ -523,7 +605,7 @@ func (h *Host) closedCopy(key string) (string, func(), error) {
 func (h *Host) reinstate(key string, e *entry) {
 	n := &entry{done: make(chan struct{})}
 	close(n.done)
-	n.man, n.ver, n.lastGen, n.pending, n.published = e.man, e.ver, e.lastGen, e.pending, e.published
+	n.man, n.ver, n.lastGen, n.pending, n.published = e.man, e.ver, e.lastGen, slices.Clone(e.pending), e.published
 	n.epoch.Store(e.epoch.Load())
 	n.stale.Store(e.stale.Load())
 	n.lastUsed.Store(e.lastUsed.Load())
