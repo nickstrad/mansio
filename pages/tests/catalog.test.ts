@@ -38,8 +38,14 @@ async function load(catalog: string) {
 describe("catalog loading", () => {
   it("loads the site catalog and opens mansio-current by default", async () => {
     expect(await load(readText("public/catalog.json"))).toEqual({
-      ids: ["mansio-current", "mansio-lanes-proposal", "mansio-planes-proposal", "mansio-planes-fable"],
-      ok: [true, true, true, true],
+      ids: [
+        "mansio-current",
+        "mansio-lanes-proposal",
+        "mansio-planes-proposal",
+        "mansio-planes-fable",
+        "mansio-go-platform",
+      ],
+      ok: [true, true, true, true, true],
       defaultId: "mansio-current",
       choice: { ok: true, id: "mansio-current" },
     });
@@ -162,8 +168,14 @@ describe("the catalog fetch keeps the SDK's size bound while streaming", () => {
     const padded = (bytes: number) => json + " ".repeat(bytes - new TextEncoder().encode(json).byteLength);
     expect(new TextEncoder().encode(padded(LIMIT)).byteLength).toBe(LIMIT);
     expect(await load(padded(LIMIT))).toEqual({
-      ids: ["mansio-current", "mansio-lanes-proposal", "mansio-planes-proposal", "mansio-planes-fable"],
-      ok: [true, true, true, true],
+      ids: [
+        "mansio-current",
+        "mansio-lanes-proposal",
+        "mansio-planes-proposal",
+        "mansio-planes-fable",
+        "mansio-go-platform",
+      ],
+      ok: [true, true, true, true, true],
       defaultId: "mansio-lanes-proposal",
       choice: { ok: true, id: "mansio-lanes-proposal" },
     });
