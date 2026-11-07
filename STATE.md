@@ -1,32 +1,37 @@
 # mansio — project state
 
-## 2026-11-07 — Go-platform C4 dataset build
+## 2026-11-07 — Go-platform C4 dataset (Astra build, Opus final pass)
 
-- Goal/spec: Nick's “Make c4 diagrams for mansio with Astra and have opus do final pass”; build brief for
-  `mansio-go-platform`, baseline `6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc`.
-- Status: bundle built on `feat/c4-dataset`, awaiting **Opus final pass and coordinator landing**. No merge.
-- Created: `pages/public/architectures/mansio-go-platform.json` and
-  `pages/content/mansio-go-platform/inventory.md`; 30 elements, 48 relationships, nine views, 24 pinned
-  sources. Catalog registration is additive; the four earlier bundles and default remain unchanged.
-- Evidence/learning: `agentd` is the Go server and VM daemon; `edge` is a separate proxy. Handlers and their
-  retries run in the caller's SDK. S3 is implemented but paused, explicitly labeled throughout. The starting
-  server C4/README documents cover sqlbench only. The inventory preserves these findings and source mappings
-  within this build's ownership; no reusable script or additional knowledge-file edit is needed.
-- Validation: Node 22 Pages `npm run typecheck`, `npm test` (**271 passed, five files**) and `npm run build`
-  passed. `deno fmt --check --config deno.json` passed on all seven changed files. Framework `decodeDataset`
-  and nine `projectView` calls pass; references, parent chains, dynamic steps and all 24 pinned paths pass
-  independent checks. All nine desktop views and narrow context were rendered and inspected; compact cards
-  retain full notes in documents.
-- Extra browser check: initial full run was interrupted (exit 143). Rerun: **51 passed, one timeout** in the
-  unchanged planes-proposal containers view; that exact test then passed alone (**1 passed**). No test was
-  weakened. Full browser green is not claimed. The four earlier bundles are byte-identical to baseline.
-- Next: coordinator assigns a fresh Opus final pass, then lands on PASS. Review/landing owner: coordinator. No
-  architectural decision is pending from this build. Build changes and learning notes are ready to commit and
-  push together; use the branch HEAD as the build checkpoint.
-- Resume: `/root/Software/mansio-work/c4-dataset`, branch `feat/c4-dataset`; use `git log -1` for build SHA
-  and compare `git ls-remote origin refs/heads/feat/c4-dataset` with HEAD. No detached agent needs
-  relaunching. Rerun Node 22 `npm run typecheck`, `npm test`, `npm run build` in `pages/`; run Deno format
-  checks with `--config deno.json` from the root. Final report: `/root/runs/mansio-c4-astra-report.md`.
+- Goal/spec: Nick's “Make c4 diagrams for mansio with Astra and have opus do final pass”; bundle
+  `pages/public/architectures/mansio-go-platform.json` + `pages/content/mansio-go-platform/inventory.md`,
+  describing main `6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc` (revision `main-6330c9f-go-platform`).
+- Status: **Opus final pass: PASS with fixes** on `feat/c4-dataset`; ready for coordinator landing. No merge.
+- Done: Astra build `119257b` (30 elements, nine views, catalog registration additive, four earlier bundles
+  untouched). Opus fix commit `7f561d9`: tags deduped (most elements carried `external` up to eight times,
+  styling in-scope components as external) and `external` kept only where the c4-sdk validator requires it
+  plus the caller application; four source-backed container relationships added (agentd → controld ticket
+  keys, edge → controld VM registry, agentd → placement authority in durable mode, controld → S3 drop,
+  built/paused); lifecycle/controld descriptions widened to create/move/suspend/resume/drop/restore;
+  durable-mode-only lifecycle RPC labelled; two sources pinned (`server/cmd/agentd/durable.go`,
+  `server/internal/control/ports.go`). Now 30 elements, 52 relationships, 26 sources.
+- Verified by Opus against source at the pin: move protocol (`server/internal/owner/move.go`), owner
+  admission/fence/stamp (`owner/state.go`), actor/mailbox/group commit/read pool (`internal/actor/actor.go`),
+  request ids in `_mansio_requests` inside the write savepoint (`actor/reqid.go`), controld duties
+  (`cmd/controld/main.go`, `internal/control/controller.go`, `control/locator/doc.go`), edge
+  (`cmd/edge/main.go`), agentd modes (`cmd/agentd/main.go`, `control.go`, `durable.go`), IR route
+  (`internal/front/ops.go`), SDK re-run/unguarded find/transport (`sdk/recording.ts`, `sdk/transport.ts`),
+  JSONL sink (`internal/eventlog/log.go`), S3 pause
+  (`server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`). S3 reads as built-but-paused
+  everywhere; no lanes/planes design material appears as built. All 26 source paths pass `git cat-file -e` and
+  URL tails match.
+- Validation after fixes: Node 22 `npm run typecheck`, `npm test` (**273 passed, five files**),
+  `npm run build` green; `decodeArchitecture` no diagnostics; framework `decodeDataset` + nine `projectView`
+  pass; `deno fmt --check --config deno.json` clean on touched files. Scratch proof project re-pinned to
+  `7f561d9`, `c4v build` passed, all nine views re-rendered: `/root/runs/mansio-c4-opus-stills/manifest.md`.
+- Next: coordinator lands `feat/c4-dataset`. Open decisions/blockers: none. Owner: coordinator.
+- Resume: worktree `/root/Software/mansio-work/c4-dataset`, branch `feat/c4-dataset`; compare
+  `git ls-remote origin refs/heads/feat/c4-dataset` with HEAD. Nothing running. Reports:
+  `/root/runs/mansio-c4-astra-report.md`, `/root/runs/mansio-c4-opus-report.md`.
 
 ## 2026-11-06 — cache-dividend topic proposals (docs only)
 
