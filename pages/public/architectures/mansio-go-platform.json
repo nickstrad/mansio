@@ -12,16 +12,7 @@
         "name": "Application developer / caller",
         "description": "Writes and calls TypeScript handlers in the caller application.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-recording",
@@ -34,16 +25,7 @@
         "name": "Platform operator",
         "description": "Runs lifecycle commands, including move, attest-dead and restore; inspects offline logs.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-controld",
@@ -56,16 +38,7 @@
         "name": "mansio Go platform",
         "description": "Go-only document database platform; a database is the isolation and placement unit, and a tenant may own many databases.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-adr",
@@ -94,13 +67,6 @@
         "description": "Application handlers and the TypeScript SDK run together here, outside the Go server.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -119,13 +85,6 @@
         "description": "Records reads, buffers writes and derives asserts. Re-runs handlers on eligible conflicts; find reads are unguarded in v1.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -161,16 +120,9 @@
         "id": "controld",
         "kind": "container",
         "name": "controld",
-        "description": "Control daemon: database lifecycle, routing, epoch authority access and signed-ticket issuing.",
+        "description": "Control daemon: registries, database lifecycle, locator/routing, epoch authority access and signed-ticket issuing.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -191,13 +143,6 @@
         "description": "Separate stateless proxy; verifies tickets and routes by VM to private agentd. No compiler or database engine.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -216,13 +161,6 @@
         "description": "Per-VM daemon and database server in one process: ticket admission, actors, local files and lifecycle RPC.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -230,7 +168,8 @@
         ],
         "sourceIds": [
           "src-agent",
-          "src-owner"
+          "src-owner",
+          "src-agent-durable"
         ],
         "parentId": "platform",
         "technology": "Go / HTTP"
@@ -242,13 +181,6 @@
         "description": "One file per database; many databases per tenant. Local WAL and request-id records; database is the isolation unit.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -269,13 +201,6 @@
         "description": "Postgres placement and tenancy registry; CAS enforces epoch invariants. Local/test setups also have a file authority.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -295,13 +220,6 @@
         "description": "Canonical persisted events. Bounded logging reports drops; canonical does not mean lossless.",
         "status": "existing",
         "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
           "external"
         ],
         "docIds": [
@@ -321,16 +239,7 @@
         "name": "Offline log CLI",
         "description": "scripts/logs.ts invokes TypeScript ingest, retention and named analysis queries outside agentd.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-adr",
@@ -345,16 +254,7 @@
         "name": "Derived DuckDB copy",
         "description": "Offline analysis rebuilt from retained JSONL. Not application query storage.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-duckdb"
         ],
@@ -371,16 +271,7 @@
         "name": "Ticket admission",
         "description": "Verifies signed claims offline and checks VM, database, permission and locally ACTIVE epoch.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-admission"
         ],
@@ -398,16 +289,7 @@
         "name": "IR executor",
         "description": "Validates document IR, dispatches actor closures and checks fingerprint and preconditions. Never runs application TypeScript.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-ir"
         ],
@@ -424,16 +306,7 @@
         "name": "Document → SQL compiler",
         "description": "Compiles document reads and writes to parameterized SQLite SQL inside execution.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-compile",
@@ -448,16 +321,7 @@
         "name": "Bounded mailbox",
         "description": "Nonblocking enqueue per database; full queues shed work and expired queued work does not run.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-actor"
@@ -471,16 +335,7 @@
         "name": "Database actor",
         "description": "One goroutine per database; runs closures on its connection. Optional read pool provides concurrent read snapshots.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-actor"
         ],
@@ -497,16 +352,7 @@
         "name": "Group commit",
         "description": "One write connection per actor. Batch transaction, individual write savepoints; replies follow commit.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-writer"
         ],
@@ -522,16 +368,7 @@
         "name": "Request-id registry",
         "description": "Claims _mansio_requests inside the write savepoint. Commits result with mutation; retained duplicates replay without reapplying.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-requests"
         ],
@@ -568,16 +405,7 @@
         "name": "Structured event sink",
         "description": "Nonblocking bounded queue and writer goroutine; flushes rolled JSONL, counts drops.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-events"
@@ -591,16 +419,7 @@
         "name": "Locator",
         "description": "Authenticates API key; returns endpoint, epoch, generation and signed ticket. Refreshes stale placement from primary.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-locator"
         ],
@@ -616,16 +435,7 @@
         "name": "Epoch authority",
         "description": "Linearizable placement Get/CAS through Postgres. Owner changes require a higher epoch.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-authority"
         ],
@@ -642,16 +452,7 @@
         "name": "Ticket signer",
         "description": "Signs tenant, database, VM, epoch, principal, permissions and expiry with Ed25519.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-signer"
         ],
@@ -666,24 +467,16 @@
         "id": "lifecycle",
         "kind": "component",
         "name": "Lifecycle controller",
-        "description": "Moves, suspends and restores databases. Records operator attest-dead decisions; target agents restore published generations.",
+        "description": "Creates, moves, suspends/resumes, drops and restores databases; records operator attest-dead. Finishes stuck flows from table scans.",
         "status": "existing",
-        "tags": [
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external",
-          "external"
-        ],
+        "tags": [],
         "docIds": [
           "doc-element-lifecycle"
         ],
         "sourceIds": [
           "src-control",
-          "src-move"
+          "src-move",
+          "src-controld"
         ],
         "parentId": "controld",
         "technology": "Go"
@@ -902,7 +695,7 @@
         "id": "control-agent",
         "sourceId": "controld",
         "targetId": "agentd",
-        "label": "Claim, fence, forget; restore via target claim",
+        "label": "Claim, fence, forget; restore via target claim (durable mode)",
         "status": "existing",
         "technology": "HTTPS lifecycle RPC",
         "plannedNotes": [],
@@ -1289,7 +1082,7 @@
         "id": "lifecycle-agent",
         "sourceId": "lifecycle",
         "targetId": "agentd",
-        "label": "Invoke lifecycle listener",
+        "label": "Invoke lifecycle listener (durable mode)",
         "status": "existing",
         "technology": "HTTPS",
         "plannedNotes": [],
@@ -1397,6 +1190,60 @@
         "sourceIds": [
           "src-owner",
           "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "agent-keys",
+        "sourceId": "agentd",
+        "targetId": "controld",
+        "label": "Fetch ticket public keys (cached)",
+        "technology": "HTTPS GET /v1/keys",
+        "status": "existing",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-agent"
+        ]
+      },
+      {
+        "id": "edge-registry",
+        "sourceId": "edge",
+        "targetId": "controld",
+        "label": "Poll VM registry for routes",
+        "technology": "HTTPS GET /v1/agents",
+        "status": "existing",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-edge"
+        ]
+      },
+      {
+        "id": "agent-authority",
+        "sourceId": "agentd",
+        "targetId": "metadata",
+        "label": "Durable mode: reconcile and claim against authority",
+        "technology": "PostgreSQL",
+        "status": "existing",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-agent-durable",
+          "src-owner"
+        ]
+      },
+      {
+        "id": "control-s3",
+        "sourceId": "controld",
+        "targetId": "s3",
+        "label": "Built, paused: drop deletes database objects",
+        "technology": "S3 API",
+        "status": "existing",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-control-ports",
           "src-paused"
         ]
       }
@@ -1608,6 +1455,22 @@
         {
           "relationshipId": "control-meta",
           "displayNumber": 7
+        },
+        {
+          "relationshipId": "agent-keys",
+          "displayNumber": 8
+        },
+        {
+          "relationshipId": "edge-registry",
+          "displayNumber": 9
+        },
+        {
+          "relationshipId": "agent-authority",
+          "displayNumber": 10
+        },
+        {
+          "relationshipId": "control-s3",
+          "displayNumber": 11
         }
       ],
       "docIds": [
@@ -1616,7 +1479,9 @@
       "sourceIds": [
         "src-actor",
         "src-agent",
+        "src-agent-durable",
         "src-control",
+        "src-control-ports",
         "src-controld",
         "src-durable",
         "src-edge",
@@ -3041,9 +2906,9 @@
     {
       "id": "doc-containers",
       "title": "Request path: caller → control plane once → data plane",
-      "plain": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused.",
+      "plain": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused. Agents fetch ticket public keys from controld, so tickets verify offline; the edge polls controld's VM registry for routes. Lifecycle RPC, the agent's placement connection and S3 exist in durable mode only.",
       "ste": {
-        "text": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused.",
+        "text": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused. Agents fetch ticket public keys from controld, so tickets verify offline; the edge polls controld's VM registry for routes. Lifecycle RPC, the agent's placement connection and S3 exist in durable mode only.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3051,7 +2916,9 @@
       "sourceIds": [
         "src-actor",
         "src-agent",
+        "src-agent-durable",
         "src-control",
+        "src-control-ports",
         "src-controld",
         "src-durable",
         "src-edge",
@@ -3273,9 +3140,9 @@
     {
       "id": "doc-element-controld",
       "title": "controld",
-      "plain": "Control-plane daemon: lifecycle, placement lookup, epoch authority access and signed-ticket issuing.",
+      "plain": "Control-plane daemon: tenant/database/VM registries, database lifecycle, the locator (POST /v1/resolve) and ticket issuer, and the ticket public keys agents fetch (GET /v1/keys). Reaches agents only through their lifecycle endpoints.",
       "ste": {
-        "text": "Control-plane daemon: lifecycle, placement lookup, epoch authority access and signed-ticket issuing.",
+        "text": "Control-plane daemon: tenant/database/VM registries, database lifecycle, the locator (POST /v1/resolve) and ticket issuer, and the ticket public keys agents fetch (GET /v1/keys). Reaches agents only through their lifecycle endpoints.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3303,16 +3170,17 @@
     {
       "id": "doc-element-agentd",
       "title": "agentd / Go server",
-      "plain": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget. Not a second server behind agentd.",
+      "plain": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget/Health. Two modes: static (local *.db files at fixed epochs; no moves) and durable (S3 virtual-actor host plus placement authority; required for moves and restore; S3 work built but paused). Not a second server behind agentd.",
       "ste": {
-        "text": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget. Not a second server behind agentd.",
+        "text": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget/Health. Two modes: static (local *.db files at fixed epochs; no moves) and durable (S3 virtual-actor host plus placement authority; required for moves and restore; S3 work built but paused). Not a second server behind agentd.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
         "src-agent",
-        "src-owner"
+        "src-owner",
+        "src-agent-durable"
       ]
     },
     {
@@ -3515,16 +3383,17 @@
     {
       "id": "doc-element-lifecycle",
       "title": "Lifecycle controller",
-      "plain": "Moves, suspends and restores databases. Attest-dead is an operator action recorded by controld; restore uses last published generations through target agents.",
+      "plain": "Create, move, suspend/resume, drop and the restore of a VM an operator attested dead, plus resume of stuck flows. Every step is a CAS or idempotent. Attest-dead is an operator action recorded by controld; restore asks live target agents to claim last published generations (durable mode, S3 built but paused).",
       "ste": {
-        "text": "Moves, suspends and restores databases. Attest-dead is an operator action recorded by controld; restore uses last published generations through target agents.",
+        "text": "Create, move, suspend/resume, drop and the restore of a VM an operator attested dead, plus resume of stuck flows. Every step is a CAS or idempotent. Attest-dead is an operator action recorded by controld; restore asks live target agents to claim last published generations (durable mode, S3 built but paused).",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
         "src-control",
-        "src-move"
+        "src-move",
+        "src-controld"
       ]
     },
     {
@@ -3751,6 +3620,22 @@
       "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
       "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/events.go",
       "notes": "Maps completed IR requests to structured event records; emits through the bounded sink."
+    },
+    {
+      "id": "src-agent-durable",
+      "title": "Agentd durable mode: S3 host and placement authority",
+      "path": "server/cmd/agentd/durable.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/durable.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-control-ports",
+      "title": "Controller ports: drop deletes database objects",
+      "path": "server/internal/control/ports.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/ports.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     }
   ],
   "terms": []
