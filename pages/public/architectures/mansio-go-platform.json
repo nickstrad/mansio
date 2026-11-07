@@ -1,0 +1,3757 @@
+{
+  "schemaVersion": 1,
+  "id": "mansio-go-platform",
+  "title": "mansio Go platform (main 6330c9f; S3 work paused)",
+  "revision": "main-6330c9f-go-platform",
+  "defaultDiagramId": "context",
+  "model": {
+    "elements": [
+      {
+        "id": "developer",
+        "kind": "person",
+        "name": "Application developer / caller",
+        "description": "Writes and calls TypeScript handlers in the caller application.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-recording",
+          "src-transport"
+        ]
+      },
+      {
+        "id": "operator",
+        "kind": "person",
+        "name": "Platform operator",
+        "description": "Runs lifecycle commands, including move, attest-dead and restore; inspects offline logs.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-controld",
+          "src-adr"
+        ]
+      },
+      {
+        "id": "platform",
+        "kind": "softwareSystem",
+        "name": "mansio Go platform",
+        "description": "Go-only document database platform; a database is the isolation and placement unit, and a tenant may own many databases.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-adr",
+          "src-control",
+          "src-topics"
+        ]
+      },
+      {
+        "id": "application",
+        "kind": "softwareSystem",
+        "name": "Caller application",
+        "description": "User application outside the server boundary; hosts the TypeScript SDK and application handlers.",
+        "status": "existing",
+        "tags": [
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-recording"
+        ]
+      },
+      {
+        "id": "caller-process",
+        "kind": "container",
+        "name": "Caller process + SDK",
+        "description": "Application handlers and the TypeScript SDK run together here, outside the Go server.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-caller-process"
+        ],
+        "sourceIds": [
+          "src-recording"
+        ],
+        "parentId": "application",
+        "technology": "TypeScript"
+      },
+      {
+        "id": "sdk",
+        "kind": "component",
+        "name": "TypeScript SDK",
+        "description": "Records reads, buffers writes and derives asserts. Re-runs handlers on eligible conflicts; find reads are unguarded in v1.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-sdk"
+        ],
+        "sourceIds": [
+          "src-recording",
+          "src-transport"
+        ],
+        "parentId": "caller-process",
+        "technology": "TypeScript"
+      },
+      {
+        "id": "s3",
+        "kind": "softwareSystem",
+        "name": "S3 — built, paused",
+        "description": "Implemented immutable SQLite generations and manifests. Work paused 2026-11-06 pending LiteFS; crash recovery can lose acknowledged writes.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "implemented-paused"
+        ],
+        "docIds": [
+          "doc-element-s3"
+        ],
+        "sourceIds": [
+          "src-durable",
+          "src-paused"
+        ],
+        "technology": "S3 API"
+      },
+      {
+        "id": "controld",
+        "kind": "container",
+        "name": "controld",
+        "description": "Control daemon: database lifecycle, routing, epoch authority access and signed-ticket issuing.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-controld"
+        ],
+        "sourceIds": [
+          "src-controld",
+          "src-locator",
+          "src-control"
+        ],
+        "parentId": "platform",
+        "technology": "Go / HTTPS"
+      },
+      {
+        "id": "edge",
+        "kind": "container",
+        "name": "edge / TLS proxy",
+        "description": "Separate stateless proxy; verifies tickets and routes by VM to private agentd. No compiler or database engine.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-edge"
+        ],
+        "sourceIds": [
+          "src-edge"
+        ],
+        "parentId": "platform",
+        "technology": "Go / TLS"
+      },
+      {
+        "id": "agentd",
+        "kind": "container",
+        "name": "agentd / Go server",
+        "description": "Per-VM daemon and database server in one process: ticket admission, actors, local files and lifecycle RPC.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-agentd"
+        ],
+        "sourceIds": [
+          "src-agent",
+          "src-owner"
+        ],
+        "parentId": "platform",
+        "technology": "Go / HTTP"
+      },
+      {
+        "id": "files",
+        "kind": "container",
+        "name": "SQLite files",
+        "description": "One file per database; many databases per tenant. Local WAL and request-id records; database is the isolation unit.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-files"
+        ],
+        "sourceIds": [
+          "src-actor",
+          "src-reqid",
+          "src-control"
+        ],
+        "parentId": "platform",
+        "technology": "SQLite / modernc.org/sqlite"
+      },
+      {
+        "id": "metadata",
+        "kind": "container",
+        "name": "Placement registry",
+        "description": "Postgres placement and tenancy registry; CAS enforces epoch invariants. Local/test setups also have a file authority.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-metadata"
+        ],
+        "sourceIds": [
+          "src-placement",
+          "src-agent"
+        ],
+        "parentId": "platform",
+        "technology": "PostgreSQL"
+      },
+      {
+        "id": "jsonl",
+        "kind": "container",
+        "name": "Canonical JSONL",
+        "description": "Canonical persisted events. Bounded logging reports drops; canonical does not mean lossless.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-jsonl"
+        ],
+        "sourceIds": [
+          "src-events",
+          "src-adr",
+          "src-log-adr"
+        ],
+        "parentId": "platform",
+        "technology": "JSON Lines files"
+      },
+      {
+        "id": "analysis",
+        "kind": "container",
+        "name": "Offline log CLI",
+        "description": "scripts/logs.ts invokes TypeScript ingest, retention and named analysis queries outside agentd.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-adr",
+          "src-ingest"
+        ],
+        "parentId": "platform",
+        "technology": "Deno / TypeScript"
+      },
+      {
+        "id": "duckdb",
+        "kind": "container",
+        "name": "Derived DuckDB copy",
+        "description": "Offline analysis rebuilt from retained JSONL. Not application query storage.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-duckdb"
+        ],
+        "sourceIds": [
+          "src-ingest",
+          "src-log-adr"
+        ],
+        "parentId": "platform",
+        "technology": "DuckDB"
+      },
+      {
+        "id": "admission",
+        "kind": "component",
+        "name": "Ticket admission",
+        "description": "Verifies signed claims offline and checks VM, database, permission and locally ACTIVE epoch.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-admission"
+        ],
+        "sourceIds": [
+          "src-agent",
+          "src-ops",
+          "src-owner"
+        ],
+        "parentId": "agentd",
+        "technology": "Go"
+      },
+      {
+        "id": "ir",
+        "kind": "component",
+        "name": "IR executor",
+        "description": "Validates document IR, dispatches actor closures and checks fingerprint and preconditions. Never runs application TypeScript.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-ir"
+        ],
+        "sourceIds": [
+          "src-ops",
+          "src-exec"
+        ],
+        "parentId": "agentd",
+        "technology": "Go / IR v1"
+      },
+      {
+        "id": "compiler",
+        "kind": "component",
+        "name": "Document → SQL compiler",
+        "description": "Compiles document reads and writes to parameterized SQLite SQL inside execution.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-compile",
+          "src-exec"
+        ],
+        "parentId": "agentd",
+        "technology": "Go"
+      },
+      {
+        "id": "mailbox",
+        "kind": "component",
+        "name": "Bounded mailbox",
+        "description": "Nonblocking enqueue per database; full queues shed work and expired queued work does not run.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-actor"
+        ],
+        "parentId": "agentd",
+        "technology": "Go channel"
+      },
+      {
+        "id": "actor",
+        "kind": "component",
+        "name": "Database actor",
+        "description": "One goroutine per database; runs closures on its connection. Optional read pool provides concurrent read snapshots.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-actor"
+        ],
+        "sourceIds": [
+          "src-actor",
+          "src-exec"
+        ],
+        "parentId": "agentd",
+        "technology": "Go goroutine"
+      },
+      {
+        "id": "writer",
+        "kind": "component",
+        "name": "Group commit",
+        "description": "One write connection per actor. Batch transaction, individual write savepoints; replies follow commit.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-writer"
+        ],
+        "sourceIds": [
+          "src-actor"
+        ],
+        "parentId": "agentd",
+        "technology": "Go / SQLite"
+      },
+      {
+        "id": "requests",
+        "kind": "component",
+        "name": "Request-id registry",
+        "description": "Claims _mansio_requests inside the write savepoint. Commits result with mutation; retained duplicates replay without reapplying.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-requests"
+        ],
+        "sourceIds": [
+          "src-reqid",
+          "src-actor"
+        ],
+        "parentId": "agentd",
+        "technology": "Go / SQLite table"
+      },
+      {
+        "id": "storage",
+        "kind": "component",
+        "name": "Write-back — paused",
+        "description": "Implemented snapshots, restore and epoch-stamped manifests. S3 work paused 2026-11-06 pending LiteFS; no WAL shipping.",
+        "status": "existing",
+        "tags": [
+          "implemented-paused"
+        ],
+        "docIds": [
+          "doc-element-storage"
+        ],
+        "sourceIds": [
+          "src-writeback",
+          "src-durable",
+          "src-paused"
+        ],
+        "parentId": "agentd",
+        "technology": "Go / S3"
+      },
+      {
+        "id": "events",
+        "kind": "component",
+        "name": "Structured event sink",
+        "description": "Nonblocking bounded queue and writer goroutine; flushes rolled JSONL, counts drops.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [],
+        "sourceIds": [
+          "src-events"
+        ],
+        "parentId": "agentd",
+        "technology": "Go"
+      },
+      {
+        "id": "locator",
+        "kind": "component",
+        "name": "Locator",
+        "description": "Authenticates API key; returns endpoint, epoch, generation and signed ticket. Refreshes stale placement from primary.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-locator"
+        ],
+        "sourceIds": [
+          "src-locator"
+        ],
+        "parentId": "controld",
+        "technology": "Go"
+      },
+      {
+        "id": "authority",
+        "kind": "component",
+        "name": "Epoch authority",
+        "description": "Linearizable placement Get/CAS through Postgres. Owner changes require a higher epoch.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-authority"
+        ],
+        "sourceIds": [
+          "src-placement",
+          "src-move"
+        ],
+        "parentId": "controld",
+        "technology": "Go / SQL"
+      },
+      {
+        "id": "signer",
+        "kind": "component",
+        "name": "Ticket signer",
+        "description": "Signs tenant, database, VM, epoch, principal, permissions and expiry with Ed25519.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-signer"
+        ],
+        "sourceIds": [
+          "src-locator",
+          "src-transport"
+        ],
+        "parentId": "controld",
+        "technology": "Ed25519"
+      },
+      {
+        "id": "lifecycle",
+        "kind": "component",
+        "name": "Lifecycle controller",
+        "description": "Moves, suspends and restores databases. Records operator attest-dead decisions; target agents restore published generations.",
+        "status": "existing",
+        "tags": [
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external",
+          "external"
+        ],
+        "docIds": [
+          "doc-element-lifecycle"
+        ],
+        "sourceIds": [
+          "src-control",
+          "src-move"
+        ],
+        "parentId": "controld",
+        "technology": "Go"
+      },
+      {
+        "id": "source-agent",
+        "kind": "container",
+        "name": "Source agentd",
+        "description": "Source VM role of agentd: stop admission, drain, final write-back and durable FENCED before Ack.",
+        "status": "existing",
+        "tags": [
+          "scenario-role"
+        ],
+        "docIds": [
+          "doc-element-source-agent"
+        ],
+        "sourceIds": [
+          "src-move",
+          "src-owner"
+        ],
+        "parentId": "platform",
+        "technology": "Go"
+      },
+      {
+        "id": "target-agent",
+        "kind": "container",
+        "name": "Target agentd",
+        "description": "Target VM role of agentd: verify authority, fetch generation and stamp new epoch before admission.",
+        "status": "existing",
+        "tags": [
+          "scenario-role"
+        ],
+        "docIds": [
+          "doc-element-target-agent"
+        ],
+        "sourceIds": [
+          "src-move",
+          "src-owner",
+          "src-durable"
+        ],
+        "parentId": "platform",
+        "technology": "Go"
+      }
+    ],
+    "relationships": [
+      {
+        "id": "ctx-call",
+        "sourceId": "developer",
+        "targetId": "application",
+        "label": "Builds and invokes handlers",
+        "status": "existing",
+        "technology": "TypeScript API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-recording"
+        ]
+      },
+      {
+        "id": "ctx-use",
+        "sourceId": "application",
+        "targetId": "platform",
+        "label": "Document operations; handlers stay in caller",
+        "status": "existing",
+        "technology": "HTTPS / IR",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-recording",
+          "src-ops"
+        ]
+      },
+      {
+        "id": "ctx-operate",
+        "sourceId": "operator",
+        "targetId": "platform",
+        "label": "Lifecycle commands and log analysis",
+        "status": "existing",
+        "technology": "CLI / HTTPS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-controld",
+          "src-adr"
+        ]
+      },
+      {
+        "id": "ctx-durable",
+        "sourceId": "platform",
+        "targetId": "s3",
+        "label": "Built, paused: snapshots and manifests",
+        "status": "existing",
+        "technology": "S3 API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "caller-sdk",
+        "sourceId": "developer",
+        "targetId": "sdk",
+        "label": "Calls handler through recording executor",
+        "status": "existing",
+        "technology": "TypeScript call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-recording"
+        ]
+      },
+      {
+        "id": "caller-resolve",
+        "sourceId": "caller-process",
+        "targetId": "controld",
+        "label": "SDK resolves and caches signed route",
+        "status": "existing",
+        "technology": "HTTPS /v1/resolve",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-transport",
+          "src-locator"
+        ]
+      },
+      {
+        "id": "caller-edge",
+        "sourceId": "caller-process",
+        "targetId": "edge",
+        "label": "In-process SDK sends IR with ticket",
+        "status": "existing",
+        "technology": "HTTPS /v1/ops",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-transport",
+          "src-edge",
+          "src-ops"
+        ]
+      },
+      {
+        "id": "sdk-resolve",
+        "sourceId": "sdk",
+        "targetId": "controld",
+        "label": "Resolve once per cached route; refresh on expiry/staleness",
+        "status": "existing",
+        "technology": "HTTPS /v1/resolve",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-transport",
+          "src-locator"
+        ]
+      },
+      {
+        "id": "sdk-edge",
+        "sourceId": "sdk",
+        "targetId": "edge",
+        "label": "Send IR with cached signed ticket",
+        "status": "existing",
+        "technology": "HTTPS /v1/ops",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-transport",
+          "src-edge",
+          "src-ops"
+        ]
+      },
+      {
+        "id": "edge-agent",
+        "sourceId": "edge",
+        "targetId": "agentd",
+        "label": "Route by ticket VM; relay response",
+        "status": "existing",
+        "technology": "TLS /v1/ops",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-edge",
+          "src-ops"
+        ]
+      },
+      {
+        "id": "agent-files",
+        "sourceId": "agentd",
+        "targetId": "files",
+        "label": "Execute database-local reads and writes",
+        "status": "existing",
+        "technology": "SQLite",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-agent",
+          "src-actor"
+        ]
+      },
+      {
+        "id": "agent-s3",
+        "sourceId": "agentd",
+        "targetId": "s3",
+        "label": "Built, paused: fetch / write-back generations",
+        "status": "existing",
+        "technology": "S3 API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-agent",
+          "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "control-agent",
+        "sourceId": "controld",
+        "targetId": "agentd",
+        "label": "Claim, fence, forget; restore via target claim",
+        "status": "existing",
+        "technology": "HTTPS lifecycle RPC",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-control",
+          "src-move",
+          "src-agent"
+        ]
+      },
+      {
+        "id": "control-meta",
+        "sourceId": "controld",
+        "targetId": "metadata",
+        "label": "Placement CAS and registry operations",
+        "status": "existing",
+        "technology": "PostgreSQL",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-placement",
+          "src-control"
+        ]
+      },
+      {
+        "id": "operator-control",
+        "sourceId": "operator",
+        "targetId": "controld",
+        "label": "Move / attest-dead / restore",
+        "status": "existing",
+        "technology": "CLI / HTTPS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-controld",
+          "src-control"
+        ]
+      },
+      {
+        "id": "agent-log",
+        "sourceId": "agentd",
+        "targetId": "jsonl",
+        "label": "Emit structured events",
+        "status": "existing",
+        "technology": "JSONL append",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-events",
+          "src-adr"
+        ]
+      },
+      {
+        "id": "log-ingest",
+        "sourceId": "jsonl",
+        "targetId": "analysis",
+        "label": "Read retained records and ingest offsets",
+        "status": "existing",
+        "technology": "Filesystem",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-ingest",
+          "src-adr"
+        ]
+      },
+      {
+        "id": "analysis-db",
+        "sourceId": "analysis",
+        "targetId": "duckdb",
+        "label": "Build derived analysis tables",
+        "status": "existing",
+        "technology": "DuckDB SQL",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-ingest"
+        ]
+      },
+      {
+        "id": "operator-analysis",
+        "sourceId": "operator",
+        "targetId": "analysis",
+        "label": "Run logs:ingest / logs:query",
+        "status": "existing",
+        "technology": "Deno CLI",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-adr"
+        ]
+      },
+      {
+        "id": "edge-admit",
+        "sourceId": "edge",
+        "targetId": "admission",
+        "label": "Forward signed query to agentd admission",
+        "status": "existing",
+        "technology": "TLS /v1/ops",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-edge",
+          "src-ops"
+        ]
+      },
+      {
+        "id": "admit-ir",
+        "sourceId": "admission",
+        "targetId": "ir",
+        "label": "Validated ticket and ownership; decode IR",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-ops",
+          "src-owner"
+        ]
+      },
+      {
+        "id": "ir-mail",
+        "sourceId": "ir",
+        "targetId": "mailbox",
+        "label": "Submit document executor closure",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-ops",
+          "src-exec",
+          "src-actor"
+        ]
+      },
+      {
+        "id": "mail-actor",
+        "sourceId": "mailbox",
+        "targetId": "actor",
+        "label": "Drain next bounded batch",
+        "status": "existing",
+        "technology": "Go channel",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-actor"
+        ]
+      },
+      {
+        "id": "actor-ir",
+        "sourceId": "actor",
+        "targetId": "ir",
+        "label": "Run closure: fingerprint, expectations and operations",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-exec",
+          "src-actor"
+        ]
+      },
+      {
+        "id": "ir-compile",
+        "sourceId": "ir",
+        "targetId": "compiler",
+        "label": "Compile validated document operations",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-exec",
+          "src-compile"
+        ]
+      },
+      {
+        "id": "compile-files",
+        "sourceId": "compiler",
+        "targetId": "files",
+        "label": "Parameterized SQL on actor-owned connection",
+        "status": "existing",
+        "technology": "SQLite / Tx port",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-exec",
+          "src-compile"
+        ]
+      },
+      {
+        "id": "actor-write",
+        "sourceId": "actor",
+        "targetId": "writer",
+        "label": "Batch writes, then service reads",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-actor"
+        ]
+      },
+      {
+        "id": "writer-request",
+        "sourceId": "writer",
+        "targetId": "requests",
+        "label": "Claim id and store result in write savepoint",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-actor",
+          "src-reqid"
+        ]
+      },
+      {
+        "id": "request-files",
+        "sourceId": "requests",
+        "targetId": "files",
+        "label": "Persist _mansio_requests with mutation",
+        "status": "existing",
+        "technology": "SQLite",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-reqid"
+        ]
+      },
+      {
+        "id": "writer-files",
+        "sourceId": "writer",
+        "targetId": "files",
+        "label": "Commit write batch",
+        "status": "existing",
+        "technology": "SQLite",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-actor"
+        ]
+      },
+      {
+        "id": "storage-files",
+        "sourceId": "storage",
+        "targetId": "files",
+        "label": "Built, paused: snapshot / restore database",
+        "status": "existing",
+        "technology": "SQLite snapshot / files",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-writeback",
+          "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "storage-s3",
+        "sourceId": "storage",
+        "targetId": "s3",
+        "label": "Built, paused: immutable PUT and manifest CAS",
+        "status": "existing",
+        "technology": "S3 API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "ir-events",
+        "sourceId": "ir",
+        "targetId": "events",
+        "label": "Emit request execution events through front",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-ops",
+          "src-events",
+          "src-observer"
+        ]
+      },
+      {
+        "id": "events-jsonl",
+        "sourceId": "events",
+        "targetId": "jsonl",
+        "label": "Flush bounded event queue",
+        "status": "existing",
+        "technology": "JSONL append",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-events"
+        ]
+      },
+      {
+        "id": "control-locator",
+        "sourceId": "sdk",
+        "targetId": "locator",
+        "label": "Authenticate and resolve a database route",
+        "status": "existing",
+        "technology": "HTTPS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-transport",
+          "src-locator"
+        ]
+      },
+      {
+        "id": "locator-authority",
+        "sourceId": "locator",
+        "targetId": "authority",
+        "label": "Read cached placement; primary on stale route",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-locator",
+          "src-placement"
+        ]
+      },
+      {
+        "id": "authority-meta",
+        "sourceId": "authority",
+        "targetId": "metadata",
+        "label": "Get / compare-and-swap placement row",
+        "status": "existing",
+        "technology": "PostgreSQL",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-placement"
+        ]
+      },
+      {
+        "id": "locator-signer",
+        "sourceId": "locator",
+        "targetId": "signer",
+        "label": "Mint signed claims for current owner",
+        "status": "existing",
+        "technology": "Go / Ed25519",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-locator"
+        ]
+      },
+      {
+        "id": "op-lifecycle",
+        "sourceId": "operator",
+        "targetId": "lifecycle",
+        "label": "Request lifecycle or attest-dead recovery",
+        "status": "existing",
+        "technology": "CLI / HTTPS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-controld",
+          "src-control"
+        ]
+      },
+      {
+        "id": "lifecycle-authority",
+        "sourceId": "lifecycle",
+        "targetId": "authority",
+        "label": "CAS ownership transitions",
+        "status": "existing",
+        "technology": "Go call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-control"
+        ]
+      },
+      {
+        "id": "lifecycle-agent",
+        "sourceId": "lifecycle",
+        "targetId": "agentd",
+        "label": "Invoke lifecycle listener",
+        "status": "existing",
+        "technology": "HTTPS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-control",
+          "src-move"
+        ]
+      },
+      {
+        "id": "move-begin",
+        "sourceId": "controld",
+        "targetId": "metadata",
+        "label": "CAS ACTIVE(source,E) → MOVING(source,E)",
+        "status": "existing",
+        "technology": "PostgreSQL CAS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-placement"
+        ]
+      },
+      {
+        "id": "move-fence",
+        "sourceId": "controld",
+        "targetId": "source-agent",
+        "label": "Fence: stop, drain, final write-back, persist FENCED",
+        "status": "existing",
+        "technology": "HTTPS lifecycle RPC",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-owner"
+        ]
+      },
+      {
+        "id": "move-publish",
+        "sourceId": "source-agent",
+        "targetId": "s3",
+        "label": "Built, paused: publish final generation G at E",
+        "status": "existing",
+        "technology": "S3 API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-owner",
+          "src-durable",
+          "src-paused"
+        ]
+      },
+      {
+        "id": "move-flip",
+        "sourceId": "controld",
+        "targetId": "metadata",
+        "label": "With Ack: CAS MOVING → ACTIVE(target,E+1,G)",
+        "status": "existing",
+        "technology": "PostgreSQL CAS",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-placement"
+        ]
+      },
+      {
+        "id": "move-claim",
+        "sourceId": "controld",
+        "targetId": "target-agent",
+        "label": "Claim target after authority flip",
+        "status": "existing",
+        "technology": "HTTPS lifecycle RPC",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-move",
+          "src-owner"
+        ]
+      },
+      {
+        "id": "move-read",
+        "sourceId": "target-agent",
+        "targetId": "metadata",
+        "label": "Read and verify new ownership",
+        "status": "existing",
+        "technology": "Placement Get",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-owner",
+          "src-placement"
+        ]
+      },
+      {
+        "id": "move-stamp",
+        "sourceId": "target-agent",
+        "targetId": "s3",
+        "label": "Built, paused: fetch G and stamp manifest E+1",
+        "status": "existing",
+        "technology": "S3 API",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-owner",
+          "src-durable",
+          "src-paused"
+        ]
+      }
+    ]
+  },
+  "diagrams": [
+    {
+      "id": "context",
+      "kind": "context",
+      "title": "mansio Go platform: context",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "developer"
+        },
+        {
+          "elementId": "operator"
+        },
+        {
+          "elementId": "application"
+        },
+        {
+          "elementId": "platform",
+          "detail": {
+            "diagramId": "containers"
+          }
+        },
+        {
+          "elementId": "s3"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "ctx-call",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "ctx-use",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "ctx-operate",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "ctx-durable",
+          "displayNumber": 4
+        }
+      ],
+      "docIds": [
+        "doc-context"
+      ],
+      "sourceIds": [
+        "src-adr",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-ops",
+        "src-paused",
+        "src-recording",
+        "src-topics",
+        "src-transport"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "platform"
+    },
+    {
+      "id": "containers",
+      "kind": "container",
+      "title": "Request path: caller → control plane once → data plane",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "caller-process",
+          "detail": {
+            "diagramId": "caller-components"
+          }
+        },
+        {
+          "elementId": "controld",
+          "detail": {
+            "diagramId": "control-plane"
+          }
+        },
+        {
+          "elementId": "edge"
+        },
+        {
+          "elementId": "agentd",
+          "detail": {
+            "diagramId": "components"
+          }
+        },
+        {
+          "elementId": "files"
+        },
+        {
+          "elementId": "metadata"
+        },
+        {
+          "elementId": "s3"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "caller-resolve",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "caller-edge",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "edge-agent",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "agent-files",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "agent-s3",
+          "displayNumber": 5
+        },
+        {
+          "relationshipId": "control-agent",
+          "displayNumber": 6
+        },
+        {
+          "relationshipId": "control-meta",
+          "displayNumber": 7
+        }
+      ],
+      "docIds": [
+        "doc-containers"
+      ],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-edge",
+        "src-locator",
+        "src-move",
+        "src-ops",
+        "src-owner",
+        "src-paused",
+        "src-placement",
+        "src-recording",
+        "src-reqid",
+        "src-transport"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "platform"
+    },
+    {
+      "id": "caller-components",
+      "kind": "component",
+      "title": "Caller process: in-process SDK and handler retries",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "developer"
+        },
+        {
+          "elementId": "sdk"
+        },
+        {
+          "elementId": "controld"
+        },
+        {
+          "elementId": "edge"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "caller-sdk",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "sdk-resolve",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "sdk-edge",
+          "displayNumber": 3
+        }
+      ],
+      "docIds": [
+        "doc-caller-components"
+      ],
+      "sourceIds": [
+        "src-control",
+        "src-controld",
+        "src-edge",
+        "src-locator",
+        "src-ops",
+        "src-recording",
+        "src-transport"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "caller-process"
+    },
+    {
+      "id": "components",
+      "kind": "component",
+      "title": "agentd: admission, IR and per-database execution",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "edge"
+        },
+        {
+          "elementId": "admission"
+        },
+        {
+          "elementId": "ir"
+        },
+        {
+          "elementId": "compiler"
+        },
+        {
+          "elementId": "mailbox"
+        },
+        {
+          "elementId": "actor"
+        },
+        {
+          "elementId": "writer"
+        },
+        {
+          "elementId": "requests"
+        },
+        {
+          "elementId": "files"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "edge-admit",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "admit-ir",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "ir-mail",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "mail-actor",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "actor-ir",
+          "displayNumber": 5
+        },
+        {
+          "relationshipId": "ir-compile",
+          "displayNumber": 6
+        },
+        {
+          "relationshipId": "compile-files",
+          "displayNumber": 7
+        },
+        {
+          "relationshipId": "actor-write",
+          "displayNumber": 8
+        },
+        {
+          "relationshipId": "writer-request",
+          "displayNumber": 9
+        },
+        {
+          "relationshipId": "request-files",
+          "displayNumber": 10
+        },
+        {
+          "relationshipId": "writer-files",
+          "displayNumber": 11
+        }
+      ],
+      "docIds": [
+        "doc-components"
+      ],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-compile",
+        "src-control",
+        "src-edge",
+        "src-exec",
+        "src-ops",
+        "src-owner",
+        "src-reqid"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "agentd"
+    },
+    {
+      "id": "storage-events",
+      "kind": "component",
+      "title": "agentd: paused durability and canonical events",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "storage"
+        },
+        {
+          "elementId": "files"
+        },
+        {
+          "elementId": "s3"
+        },
+        {
+          "elementId": "ir"
+        },
+        {
+          "elementId": "events"
+        },
+        {
+          "elementId": "jsonl"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "storage-files",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "storage-s3",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "ir-events",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "events-jsonl",
+          "displayNumber": 4
+        }
+      ],
+      "docIds": [
+        "doc-storage-events"
+      ],
+      "sourceIds": [
+        "src-actor",
+        "src-adr",
+        "src-control",
+        "src-durable",
+        "src-events",
+        "src-exec",
+        "src-log-adr",
+        "src-ops",
+        "src-paused",
+        "src-reqid",
+        "src-writeback"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "agentd"
+    },
+    {
+      "id": "control-plane",
+      "kind": "component",
+      "title": "controld: locator, signer and epoch authority",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "sdk"
+        },
+        {
+          "elementId": "locator"
+        },
+        {
+          "elementId": "signer"
+        },
+        {
+          "elementId": "authority"
+        },
+        {
+          "elementId": "metadata"
+        },
+        {
+          "elementId": "operator"
+        },
+        {
+          "elementId": "lifecycle"
+        },
+        {
+          "elementId": "agentd"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "control-locator",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "locator-authority",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "authority-meta",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "locator-signer",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "op-lifecycle",
+          "displayNumber": 5
+        },
+        {
+          "relationshipId": "lifecycle-authority",
+          "displayNumber": 6
+        },
+        {
+          "relationshipId": "lifecycle-agent",
+          "displayNumber": 7
+        }
+      ],
+      "docIds": [
+        "doc-control-plane"
+      ],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-locator",
+        "src-move",
+        "src-owner",
+        "src-placement",
+        "src-recording",
+        "src-transport"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "controld"
+    },
+    {
+      "id": "observability",
+      "kind": "container",
+      "title": "Canonical JSONL → offline DuckDB analysis",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "agentd",
+          "detail": {
+            "diagramId": "components"
+          }
+        },
+        {
+          "elementId": "jsonl"
+        },
+        {
+          "elementId": "analysis"
+        },
+        {
+          "elementId": "duckdb"
+        },
+        {
+          "elementId": "operator"
+        },
+        {
+          "elementId": "controld",
+          "detail": {
+            "diagramId": "control-plane"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "agent-log",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "log-ingest",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "analysis-db",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "operator-analysis",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "operator-control",
+          "displayNumber": 5
+        }
+      ],
+      "docIds": [
+        "doc-observability"
+      ],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-events",
+        "src-ingest",
+        "src-locator",
+        "src-log-adr",
+        "src-owner"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "platform"
+    },
+    {
+      "id": "query-flow",
+      "kind": "dynamic",
+      "title": "Query: resolve once, then cached-ticket data path",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "sdk"
+        },
+        {
+          "elementId": "controld"
+        },
+        {
+          "elementId": "edge"
+        },
+        {
+          "elementId": "admission"
+        },
+        {
+          "elementId": "ir"
+        },
+        {
+          "elementId": "mailbox"
+        },
+        {
+          "elementId": "actor"
+        },
+        {
+          "elementId": "compiler"
+        },
+        {
+          "elementId": "files"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "sdk-resolve",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "sdk-edge",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "edge-admit",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "admit-ir",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "ir-mail",
+          "displayNumber": 5
+        },
+        {
+          "relationshipId": "mail-actor",
+          "displayNumber": 6
+        },
+        {
+          "relationshipId": "actor-ir",
+          "displayNumber": 7
+        },
+        {
+          "relationshipId": "ir-compile",
+          "displayNumber": 8
+        },
+        {
+          "relationshipId": "compile-files",
+          "displayNumber": 9
+        }
+      ],
+      "docIds": [
+        "doc-query-flow"
+      ],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-compile",
+        "src-control",
+        "src-controld",
+        "src-edge",
+        "src-exec",
+        "src-locator",
+        "src-ops",
+        "src-owner",
+        "src-recording",
+        "src-reqid",
+        "src-transport"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "platform",
+      "scenario": {
+        "kind": "sequence",
+        "id": "query-flow-sequence",
+        "children": [
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-1",
+            "relationshipId": "sdk-resolve",
+            "direction": "forward",
+            "label": "1. Resolve tenant/database with API key"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-2",
+            "relationshipId": "sdk-resolve",
+            "direction": "reverse",
+            "label": "2. Return endpoint, epoch and signed ticket; cache route"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-3",
+            "relationshipId": "sdk-edge",
+            "direction": "forward",
+            "label": "3. Send query IR directly to data endpoint with ticket"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-4",
+            "relationshipId": "edge-admit",
+            "direction": "forward",
+            "label": "4. Verify at edge and forward to agentd; validate ticket and ACTIVE epoch"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-5",
+            "relationshipId": "admit-ir",
+            "direction": "forward",
+            "label": "5. Decode and validate IR"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-6",
+            "relationshipId": "ir-mail",
+            "direction": "forward",
+            "label": "6. Submit query closure to bounded mailbox"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-7",
+            "relationshipId": "mail-actor",
+            "direction": "forward",
+            "label": "7. Actor takes query"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-8",
+            "relationshipId": "actor-ir",
+            "direction": "forward",
+            "label": "8. Run document query in actor snapshot"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-9",
+            "relationshipId": "ir-compile",
+            "direction": "forward",
+            "label": "9. Compile document query to parameterized SQL"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-10",
+            "relationshipId": "compile-files",
+            "direction": "forward",
+            "label": "10. Execute SQL on actor-owned SQLite connection"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-11",
+            "relationshipId": "compile-files",
+            "direction": "reverse",
+            "label": "11. Return rows"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-12",
+            "relationshipId": "ir-compile",
+            "direction": "reverse",
+            "label": "12. Decode query result"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-13",
+            "relationshipId": "actor-ir",
+            "direction": "reverse",
+            "label": "13. Complete closure"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-14",
+            "relationshipId": "mail-actor",
+            "direction": "reverse",
+            "label": "14. Complete buffered reply"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-15",
+            "relationshipId": "ir-mail",
+            "direction": "reverse",
+            "label": "15. Receive actor result"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-16",
+            "relationshipId": "admit-ir",
+            "direction": "reverse",
+            "label": "16. Encode result"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-17",
+            "relationshipId": "edge-admit",
+            "direction": "reverse",
+            "label": "17. Relay agentd response"
+          },
+          {
+            "kind": "interaction",
+            "id": "query-flow-step-18",
+            "relationshipId": "sdk-edge",
+            "direction": "reverse",
+            "label": "18. Return documents to caller"
+          }
+        ]
+      }
+    },
+    {
+      "id": "database-move",
+      "kind": "dynamic",
+      "title": "Database move: fence before epoch flip (S3 built, paused)",
+      "status": "existing",
+      "nodes": [
+        {
+          "elementId": "operator"
+        },
+        {
+          "elementId": "controld"
+        },
+        {
+          "elementId": "metadata"
+        },
+        {
+          "elementId": "source-agent"
+        },
+        {
+          "elementId": "target-agent"
+        },
+        {
+          "elementId": "s3"
+        }
+      ],
+      "edges": [
+        {
+          "relationshipId": "operator-control",
+          "displayNumber": 1
+        },
+        {
+          "relationshipId": "move-begin",
+          "displayNumber": 2
+        },
+        {
+          "relationshipId": "move-fence",
+          "displayNumber": 3
+        },
+        {
+          "relationshipId": "move-publish",
+          "displayNumber": 4
+        },
+        {
+          "relationshipId": "move-flip",
+          "displayNumber": 5
+        },
+        {
+          "relationshipId": "move-claim",
+          "displayNumber": 6
+        },
+        {
+          "relationshipId": "move-read",
+          "displayNumber": 7
+        },
+        {
+          "relationshipId": "move-stamp",
+          "displayNumber": 8
+        }
+      ],
+      "docIds": [
+        "doc-database-move"
+      ],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-locator",
+        "src-move",
+        "src-owner",
+        "src-paused",
+        "src-placement"
+      ],
+      "layout": {
+        "mode": "auto",
+        "direction": "TB"
+      },
+      "legend": {
+        "title": "Key",
+        "entries": [
+          {
+            "id": "person",
+            "label": "Human role",
+            "description": "Developer/caller or platform operator.",
+            "swatch": {
+              "shape": "person",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "box",
+            "label": "Built system, process or component",
+            "description": "Existing code at the pin, not a claim of production deployment. Libraries are in-process.",
+            "swatch": {
+              "shape": "box",
+              "tone": "default",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "external",
+            "label": "External neighbour",
+            "description": "External to a view scope, including same-platform supporting processes; does not mean third-party ownership.",
+            "swatch": {
+              "shape": "box",
+              "tone": "external",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "scope",
+            "label": "Scope boundary",
+            "description": "The named system or process contains the in-scope elements.",
+            "swatch": {
+              "shape": "boundary",
+              "tone": "muted",
+              "stroke": "dashed"
+            }
+          },
+          {
+            "id": "edge",
+            "label": "Numbered relationship",
+            "description": "Numbers identify edges; numbered scenario text gives execution order.",
+            "swatch": {
+              "shape": "line",
+              "tone": "default",
+              "stroke": "solid",
+              "arrow": "forward"
+            }
+          },
+          {
+            "id": "paused",
+            "label": "Built, paused",
+            "description": "Names and descriptions explicitly mark paused S3 work; existing status means implemented, not live or proposed.",
+            "swatch": {
+              "shape": "box",
+              "tone": "muted",
+              "stroke": "solid"
+            }
+          },
+          {
+            "id": "accent",
+            "label": "System in scope",
+            "description": "The context highlights mansio.",
+            "swatch": {
+              "shape": "box",
+              "tone": "accent",
+              "stroke": "solid"
+            }
+          }
+        ]
+      },
+      "related": [],
+      "scopeId": "platform",
+      "scenario": {
+        "kind": "sequence",
+        "id": "database-move-sequence",
+        "children": [
+          {
+            "kind": "interaction",
+            "id": "database-move-step-1",
+            "relationshipId": "operator-control",
+            "direction": "forward",
+            "label": "1. Request move from source VM to target VM"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-2",
+            "relationshipId": "move-begin",
+            "direction": "forward",
+            "label": "2. CAS ACTIVE(source,E) to MOVING(source,E)"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-3",
+            "relationshipId": "move-fence",
+            "direction": "forward",
+            "label": "3. Stop admission and drain source work"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-4",
+            "relationshipId": "move-publish",
+            "direction": "forward",
+            "label": "4. Final write-back: immutable G and manifest at E; built, paused"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-5",
+            "relationshipId": "move-fence",
+            "direction": "reverse",
+            "label": "5. Persist FENCED, acknowledge epoch E and generation G"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-6",
+            "relationshipId": "move-flip",
+            "direction": "forward",
+            "label": "6. With valid Ack, CAS to ACTIVE(target,E+1,G)"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-7",
+            "relationshipId": "move-claim",
+            "direction": "forward",
+            "label": "7. Ask target to claim database"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-8",
+            "relationshipId": "move-read",
+            "direction": "forward",
+            "label": "8. Verify authority names target at E+1"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-9",
+            "relationshipId": "move-stamp",
+            "direction": "forward",
+            "label": "9. Fetch G and stamp storage E+1 before admission; built, paused"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-10",
+            "relationshipId": "move-claim",
+            "direction": "reverse",
+            "label": "10. Persist local ACTIVE at E+1 and acknowledge claim"
+          },
+          {
+            "kind": "interaction",
+            "id": "database-move-step-11",
+            "relationshipId": "operator-control",
+            "direction": "reverse",
+            "label": "11. Report completed move"
+          }
+        ]
+      }
+    }
+  ],
+  "documents": [
+    {
+      "id": "doc-context",
+      "title": "mansio Go platform: context",
+      "plain": "The caller runs application handlers. mansio runs Go IR execution. Operators manage lifecycle and offline analysis. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
+      "ste": {
+        "text": "The caller runs application handlers. mansio runs Go IR execution. Operators manage lifecycle and offline analysis. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-adr",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-ops",
+        "src-paused",
+        "src-recording",
+        "src-topics",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-containers",
+      "title": "Request path: caller → control plane once → data plane",
+      "plain": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused.",
+      "ste": {
+        "text": "The TypeScript SDK is a library inside the caller process. Resolve returns a route and signed ticket. Reuse the cached route until refresh or invalidation; controld is not a per-query hop. The returned endpoint may be the edge, which forwards directly to agentd. agentd is both the VM daemon and Go server. Each tenant can own many databases. S3 storage is built but paused.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-edge",
+        "src-locator",
+        "src-move",
+        "src-ops",
+        "src-owner",
+        "src-paused",
+        "src-placement",
+        "src-recording",
+        "src-reqid",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-caller-components",
+      "title": "Caller process: in-process SDK and handler retries",
+      "plain": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions and sends IR. Eligible conflicts re-run the handler in this same process. Route and signed-ticket caching avoid a control-plane lookup for every query.",
+      "ste": {
+        "text": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions and sends IR. Eligible conflicts re-run the handler in this same process. Route and signed-ticket caching avoid a control-plane lookup for every query.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-control",
+        "src-controld",
+        "src-edge",
+        "src-locator",
+        "src-ops",
+        "src-recording",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-components",
+      "title": "agentd: admission, IR and per-database execution",
+      "plain": "Admission verifies the ticket and local epoch. The IR adapter queues a closure; an actor executes it, checking preconditions and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Reads run in a snapshot, optionally on a read pool. A conflict can cause the SDK to re-run a handler; no application handler runs here.",
+      "ste": {
+        "text": "Admission verifies the ticket and local epoch. The IR adapter queues a closure; an actor executes it, checking preconditions and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Reads run in a snapshot, optionally on a read pool. A conflict can cause the SDK to re-run a handler; no application handler runs here.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-compile",
+        "src-control",
+        "src-edge",
+        "src-exec",
+        "src-ops",
+        "src-owner",
+        "src-reqid"
+      ]
+    },
+    {
+      "id": "doc-storage-events",
+      "title": "agentd: paused durability and canonical events",
+      "plain": "The event sink writes canonical JSONL through a bounded queue; drops are counted, so canonical does not mean lossless. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. Default periodic backup is 10 seconds plus scheduling and upload time; acknowledged writes may be lost on crash. Version reuse after rollback is an open issue. WAL shipping and LiteFS replacement are not built.",
+      "ste": {
+        "text": "The event sink writes canonical JSONL through a bounded queue; drops are counted, so canonical does not mean lossless. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. Default periodic backup is 10 seconds plus scheduling and upload time; acknowledged writes may be lost on crash. Version reuse after rollback is an open issue. WAL shipping and LiteFS replacement are not built.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-adr",
+        "src-control",
+        "src-durable",
+        "src-events",
+        "src-exec",
+        "src-log-adr",
+        "src-ops",
+        "src-paused",
+        "src-reqid",
+        "src-writeback"
+      ]
+    },
+    {
+      "id": "doc-control-plane",
+      "title": "controld: locator, signer and epoch authority",
+      "plain": "The locator authenticates an API key, reads placement and signs a ticket. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+      "ste": {
+        "text": "The locator authenticates an API key, reads placement and signs a ticket. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-locator",
+        "src-move",
+        "src-owner",
+        "src-placement",
+        "src-recording",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-observability",
+      "title": "Canonical JSONL → offline DuckDB analysis",
+      "plain": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Retention can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately.",
+      "ste": {
+        "text": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Retention can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-events",
+        "src-ingest",
+        "src-locator",
+        "src-log-adr",
+        "src-owner"
+      ]
+    },
+    {
+      "id": "doc-query-flow",
+      "title": "Query: resolve once, then cached-ticket data path",
+      "plain": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld. Ticket validation occurs again in agentd. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
+      "ste": {
+        "text": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld. Ticket validation occurs again in agentd. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-agent",
+        "src-compile",
+        "src-control",
+        "src-controld",
+        "src-edge",
+        "src-exec",
+        "src-locator",
+        "src-ops",
+        "src-owner",
+        "src-recording",
+        "src-reqid",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-database-move",
+      "title": "Database move: fence before epoch flip (S3 built, paused)",
+      "plain": "Successful graceful move in the implemented durable mode; S3 work is paused. Source and target boxes are two runtime roles of the same agentd executable, not different services. The source stops admission, drains admitted work, performs final write-back and durably records FENCED before acknowledgment. Only then may the authority flip to target at E+1. Claim checks authority, fetches G, stamps storage and persists ACTIVE before serving. A failed step leaves the move resumable; no unconditional flip after an unacknowledged fence. Attest-dead restore is a different path with an accepted loss window.",
+      "ste": {
+        "text": "Successful graceful move in the implemented durable mode; S3 work is paused. Source and target boxes are two runtime roles of the same agentd executable, not different services. The source stops admission, drains admitted work, performs final write-back and durably records FENCED before acknowledgment. Only then may the authority flip to target at E+1. Claim checks authority, fetches G, stamps storage and persists ACTIVE before serving. A failed step leaves the move resumable; no unconditional flip after an unacknowledged fence. Attest-dead restore is a different path with an accepted loss window.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-adr",
+        "src-agent",
+        "src-control",
+        "src-controld",
+        "src-durable",
+        "src-locator",
+        "src-move",
+        "src-owner",
+        "src-paused",
+        "src-placement"
+      ]
+    },
+    {
+      "id": "doc-element-caller-process",
+      "title": "Caller process + SDK",
+      "plain": "Runs application handlers and the SDK in the same process; never uploads executable handlers.",
+      "ste": {
+        "text": "Runs application handlers and the SDK in the same process; never uploads executable handlers.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-recording"
+      ]
+    },
+    {
+      "id": "doc-element-sdk",
+      "title": "TypeScript SDK",
+      "plain": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. find is unguarded in v1.",
+      "ste": {
+        "text": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. find is unguarded in v1.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-recording",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-element-s3",
+      "title": "S3 — built, paused",
+      "plain": "IMPLEMENTED BUT PAUSED by Nick on 2026-11-06 pending LiteFS evaluation. Immutable SQLite generations plus conditional manifest; asynchronous write-back can lose acknowledged writes after a crash. Not a claim of live deployment.",
+      "ste": {
+        "text": "IMPLEMENTED BUT PAUSED by Nick on 2026-11-06 pending LiteFS evaluation. Immutable SQLite generations plus conditional manifest; asynchronous write-back can lose acknowledged writes after a crash. Not a claim of live deployment.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-durable",
+        "src-paused"
+      ]
+    },
+    {
+      "id": "doc-element-controld",
+      "title": "controld",
+      "plain": "Control-plane daemon: lifecycle, placement lookup, epoch authority access and signed-ticket issuing.",
+      "ste": {
+        "text": "Control-plane daemon: lifecycle, placement lookup, epoch authority access and signed-ticket issuing.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-controld",
+        "src-locator",
+        "src-control"
+      ]
+    },
+    {
+      "id": "doc-element-edge",
+      "title": "edge / TLS proxy",
+      "plain": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. No compiler or database engine here.",
+      "ste": {
+        "text": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. No compiler or database engine here.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-edge"
+      ]
+    },
+    {
+      "id": "doc-element-agentd",
+      "title": "agentd / Go server",
+      "plain": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget. Not a second server behind agentd.",
+      "ste": {
+        "text": "The per-VM daemon IS the Go database server: ticket admission, actors and last-mile files; lifecycle Claim/Fence/Forget. Not a second server behind agentd.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-agent",
+        "src-owner"
+      ]
+    },
+    {
+      "id": "doc-element-files",
+      "title": "SQLite files",
+      "plain": "One file per database, not per tenant; each tenant can own many. Local WAL and request-id records travel with snapshots.",
+      "ste": {
+        "text": "One file per database, not per tenant; each tenant can own many. Local WAL and request-id records travel with snapshots.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-reqid",
+        "src-control"
+      ]
+    },
+    {
+      "id": "doc-element-metadata",
+      "title": "Placement registry",
+      "plain": "Current Postgres placement authority and registries; epoch CAS invariants live in the schema. A file authority is also used in local/test configurations.",
+      "ste": {
+        "text": "Current Postgres placement authority and registries; epoch CAS invariants live in the schema. A file authority is also used in local/test configurations.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-placement",
+        "src-agent"
+      ]
+    },
+    {
+      "id": "doc-element-jsonl",
+      "title": "Canonical JSONL",
+      "plain": "Canonical emitted event record; bounded logging can drop records and reports drops. DuckDB is derived, not the request-path authority.",
+      "ste": {
+        "text": "Canonical emitted event record; bounded logging can drop records and reports drops. DuckDB is derived, not the request-path authority.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-events",
+        "src-adr",
+        "src-log-adr"
+      ]
+    },
+    {
+      "id": "doc-element-duckdb",
+      "title": "Derived DuckDB copy",
+      "plain": "Rebuildable from retained JSONL; retention and compressed-file handling limit what can be reconstructed. Not application query storage.",
+      "ste": {
+        "text": "Rebuildable from retained JSONL; retention and compressed-file handling limit what can be reconstructed. Not application query storage.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-ingest",
+        "src-log-adr"
+      ]
+    },
+    {
+      "id": "doc-element-admission",
+      "title": "Ticket admission",
+      "plain": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch.",
+      "ste": {
+        "text": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-agent",
+        "src-ops",
+        "src-owner"
+      ]
+    },
+    {
+      "id": "doc-element-ir",
+      "title": "IR executor",
+      "plain": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions; runs IR, never application TypeScript.",
+      "ste": {
+        "text": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions; runs IR, never application TypeScript.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-ops",
+        "src-exec"
+      ]
+    },
+    {
+      "id": "doc-element-actor",
+      "title": "Database actor",
+      "plain": "One goroutine per database. Executes closures on the database connection; optional read pool runs read snapshots.",
+      "ste": {
+        "text": "One goroutine per database. Executes closures on the database connection; optional read pool runs read snapshots.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor",
+        "src-exec"
+      ]
+    },
+    {
+      "id": "doc-element-writer",
+      "title": "Group commit",
+      "plain": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. Replies follow commit.",
+      "ste": {
+        "text": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. Replies follow commit.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-actor"
+      ]
+    },
+    {
+      "id": "doc-element-requests",
+      "title": "Request-id registry",
+      "plain": "Claims _mansio_requests inside the write savepoint, records result with the write and replays retained results without reapplying. Failed writes roll back their claim.",
+      "ste": {
+        "text": "Claims _mansio_requests inside the write savepoint, records result with the write and replays retained results without reapplying. Failed writes roll back their claim.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-reqid",
+        "src-actor"
+      ]
+    },
+    {
+      "id": "doc-element-storage",
+      "title": "Write-back — paused",
+      "plain": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. No incremental WAL shipping.",
+      "ste": {
+        "text": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. No incremental WAL shipping.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-writeback",
+        "src-durable",
+        "src-paused"
+      ]
+    },
+    {
+      "id": "doc-element-locator",
+      "title": "Locator",
+      "plain": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary.",
+      "ste": {
+        "text": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-locator"
+      ]
+    },
+    {
+      "id": "doc-element-authority",
+      "title": "Epoch authority",
+      "plain": "Linearizable placement Get/CAS; owner changes require increasing epoch. Postgres-backed in the cluster.",
+      "ste": {
+        "text": "Linearizable placement Get/CAS; owner changes require increasing epoch. Postgres-backed in the cluster.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-placement",
+        "src-move"
+      ]
+    },
+    {
+      "id": "doc-element-signer",
+      "title": "Ticket signer",
+      "plain": "Issues Ed25519 access tickets tied to tenant, database, VM, epoch, permissions, principal and expiry.",
+      "ste": {
+        "text": "Issues Ed25519 access tickets tied to tenant, database, VM, epoch, permissions, principal and expiry.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-locator",
+        "src-transport"
+      ]
+    },
+    {
+      "id": "doc-element-lifecycle",
+      "title": "Lifecycle controller",
+      "plain": "Moves, suspends and restores databases. Attest-dead is an operator action recorded by controld; restore uses last published generations through target agents.",
+      "ste": {
+        "text": "Moves, suspends and restores databases. Attest-dead is an operator action recorded by controld; restore uses last published generations through target agents.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-control",
+        "src-move"
+      ]
+    },
+    {
+      "id": "doc-element-source-agent",
+      "title": "Source agentd",
+      "plain": "Source VM instance of agentd, shown separately only for the move scenario. Stops admission, drains, writes back and persists FENCED before Ack.",
+      "ste": {
+        "text": "Source VM instance of agentd, shown separately only for the move scenario. Stops admission, drains, writes back and persists FENCED before Ack.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-move",
+        "src-owner"
+      ]
+    },
+    {
+      "id": "doc-element-target-agent",
+      "title": "Target agentd",
+      "plain": "Target VM instance of the same agentd executable; claims new ownership, fetches the generation and stamps the higher epoch before admission.",
+      "ste": {
+        "text": "Target VM instance of the same agentd executable; claims new ownership, fetches the generation and stamps the higher epoch before admission.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-move",
+        "src-owner",
+        "src-durable"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "src-adr",
+      "title": "Go-only backend and offline analysis",
+      "path": "docs/adr/0013-go-server-replaces-deno-platform.md",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/adr/0013-go-server-replaces-deno-platform.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-recording",
+      "title": "Caller-side handler recording",
+      "path": "sdk/recording.ts",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/sdk/recording.ts",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-transport",
+      "title": "Cached locator routes and retries",
+      "path": "sdk/transport.ts",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/sdk/transport.ts",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-agent",
+      "title": "Agent daemon and server wiring",
+      "path": "server/cmd/agentd/main.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/main.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-edge",
+      "title": "Separate TLS edge process",
+      "path": "server/cmd/edge/main.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/edge/main.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-controld",
+      "title": "Control daemon and operator commands",
+      "path": "server/cmd/controld/main.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/controld/main.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-locator",
+      "title": "Routing and signed tickets",
+      "path": "server/internal/control/locator/doc.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/locator/doc.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-control",
+      "title": "Database lifecycle and attest-dead recovery",
+      "path": "server/internal/control/controller.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/controller.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-placement",
+      "title": "Postgres epoch authority",
+      "path": "server/internal/placement/pg/doc.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/placement/pg/doc.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-move",
+      "title": "Four-step move protocol",
+      "path": "server/internal/owner/move.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/owner/move.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-owner",
+      "title": "Admission, fencing and storage epochs",
+      "path": "server/internal/owner/state.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/owner/state.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-actor",
+      "title": "Mailbox, single writer and group commit",
+      "path": "server/internal/actor/actor.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/actor/actor.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-reqid",
+      "title": "Request-id savepoint claims",
+      "path": "server/internal/actor/reqid.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/actor/reqid.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-ops",
+      "title": "IR HTTP validation and actor dispatch",
+      "path": "server/internal/front/ops.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/front/ops.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-exec",
+      "title": "IR execution on the actor connection",
+      "path": "server/internal/docexec/doc.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/docexec/doc.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-compile",
+      "title": "Document SQL compiler",
+      "path": "server/internal/doccompile/doc.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/doccompile/doc.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-writeback",
+      "title": "Snapshot write-back and epoch stamps",
+      "path": "server/internal/vactor/writeback.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/vactor/writeback.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-durable",
+      "title": "Immutable generations and conditional manifest",
+      "path": "server/internal/durable/durable.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/durable/durable.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-paused",
+      "title": "Built S3 work paused on 2026-11-06",
+      "path": "server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-events",
+      "title": "Nonblocking structured JSONL sink",
+      "path": "server/internal/eventlog/log.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/eventlog/log.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-ingest",
+      "title": "Offline DuckDB ingest",
+      "path": "eventlog/ingest.ts",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/eventlog/ingest.ts",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-log-adr",
+      "title": "JSONL authority and rebuildable analysis",
+      "path": "docs/adr/0004-eventlog-duckdb-in-reader-only.md",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/adr/0004-eventlog-duckdb-in-reader-only.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-topics",
+      "title": "Current platform survey and implementation caveats",
+      "path": "docs/cache-dividend-topics.md",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/cache-dividend-topics.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-observer",
+      "title": "Agentd IR event observer wiring",
+      "path": "server/cmd/agentd/events.go",
+      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
+      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/events.go",
+      "notes": "Maps completed IR requests to structured event records; emits through the bounded sink."
+    }
+  ],
+  "terms": []
+}

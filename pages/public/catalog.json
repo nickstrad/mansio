@@ -20,6 +20,11 @@
       "id": "mansio-planes-fable",
       "title": "Fable revision: control/data planes with route grants (M1–M8 applied)",
       "url": "architectures/mansio-planes-fable.json"
+    },
+    {
+      "id": "mansio-go-platform",
+      "title": "mansio Go platform (main 6330c9f; S3 work paused)",
+      "url": "architectures/mansio-go-platform.json"
     }
   ]
 }

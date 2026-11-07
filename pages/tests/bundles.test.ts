@@ -10,6 +10,7 @@ describe("catalog", () => {
       "mansio-lanes-proposal",
       "mansio-planes-proposal",
       "mansio-planes-fable",
+      "mansio-go-platform",
     ]);
     expect(catalog.defaultId).toBe("mansio-current");
   });

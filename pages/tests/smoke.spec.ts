@@ -43,6 +43,7 @@ test("the site opens on the default architecture and lists every catalog entry",
     "Proposed: statement lanes and tenant placement (scale-out)",
     "Proposed: control plane / data plane — tenants own many databases",
     "Fable revision: control/data planes with route grants (M1–M8 applied)",
+    "mansio Go platform (main 6330c9f; S3 work paused)",
   ]);
 });
 
