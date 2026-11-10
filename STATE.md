@@ -7,7 +7,8 @@
   (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
   `/root/Software/mansio-work/main-merge` (never the main checkout). Notes per finding:
   `server/knowledge/backpressure/`.
-- Status: **in progress — waves 1 to 3 done (B1 to B7), wave 4 next (B8, then B11).**
+- Status: **in progress — waves 1 to 4 done (B1 to B8, B11), wave 5 next (B10 (a), then B9's event-log
+  retention).**
 - Per finding (commit; overload scenario or main test):
   - B1 (wave 1): **done** `0277e36` (+ notes moved `77778e0`). Per-queue `mansio_queue_*` families, actor
     depth in durable mode, `mansio_vactor_dirty`, controld pgx pool stats. `TestOverloadIsVisiblePerQueue`.
@@ -27,19 +28,32 @@
     `TestClaimStormIsBoundedAndObeysDeadlines`.
   - B7 (wave 3): **done** `0c2987e`. Would-expire shedding at admission. `TestOverloadShedsInsteadOfExpiring`
     (before 203 expired / queue 61, after 0 expired / 203 shed / queue 9).
-  - B8, B11 (wave 4), B10 (a), B9 event-log retention (wave 5): not started.
+  - B8 (wave 4): **done** `9d39f8b` + `fb70e0e`. One contract table (`server/internal/front/contract.go`) →
+    `docs/retry-contract.md` and the shared vectors `ir/vectors/retry.json`, run by both clients; the SDK
+    stops retrying `expired`; reroutes after the first are charged to the budget. Deviation (`fb70e0e`): the
+    locator's `moving` is not charged, because charging it failed requests during routine moves
+    (`TestClientGate`).
+  - B11 (wave 4): **done** `253976e` (one resizable `slots.Pool`, `mansio_queue_depth`) + `15cc322`
+    (`server/docs/capacity.md` generated from the config defaults,
+    `server/deploy/prometheus/backpressure.rules.yml`, runbooks, levers: `agentctl limit`, `controld limit`,
+    the edge's `admin_listen`).
+  - B10 (a), B9 event-log retention (wave 5): not started.
   - B10 (b) `max_dirty_age` and B9's warm-set default: **skipped-gated** (Nick's paused LiteFS / write-back
     decision); not to be implemented in this run.
 - Baseline (clean worktree at `e9488c5`): failures that exist before any change and are not this branch's:
   `internal/ir` `TestIndexNamesDecodeFast` (timing assertion, fails under `-race`); `cmd/agentd`
   `TestAdminFetchLimitAppliesToTheNextFetches` (fails every run here); `cmd/agentd` `TestSIGTERMMeetsBudget`
   (2 of 8 runs under `-race`, same rate on the baseline); `internal/control/locator`
-  `TestLoadTimeoutBoundsALoadNobodyWaitsFor` (hung once for the 10 min timeout, passes on rerun).
+  `TestLoadTimeoutBoundsALoadNobodyWaitsFor` (hung once for the 10 min timeout, passes on rerun);
+  `internal/bench` `TestCancelDoesNotWaitOutBackoffs` (1 of 10 under `-race`, same on the baseline).
 - Verification: per finding, `gofmt -l .`, `go vet ./...` and `go test -race` on the touched packages (listed
   in each commit message). Wave 2 boundary, snapshot worktree at `2429639`: full `go test -race ./...` and
   `-tags noassert ./...` showed only the baseline failures plus `TestDeleteBatchesAndDeletePrefix` (a 300 ms
   test timeout that LIST now obeys; fixed in `89f3c30`). Gated suites with throwaway Postgres + SeaweedFS
-  (`MANSIO_PG_URL`, `COLDLOAD_S3`): `cmd/controld` and `internal/placement/pg` pass at `b5071dd`.
+  (`MANSIO_PG_URL`, `COLDLOAD_S3`): `cmd/controld` and `internal/placement/pg` pass at `b5071dd` and again at
+  `15cc322`. Wave 3 boundary, snapshot at `aac72c7`: full race and noassert runs showed only the baseline
+  failures and a load-sensitive B7 test (fixed in `85352ba`). Wave 4: `deno task fmt:check`, `lint`, `check`,
+  `test` (320 passed).
 - Resume: worktree `/root/Software/mansio-work/backpressure-fixes`, branch `feat/backpressure-fixes`;
   `git log
   --oneline main..HEAD` shows which findings are committed (B-number in each subject). Scratch,
