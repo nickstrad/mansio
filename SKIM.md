@@ -106,15 +106,15 @@ The compiler returns SQL text with bound values. It is the oracle for the Go ser
 (`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in `ir/vectors/`.
 `GENERATED_SQL.txt` shows actual output for both layouts and dialects.
 
-## A mutation is recorded, then committed once
+## A handler run is recorded, then committed once
 
 Source: [sdk/recording.ts](sdk/recording.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
-  /** The preconditions derived from this run's reads, in first-read order. */
-  preconditions(): AssertOp[] {
-    const out: AssertOp[] = [];
+  /** The preconditions derived from this run's reads: the documents in first-read order, then the tables. */
+  preconditions(): Guard[] {
+    const out: Guard[] = [];
     for (const entry of this.entries.values()) {
       if (!entry.guarded || entry.base === undefined) continue;
       out.push({
@@ -123,6 +123,9 @@ Source: [sdk/recording.ts](sdk/recording.ts).
         id: entry.id,
         expect: entry.base === null ? { exists: false } : { version: entry.base._version as number },
       });
+    }
+    for (const [table, unchangedSince] of this.tables) {
+      out.push({ op: "assert", table, expect: { unchangedSince } });
     }
     return out;
   }
@@ -134,38 +137,67 @@ Source: [sdk/recording.ts](sdk/recording.ts).
   }
 ```
 
-A `Recording` is the `db` a handler sees in the caller's process. Reads go to the server at once and are
-cached per run; writes are buffered and later reads in the same run see them. Every document a `get` observed
-becomes an `assert` at the front of the mutation, so a conflict on an op index below `asserts` is always one
-the client derived.
+A `Recording` is the `db` a handler sees in the caller's process. Reads asked for together are one request,
+and every read request after the first carries the preconditions of what the run has read so far, so the reads
+of one run hold in one snapshot. Writes are buffered and later reads in the same run see them. Every document
+a `get` observed becomes an `assert` on its version, and every table a `find` read becomes an `assert` that it
+has not changed since; they go at the front of the mutation, so a conflict on an op index below `asserts` is
+always one the client derived. A mutation's `get` may be answered from the client's cache (`sdk/cache.ts`);
+the cached version is asserted the same way.
 
-Source: [sdk/client.ts](sdk/client.ts).
+Source: [sdk/client.ts](sdk/client.ts) (inside the loop that runs a handler until a run stands).
 
 <!-- deno-fmt-ignore -->
 ```ts
-      for (let run = 0;; run++) {
-        const recording = new Recording<Schema>(reads(call), newId, now, true);
-        const result = yield* roundTrip(yield* runHandler(definition, recording, args));
-        const { ops, asserts } = recording.mutation();
-        if (ops.length === 0) return result; // read nothing, wrote nothing: nothing to commit
-        // (an op-limit check, failing locally with RuleError, is omitted here)
-        // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
-        const committed = yield* Effect.either(
-          Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
+        // The run's outcome before any commit: the handler's answer as it will cross the wire, or why
+        // there is none (its failure, a run the recording abandoned, a commit too large to send).
+        let ran = yield* Effect.either(
+          runHandler(definition, recording, args).pipe(
+            Effect.flatMap(roundTrip),
+            Effect.filterOrFail(() => !tooManyOps(recording), () => opLimit(name, recording)),
+          ),
         );
-        if (committed._tag === "Right") return result;
-        const error = committed.left;
-        if (!derivedConflict(error, ops, asserts) || run >= handlerRetries) return yield* error;
-        // Someone else wrote what this run read: re-run the handler on fresh reads, after a jittered pause.
-        const wait = Math.floor(random() * Math.min(250, 10 * 2 ** run));
-        if (now() + wait >= call.deadline) return yield* error;
-        yield* sleep(wait);
-      }
+        const { ops, asserts } = recording.mutation();
+        const commits = ran._tag === "Right" && ops.length > asserts;
+        // A run that ends without a commit answers from its reads alone: any that came from the cache are
+        // asserted first, and a stale one re-runs the handler.
+        if (!commits && recording.pending && !(ran._tag === "Left" && ran.left instanceof Restart)) {
+          const verified = yield* Effect.either(settle(recording.verify()));
+          if (verified._tag === "Left") {
+            ran = verified;
+          }
+        }
+        let error: ClientError;
+        if (ran._tag === "Left") {
+          if (!(ran.left instanceof Restart)) {
+            return yield* ran.left;
+          }
+          error = ran.left.error;
+          seed = ran.left.seed;
+        } else {
+          if (!commits) {
+            return ran.right; // wrote nothing: its reads were one snapshot already
+          }
+          // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
+          const committed = yield* Effect.either(
+            Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
+          );
+          if (committed._tag === "Right") {
+            recording.committed();
+            return ran.right;
+          }
+          error = committed.left;
+          recording.forget();
+          if (!derivedConflict(error, ops, asserts)) return yield* error;
+          seed = recording.rebase(error as RemoteError, ops.slice(0, asserts) as Guard[]);
+        }
+        // (a jittered pause, bounded by handlerRetries and the call's deadline, is omitted here)
 ```
 
-The handler runs again on a derived conflict, which is why handlers must have no effects beyond `db`. `send`
-(`sdk/transport.ts`) owns transport retries, reroutes and the retry budget; the same `requestId` on a
-transport retry lets the server answer an applied mutation as a duplicate.
+The handler runs again on a derived conflict, which is why handlers must have no effects beyond `db`. The
+conflict carries the current state of what the run read, and the next run starts from it (`seed`) instead of
+reading again. `send` (`sdk/transport.ts`) owns transport retries, reroutes and the retry budget; the same
+`requestId` on a transport retry lets the server answer an applied mutation as a duplicate.
 
 ## The event-log CLI is a layer chain
 
