@@ -238,6 +238,8 @@ func classify(err error) *apiError {
 		return &apiError{"moving", http.StatusServiceUnavailable, "the database is moving or being created; resolve again after Retry-After", true}
 	case errors.Is(err, locator.ErrRateLimited): // counted (controld_locator_rate_limited_total), not logged: a flood
 		return &apiError{"shed", http.StatusServiceUnavailable, "too many unknown api key ids from this source; retry after Retry-After", true}
+	case errors.Is(err, locator.ErrBusy): // counted (mansio_queue_rejected_total{queue="resolve_load"}), not logged
+		return &apiError{"shed", http.StatusServiceUnavailable, "too many placement or key reads in flight; nothing read, retry after Retry-After", true}
 	case errors.Is(err, locator.ErrSuspended):
 		return &apiError{"suspended", http.StatusConflict, "the database is suspended", false}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):

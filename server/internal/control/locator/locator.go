@@ -35,7 +35,13 @@ type Config struct {
 	// Credentials, if set, authenticates app resolves (Request.App) whose bearer is not an API key of this
 	// package's form (legacy keys, sessions). nil: API keys only.
 	Credentials Credentials
-	Clock       det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
+	// LoadSlots, if set, bounds store reads in flight (placement and key loads; each takes a slot for as long
+	// as it runs): its capacity is sized below the store's connection pool, so a cold cache or a slow store
+	// answers ErrBusy at once instead of queueing callers inside the pool. Cache hits and callers joining a
+	// load in flight take none. The caller may share the channel with its other reads of the same pool. nil:
+	// no bound.
+	LoadSlots chan struct{}
+	Clock     det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
 }
 
 func (c *Config) normalize() {
@@ -100,6 +106,7 @@ type Route struct {
 type Stats struct {
 	Hits, Misses, Coalesced int64 // placement reads: from the cache, started a load, joined a load
 	RateLimited             int64 // resolves refused by the Limiter (an uncached key id from a source out of tokens)
+	LoadShed                int64 // store reads not started because LoadSlots was full (ErrBusy)
 	Notifications, Resets   int64 // Invalidate calls; Reset calls (listener connects)
 	Entries                 int   // placements cached now (tombstones included)
 	Trusted                 bool  // the cache is in use (a listener is connected)
@@ -153,7 +160,7 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 //	      TicketTTL from now
 //	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound (and ErrCreatable, with r.Create: the
 //	      route's DB and Tenant then name the database to create), ErrMoving or ErrRateLimited (with a
-//	      RetryAfter hint), ErrSuspended, the ctx's error, or the store's own error
+//	      RetryAfter hint), ErrBusy, ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
@@ -264,6 +271,10 @@ func (l *Locator) authenticateKey(ctx context.Context, raw, src string) (StoredK
 	} else {
 		f := l.keyLoads[id]
 		if f == nil {
+			if !l.loadSlot() {
+				l.mu.Unlock()
+				return StoredKey{}, ErrBusy
+			}
 			f = start(l, func(ctx context.Context) (StoredKey, error) { return l.store.APIKey(ctx, id) }, func(f *flight[StoredKey]) {
 				delete(l.keyLoads, id)
 				if f.ok() {
@@ -306,6 +317,10 @@ func (l *Locator) locate(ctx context.Context, key string, minEpoch uint64) (Plac
 	if f != nil {
 		l.stats.Coalesced++
 	} else {
+		if !l.loadSlot() {
+			l.mu.Unlock()
+			return Placement{}, ErrBusy
+		}
 		l.stats.Misses++
 		f = start(l, func(ctx context.Context) (Placement, error) { return l.store.Locate(ctx, key, lk.primary) }, func(f *flight[Placement]) {
 			delete(l.loads, lk)
@@ -425,9 +440,28 @@ type flight[T any] struct {
 
 func (f *flight[T]) ok() bool { return f.err == nil && f.panic == nil }
 
+// loadSlot takes a slot of LoadSlots for a load about to start, or counts the refusal and reports false.
+//
+//	pre: l.mu held
+//	post: true ⇒ the caller starts a load (start releases the slot when it ends)
+func (l *Locator) loadSlot() bool {
+	if l.cfg.LoadSlots == nil {
+		return true
+	}
+	select {
+	case l.cfg.LoadSlots <- struct{}{}:
+		return true
+	default:
+		l.stats.LoadShed++
+		return false
+	}
+}
+
 // start runs load in its own goroutine under LoadTimeout, so a caller that gives up does not cancel it for
 // the others and it cannot run longer than that. finish runs under l.mu before the waiters wake. A panic in
 // load is re-raised in every waiter (panicx).
+//
+//	pre: the caller took a slot (loadSlot); it is released when the load ends
 func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish func(f *flight[T])) *flight[T] {
 	f := &flight[T]{done: make(chan struct{})}
 	go func() {
@@ -436,6 +470,9 @@ func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish 
 			l.mu.Lock()
 			finish(f)
 			l.mu.Unlock()
+			if l.cfg.LoadSlots != nil {
+				<-l.cfg.LoadSlots
+			}
 			close(f.done)
 		}()
 		ctx, cancel := det.WithTimeout(context.Background(), l.cfg.Clock, l.cfg.LoadTimeout)

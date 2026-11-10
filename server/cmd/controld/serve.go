@@ -65,6 +65,13 @@ type daemon struct {
 	keys        *keyDir
 	resolveSem  chan struct{}
 	resolveShed atomic.Int64
+	// loadSem bounds the Postgres reads the data path starts (locator.load_concurrency): the locator's loads
+	// and the agents' schema reads share it. schemaShed counts the schema reads it refused; the locator counts
+	// its own (Stats.LoadShed). createSem bounds creates on first use (locator.create_concurrency).
+	loadSem    chan struct{}
+	schemaShed atomic.Int64
+	createSem  chan struct{}
+	createShed atomic.Int64
 
 	// Multi-node tenancy (tenancy.go): nil without a "tenancy" section.
 	tenancy *tenancy.Service
@@ -139,7 +146,8 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
 		schemas: p, control: sec.ControlToken, checkSchema: canonicalSchema,
-		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
+		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency),
+		loadSem: make(chan struct{}, cfg.Locator.LoadConcurrency), createSem: make(chan struct{}, cfg.Locator.CreateConcurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
 			Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "placement-replica")}}); err != nil {
@@ -164,7 +172,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds,
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds, LoadSlots: d.loadSem,
 		Limiter: ratelimit.NewSourceLimiter(lc.RateLimit.PerSecond, lc.RateLimit.Burst, lc.RateLimit.MaxSources)})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
@@ -390,6 +398,8 @@ func (d *daemon) register(reg *metrics.Registry) {
 		return []metrics.QueueStat{
 			{Queue: "controld_api", Capacity: cap(d.sem), Rejected: map[string]int64{metrics.ReasonFull: d.apiShed.Load()}},
 			{Queue: "resolve", Capacity: cap(d.resolveSem), Rejected: map[string]int64{metrics.ReasonFull: d.resolveShed.Load()}},
+			{Queue: "resolve_load", Capacity: cap(d.loadSem), Rejected: map[string]int64{metrics.ReasonFull: d.loc.Stats().LoadShed + d.schemaShed.Load()}},
+			{Queue: "resolve_create", Capacity: cap(d.createSem), Rejected: map[string]int64{metrics.ReasonFull: d.createShed.Load()}},
 		}
 	})
 	if d.tenancy != nil {
