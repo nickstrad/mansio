@@ -7,8 +7,8 @@
   (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
   `/root/Software/mansio-work/main-merge` (never the main checkout). Notes per finding:
   `server/knowledge/backpressure/`.
-- Status: **in progress — every in-scope finding is implemented (waves 1 to 5). Next: `make platform-up`
-  smoke, the simplify pass, then the merge to main.**
+- Status: **every in-scope finding implemented, simplify pass done, final verification at baseline; merging to
+  main** (the merge SHA is recorded below once it exists).
 - Per finding (commit; overload scenario or main test):
   - B1 (wave 1): **done** `0277e36` (+ notes moved `77778e0`). Per-queue `mansio_queue_*` families, actor
     depth in durable mode, `mansio_vactor_dirty`, controld pgx pool stats. `TestOverloadIsVisiblePerQueue`.
@@ -51,14 +51,33 @@
   (2 of 8 runs under `-race`, same rate on the baseline); `internal/control/locator`
   `TestLoadTimeoutBoundsALoadNobodyWaitsFor` (hung once for the 10 min timeout, passes on rerun);
   `internal/bench` `TestCancelDoesNotWaitOutBackoffs` (1 of 10 under `-race`, same on the baseline).
-- Verification: per finding, `gofmt -l .`, `go vet ./...` and `go test -race` on the touched packages (listed
-  in each commit message). Wave 2 boundary, snapshot worktree at `2429639`: full `go test -race ./...` and
-  `-tags noassert ./...` showed only the baseline failures plus `TestDeleteBatchesAndDeletePrefix` (a 300 ms
-  test timeout that LIST now obeys; fixed in `89f3c30`). Gated suites with throwaway Postgres + SeaweedFS
-  (`MANSIO_PG_URL`, `COLDLOAD_S3`): `cmd/controld` and `internal/placement/pg` pass at `b5071dd` and again at
-  `15cc322`. Wave 3 boundary, snapshot at `aac72c7`: full race and noassert runs showed only the baseline
-  failures and a load-sensitive B7 test (fixed in `85352ba`). Wave 4: `deno task fmt:check`, `lint`, `check`,
-  `test` (320 passed).
+- Simplify pass: `a235c2d` (no behaviour change): one `tlsx.Loopback` instead of two copies, the edge's verify
+  slots on the shared `slots.Pool`, an unused accessor removed, `vactor.Host.Open` renamed `OpenDBs`. The
+  larger simplification landed inside B11 (`253976e`): one resizable `slots.Pool` replaced five
+  channel-semaphore + counter pairs. `7a7f2e3` corrects one metric's description.
+- Verification (final, at `7a7f2e3`, this VM, 2026-11-10; logs under `/tmp/bp/final-*.log`):
+  - Go, clean snapshot worktree: `gofmt -l .` clean, `go vet ./...` ok; `go test -race ./...` 60 packages ok,
+    failing only the baseline tests listed above (`cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches`,
+    `TestSIGTERMMeetsBudget`, `TestDrainTimeoutIsReported`; `internal/bench`
+    `TestCancelDoesNotWaitOutBackoffs`; `internal/ir` `TestIndexNamesDecodeFast`);
+    `go test -tags noassert
+    ./...` 62 packages ok, failing only
+    `TestAdminFetchLimitAppliesToTheNextFetches`.
+  - Gated Go suites with throwaway Postgres + SeaweedFS (`MANSIO_PG_URL`, `COLDLOAD_S3`): `cmd/controld` (all
+    gates, including `TestGate`, `TestClientGate`, `TestLocatorGate`) and `internal/placement/pg` pass.
+  - `deno task ci` exit 0: fmt, lint, check, 320 unit tests, 61 property tests.
+  - `work-scripts/bash/e2e-linux.sh`: `E2E PASS seed=20261010 scenarios=8`.
+  - `make platform-up` → `platform smoke OK` (write and read through the edge), `make platform-down` clean;
+    run before and after the simplify pass. On the live platform: the new `mansio_queue_*` series on controld,
+    both agents and the edge, `mansio_actor_queue_depth` in durable mode, and `controld limit` changing
+    `mansio_queue_capacity{queue="resolve_load"}`.
+- More baseline flakes met on the way (each reproduced on the untouched baseline): `cmd/agentd`
+  `TestDrainTimeoutIsReported` (6 of 12 under `-race` on the baseline); `internal/metrics` `TestProcess` and
+  `internal/bench` `TestCancelStopsSendingButFinishesTheFiles` (once each under load; both tests untouched).
+- Open, for Nick: B10 (b) `max_dirty_age` and B9's warm-set default (gated, not built); B9's owner-slot count
+  and operational-log rotation (not gated, outside the brief's wave 5 scope); `promtool` is not installed
+  here, so `backpressure.rules.yml` is parsed as YAML and its series are checked, but the rules were not
+  loaded by a Prometheus.
 - Resume: worktree `/root/Software/mansio-work/backpressure-fixes`, branch `feat/backpressure-fixes`;
   `git log
   --oneline main..HEAD` shows which findings are committed (B-number in each subject). Scratch,
