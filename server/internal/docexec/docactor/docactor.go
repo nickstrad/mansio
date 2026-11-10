@@ -31,8 +31,8 @@ func (x tx) Now() time.Time { return x.t.Now() }
 func Tx(t *actor.Tx) docexec.Tx { return tx{t} }
 
 // Call is one decoded request as an actor closure: Check is the fingerprint check (it runs before the actor's
-// duplicate check, spec §6.1), Fn runs the operations. Use a Call for one actor request only: Check hands the
-// schema it found to Fn.
+// duplicate check, spec §6.1), Fn runs the operations. Use a Call for one actor request only: Check hands what
+// it found to Fn.
 type Call struct {
 	Req     *ir.Request
 	Schemas *docexec.Schemas
@@ -41,7 +41,7 @@ type Call struct {
 	// Wrap, if set, wraps the actor's Tx for Fn (tests inject statement failures with it).
 	Wrap func(docexec.Tx) docexec.Tx
 
-	schema *docexec.Schema
+	state docexec.State
 }
 
 // Request is the actor request for c: a write closure with the request id for a mutation, a read closure for a
@@ -56,13 +56,13 @@ func (c *Call) Request() *actor.Request {
 
 // Check implements actor.Request.Check.
 func (c *Call) Check(t *actor.Tx) error {
-	s, err := docexec.Check(Tx(t), c.Schemas, c.Req.Schema)
-	c.schema = s
+	st, err := docexec.Check(Tx(t), c.Schemas, c.Req.Schema)
+	c.state = st
 	return err
 }
 
 // Fn implements actor.Func: Output.Body is the canonical JSON of the result array (stored by the actor as the
-// request-id record of a mutation), Output.Value the array itself.
+// request-id record of a mutation), Output.Value the docexec.Answer (the array and the commit sequence).
 //
 //	pre: Check succeeded on the same request
 func (c *Call) Fn(t *actor.Tx) (actor.Output, error) {
@@ -70,11 +70,11 @@ func (c *Call) Fn(t *actor.Tx) (actor.Output, error) {
 	if c.Wrap != nil {
 		x = c.Wrap(x)
 	}
-	result, err := docexec.Run(x, c.schema.Schema, c.Req, c.IDs)
+	answer, err := docexec.Run(x, c.state, c.Req, c.IDs)
 	if err != nil {
 		return actor.Output{}, err
 	}
-	return actor.Output{Body: []byte(ir.Canonical(result)), Value: result}, nil
+	return actor.Output{Body: []byte(ir.Canonical(answer.Result)), Value: answer}, nil
 }
 
 // InitFn is the write closure that initializes a new database with s (docexec.Init).

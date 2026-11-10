@@ -294,8 +294,8 @@ func (d *decoder) op(value any, kind Kind) (Op, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	if kind == Query && name != "select" && name != "get" {
-		return nil, mismatch(Member(path, "op"), "select | get in a query", name)
+	if kind == Query && name != "select" && name != "get" && name != "assert" {
+		return nil, mismatch(Member(path, "op"), "select | get | assert in a query", name)
 	}
 	shape := shapes[name]
 	o, err := object(head, path, shape.allowed, shape.required)

@@ -59,6 +59,9 @@ export class Model {
   tables = new Map<string, Map<string, Doc>>();
   applied = new Map<string, unknown[]>();
   clock = 1000;
+  /** The commit sequence (spec §6.5): mutations applied that changed a row. */
+  seq = 0;
+  private changed = false;
   /** Every request received, in order. */
   log: Request[] = [];
 
@@ -78,6 +81,7 @@ export class Model {
       [...this.tables].map(([k, t]) => [k, new Map([...t].map(([id, d]) => [id, structuredClone(d)]))]),
     );
     m.clock = this.clock;
+    m.seq = this.seq;
     return m;
   }
 
@@ -100,9 +104,10 @@ export class Model {
     }
     if (request.kind === "mutation") {
       this.tables = work.tables;
+      if (work.changed) this.seq++;
       this.applied.set(request.requestId!, result);
     }
-    return { status: 200, body: { result } };
+    return { status: 200, body: { result, seq: this.seq } };
   }
 
   private step(op: Op, i: number): unknown {
@@ -123,6 +128,7 @@ export class Model {
             actual: true,
           });
         }
+        this.changed = true;
         t.set(id, { ...op.value, _id: id, _creationTime: this.clock, _version: 1 } as Doc);
         return id;
       }
@@ -154,10 +160,12 @@ export class Model {
         }
         if (op.op === "assert") return null;
         if (op.op === "delete") {
+          this.changed ||= doc !== null;
           t.delete(id);
           return { deleted: doc !== null };
         }
         if (!doc) throw new Failure(404, "NotFoundError", i, { table: op.table, id });
+        this.changed = true;
         t.set(id, { ...doc, ...op.value, _version: doc._version + 1 });
         return { _version: doc._version + 1 };
       }

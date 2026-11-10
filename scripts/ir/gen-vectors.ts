@@ -496,9 +496,14 @@ const DECODE: DecodeCase[] = [
   },
   {
     name: "query containing assert",
-    why: "assert is a mutation op",
-    request: query([{ op: "assert", table: "notes", id: "n1", expect: { exists: true } }]),
-    expect: schemaErr("type-mismatch", "ops[0].op", 0),
+    why:
+      "an assert is a precondition on the query's snapshot (v1.1): it writes nothing, so a query may hold it",
+    request: query([{ op: "assert", table: "notes", id: "n1", expect: { exists: true } }, {
+      op: "get",
+      table: "notes",
+      id: "n1",
+    }]),
+    expect: ok,
   },
   {
     name: "unknown op member",
@@ -1535,6 +1540,8 @@ const q = (ops: unknown[], over: J = {}): J => ({
   ...over,
 });
 const res = (...result: unknown[]) => ({ result });
+/** A result with the commit sequence it must carry. */
+const at = (seq: number, ...result: unknown[]) => ({ result, seq });
 const getN = (id: unknown, table = "notes") => ({ op: "get", table, id });
 const ins = (value: J, id?: string, table = "notes") => ({
   op: "insert",
@@ -2279,6 +2286,66 @@ const SCENARIOS: Scenario[] = [
     ),
     final: UNCHANGED,
   },
+  // the commit sequence (spec §6.5)
+  {
+    name: "seq counts the mutations that changed a row",
+    why:
+      "seq starts at 0; a query answers the snapshot's; a mutation the one it left; asserts, misses, failures and duplicates do not count",
+    seed: SEED,
+    steps: [
+      { request: q([getN("n1")]), expect: at(0, N1) },
+      { serverIds: ["s1"], request: m([ins(BODY)], "r1"), expect: at(1, "s1") },
+      {
+        request: m([{ op: "assert", table: "notes", id: "n1", expect: { version: 1 } }], "r2"),
+        expect: at(1, null),
+      },
+      {
+        request: m([{ op: "delete", table: "notes", id: "missing" }], "r3"),
+        expect: at(1, { deleted: false }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }, {
+          op: "delete",
+          table: "notes",
+          id: "n3",
+        }], "r4"),
+        expect: at(2, { _version: 2 }, { deleted: true }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {}, expect: { version: 1 } }], "r5"),
+        expect: conflict({ check: "version", expected: 1, actual: 2 }, 0),
+      },
+      { serverIds: [], request: m([ins(BODY)], "r1"), expect: { result: ["s1"], duplicate: true } },
+      { request: q([s({ aggregate: { kind: "count" } })]), expect: at(2, 3) },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, NEW] },
+  },
+  {
+    name: "query with asserts that hold",
+    why: "a query may carry asserts: they are checked in the snapshot the reads come from, and answer null",
+    seed: SEED,
+    ...single(
+      {
+        request: q([
+          { op: "assert", table: "notes", id: "n2", expect: { version: 3 } },
+          { op: "assert", table: "notes", id: "nope", expect: { exists: false } },
+          getN("n1"),
+        ]),
+      },
+      at(0, null, null, N1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "query with an assert that fails",
+    why: "a failed assert in a query is ConflictError at its op: the reads after it are not answered",
+    seed: SEED,
+    ...single(
+      { request: q([{ op: "assert", table: "notes", id: "n2", expect: { version: 2 } }, getN("n1")]) },
+      conflict({ table: "notes", id: "n2", check: "version", expected: 2, actual: 3 }, 0),
+      UNCHANGED,
+    ),
+  },
 ];
 
 /**
@@ -2330,6 +2397,7 @@ async function recordSdk(
   const answer = (request: IrRequest): unknown[] =>
     request.ops.map((op) => {
       const rows = seed[op.table] ?? [];
+      if (op.op === "assert") return null;
       if (op.op === "get") return rows.find((d) => d._id === op.id) ?? null;
       const select = op as SelectOp;
       return rows
@@ -2346,7 +2414,7 @@ async function recordSdk(
     transport: (request) =>
       Effect.sync(() => {
         sent.push({ ...request, schema: FP });
-        return { result: request.kind === "query" ? answer(request) : [] };
+        return { result: request.kind === "query" ? answer(request) : [], seq: 0 };
       }),
     newId: () => ids[next++],
     newRequestId: () => `sdk-r${sent.filter((r) => r.kind === "mutation").length + 1}`,
@@ -2452,7 +2520,8 @@ async function sdkScenarios(): Promise<Scenario[]> {
     },
     {
       name: "sdk: deleteGame",
-      why: "deleteGame reads the game (asserted) and its moves (a select: unguarded), then deletes them",
+      why:
+        "deleteGame reads the game, then its moves in a query that asserts the game (one snapshot), then deletes them",
       schema: tttSchema,
       seed: {
         games: [G1],
@@ -2460,7 +2529,7 @@ async function sdkScenarios(): Promise<Scenario[]> {
       },
       steps: steps(deleted, [
         res(G1),
-        res([moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
+        res(null, [moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
         res(null, { deleted: true }, { deleted: true }, { deleted: true }),
       ]),
       final: {

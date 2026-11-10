@@ -29,7 +29,7 @@ import {
   MAX_OPS,
   type Op,
   type OpName,
-  READ_OPS,
+  QUERY_OPS,
   type Request,
   type SelectOp,
 } from "./types.ts";
@@ -260,8 +260,8 @@ function opOf(value: unknown, here: number, kind: Kind, ops: readonly Op[]): Res
   return Either.gen(function* () {
     const head = yield* object(value, path, Object.keys(value ?? {}), ["op"]);
     const name = yield* literal(head.op, member(path, "op"), OPS);
-    if (kind === "query" && !READ_OPS.includes(name)) {
-      return yield* mismatch(member(path, "op"), "select | get in a query", name);
+    if (kind === "query" && !QUERY_OPS.includes(name)) {
+      return yield* mismatch(member(path, "op"), "select | get | assert in a query", name);
     }
     const shape = SHAPES[name];
     const o = yield* object(head, path, shape.allowed, shape.required);

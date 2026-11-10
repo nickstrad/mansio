@@ -12,12 +12,15 @@
  * const { gameId } = yield* client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" });
  * ```
  *
- * - `client.query(name, args)` runs the query handler locally; each of its reads is one query request
- *   (so two reads are two snapshots, in v1).
- * - `client.mutation(name, args)` runs the handler with the recording executor (`sdk/recording.ts`):
- *   reads go out at once, writes are buffered, and on return one mutation request carries the derived
- *   preconditions (`assert` ops, first) and the writes. A `ConflictError` on a derived precondition
- *   re-runs the handler (bounded by `handlerRetries`, with jitter, within the call's deadline), under a
+ * - Both kinds run the handler with the recording executor (`sdk/recording.ts`). Reads asked for together
+ *   are one query request, and all the reads of one run hold in one snapshot: a run whose earlier reads
+ *   changed under it is abandoned and the handler runs again (bounded by `handlerRetries`, with jitter,
+ *   within the call's deadline).
+ * - `client.query(name, args)` answers what the handler returns.
+ * - `client.mutation(name, args)` also buffers the handler's writes, and on return one mutation request
+ *   carries the derived preconditions (`assert` ops, first) and the writes. A run that wrote nothing
+ *   sends no commit: its reads were one snapshot already. A `ConflictError` on a derived precondition
+ *   re-runs the handler the same way, under a
  *   new `requestId` (transport retries of one commit keep theirs). A commit holds at most 64 ops
  *   (derived asserts + writes); more fails locally with `RuleError` `ir-op-limit`. An app-raised
  *   `ConflictError` (e.g. `makeMove`'s `expectedVersion`) fails the handler locally and goes to the
@@ -52,7 +55,7 @@ import { schemaFingerprint } from "./fingerprint.ts";
 import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
-import { type Reads, Recording } from "./recording.ts";
+import { type Reads, Recording, Restart } from "./recording.ts";
 import type { RetryBudget, RetryPolicy } from "./retry.ts";
 import { formatSchemaError, type Schema } from "./schema.ts";
 import {
@@ -86,7 +89,7 @@ export interface ClientOptions<F extends Functions> {
 
   /** One call's deadline, ms, across all its requests and handler runs (default 10 000). */
   readonly timeoutMs?: number;
-  /** Re-runs of a mutation handler after a derived conflict (default 4, so 5 runs). */
+  /** Re-runs of a handler after a derived conflict or a snapshot that moved (default 4, so 5 runs). */
   readonly handlerRetries?: number;
   readonly retry?: RetryPolicy;
   /** Shared windowed retry budget (default: one per client, ratio 0.1, burst 10). */
@@ -107,7 +110,7 @@ export interface ClientOptions<F extends Functions> {
   readonly sleep?: (ms: number) => Effect.Effect<void>;
 }
 
-/** A read failure, carried out of the handler as a defect so `DbError` stays the handler's channel. */
+/** A read's failure, carried out of the handler as a defect so `DbError` stays the handler's channel. */
 class Escape {
   constructor(readonly error: ClientError) {}
 }
@@ -201,19 +204,43 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       ops,
     }));
 
-  /** One handler run on `recording`, with read failures and local failures as `ClientError`s. */
+  /**
+   * One handler run on `recording`, with read failures and local failures as `ClientError`s, and a run the
+   * recording abandoned as its `Restart`.
+   */
   const runHandler = (definition: AnyDefinition, recording: Recording<Schema>, args: unknown) =>
     definition.invoke(recording, args).pipe(
-      Effect.catchSomeDefect((defect) =>
-        defect instanceof Escape ? Option.some(Effect.fail(defect.error)) : Option.none()
+      Effect.catchSomeDefect((defect): Option.Option<Effect.Effect<never, ClientError | Restart>> =>
+        defect instanceof Escape
+          ? Option.some(Effect.fail(defect.error))
+          : defect instanceof Restart
+          ? Option.some(Effect.fail(defect))
+          : Option.none()
       ),
-      Effect.mapError((e): ClientError => isClientError(e) ? e : localFailure(e)),
+      Effect.mapError((e): ClientError | Restart =>
+        e instanceof Restart || isClientError(e) ? e : localFailure(e)
+      ),
     );
 
   const reads = (call: CallContext): Reads => (ops) =>
     Effect.flatMap(request("query", ops), (req) => send(req, call)).pipe(
-      Effect.map((response) => response.result),
-      Effect.catchAll((error) => Effect.die(new Escape(error))),
+      Effect.flatMap((response) =>
+        typeof response.seq === "number"
+          ? Effect.succeed({ result: response.result, seq: response.seq })
+          : Effect.fail(
+            new RemoteError({
+              status: 502,
+              remoteTag: "Defect",
+              message: "the server answered a query without a commit sequence (it predates IR v1.1)",
+            }),
+          )
+      ),
+      // A failed assert is the recording's to judge; everything else leaves the handler as it is.
+      Effect.catchAll((error) =>
+        error instanceof RemoteError && error.remoteTag === "ConflictError"
+          ? Effect.fail(error)
+          : Effect.die(new Escape(error))
+      ),
     );
 
   const lookup = (kind: Kind, name: string): Effect.Effect<AnyDefinition, RemoteError> => {
@@ -239,38 +266,40 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
     return Effect.succeed(definition);
   };
 
-  const query = (name: string, args: unknown, call: CallContext) =>
+  /** Runs handler `name` until a run stands: its reads held in one snapshot and its commit, if any, applied. */
+  const call = (kind: Kind, name: string, args: unknown, call: CallContext) =>
     Effect.gen(function* () {
-      const definition = yield* lookup("query", name);
-      const recording = new Recording<Schema>(reads(call), newId, now, false);
-      return yield* roundTrip(yield* runHandler(definition, recording, args));
-    });
-
-  const mutation = (name: string, args: unknown, call: CallContext) =>
-    Effect.gen(function* () {
-      const definition = yield* lookup("mutation", name);
+      const definition = yield* lookup(kind, name);
       for (let run = 0;; run++) {
-        const recording = new Recording<Schema>(reads(call), newId, now, true);
-        const result = yield* roundTrip(yield* runHandler(definition, recording, args));
-        const { ops, asserts } = recording.mutation();
-        if (ops.length === 0) return result; // read nothing, wrote nothing: nothing to commit
-        if (ops.length > MAX_OPS) {
-          return yield* localFailure(
-            new RuleError({
-              rule: "ir-op-limit",
-              detail: `${name} needs ${ops.length} operations (${asserts} derived asserts + ` +
-                `${ops.length - asserts} writes); one IR mutation holds at most ${MAX_OPS}`,
-            }),
+        const recording = new Recording<Schema>(reads(call), newId, now, kind === "mutation");
+        const ran = yield* Effect.either(runHandler(definition, recording, args));
+        let error: ClientError;
+        if (ran._tag === "Left") {
+          if (!(ran.left instanceof Restart)) return yield* ran.left;
+          error = ran.left.error;
+        } else {
+          const result = yield* roundTrip(ran.right);
+          const { ops, asserts } = recording.mutation();
+          if (ops.length === asserts) return result; // wrote nothing: its reads were one snapshot already
+          if (ops.length > MAX_OPS) {
+            return yield* localFailure(
+              new RuleError({
+                rule: "ir-op-limit",
+                detail: `${name} needs ${ops.length} operations (${asserts} derived asserts + ` +
+                  `${ops.length - asserts} writes); one IR mutation holds at most ${MAX_OPS}`,
+              }),
+            );
+          }
+          // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
+          const committed = yield* Effect.either(
+            Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
           );
+          if (committed._tag === "Right") return result;
+          error = committed.left;
+          if (!derivedConflict(error, ops, asserts)) return yield* error;
         }
-        // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
-        const committed = yield* Effect.either(
-          Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
-        );
-        if (committed._tag === "Right") return result;
-        const error = committed.left;
-        if (!derivedConflict(error, ops, asserts) || run >= handlerRetries) return yield* error;
         // Someone else wrote what this run read: re-run the handler on fresh reads, after a jittered pause.
+        if (run >= handlerRetries) return yield* error;
         const wait = Math.floor(random() * Math.min(250, 10 * 2 ** run));
         if (now() + wait >= call.deadline) return yield* error;
         yield* sleep(wait);
@@ -289,7 +318,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       args: ArgsOf<F[N]>,
       traceId?: string,
     ): Effect.Effect<ResultOf<F[N]>, ClientError> =>
-      Effect.suspend(() => query(name, args, context(name, traceId))) as Effect.Effect<
+      Effect.suspend(() => call("query", name, args, context(name, traceId))) as Effect.Effect<
         ResultOf<F[N]>,
         ClientError
       >,
@@ -298,7 +327,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
       args: ArgsOf<F[N]>,
       traceId?: string,
     ): Effect.Effect<ResultOf<F[N]>, ClientError> =>
-      Effect.suspend(() => mutation(name, args, context(name, traceId))) as Effect.Effect<
+      Effect.suspend(() => call("mutation", name, args, context(name, traceId))) as Effect.Effect<
         ResultOf<F[N]>,
         ClientError
       >,

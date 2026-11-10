@@ -702,18 +702,11 @@
     },
     {
       "name": "query containing assert",
-      "why": "assert is a mutation op",
-      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true}}]}",
+      "why": "an assert is a precondition on the query's snapshot (v1.1): it writes nothing, so a query may hold it",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true}},{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
-        "error": {
-          "tag": "SchemaError",
-          "status": 400,
-          "op": 0,
-          "fields": {
-            "reason": "type-mismatch",
-            "path": "ops[0].op"
-          }
-        }
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"expect\":{\"exists\":true},\"id\":\"n1\",\"op\":\"assert\",\"table\":\"notes\"},{\"id\":\"n1\",\"op\":\"get\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
       }
     },
     {

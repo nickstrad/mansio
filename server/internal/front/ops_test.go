@@ -237,7 +237,7 @@ func TestOpsRoute(t *testing.T) {
 	insert := `[{"op":"insert","table":"notes","value":{"title":"a","n":1}},{"op":"patch","table":"notes","id":{"$ref":0},"value":{"n":2}}]`
 
 	first := r.post(t, w, mutation("r1", insert), map[string]string{front.TraceHeader: "t-1"})
-	if first.status != 200 || first.raw != `{"result":["s1",{"_version":2}]}`+"\n" {
+	if first.status != 200 || first.raw != `{"result":["s1",{"_version":2}],"seq":1}`+"\n" {
 		t.Fatalf("first mutation: %d %s", first.status, first.raw)
 	}
 	if r.schemas.calls != 1 {
@@ -248,7 +248,7 @@ func TestOpsRoute(t *testing.T) {
 		t.Fatalf("duplicate: %d %s", dup.status, dup.raw)
 	}
 	q := r.post(t, rd, query(`[{"op":"get","table":"notes","id":"s1"},{"op":"select","table":"notes","filters":[],"limit":10,"aggregate":{"kind":"count"}}]`), nil)
-	if q.status != 200 || !strings.Contains(q.raw, `"_version":2`) || !strings.HasSuffix(q.raw, `,1]}`+"\n") {
+	if q.status != 200 || !strings.Contains(q.raw, `"_version":2`) || !strings.HasSuffix(q.raw, `,1],"seq":1}`+"\n") {
 		t.Fatalf("query: %d %s", q.status, q.raw)
 	}
 	if r.schemas.calls != 1 {
@@ -337,7 +337,7 @@ func TestOpsQueryCreatesTheDatabase(t *testing.T) {
 	r.schemas.add("notes", notesSchema)
 	rd := r.tok(t, "acme:notes", ticket.Read)
 	got := r.post(t, rd, request("acme", "notes", "query", "", notesFP, `[{"op":"select","table":"notes","filters":[],"limit":5}]`), nil)
-	if got.status != 200 || got.raw != `{"result":[[]]}`+"\n" {
+	if got.status != 200 || got.raw != `{"result":[[]],"seq":0}`+"\n" {
 		t.Fatalf("%d %s", got.status, got.raw)
 	}
 }

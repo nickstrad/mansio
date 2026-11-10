@@ -164,7 +164,7 @@ func (d *db) runGroup(script []step) []outcome {
 			d.t.Fatalf("request %d: unexpected %v", i, res.Err)
 		default:
 			v, _ := ir.Parse(string(res.Body))
-			out[i] = outcome{result: v, duplicate: res.Duplicate}
+			out[i] = outcome{result: v, duplicate: res.Duplicate, seq: seqOf(res)}
 		}
 	}
 	return out
@@ -199,6 +199,9 @@ func compareOutcome(t *testing.T, st step, real outcome, want modelOutcome) {
 	default:
 		if got, w := ir.Canonical(real.result), ir.Canonical(want.result); got != w || real.duplicate != want.duplicate {
 			t.Fatalf("%s:\n real %s dup=%v\nmodel %s dup=%v", name, got, real.duplicate, w, want.duplicate)
+		}
+		if !real.duplicate && real.seq != want.seq {
+			t.Fatalf("%s: seq %d, model %d", name, real.seq, want.seq)
 		}
 	}
 }
@@ -419,6 +422,8 @@ func (g *gen) selectOp(table string, inserts []int) string {
 type model struct {
 	fp      string // the database's fingerprint
 	stmts   int    // statements issued by the request running now
+	changed bool   // the request running now changed a row
+	seq     int64  // the commit sequence (spec §6.5)
 	tables  map[string]map[string]map[string]any
 	applied map[string]appliedReq
 	seen    []string // every id ever answered by an insert (deleted ones stay: they make misses)
@@ -431,6 +436,7 @@ type appliedReq struct {
 
 type modelOutcome struct {
 	result    any
+	seq       int64
 	duplicate bool
 	err       *ir.Error
 }
@@ -442,9 +448,10 @@ func newModel(fp string) *model {
 }
 
 // apply runs st on the model (on a copy, kept only if the request succeeds) and returns its outcome. The model
-// counts the statements docexec issues (one per select, get and load; one per write), so it knows where an
-// injected failure lands: at statement failAt, if the request gets that far, it fails as a StorageError of the
-// operation issuing it, and changes nothing.
+// counts the statements docexec issues (one per select, get and load; one per write; after the last operation
+// one to read the commit sequence and, if a row changed, one to record the next), so it knows where an injected
+// failure lands: at statement failAt, if the request gets that far, it fails as a StorageError of the operation
+// issuing it (of no operation for the sequence statements), and changes nothing.
 func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 	req := st.req
 	if req.Schema != m.fp {
@@ -467,15 +474,23 @@ func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 	if e != nil {
 		return modelOutcome{err: e}
 	}
+	tail := work.stmts + 1
+	if work.changed {
+		tail++
+		work.seq++
+	}
+	if st.failAt > work.stmts && st.failAt <= tail {
+		return modelOutcome{err: ir.NewError(ir.TagStorage)}
+	}
 	if req.Kind == ir.Mutation {
-		m.tables, m.seen = work.tables, work.seen
+		m.tables, m.seen, m.seq = work.tables, work.seen, work.seq
 		m.applied[req.RequestID] = appliedReq{ms: now, body: ir.Canonical(result)}
 	}
-	return modelOutcome{result: result}
+	return modelOutcome{result: result, seq: work.seq}
 }
 
 func (m *model) clone() *model {
-	c := &model{fp: m.fp, tables: map[string]map[string]map[string]any{}, applied: maps.Clone(m.applied), seen: slices.Clone(m.seen)}
+	c := &model{fp: m.fp, seq: m.seq, tables: map[string]map[string]map[string]any{}, applied: maps.Clone(m.applied), seen: slices.Clone(m.seen)}
 	for name, docs := range m.tables {
 		c.tables[name] = map[string]map[string]any{}
 		for id, doc := range docs {
@@ -492,7 +507,7 @@ func (m *model) clone() *model {
 // run executes req's operations; upTo[i] is how many statements had been issued once operation i ended (or
 // failed).
 func (m *model) run(req *ir.Request, now int64, seqBase int) (result []any, err *ir.Error, upTo []int) {
-	m.stmts = 0
+	m.stmts, m.changed = 0, false
 	refs := make([]string, len(req.Ops))
 	draws := 0
 	for i, op := range req.Ops {
@@ -539,6 +554,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 			id = draw()
 		}
 		m.stmts++
+		m.changed = true
 		body["_id"], body["_creationTime"], body["_version"] = id, float64(now), 1.0
 		docs[id] = body
 		m.seen = append(m.seen, id)
@@ -558,6 +574,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 			return nil, ir.NewError(ir.TagNotFound, "table", op.Table, "id", id)
 		}
 		m.stmts++
+		m.changed = true
 		for k, v := range patch {
 			doc[k] = v
 		}
@@ -572,6 +589,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 		}
 		if doc != nil {
 			m.stmts++
+			m.changed = true
 			delete(docs, id)
 		}
 		return ir.NewObject("deleted", doc != nil), nil

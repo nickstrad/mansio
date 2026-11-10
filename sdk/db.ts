@@ -90,6 +90,11 @@ export class Find<T> {
 
 export interface ReadDB<S extends Schema> {
   get<K extends keyof S & string>(table: K, id: string): Effect.Effect<Document<S, K> | null, DbError>;
+  /** The documents with `ids`, in that order (`null` where there is none), read together. */
+  getMany<K extends keyof S & string>(
+    table: K,
+    ids: readonly string[],
+  ): Effect.Effect<(Document<S, K> | null)[], DbError>;
   find<K extends keyof S & string>(table: K, where?: Equality<Document<S, K>>): Find<Document<S, K>>;
 }
 export interface WriteDB<S extends Schema> extends ReadDB<S> {
@@ -122,6 +127,12 @@ export class Documents<S extends Schema> implements WriteDB<S> {
     };
     // Type erasure is limited to these four boundaries: the engines answer `unknown`.
     return Effect.map(this.execute(plan), (rows) => (rows as Document<S, K>[])[0] ?? null);
+  }
+  getMany<K extends keyof S & string>(
+    table: K,
+    ids: readonly string[],
+  ): Effect.Effect<(Document<S, K> | null)[], DbError> {
+    return Effect.all(ids.map((id) => this.get(table, id)));
   }
   insert<K extends keyof S & string>(table: K, value: Body<S, K>): Effect.Effect<string, DbError> {
     return Effect.map(this.execute({ kind: "insert", table, value }), (id) => id as string);

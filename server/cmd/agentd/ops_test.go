@@ -82,11 +82,11 @@ func TestOpsEndToEnd(t *testing.T) {
 	if !ir.UUIDv7.MatchString(id) || ir.Stringify(result[1]) != `{"_version":2}` {
 		t.Fatalf("create: %s", body)
 	}
-	if code, dup := post(addr, create); code != 200 || dup != strings.TrimSuffix(body, "}")+`,"duplicate":true}` {
+	if code, dup := post(addr, create); code != 200 || dup != strings.TrimSuffix(body, `,"seq":1}`)+`,"duplicate":true}` {
 		t.Fatalf("duplicate: %d %s", code, dup)
 	}
 	read := env("query", "", fp, `[{"op":"get","table":"games","id":"`+id+`"},{"op":"select","table":"games","filters":[{"field":"player","op":"eq","value":"amy"}],"limit":10,"aggregate":{"kind":"count"}}]`)
-	if code, got := post(addr, read); code != 200 || !strings.Contains(got, `"moves":1`) || !strings.HasSuffix(got, `,1]}`) {
+	if code, got := post(addr, read); code != 200 || !strings.Contains(got, `"moves":1`) || !strings.HasSuffix(got, `,1],"seq":1}`) {
 		t.Fatalf("query: %d %s", code, got)
 	}
 	conflict := env("mutation", "m2", fp, `[{"op":"patch","table":"games","id":"`+id+`","value":{"moves":9},"expect":{"version":1}}]`)

@@ -88,7 +88,7 @@ func TestOpsCredentials(t *testing.T) {
 	if q := r.post(t, "key-a", request("beta", "notes", "query", "", notesFP, get), nil); q.status != 200 || !strings.Contains(q.raw, `"_id":"s1"`) {
 		t.Fatalf("own database through a forged tenant: %d %s", q.status, q.raw)
 	}
-	if q := r.post(t, "key-b", request("acme", "notes", "query", "", notesFP, get), nil); q.status != 200 || q.raw != `{"result":[null]}`+"\n" {
+	if q := r.post(t, "key-b", request("acme", "notes", "query", "", notesFP, get), nil); q.status != 200 || q.raw != `{"result":[null],"seq":0}`+"\n" {
 		t.Fatalf("other tenant: %d %s", q.status, q.raw)
 	}
 	// A ticket for beta still reaches beta.

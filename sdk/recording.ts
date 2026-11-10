@@ -2,8 +2,17 @@
  * The recording executor (IR-3, `docs/plans/ir-protocol.md` §3): runs a handler in the caller's process
  * against the remote database, and turns what it did into one IR request.
  *
- * - **Reads go out at once** as query requests (`Reads`), one per `get`/`find` terminal, and are cached
- *   per handler run: a second `get` of the same document answers from the cache.
+ * - **Reads go out at once** as query requests (`Reads`) and are cached per handler run: a second `get` of
+ *   the same document answers from the cache. Reads asked for together are one request:
+ *   `db.getMany(table, ids)`, or any reads under `Effect.all([...], { batching: true })`. Without
+ *   `batching: true` each read is its own request, concurrent or not. A read that depends on another's
+ *   answer is its own round trip; nothing outside the server can batch that.
+ * - **One run, one snapshot.** Every answer carries the database's commit sequence (spec §6.5), and every
+ *   read request after the first carries, in front of its reads, the asserts of what the run has read so
+ *   far: the server checks them in the same snapshot it reads from. So after each answer, everything the
+ *   run has read is known to hold in one snapshot, `snapshot`. If an assert fails, the run is abandoned
+ *   (`Restart`) and the client runs the handler again. Reads too many to share a request with the asserts
+ *   are sent bare and must all answer the same sequence.
  * - **Writes are buffered.** `insert` draws a client id (UUIDv7) and answers it at once; `patch` and
  *   `delete` answer nothing. Later reads in the same run see them (read-your-writes): a `get` answers the
  *   local state, and a `find` corrects the server's answer with `sdk/overlay.ts` (one query request:
@@ -26,8 +35,8 @@
  *
  * Handlers may run more than once (on a derived conflict), so they must have no effects beyond `db`.
  */
-import { Effect } from "effect";
-import { type DbError, NotFoundError, RuleError } from "../core/errors.ts";
+import { Effect, Request, RequestResolver } from "effect";
+import { type DbError, NotFoundError, RemoteError, RuleError } from "../core/errors.ts";
 import { type AssertOp, type GetOp, MAX_OPS, type Op, type SelectOp } from "../core/ir/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
@@ -35,12 +44,39 @@ import type { IdSource } from "./ids.ts";
 import { type Doc, overlay, widenedLimit } from "./overlay.ts";
 import { MAX_LIMIT } from "../core/plan.ts";
 
+export type ReadOp = GetOp | SelectOp;
+
+/** A query request's answer: one result per op, and the commit sequence of the snapshot they were read in. */
+export interface Answer {
+  readonly result: unknown[];
+  readonly seq: number;
+}
+
 /**
- * Sends one query request (1–64 `get`/`select` ops) and answers its results, in op order. A failure is
- * not a `DbError`: the client raises it as a defect it recognises (`sdk/client.ts`), so it reaches the
- * caller as a `ClientError` without widening the handler's error channel.
+ * Sends one query request (1–64 `assert`/`get`/`select` ops). It fails with the server's `ConflictError`
+ * when an assert does not hold. Any other failure is not a `DbError`: the client raises it as a defect it
+ * recognises (`sdk/client.ts`), so it reaches the caller as a `ClientError` without widening the handler's
+ * error channel.
+ *
+ * This is the executor's only way out: it knows no transport, so the same executor can run against
+ * anything that answers reads at a named sequence (a server, a test model, later a local store).
  */
-export type Reads = (ops: (GetOp | SelectOp)[]) => Effect.Effect<unknown[]>;
+export type Reads = (ops: (AssertOp | ReadOp)[]) => Effect.Effect<Answer, RemoteError>;
+
+/**
+ * The defect that abandons a run whose reads no longer hold in one snapshot. `error` is the conflict to
+ * report if the client stops re-running.
+ */
+export class Restart {
+  constructor(readonly error: RemoteError) {}
+}
+
+/** One read waiting for its batch. */
+interface Fetch extends Request.Request<unknown> {
+  readonly _tag: "Fetch";
+  readonly op: ReadOp;
+}
+const Fetch = Request.tagged<Fetch>("Fetch");
 
 type Write =
   | { op: "insert"; value: Record<string, unknown>; creationTime: number }
@@ -65,6 +101,22 @@ const key = (table: string, id: string) => `${table}\u0000${id}`;
 export class Recording<S extends Schema> implements WriteDB<S> {
   private readonly entries = new Map<string, Entry>();
   private readonly ops: Op[] = [];
+  /**
+   * The commit sequence of the snapshot in which everything this run has read from the server holds;
+   * `undefined` until the first answer.
+   */
+  snapshot: number | undefined;
+  /** Reads requested together are one `fetch`. */
+  private readonly batch = RequestResolver.makeBatched((requests: readonly Fetch[]) =>
+    this.fetch(requests.map((request) => request.op)).pipe(
+      Effect.flatMap((results) =>
+        Effect.forEach(requests, (request, i) => Request.succeed(request, results[i]), { discard: true })
+      ),
+      Effect.catchAllCause((cause) =>
+        Effect.forEach(requests, (request) => Request.failCause(request, cause), { discard: true })
+      ),
+    )
+  );
 
   constructor(
     private readonly reads: Reads,
@@ -101,14 +153,62 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     return entry.base !== undefined || entry.writes[0]?.op === "insert";
   }
 
+  /** One read, batched with the others requested at the same time. */
+  private read(op: ReadOp): Effect.Effect<unknown> {
+    return Effect.request(Fetch({ op }), this.batch).pipe(Effect.withRequestCaching(false));
+  }
+
+  /**
+   * Sends `ops` and answers their results, keeping the run on one snapshot (see the module comment).
+   * Dies with `Restart` when the run's earlier reads no longer hold.
+   */
+  private fetch(ops: ReadOp[]): Effect.Effect<unknown[]> {
+    return Effect.gen(this, function* () {
+      const asserts = this.preconditions();
+      const restart = (error: RemoteError) => Effect.die(new Restart(error));
+      if (asserts.length + ops.length <= MAX_OPS) {
+        const answer = yield* Effect.catchAll(this.reads([...asserts, ...ops]), restart);
+        this.snapshot = answer.seq;
+        return answer.result.slice(asserts.length);
+      }
+      const results: unknown[] = [];
+      for (let i = 0; i < ops.length; i += MAX_OPS) {
+        const answer = yield* Effect.catchAll(this.reads(ops.slice(i, i + MAX_OPS)), restart);
+        this.snapshot ??= answer.seq;
+        if (answer.seq !== this.snapshot) {
+          return yield* restart(
+            new RemoteError({
+              status: 409,
+              remoteTag: "ConflictError",
+              message: `the database changed between the reads of one run (sequence ${this.snapshot} to ` +
+                `${answer.seq}), and they are too many to check in one request`,
+            }),
+          );
+        }
+        results.push(...answer.result);
+      }
+      return results;
+    });
+  }
+
   get<K extends keyof S & string>(table: K, id: string): Effect.Effect<Document<S, K> | null, DbError> {
     const entry = this.entry(table, id);
     return Effect.gen(this, function* () {
-      if (!this.known(entry)) entry.base = (yield* this.reads([{ op: "get", table, id }]))[0] as Doc | null;
+      if (!this.known(entry)) {
+        const fetched = (yield* this.read({ op: "get", table, id })) as Doc | null;
+        entry.base ??= fetched; // a read made at the same time may have answered first
+      }
       // Guard what the server told this run, not what the run wrote itself.
       if (entry.base !== undefined && entry.writes[0]?.op !== "insert") entry.guarded = true;
       return (yield* this.view(entry)) as Document<S, K> | null;
     });
+  }
+
+  getMany<K extends keyof S & string>(
+    table: K,
+    ids: readonly string[],
+  ): Effect.Effect<(Document<S, K> | null)[], DbError> {
+    return Effect.all(ids.map((id) => this.get(table, id)), { batching: true });
   }
 
   find<K extends keyof S & string>(table: K, where: Equality<Document<S, K>> = {}): Find<Document<S, K>> {
@@ -134,7 +234,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     };
     return Effect.gen(this, function* () {
       const touched = [...this.entries.values()].filter((e) => e.table === plan.table && e.writes.length > 0);
-      if (touched.length === 0) return (yield* this.reads([op]))[0];
+      if (touched.length === 0) return yield* this.read(op);
       // Only patched or deleted documents can displace a server row; an insert's fresh id has none.
       const displaced = touched.filter((entry) => entry.writes[0].op !== "insert");
       if (1 + displaced.length > MAX_OPS) {
@@ -147,7 +247,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       // One snapshot: the widened select and the displaced documents' current server state. A document
       // this run has not read yet takes that state as its base, so its local view is from the same snapshot.
       const requested = widenedLimit(op, displaced.length);
-      const [server, ...current] = yield* this.reads([
+      const [server, ...current] = yield* this.fetch([
         { ...op, limit: requested },
         ...displaced.map(({ table, id }): GetOp => ({ op: "get", table, id })),
       ]);
