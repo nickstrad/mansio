@@ -8,7 +8,6 @@ import (
 	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/docexec"
 	"github.com/nickstrad/mansio/server/internal/durable"
-	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
@@ -17,9 +16,7 @@ import (
 // generation.
 func (d *db) restart() {
 	d.t.Helper()
-	d.store.SetFaults(durabletest.Faults{Down: true})
-	d.h.Close()
-	d.store.SetFaults(durabletest.Faults{})
+	d.abandon()
 	m, _, err := d.store.ReadManifest(context.Background(), durableKey)
 	if err != nil {
 		d.t.Fatal(err)

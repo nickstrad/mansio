@@ -136,7 +136,7 @@ in 5 min (writes acknowledged by the old owner after the fence lost at the desti
    RPO decision (with RPO 0 there is no rollback). The checker also counts these as `Stats.VersionReuse`.
    **Fixed 2026-11-10** (added by the version-fixes run):
    [the version floor](../writeback/2026-11-10-version-floor.md); the vector is in `testdata/cluster` and a
-   reused version is a violation.
+   reused version is a violation (`Stats.VersionReuse` is gone).
 
 No seed produced an `Internal` (defect) answer.
 

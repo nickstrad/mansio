@@ -444,22 +444,23 @@ func (s *Server) bucketOp(w http.ResponseWriter, r *http.Request, bucket string,
 	case r.Method == http.MethodHead || r.Method == http.MethodPut:
 		st := s.buckets[bucket]
 		if st == BucketMissing && r.Method == http.MethodPut {
-			delete(s.buckets, bucket)
+			delete(s.buckets, bucket) // created: BucketOwned from now on
 		}
 		s.mu.Unlock()
-		put := r.Method == http.MethodPut
+		status, code := http.StatusOK, ""
 		switch {
-		case st == BucketMissing && put:
-		case st == BucketForeign && !put:
-			writeError(w, r, http.StatusForbidden, "AccessDenied")
-		case st != BucketOwned && !put:
-			writeError(w, r, http.StatusNotFound, "NoSuchBucket")
+		case r.Method == http.MethodHead && st == BucketForeign:
+			status, code = http.StatusForbidden, "AccessDenied"
+		case r.Method == http.MethodHead && st != BucketOwned:
+			status, code = http.StatusNotFound, "NoSuchBucket"
+		case r.Method == http.MethodHead || st == BucketMissing:
 		case st == BucketOwned || st == BucketCreatedSinceHead:
-			if put {
-				writeError(w, r, http.StatusConflict, "BucketAlreadyOwnedByYou")
-			}
+			status, code = http.StatusConflict, "BucketAlreadyOwnedByYou"
 		default:
-			writeError(w, r, http.StatusConflict, "BucketAlreadyExists")
+			status, code = http.StatusConflict, "BucketAlreadyExists"
+		}
+		if code != "" {
+			writeError(w, r, status, code)
 		}
 	default:
 		s.mu.Unlock()

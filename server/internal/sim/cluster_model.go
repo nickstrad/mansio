@@ -78,7 +78,6 @@ type cmodel struct {
 	lostOK  int
 	excused int // of lostOK: older than the RPO at the crash, excused by faults on the owner's links or the key
 	checked int
-	reused  int // (account, version) pairs read with two balances
 
 	objMu    sync.Mutex          // guards objMarks; not held with mu
 	objMarks map[string][]string // object name → its marks (read)
@@ -590,7 +589,6 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 	for i, a := range op.Input.accounts {
 		k := [2]int64{int64(a), op.Output.versions[i]}
 		if b, ok := d.seenVersion[k]; ok && b != op.Output.balances[i] {
-			m.reused++
 			m.violate(key, "version reuse: account %d read at version %d with balance %d, earlier with %d", a, k[1], op.Output.balances[i], b)
 		}
 		d.seenVersion[k] = op.Output.balances[i]

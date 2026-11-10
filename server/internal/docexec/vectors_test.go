@@ -97,12 +97,17 @@ func (d *db) newHost() {
 	}
 }
 
-// crash abandons the host without publishing anything (the store refuses its shutdown's write-backs), then
-// starts a new one: the database is back at its last published generation.
-func (d *db) crash() {
+// abandon stops the host without publishing anything (the store refuses its shutdown's write-backs): what it
+// had not written back is lost.
+func (d *db) abandon() {
 	d.store.SetFaults(durabletest.Faults{Down: true})
 	d.h.Close()
 	d.store.SetFaults(durabletest.Faults{})
+}
+
+// crash abandons the host, then starts a new one: the database is back at its last published generation.
+func (d *db) crash() {
+	d.abandon()
 	d.newHost()
 }
 
