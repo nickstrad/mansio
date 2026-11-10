@@ -1,13 +1,14 @@
 # mansio — project state
 
-## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build)
+## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build, Fable final pass)
 
 - Goal/spec: MANSIO-REFACTORS item 1
   (`/root/Software/book-notes-work/backpressure-plan/books/backpressure-in-microservices/MANSIO-REFACTORS.md`),
   brief `/root/briefs/mansio-platform-up-brief.md`: one command builds the daemons, generates a dev CA, ticket
   keys and secrets, starts Postgres, the object store, controld, two agentd and the edge, registers a schema,
   creates a tenant and key, and runs one SDK write and read through the edge; `platform-down` removes it.
-- Status: **built and verified on `feat/platform-up`; awaiting cross-family review.** No merge, no push.
+- Status: **Fable 5.2 final pass: PASS WITH FIXES** on `feat/platform-up` (Nick directed 2026-11-09 that this
+  pass replaces the Astra review for this build only); ready for coordinator landing. No merge, no push.
 - Built: `9fb5592` `controld keygen -dir DIR [-public FILE]` (keygen home: **controld**, the ticket issuer; it
   seeds an empty `ticket_keys.dir` in the exact format controld serves from — a fresh ring signs with its only
   key at once — and optionally writes the public key set a static agentd/edge takes as `keys_file`; refuses a
@@ -50,13 +51,40 @@
   fetch keys from controld's `/v1/keys`; the `-public` key-set file is written
   (`.platform/ticket-keys.public.json`) but not consumed by this topology. (4) `frontbench keygen` is left in
   place (the bench uses its issuer file format).
-- Next: cross-family review of `feat/platform-up` (base `394fce7`, head = this commit); then item 2 wires
-  `make platform-up` / `make platform-down` as the CI end-to-end job (needs go, docker compose v2, openssl,
-  curl, jq, deno 2.9.5 on the runner).
+- Final pass (Fable 5.2, 2026-11-10, reviewed build head `c4043df` against base `394fce7`): all five
+  acceptance items verified by re-running, not from the build's report. Fix commit `b1a2a6b`: (a) two agentd
+  starting together both tried to create the missing bucket and the loser logged `S3.BUCKET_CHECK_FAILED`
+  (WARN, "you already own it") on fresh runs — `up.sh` now creates `mansio-test` in SeaweedFS (`weed shell`)
+  before any agent starts; (b) a relative `PLATFORM_DIR` was used after `cd`, so the build wrote under
+  `server/<dir>`, up exited 127 and down left that directory behind — `lib.sh` now makes it absolute. Evidence
+  after the fixes: `make platform-up` from clean → exit 0, ~16 s,
+  `platform smoke OK: wrote and read back game 01a1c35d-b089-…
+  (xPlayer alice-07510919) via https://127.0.0.1:27443`,
+  edge 2 2xx answers, 0 WARN/ERROR lines in any daemon log, both agents `S3.PROBE_OK`, write-back landed in
+  the bucket (41 KB after 25 s); independently of the SDK: `control.placement` row ACTIVE on vm-a,
+  `OWNER.CLAIMED` in vm-a's log, the SQLite file in vm-a's cache. Up while up → exit 0, ~1 s, same pids and
+  key id, second tenant, edge count 4. Edge killed → up refuses (make exit 2), state untouched. Port already
+  held (`PLATFORM_S3_PORT=8333`) → refuses before creating anything, `tsdb-*` untouched. vm-b killed mid-start
+  → "vm-b exited before it was ready", log tails, full teardown. `make platform-down` → exit 0 (and again with
+  nothing up); `.platform/` gone, 0 `mansio-platform` containers/volumes/networks, no listeners on the
+  platform ports, `docker ps -a` / volume / network lists identical to the pre-run snapshot. Four up/down
+  cycles in total, all exit 0. Checks re-run: `gofmt -l
+  cmd/controld` clean, `go vet`,
+  `go test -count=1 -race` and `-tags noassert` on `./cmd/controld/` ok, `go build ./...` ok;
+  `deno task fmt:check`, `lint`, `check` exit 0; `deno task test` 317 passed / 0 failed;
+  `shellcheck -x scripts/platform/*.sh` clean. Not re-run: full `go test -race ./...` and
+  `deno task test:prop` (same reason as the build: no Go outside `cmd/controld` changed).
+- Known, left as is: (1) the Compose project name is fixed, so `make platform-down` from a second checkout
+  removes the containers of a platform started from another checkout (its daemons and `.platform/` stay; up
+  from a second checkout refuses on the held ports). (2) The bucket race itself is in agentd
+  (`objstore.EnsureBucket` treats "already owned by you" as a failure; cosmetic, the probe passes) — a server
+  follow-up, outside this build's scope.
+- Next: coordinator lands `feat/platform-up`; then item 2 wires `make platform-up` / `make platform-down` as
+  the CI end-to-end job (needs go, docker compose v2, openssl, curl, jq, deno 2.9.5 on the runner). Open
+  decisions/blockers: none.
 - Resume: worktree `/root/Software/mansio-work/platform-up`, branch `feat/platform-up`. Nothing is running
   (`ls .platform` absent, `docker ps | grep mansio-platform` empty); if a platform is found up,
-  `make
-  platform-down` removes it. Logs of a live platform: `.platform/<controld|vm-a|vm-b|edge>/*.log`.
+  `make platform-down` removes it. Logs of a live platform: `.platform/<controld|vm-a|vm-b|edge>/*.log`.
 
 ## 2026-11-07 — Go-platform C4 dataset (Astra build, Opus final pass)
 
