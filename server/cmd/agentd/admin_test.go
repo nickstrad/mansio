@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -225,6 +226,10 @@ func TestAdminControlsAndErrors(t *testing.T) {
 		{"/admin/fetch:limit?n=0", "bad_request", 400}, // off point: 1 is the least
 		{"/admin/fetch:limit?n=x", "bad_request", 400},
 		{"/admin/fetch:limit", "bad_request", 400},
+		{"/admin/limit?queue=verify&n=0", "bad_request", 400}, // off point: 1 is the least
+		{"/admin/limit?queue=verify", "bad_request", 400},
+		{"/admin/limit?queue=mailbox&n=4", "not_found", 404}, // not a slot pool with a lever
+		{"/admin/limit?n=4", "not_found", 404},
 		{"/admin/passivate?key=", "bad_request", 400},
 		{"/admin/loglevel?level=trace", "bad_request", 400},
 		{"/admin/breaker/s3:open", "bad_request", 400},
@@ -238,6 +243,25 @@ func TestAdminControlsAndErrors(t *testing.T) {
 	}
 	if code, _ := adminCall(t, a.admin, "/admin/fetch:limit?n=1"); code != http.StatusOK {
 		t.Fatalf("on point n=1: %d", code)
+	}
+	// B11: the slot pools in front of a dependency have a runtime lever; the change shows in the capacity gauge.
+	if out := a.mustAdmin(t, "/admin/limit?queue=verify&n=8"); out["queue"] != "verify" || out["limit"] != 8.0 || out["previous"] != 64.0 {
+		t.Fatalf("limit verify answer %v", out)
+	}
+	if out := a.mustAdmin(t, "/admin/limit?queue=lifecycle&n=1"); out["limit"] != 1.0 || out["previous"] != 16.0 {
+		t.Fatalf("limit lifecycle answer %v (on point n=1)", out)
+	}
+	res, err := http.Get("http://" + a.life + metricsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	for series, want := range map[string]float64{`mansio_queue_capacity{queue="verify"}`: 8, `mansio_queue_capacity{queue="lifecycle"}`: 1,
+		`mansio_queue_depth{queue="verify"}`: 0} {
+		if got := sample(t, string(text), series); got != want {
+			t.Errorf("%s = %v after the limit calls, want %v", series, got, want)
+		}
 	}
 	if res, err := http.Get("http://" + a.admin + "/admin/drain"); err != nil || res.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET on a control: %v %v, want 404 (controls are POST only)", res.StatusCode, err)

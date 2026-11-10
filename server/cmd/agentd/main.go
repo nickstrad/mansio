@@ -50,6 +50,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
@@ -165,6 +166,7 @@ type agent struct {
 	events     *eventlog.Log // the event log (events.go); nil = none
 	// queryRoutes adds routes beside the front's on the query listener (tenancy's /admin/ and /api/auth/); may be nil.
 	queryRoutes func(mux *http.ServeMux) error
+	tenancy     *tenancyPart // its slot pools exist once queryRoutes mounted them
 }
 
 // backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
@@ -183,6 +185,8 @@ type backend struct {
 	// static mode: no breaker, fetch-limit or passivate controls).
 	breakers map[string]*breaker.Breaker
 	host     *vactor.Host
+	// limits are the mode's slot pools an operator may resize (POST /admin/limit), by queue name; nil in static mode.
+	limits map[string]*slots.Pool
 	// backup forces a key's write-back and answers its manifest (POST /admin/backup, backup.go); nil in static mode.
 	backup func(ctx context.Context, key string) (backupAnswer, error)
 	// credentialPlace is durable mode's front.OpsConfig.CredentialPlace (tenancy.go); nil in static mode.
@@ -278,7 +282,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		}
 		cleanCanary()
 	}
-	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events, queryRoutes: ten.mount,
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events, queryRoutes: ten.mount, tenancy: ten,
 		background: append(append(be.background, ten.background...),
 			func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
 }

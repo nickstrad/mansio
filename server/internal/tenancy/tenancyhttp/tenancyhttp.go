@@ -44,6 +44,9 @@ type Config struct {
 	Pools *Pools
 }
 
+// DefaultConcurrency is Config.Concurrency's default.
+const DefaultConcurrency = 16
+
 // Pools are the routes' slot pools: admin calls, and sign-in/up calls, each Config.Concurrency slots, so
 // neither starves the other. A call that finds none free is refused at once and counted.
 type Pools struct{ Admin, Auth *slots.Pool }
@@ -76,7 +79,7 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 		cfg.Timeout = 10 * time.Second
 	}
 	if cfg.Concurrency == 0 {
-		cfg.Concurrency = 16
+		cfg.Concurrency = DefaultConcurrency
 	}
 	if cfg.SignInRate == 0 {
 		cfg.SignInRate, cfg.SignInBurst = 1, 10

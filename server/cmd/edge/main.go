@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -194,6 +195,21 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	}
 	go func() { errc <- hs.Serve(served) }()
 	go func() { errc <- life.Serve(hl) }()
+	if cfg.AdminListen != "" {
+		al, err := net.Listen("tcp", cfg.AdminListen)
+		if err != nil {
+			hs.Close()
+			life.Close()
+			return rep.Report(errs.Wrap(module, err, "cannot listen on %s", cfg.AdminListen))
+		}
+		admin := adminServer(cfg, e, log)
+		go func() { // it ends with the process; a failure here is logged, it does not stop the proxy
+			if err := admin.Serve(al); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Warn("admin listener failed", "event", "EDGE.ADMIN_FAILED", "error", err.Error())
+			}
+		}()
+		defer admin.Close()
+	}
 	if addrFile != "" {
 		if err := os.WriteFile(addrFile, []byte(ln.Addr().String()+"\n"+hl.Addr().String()+"\n"), 0o644); err != nil {
 			hs.Close()
@@ -241,6 +257,33 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	}
 	fmt.Fprintln(stderr, "edge: stopped")
 	return exitOK
+}
+
+// adminServer serves the edge's runtime lever on the loopback admin listener (Release It C4; the capacity
+// table's lever for the per-agent bulkhead): POST /admin/agent:limit?n=N sets every agent's bulkhead from now
+// on, until the process restarts → {"code":"ok","agent_in_flight":N,"previous":P}. Logged at WARN.
+func adminServer(cfg *Config, e *edge.Edge, log *slog.Logger) *http.Server {
+	mux := http.NewServeMux()
+	answer := func(w http.ResponseWriter, status int, v map[string]any) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(v)
+	}
+	mux.HandleFunc("POST /admin/agent:limit", func(w http.ResponseWriter, r *http.Request) {
+		n, err := strconv.Atoi(r.URL.Query().Get("n"))
+		if err != nil || n < 1 {
+			answer(w, http.StatusBadRequest, map[string]any{"code": "bad_request", "message": "n must be an integer >= 1"})
+			return
+		}
+		prev := e.SetAgentInFlight(n)
+		log.Warn("admin: agent bulkhead limit set", "event", "EDGE.AGENT_LIMIT", "agent_in_flight", n, "previous", prev, "remote", r.RemoteAddr)
+		answer(w, http.StatusOK, map[string]any{"code": "ok", "agent_in_flight": n, "previous": prev})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		answer(w, http.StatusNotFound, map[string]any{"code": "not_found", "message": "no admin endpoint " + r.Method + " " + r.URL.Path})
+	})
+	return &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration, ReadTimeout: cfg.ReadHeaderTimeout.Duration,
+		WriteTimeout: 5 * time.Second, IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10}
 }
 
 // lifecycleServer serves /livez, /readyz and /metrics on their own listener (Release It B4, H2). Readiness is

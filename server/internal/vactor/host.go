@@ -113,6 +113,14 @@ type DurableDB interface {
 	Snapshot(ctx context.Context, path string) (commits uint64, err error)
 }
 
+// Defaults of the bounds NewHost applies (the capacity table reads them, docs/capacity.md).
+const (
+	DefaultWorkers       = 8       // Options.Workers
+	DefaultMaxFetches    = 16      // Options.MaxFetches
+	DefaultMaxFetchBytes = 1 << 30 // Options.MaxFetchBytes
+	DefaultMaxFetchQueue = 256     // Options.MaxFetchQueue
+)
+
 // Options apply to every activation.
 type Options struct {
 	CacheDir string // local copies live here; emptied by NewHost, removed by Close
@@ -304,7 +312,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		opts.WriteBackTimeout = 5 * time.Minute
 	}
 	if opts.Workers <= 0 {
-		opts.Workers = 8
+		opts.Workers = DefaultWorkers
 	}
 	opts.GC = opts.GC.Normalize()
 	opts.Clock, opts.Rand = det.Or(opts.Clock), det.RandOr(opts.Rand)
@@ -327,10 +335,10 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 		opts.MinThroughput = 32 << 20
 	}
 	if opts.MaxFetches <= 0 {
-		opts.MaxFetches = 16
+		opts.MaxFetches = DefaultMaxFetches
 	}
 	if opts.MaxFetchBytes <= 0 {
-		opts.MaxFetchBytes = 1 << 30
+		opts.MaxFetchBytes = DefaultMaxFetchBytes
 	}
 	if opts.FailBackoff == 0 {
 		opts.FailBackoff = 100 * time.Millisecond
@@ -340,7 +348,7 @@ func NewHost(f Fetcher, o Opener, opts Options) (*Host, error) {
 	}
 	switch {
 	case opts.MaxFetchQueue == 0:
-		opts.MaxFetchQueue = 256
+		opts.MaxFetchQueue = DefaultMaxFetchQueue
 	case opts.MaxFetchQueue < 0:
 		opts.MaxFetchQueue = 0
 	}

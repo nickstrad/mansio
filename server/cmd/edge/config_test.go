@@ -45,6 +45,10 @@ func TestParseConfigProblems(t *testing.T) {
 		!strings.Contains(err.Error(), "control_ca_file needs an https keys_url") {
 		t.Errorf("control_ca_file with a plain keys_url: %v", err)
 	}
+	if _, err := parseConfig(strings.NewReader(`{"keys_file":"k","agents":{"a":"https://a:1"},"admin_listen":"0.0.0.0:7445"}`), "."); err == nil ||
+		!strings.Contains(err.Error(), "admin_listen") {
+		t.Errorf("a non-loopback admin_listen: %v", err)
+	}
 	// drain_delay is part of the budget: 21 s + 10 s (the default drain) is over 30 s; 20 s + 10 s fits.
 	if _, err := parseConfig(strings.NewReader(`{"keys_file":"k","agents":{"a":"https://a:1"},"drain_delay":"21s"}`), "."); err == nil ||
 		!strings.Contains(err.Error(), "drain_delay 21s + drain_timeout 10s is over shutdown_budget 30s") {

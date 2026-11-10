@@ -7,6 +7,7 @@ front agent's and is unchanged). Code: `internal/metrics/queue.go`, `internal/ac
 
 | Family | Type | Labels | Source |
 |---|---|---|---|
+| `mansio_queue_depth` | gauge | `queue` | waiting now (a slot pool: slots in use); absent for `mailbox` and `read`, whose bound is per database (B11) |
 | `mansio_queue_capacity` | gauge | `queue` (fixed list below) | each queue's or slot pool's limit, to read its depth against |
 | `mansio_queue_rejected_total` | counter | `queue`, `reason` = full, would_expire (admission, B7), failure_backoff (fetch) | refusals counted where they happen |
 | `mansio_queue_wait_seconds` | histogram | `queue` = admission, mailbox | enqueue → pickup; admission counts every request it did not shed (0 when it ran at once) |
@@ -35,3 +36,7 @@ controld also exports its Postgres pools (`pool` = placement, placement-replica)
 
 The edge (B3) reports `edge_in_flight` (`max_in_flight`), `edge_agent` (one agent's `agent_in_flight`) and
 `edge_verify` (`verify_slots`) in the same families.
+
+The full list of queues with their capacities, policies and levers is the generated table in
+[`docs/capacity.md`](../../docs/capacity.md) (B11), which supersedes the list above where they differ (B4 and
+B6 added `resolve_load`, `resolve_create`, `verify` and `credential_place`).

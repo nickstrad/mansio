@@ -26,6 +26,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
 const module = "edge"
@@ -44,7 +45,8 @@ type Config struct {
 	// free slot is shed at once, so a many-source flood costs at most this much CPU (Release It B1, B2).
 	VerifySlots int
 	// AgentInFlight bounds requests in flight to one agent (default 4096; at least the agent's vm_in_flight +
-	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds.
+	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds. SetAgentInFlight changes
+	// it while serving.
 	AgentInFlight int
 	// MaxInFlight bounds requests in the edge at once, whatever their agent (default 2 × AgentInFlight); more
 	// are shed before their body is read. It is the edge's memory ceiling: MaxInFlight × MaxBody of request
@@ -72,8 +74,9 @@ type Edge struct {
 	cfg    Config
 	verify chan struct{} // verify slots
 
-	mu  sync.RWMutex
-	ups map[string]*upstream // by VM
+	mu            sync.RWMutex
+	ups           map[string]*upstream // by VM
+	agentInFlight int                  // each upstream's bulkhead limit now (Config.AgentInFlight, or the last SetAgentInFlight)
 
 	draining atomic.Bool
 	st       counters
@@ -83,7 +86,7 @@ type Edge struct {
 type upstream struct {
 	base  string // the agent's base URL; the request's path is appended
 	b     *breaker.Breaker
-	slots chan struct{}
+	slots *slots.Pool // the agent's bulkhead: requests in flight to it
 }
 
 // counters are the edge's request stats; all atomics (the request path takes no lock for them).
@@ -121,8 +124,30 @@ func New(cfg Config) (*Edge, error) {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	cfg.Clock = det.Or(cfg.Clock)
-	return &Edge{cfg: cfg, verify: make(chan struct{}, cfg.VerifySlots), ups: map[string]*upstream{},
+	return &Edge{cfg: cfg, verify: make(chan struct{}, cfg.VerifySlots), ups: map[string]*upstream{}, agentInFlight: cfg.AgentInFlight,
 		latency: metrics.NewLatency(nil)}, nil
+}
+
+// SetAgentInFlight changes every agent's bulkhead limit from now on and returns the previous one (an
+// operator's lever: lower it to take load off agents that are struggling, without a restart). Requests in
+// flight finish; an agent over the new limit takes no new request until it is under it.
+//
+//	pre: n >= 1
+func (e *Edge) SetAgentInFlight(n int) (prev int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	prev, e.agentInFlight = e.agentInFlight, n
+	for _, u := range e.ups {
+		u.slots.SetLimit(n)
+	}
+	return prev
+}
+
+// AgentInFlight is each agent's bulkhead limit now.
+func (e *Edge) AgentInFlight() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.agentInFlight
 }
 
 // Drain makes the edge shed new requests (and /readyz fail, see cmd/edge); in-flight requests finish.
@@ -232,7 +257,7 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 	// body is read, so a refusal costs no body under overload. Nothing is held while the client sends (a slow
 	// sender must not pin an agent's slot or a half-open breaker's one probe); forward takes the slot and the
 	// permit once the body is in, and may still refuse if either went in between.
-	if len(up.slots) == cap(up.slots) {
+	if up.slots.InUse() >= up.slots.Limit() {
 		return e.bulkheadFull(), false
 	}
 	if up.b.State(start) == breaker.Open {
@@ -259,12 +284,10 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 // forward sends the request to up under its bulkhead and breaker, and relays the answer.
 func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.ResponseController, up *upstream, body []byte,
 	deadline time.Time) (answer, bool) {
-	select {
-	case up.slots <- struct{}{}:
-		defer func() { <-up.slots }()
-	default:
+	if !up.slots.TryAcquire() {
 		return e.bulkheadFull(), false
 	}
+	defer up.slots.Release()
 	now := e.cfg.Clock.Now()
 	p, wait, ok := up.b.Allow(now)
 	if !ok {
@@ -373,7 +396,7 @@ func (e *Edge) upstream(vm string) (*upstream, bool) {
 	}
 	b, err := breaker.New(bc)
 	assert.That(err == nil, "edge: breaker config was normalized in New: %v", err)
-	u = &upstream{base: base, b: b, slots: make(chan struct{}, e.cfg.AgentInFlight)}
+	u = &upstream{base: base, b: b, slots: slots.New(e.agentInFlight)}
 	e.ups[vm] = u
 	return u, true
 }

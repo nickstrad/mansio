@@ -5,6 +5,8 @@ Owner: the backpressure-fixes run (2026-11-10; state in the repo root `STATE.md`
 
 Notes, newest first:
 
+- [2026-11-10 capacity table](2026-11-10-capacity-table.md) (B11): `docs/capacity.md` generated from the config
+  defaults, alert rules, runbooks, and the runtime levers.
 - [2026-11-10 retry contract](2026-11-10-retry-contract.md) (B8): one generated table, shared vectors, and what
   changed in the two clients.
 - [2026-11-10 admission would-expire](2026-11-10-admission-would-expire.md) (B7): a request that cannot finish

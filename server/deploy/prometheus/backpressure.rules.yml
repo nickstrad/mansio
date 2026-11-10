@@ -1,0 +1,67 @@
+# Prometheus alert rules for mansio's bounded queues (Backpressure in Microservices ch. 8 "Prometheus Alerts"
+# and ch. 4 "Useful Alerts"; finding B11). The queues, their capacities, levers and runbooks are in
+# docs/capacity.md. Thresholds live here, not in code (the metric catalog's rule).
+#
+# Alert on broken protection, not merely active protection: a queue that sheds while its dependency recovers
+# is working. Only the critical rules should page.
+#
+# cmd/agentd's TestAlertRulesUseRealSeries checks that every mansio_* series named here is exported.
+groups:
+  - name: mansio-backpressure
+    rules:
+      # The book's four rules, against mansio's series.
+      - alert: MansioQueueNearCapacity
+        expr: mansio_queue_depth / mansio_queue_capacity > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue {{ $labels.queue }} on {{ $labels.instance }} is near capacity"
+          description: "Check the queue's downstream latency, its workers and the callers' retry rate (docs/capacity.md, runbook {{ $labels.queue }})."
+      - alert: MansioUnexpectedDrops
+        expr: sum by (instance) (rate(mansio_eventlog_records_total{result=~"dropped|lost"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The event log on {{ $labels.instance }} is dropping or losing records"
+          description: "Its queue is full or its disk cannot be written (docs/capacity.md, runbook events)."
+      - alert: MansioFailuresHigh
+        expr: >-
+          sum by (instance) (rate(mansio_requests_total{class="5xx"}[5m])) > 1
+          or sum by (instance) (rate(mansio_vactor_events_total{event=~"writeback_failure|activation_failure"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Requests, write-backs or activations are failing on {{ $labels.instance }}"
+          description: "5xx answers carry a log_id; write-back and activation failures point at S3 (mansio_breaker_state, mansio_s3_requests_total)."
+      - alert: MansioQueueAgeTooHigh
+        expr: histogram_quantile(0.95, sum by (le, queue, instance) (rate(mansio_queue_wait_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Work in {{ $labels.queue }} on {{ $labels.instance }} waits longer than its useful budget"
+          description: "p95 wait is over 1 s, half the default 2 s request deadline: queued work is expiring. Admission should be shedding it (reason would_expire); check statement latency."
+      # Broken protection: the queue is doing its job and it is not enough.
+      - alert: MansioQueueNearCapacityAndRejecting
+        expr: >-
+          mansio_queue_depth / mansio_queue_capacity > 0.8
+          and on (instance, queue) sum by (instance, queue) (rate(mansio_queue_rejected_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue {{ $labels.queue }} on {{ $labels.instance }} is near capacity and rejecting work"
+          description: "Sustained overload at this boundary: add capacity downstream or lower the load (docs/capacity.md, runbook {{ $labels.queue }})."
+      - alert: MansioSheddingButDependencySlow
+        expr: >-
+          sum by (instance) (rate(mansio_queue_rejected_total{queue=~"fetch|lifecycle|admission"}[5m])) > 0
+          and on (instance) histogram_quantile(0.99, sum by (le, instance) (rate(mansio_s3_latency_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} is shedding and S3 is still slow"
+          description: "Backpressure is active but the dependency has not recovered: lower the fetch limit (agentctl fetch-limit) or trip the S3 breaker (agentctl breaker s3 trip)."

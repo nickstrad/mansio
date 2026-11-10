@@ -91,6 +91,9 @@ type ops struct {
 	verify *slots.Pool
 }
 
+// DefaultVerifySlots is OpsConfig.VerifySlots' default.
+const DefaultVerifySlots = 64
+
 // EnableOps turns on /v1/ops (without it the route is an unknown path).
 //
 //	pre: called once, before the server handles requests
@@ -101,7 +104,7 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 	}
 	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0 || cfg.CredentialPlace != nil, "front: credentials need an epoch")
 	if cfg.VerifySlots <= 0 {
-		cfg.VerifySlots = 64
+		cfg.VerifySlots = DefaultVerifySlots
 	}
 	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, place: cfg.CredentialPlace, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
 		cache: docexec.NewSchemas(cfg.SchemaCache), verify: slots.New(cfg.VerifySlots)}

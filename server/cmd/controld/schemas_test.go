@@ -364,3 +364,48 @@ func (m *memSchemas) appReads() int {
 	defer m.mu.Unlock()
 	return m.apps
 }
+
+// B11: the pools in front of Postgres have a runtime lever. Lowering resolve_load applies to the next read; the
+// pool budget (load + create + api below pg.max_conns) cannot be broken at run time either.
+func TestLimitLever(t *testing.T) {
+	store := &memSchemas{regs: map[[2]string][]byte{}}
+	srv, d := schemaDaemon(t, store) // api 4, loads 4, creates 2; pg.max_conns 32
+	fp := schemareg.Fingerprint([]byte(schemaText))
+	store.RegisterSchema(context.Background(), "tic-tac-toe", fp, []byte(schemaText))
+	limit := func(queue string, n int) (int, map[string]any) {
+		body, _ := json.Marshal(map[string]int{"limit": n})
+		return do(t, srv, http.MethodPost, "/v1/limits/"+queue, adminToken, body)
+	}
+	if code, out := limit("resolve_load", 1); code != 200 || out["previous"] != 4.0 || out["limit"] != 1.0 || d.loads.Limit() != 1 {
+		t.Fatalf("lower resolve_load to 1 (on point): %d %v, pool limit %d", code, out, d.loads.Limit())
+	}
+	d.loads.TryAcquire() // one store read in flight: the lowered pool is full
+	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 503 {
+		t.Fatalf("a schema read beyond the lowered limit: %d %v, want 503", code, out)
+	}
+	d.loads.Release()
+	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 200 {
+		t.Fatalf("a schema read within the lowered limit: %d %v", code, out)
+	}
+	for _, tc := range []struct {
+		queue  string
+		n      int
+		status int
+		code   string
+	}{
+		{"resolve_load", 0, 400, "bad_request"},   // off point
+		{"resolve_load", 26, 400, "bad_request"},  // 26 + 2 + 4 = 32: not below pg.max_conns (off point)
+		{"resolve_load", 25, 200, "ok"},           // 31: the on point
+		{"resolve_create", 3, 400, "bad_request"}, // 25 + 3 + 4 = 32
+		{"resolve", 2, 404, "not_found"},          // the wide gate has no lever: it protects no dependency
+		{"controld_api", 2, 200, "ok"},
+		{"resolve_create", 1, 200, "ok"},
+	} {
+		if code, out := limit(tc.queue, tc.n); code != tc.status || out["code"] != tc.code {
+			t.Errorf("limit %s %d: %d %v, want %d %s", tc.queue, tc.n, code, out, tc.status, tc.code)
+		}
+	}
+	if d.loads.Limit() != 25 || d.creates.Limit() != 1 || d.api.Limit() != 2 {
+		t.Fatalf("pool limits %d, %d and %d; want 25, 1 and 2", d.loads.Limit(), d.creates.Limit(), d.api.Limit())
+	}
+}

@@ -79,6 +79,15 @@ var commands = map[string]*command{
 			return http.MethodPost, "/v1/api-keys/" + url.PathEscape(*id) + "/revoke", nil, need(*id)
 		}
 	}},
+	"limit": {"-queue QUEUE -n N", func(fs *flag.FlagSet) func() (string, string, any, error) {
+		queue, n := fs.String("queue", "", "the slot pool: resolve_load, resolve_create, controld_api, tenancy_admin or tenancy_auth"), fs.Int("n", 0, "its limit from now on (>= 1)")
+		return func() (string, string, any, error) {
+			if *n < 1 {
+				return "", "", nil, fmt.Errorf("-n must be >= 1")
+			}
+			return http.MethodPost, "/v1/limits/" + url.PathEscape(*queue), map[string]int{"limit": *n}, need(*queue)
+		}
+	}},
 	"vms": {"", func(fs *flag.FlagSet) func() (string, string, any, error) {
 		return func() (string, string, any, error) { return http.MethodGet, "/v1/vms", nil, nil }
 	}},

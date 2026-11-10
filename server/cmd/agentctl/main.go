@@ -3,6 +3,7 @@
 //
 //	agentctl [-addr 127.0.0.1:7072] [-timeout 10s] breaker <dep> trip|reset
 //	agentctl [flags] fetch-limit <n>
+//	agentctl [flags] limit <queue> <n>
 //	agentctl [flags] drain
 //	agentctl [flags] passivate <key>
 //	agentctl [flags] backup <key>
@@ -48,6 +49,8 @@ const usage = `usage: agentctl [flags] <command>
 commands:
   breaker <dep> trip|reset   force a breaker open until reset, or close it (dep: s3, placement)
   fetch-limit <n>            S3 fetches in flight from now on (n >= 1)
+  limit <queue> <n>          a slot pool's limit from now on (queue: verify, lifecycle, credential_place,
+                             tenancy_admin, tenancy_auth; n >= 1)
   drain                      stop taking queries (one way; /readyz says draining)
   passivate <key>            write one warm database back and drop its local copy
   backup <key>               write one database back now and print its manifest (it stays warm)
@@ -122,6 +125,14 @@ func command(args []string) (string, error) {
 			return "", fmt.Errorf("fetch-limit %q: want an integer >= 1", args[1])
 		}
 		return "/admin/fetch:limit?n=" + args[1], nil
+	case "limit":
+		if err := want(2); err != nil {
+			return "", err
+		}
+		if n, err := strconv.Atoi(args[2]); err != nil || n < 1 {
+			return "", fmt.Errorf("limit %s %q: want an integer >= 1", args[1], args[2])
+		}
+		return "/admin/limit?queue=" + url.QueryEscape(args[1]) + "&n=" + args[2], nil
 	case "drain":
 		return "/admin/drain", want(0)
 	case "passivate":

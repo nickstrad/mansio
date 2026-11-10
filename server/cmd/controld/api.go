@@ -78,6 +78,7 @@ func (d *daemon) routes(reg *metrics.Registry) (http.Handler, error) {
 	})
 	d.resolveRoutes(mux)
 	d.schemaRoutes(mux)
+	d.limitRoutes(mux)
 	mux.HandleFunc("POST /v1/databases", d.handle("create", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ Tenant, Name string }
 		if err := decode(r, &req); err != nil {

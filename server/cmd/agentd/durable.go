@@ -140,9 +140,11 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		host:       d.host,
 		backup:     d.backup,
 	}
+	be.limits = map[string]*slots.Pool{"lifecycle": d.lifecycle}
 	if cfg.Tenancy != nil {
 		d.claims = newClaimingPlace(d)
 		be.credentialPlace = d.claims.place
+		be.limits["credential_place"] = d.claims.flights
 	}
 	return be, nil
 }
