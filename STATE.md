@@ -1,5 +1,50 @@
 # mansio — project state
 
+## 2026-11-10 — read path: survey changes 1–4 and the colocated-runner explainer (Fable 5.2, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-read-path-brief.md`; the spec is the survey's §3.2 changes 1–4
+  (`docs/programmatic-schema-platform-survey.md` on branch `docs/programmatic-schema-survey`, worktree
+  `/root/Software/mansio-work/schema-survey`), framed by its §3.1 and §3.4. Nick approved "keep placement B,
+  do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
+  5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
+- Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
+  based on `origin/main` `8075b8d`). Change 1 done; changes 2–4, the explainer, the simplify pass and the
+  merge are next, in that order.
+- Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
+  `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
+  failure of the section below).
+- Change 1, batch reads and one snapshot per run: **done** `906bbdc`.
+  - Protocol (IR revision 1.1, `ir/spec/v1.md` §6.5 and §12): every successful answer carries `seq`, the
+    database's commit sequence (one per applied mutation that changed a row; stored in `_mansio_changes`, the
+    row with the empty table name; created by `docexec.Init`, and by the first mutation on an older file); a
+    query may hold `assert` ops, checked in the snapshot its reads come from.
+  - SDK (`sdk/recording.ts`, `sdk/client.ts`): reads asked for together are one request (`db.getMany`, or
+    `Effect.all([...], { batching: true })`); every read request after a run's first carries the asserts of
+    what the run has read so far, so after each answer the whole read set holds in one snapshot
+    (`Recording.snapshot`); a failed assert abandons the run (`Restart`) and the client re-runs the handler,
+    for queries as for mutations; reads too many to share a request with the asserts go bare and must answer
+    one sequence. A mutation that wrote nothing sends no commit.
+  - Tests: `tests/unit/sdk_read_path_test.ts` ("read path 1: …", six tests, including a transfer landing
+    between two reads of one run); execute vectors `seq counts the mutations that changed a row`,
+    `query with
+    asserts that hold`, `query with an assert that fails`; Go
+    `TestSequenceOnAFileWithoutTheTable`; the Go model fuzz (`internal/docexec/model_fuzz_test.go`) now
+    predicts `seq` and the two sequence statements.
+  - Verified: `deno task ci` exit 0 (326 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only the
+    baseline test.
+  - Deviations from the survey: (1) the survey proposed that the SDK compare sequences and re-run when two
+    reads straddled a commit. Built instead: the later request carries the earlier reads' asserts, so a commit
+    that did not touch what the run read costs nothing, and only a real change re-runs. Sequence comparison
+    remains as the fallback when the asserts do not fit in the request. This needed `assert` in a query, which
+    the survey did not list. (2) Effect's request batching batches only under `batching: true`; reads that are
+    merely concurrent stay separate requests. (3) Not in the survey: a read-only mutation no longer sends an
+    asserts-only commit, because its reads are one snapshot already.
+  - Local logic later: `Reads` is the executor's only way out and answers `{ result, seq }`, so the executor
+    can run against anything that answers reads at a named sequence; `Recording.snapshot` exposes the run's
+    snapshot identity; nothing here trades against local execution.
+- Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
+  change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
+
 ## 2026-11-10 — backpressure fixes B1–B11 (Fable 5.2 build + simplify + merge, Nick-directed)
 
 - Goal/spec: brief `/root/briefs/mansio-backpressure-fixes-brief.md`; findings and order in
