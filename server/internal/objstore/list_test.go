@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/nickstrad/mansio/server/internal/objstore"
 	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
@@ -13,7 +14,8 @@ import (
 // A 10k-object prefix is listed one page (≤ 1000 entries) at a time, and a Transient failure retries only
 // the page it hit (RI-05 / OS-06: bounded listings).
 func TestEachPageIsBoundedAndRetriesOnePage(t *testing.T) {
-	r := newRig(t, objstore.Config{})
+	// LIST now obeys OpTimeout (B5); the fake sorts 10k keys per page, which under -race can pass the rig's 300 ms.
+	r := newRig(t, objstore.Config{OpTimeout: 10 * time.Second})
 	const n = 10_000
 	for i := range n {
 		r.fake.Put("bkt", fmt.Sprintf("p/%05d", i), []byte("x"))
@@ -95,5 +97,34 @@ func TestDeleteBatchesAndDeletePrefix(t *testing.T) {
 	}
 	if left, _ := r.st.List(context.Background(), ""); len(left) != 1 || left["e/keep"] != 1 {
 		t.Fatalf("left %v, want only e/keep", left)
+	}
+}
+
+// B5: LIST obeys deadlines. minio's one-page LIST takes no context, so before this a listing whose answer
+// stalled after the headers was stopped by nothing: not the attempt's OpTimeout, not the caller's context.
+func TestListStopsAtItsDeadlines(t *testing.T) {
+	// The answer's headers arrive and the body never does: the attempt ends at OpTimeout and the retry succeeds.
+	r := newRig(t, objstore.Config{})
+	r.fake.Put("bkt", "p/a", []byte("x"))
+	r.fake.Inject(s3test.Fault{Mode: s3test.HeadersThenStall, Times: 1})
+	t0 := time.Now()
+	p, err := r.st.ListPage(context.Background(), "p/", "", "", 10)
+	if err != nil || len(p.Objects) != 1 {
+		t.Fatalf("list after one stalled attempt: %+v, %v", p, err)
+	}
+	if el := time.Since(t0); el < opTimeout || el > opTimeout+loadSlack {
+		t.Fatalf("list took %v, want one op timeout (%v) plus a backoff", el, opTimeout)
+	}
+
+	// The caller's own deadline, shorter than OpTimeout, ends it too, and as the caller's (Canceled), not as a
+	// store failure.
+	r = newRig(t, objstore.Config{OpTimeout: 10 * time.Second})
+	r.fake.Inject(s3test.Fault{Mode: s3test.HeadersThenStall, Times: 1})
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	t0 = time.Now()
+	_, err = r.st.ListPage(ctx, "p/", "", "", 10)
+	if el := time.Since(t0); err == nil || objstore.Classify(err) != objstore.Canceled || el > 200*time.Millisecond+loadSlack {
+		t.Fatalf("list under a 200 ms caller deadline: %v (%v) after %v", err, objstore.Classify(err), el)
 	}
 }

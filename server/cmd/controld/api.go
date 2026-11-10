@@ -63,11 +63,14 @@ func (d *daemon) routes(reg *metrics.Registry) (http.Handler, error) {
 	mux.Handle("GET /metrics", reg.Handler())
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if !d.ready.Load() {
+		switch {
+		case d.stopping.Load():
+			http.Error(w, "stopping", http.StatusServiceUnavailable)
+		case !d.ready.Load():
 			http.Error(w, "startup: migrating and registering agents", http.StatusServiceUnavailable)
-			return
+		default:
+			w.Write([]byte("ok\n"))
 		}
-		w.Write([]byte("ok\n"))
 	})
 	d.resolveRoutes(mux)
 	d.schemaRoutes(mux)

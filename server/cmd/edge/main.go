@@ -31,6 +31,7 @@ import (
 	"os/signal"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -184,7 +185,8 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	// timeout; deadline + grace), as the agent does (h2 streams share a connection).
 	hs := &http.Server{Handler: e, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
-	life := lifecycleServer(cfg, e, reg)
+	var stopping atomic.Bool // shutdown began: /readyz fails, requests are still served for drain_delay
+	life := lifecycleServer(cfg, e, reg, &stopping)
 	errc := make(chan error, 2)
 	served := ln
 	if tlsCfg != nil {
@@ -210,8 +212,14 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	}
 	start := time.Now()
 	log.Info("shutting down", "event", "EDGE.SHUTDOWN_START", "in_flight", e.InFlight(), "budget_ms", cfg.ShutdownBudget.Milliseconds())
+	// Fail readiness first and keep serving for drain_delay, so a balancer polling /readyz stops routing here
+	// before the listener closes (no burst of refused connections on a rolling restart).
+	stopping.Store(true)
+	if serveErr == nil {
+		time.Sleep(cfg.DrainDelay.Duration)
+	}
 	e.Drain()
-	dctx, cancel := context.WithDeadline(context.Background(), start.Add(cfg.DrainTimeout.Duration))
+	dctx, cancel := context.WithDeadline(context.Background(), start.Add(cfg.DrainDelay.Duration+cfg.DrainTimeout.Duration))
 	drainErr := hs.Shutdown(dctx) // stops accepting, waits for in-flight requests (bounded)
 	cancel()
 	if drainErr != nil {
@@ -236,8 +244,9 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 }
 
 // lifecycleServer serves /livez, /readyz and /metrics on their own listener (Release It B4, H2). Readiness is
-// "serving and not draining": an agent's outage never pulls the edge from its load balancer (Release It C5).
-func lifecycleServer(cfg *Config, e *edge.Edge, reg *metrics.Registry) *http.Server {
+// "serving and not stopping or draining": an agent's outage never pulls the edge from its load balancer
+// (Release It C5).
+func lifecycleServer(cfg *Config, e *edge.Edge, reg *metrics.Registry, stopping *atomic.Bool) *http.Server {
 	mux := http.NewServeMux()
 	status := func(w http.ResponseWriter, code int, s string) {
 		w.Header().Set("Content-Type", "application/json")
@@ -247,7 +256,7 @@ func lifecycleServer(cfg *Config, e *edge.Edge, reg *metrics.Registry) *http.Ser
 	}
 	mux.HandleFunc(front.LivePath, func(w http.ResponseWriter, r *http.Request) { status(w, http.StatusOK, "ok") })
 	mux.HandleFunc(front.ReadyPath, func(w http.ResponseWriter, r *http.Request) {
-		if e.Draining() {
+		if stopping.Load() || e.Draining() {
 			status(w, http.StatusServiceUnavailable, "draining")
 			return
 		}

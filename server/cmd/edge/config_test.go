@@ -36,7 +36,7 @@ func TestParseConfigProblems(t *testing.T) {
 	}
 	for _, want := range []string{"listen and health_listen", "cert_file and key_file", "keys_file or keys_url is required", "vm id \"\"",
 		"want scheme://host:port", "no path", "scheme must be https", "rate_limit", "default_timeout 40s is over max_timeout",
-		"drain_timeout 1m0s is over shutdown_budget", "agent_breaker", "log_level"} {
+		"drain_delay 0s + drain_timeout 1m0s is over shutdown_budget", "agent_breaker", "log_level"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("missing %q in:\n%v", want, err)
 		}
@@ -44,6 +44,14 @@ func TestParseConfigProblems(t *testing.T) {
 	if _, err := parseConfig(strings.NewReader(`{"keys_url":"http://c/v1/keys","control_ca_file":"ca.pem","agents":{"a":"https://a:1"}}`), "."); err == nil ||
 		!strings.Contains(err.Error(), "control_ca_file needs an https keys_url") {
 		t.Errorf("control_ca_file with a plain keys_url: %v", err)
+	}
+	// drain_delay is part of the budget: 21 s + 10 s (the default drain) is over 30 s; 20 s + 10 s fits.
+	if _, err := parseConfig(strings.NewReader(`{"keys_file":"k","agents":{"a":"https://a:1"},"drain_delay":"21s"}`), "."); err == nil ||
+		!strings.Contains(err.Error(), "drain_delay 21s + drain_timeout 10s is over shutdown_budget 30s") {
+		t.Errorf("drain_delay over the budget: %v", err)
+	}
+	if _, err := parseConfig(strings.NewReader(`{"keys_file":"k","agents":{"a":"https://a:1"},"drain_delay":"20s"}`), "."); err != nil {
+		t.Errorf("drain_delay that fits the budget: %v", err)
 	}
 	for body, want := range map[string]string{
 		`{"keys_file":"k","agents":{"a":"https://a:1"},"registry":{"url":"https://c/v1/agents","token_file":"t"}}`: "exclusive",

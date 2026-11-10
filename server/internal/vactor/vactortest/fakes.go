@@ -126,6 +126,7 @@ type Opener struct {
 	FailOpen     bool // Open fails with ErrInjected
 	FailQuery    bool // every Query on databases from this opener fails with ErrInjected
 	FailSnapshot bool // Snapshot fails with ErrInjected (after writing part of the file)
+	HangSnapshot bool // Snapshot waits until its ctx ends and fails with the ctx's error (set before use)
 }
 
 // SetFailSnapshot sets FailSnapshot under the lock.
@@ -203,6 +204,10 @@ func (d *db) Commits() uint64 {
 }
 
 func (d *db) Snapshot(ctx context.Context, path string) (uint64, error) {
+	if d.o.HangSnapshot {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	}
 	d.o.mu.Lock()
 	defer d.o.mu.Unlock()
 	if d.closed {

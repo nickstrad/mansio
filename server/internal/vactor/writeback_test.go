@@ -1071,6 +1071,32 @@ func TestPassivateWithALeftoverWALAndAFailingSnapshotStaysWarm(t *testing.T) {
 	}
 }
 
+// B5: the snapshot of a database closed with a WAL left runs under the passivation's own context (at shutdown:
+// the shutdown budget), not a fresh one. A snapshot that hangs ends when the caller's deadline passes and the
+// key stays warm; before, it ran from context.Background() for the whole WriteBackTimeout.
+func TestLeftoverWALSnapshotEndsWithThePassivationsContext(t *testing.T) {
+	r := newDurable(t, nil) // a test clock: WriteBackTimeout never fires here, only the caller's deadline can
+	r.put("t/a", "v1")
+	os.WriteFile(r.h.LocalPath("t/a")+"-wal", []byte("frames"), 0o644)
+	r.o.HangSnapshot = true
+	pctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- r.h.Passivate(pctx, "t/a") }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Passivate = %v, want the caller's deadline", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the snapshot outlived the passivation's deadline by 5 s")
+	}
+	if r.h.Active() != 1 || r.local("t/a") != "v1" {
+		t.Fatal("not warm after the passivation gave up")
+	}
+	r.o.HangSnapshot = false // the host's Close (cleanup) passivates again
+}
+
 // RI-14 / OS-02: a warm Stamp whose publish applied but was reported ErrStale (a re-send of a lost reply
 // finds the version moved) or lost must re-read and succeed, not mark the key superseded forever.
 func TestWarmStampLostReplyIsNotSuperseded(t *testing.T) {

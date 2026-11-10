@@ -54,6 +54,7 @@ type daemon struct {
 	tenancyShed tenancyhttp.Shed
 
 	ready      atomic.Bool // schema migrated and agents registered
+	stopping   atomic.Bool // shutdown began: /readyz fails while the API still answers for drain_delay
 	agentUp    sync.Map    // vm → bool: last health answer ok (transitions logged)
 	resumed    atomic.Int64
 	resumeFail atomic.Int64 // keys that failed in the last pass
@@ -263,8 +264,17 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, 
 	}
 	sctx, cancel := context.WithTimeout(context.Background(), d.cfg.ShutdownBudget.Duration)
 	defer cancel()
+	// Fail readiness first and keep serving for drain_delay, so a balancer polling /readyz stops routing here
+	// before the listener closes.
+	d.stopping.Store(true)
+	if serveErr == nil {
+		time.Sleep(d.cfg.DrainDelay.Duration)
+	}
 	stop()
 	shutErr := hs.Shutdown(sctx)
+	if shutErr != nil {
+		hs.Close() // the budget passed with calls still in flight: cut them rather than outlive it
+	}
 	done := make(chan struct{})
 	go func() { bg.Wait(); close(done) }()
 	select {

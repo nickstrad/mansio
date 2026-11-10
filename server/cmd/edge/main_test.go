@@ -387,3 +387,49 @@ func TestRegistryRoutes(t *testing.T) {
 		t.Fatalf("exit %d\n%s", c, e.stderr)
 	}
 }
+
+// B5: with drain_delay, shutdown fails /readyz first and keeps serving for the delay, so a load balancer
+// polling readiness stops routing before the listener closes. Before, readiness flipped and the listener
+// closed in consecutive statements: a request sent right after the flip was refused.
+func TestDrainDelayServesWhileNotReady(t *testing.T) {
+	dir := t.TempDir()
+	keysFile, mint := keys(t, dir)
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"code":"ok"}`) }))
+	defer agent.Close()
+	const delay = 600 * time.Millisecond
+	e := start(t, dir, fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","keys_file":%q,"agents":{"vm-a":%q},
+		"drain_delay":"600ms","drain_timeout":"3s","log_file":"edge.log"}`, keysFile, agent.URL), "-dev")
+	ready := func() int {
+		res, err := http.Get("http://" + e.health + front.ReadyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if ready() != 200 {
+		t.Fatal("not ready before shutdown")
+	}
+	t0 := time.Now()
+	code := make(chan int)
+	go func() { code <- e.stop() }()
+	for ready() != 503 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	// Not ready, still serving: new connections included (a fresh client has no pooled connection).
+	for i := range 3 {
+		status, out, _, err := query(t, &http.Client{Transport: &http.Transport{}}, "http://"+e.addr, mint("vm-a"))
+		if err != nil || status != 200 {
+			t.Fatalf("request %d during drain_delay (%v after shutdown began): %d %v %v", i, time.Since(t0), status, out, err)
+		}
+	}
+	if c := <-code; c != exitOK {
+		t.Fatalf("exit %d\n%s", c, e.stderr)
+	}
+	if took := time.Since(t0); took < delay || took > delay+5*time.Second {
+		t.Fatalf("shutdown took %v, want drain_delay (%v) and little more", took, delay)
+	}
+	if _, _, _, err := query(t, &http.Client{Transport: &http.Transport{}}, "http://"+e.addr, mint("vm-a")); err == nil {
+		t.Fatal("the listener still accepts after shutdown")
+	}
+}

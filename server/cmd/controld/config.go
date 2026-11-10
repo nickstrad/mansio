@@ -75,6 +75,9 @@ type Config struct {
 	APITimeout        load.Duration `json:"api_timeout"`        // one API call; default 2 min (a restore moves many keys)
 	APIConcurrency    int           `json:"api_concurrency"`    // API calls at once; more are refused 503; default 16 (see pg.max_conns)
 	ShutdownBudget    load.Duration `json:"shutdown_budget"`    // default 10 s
+	// DrainDelay is how long controld keeps serving after /readyz starts failing at shutdown, before it stops
+	// accepting: at least the load balancer's readiness poll interval. Default 0. Part of shutdown_budget.
+	DrainDelay load.Duration `json:"drain_delay"`
 
 	// Locator is the resolve API (CP-5): POST /v1/resolve with an API key, answered from a placement cache
 	// that Postgres notifications invalidate (PG-10). Its own bulkhead: resolves never queue behind admin calls.
@@ -271,6 +274,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	} else if used := l.LoadConcurrency + l.CreateConcurrency + c.APIConcurrency; used >= int(c.PG.MaxConns) {
 		bad("locator.load_concurrency %d + locator.create_concurrency %d + api_concurrency %d = %d must be below pg.max_conns %d "+
 			"(the heartbeat and the resumer need a connection too)", l.LoadConcurrency, l.CreateConcurrency, c.APIConcurrency, used, c.PG.MaxConns)
+	}
+	if c.DrainDelay.Duration < 0 || c.DrainDelay.Duration >= c.ShutdownBudget.Duration {
+		bad("drain_delay %v must be >= 0 and below shutdown_budget %v (it is part of the shutdown)", c.DrainDelay, c.ShutdownBudget)
 	}
 	if c.HeartbeatTimeout.Duration >= c.HeartbeatInterval.Duration {
 		bad("heartbeat_timeout %v must be shorter than heartbeat_interval %v", c.HeartbeatTimeout, c.HeartbeatInterval)

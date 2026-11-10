@@ -35,6 +35,8 @@ func TestConfig(t *testing.T) {
 		{"callers fill the pool (off point: 10 + 2 + 20 = 32)", `{` + base + `,"agents":[` + agent + `],"api_concurrency":20}`, "must be below pg.max_conns 32"},
 		{"callers one below the pool (on point: 10 + 2 + 19 = 31)", `{` + base + `,"agents":[` + agent + `],"api_concurrency":19}`, ""},
 		{"a small pool needs smaller limits", `{` + base + `,"agents":[` + agent + `],"pg":{"max_conns":20}}`, "must be below pg.max_conns 20"},
+		{"drain delay = budget (off point)", `{` + base + `,"agents":[` + agent + `],"drain_delay":"10s"}`, "drain_delay 10s must be >= 0 and below shutdown_budget"},
+		{"drain delay below the budget", `{` + base + `,"agents":[` + agent + `],"drain_delay":"9s"}`, ""},
 		{"heartbeat timeout = interval (off point)", `{` + base + `,"agents":[` + agent + `],"heartbeat_interval":"1s","heartbeat_timeout":"1s"}`, "shorter than heartbeat_interval"},
 		{"per key below agent timeout", `{` + base + `,"agents":[` + agent + `],"per_key_timeout":"1s","agent_timeout":"2s"}`, "at least agent_timeout"},
 		{"CA file without secure", `{` + base + `,"agents":[` + agent + `],"s3":{"endpoint":"e:1","bucket":"b","ca_file":"ca.pem"}}`, "ca_file needs secure"},

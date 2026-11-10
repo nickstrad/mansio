@@ -72,8 +72,12 @@ type Config struct {
 	BodyReadTimeout   load.Duration `json:"body_read_timeout"`
 	ReadHeaderTimeout load.Duration `json:"read_header_timeout"`
 	IdleTimeout       load.Duration `json:"idle_timeout"`
-	DrainTimeout      load.Duration `json:"drain_timeout"`   // in-flight requests finish within this at shutdown
-	ShutdownBudget    load.Duration `json:"shutdown_budget"` // the whole shutdown
+	// DrainDelay is how long the edge keeps serving after /readyz starts failing at shutdown, before it stops
+	// accepting: set it to at least the load balancer's readiness poll interval so the balancer stops routing
+	// here before the listener closes. Default 0 (stop accepting at once). Part of shutdown_budget.
+	DrainDelay     load.Duration `json:"drain_delay"`
+	DrainTimeout   load.Duration `json:"drain_timeout"`   // in-flight requests finish within this at shutdown
+	ShutdownBudget load.Duration `json:"shutdown_budget"` // the whole shutdown
 
 	LogFile  string `json:"log_file"`
 	LogLevel string `json:"log_level"` // debug | info | warn
@@ -229,8 +233,11 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.DefaultTimeout.Duration > c.MaxTimeout.Duration {
 		bad("default_timeout %v is over max_timeout %v", c.DefaultTimeout, c.MaxTimeout)
 	}
-	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
-		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)
+	if c.DrainDelay.Duration < 0 {
+		bad("drain_delay must be >= 0")
+	}
+	if c.DrainDelay.Duration+c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
+		bad("drain_delay %v + drain_timeout %v is over shutdown_budget %v (both are part of the shutdown)", c.DrainDelay, c.DrainTimeout, c.ShutdownBudget)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn":
