@@ -57,7 +57,8 @@
   (WARN, "you already own it") on fresh runs — `up.sh` now creates `mansio-test` in SeaweedFS (`weed shell`)
   before any agent starts; (b) a relative `PLATFORM_DIR` was used after `cd`, so the build wrote under
   `server/<dir>`, up exited 127 and down left that directory behind — `lib.sh` now makes it absolute. Evidence
-  after the fixes: `make platform-up` from clean → exit 0, ~16 s,
+  (clean run, teardown and relative-dir run after the fixes; repeat, refusal and failure paths on the build
+  head): `make platform-up` from clean → exit 0, ~16 s,
   `platform smoke OK: wrote and read back game 01a1c35d-b089-…
   (xPlayer alice-07510919) via https://127.0.0.1:27443`,
   edge 2 2xx answers, 0 WARN/ERROR lines in any daemon log, both agents `S3.PROBE_OK`, write-back landed in
