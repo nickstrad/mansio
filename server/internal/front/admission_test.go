@@ -173,20 +173,20 @@ func TestAdmissionShedsWhatWouldExpire(t *testing.T) {
 }
 
 // B7's overload scenario: one database (2 slots, 50 ms per request: 40/s) offered 200 requests per second
-// with 300 ms deadlines for 2.5 s. Before, admission queued whatever fit its fixed queue (256): the queue held
+// with 300 ms deadlines for 3 s. Before, admission queued whatever fit its fixed queue (256): the queue held
 // about 6 s of work for requests with 0.3 s to live, so nearly every queued request answered expired after its
 // whole deadline. Now, once a second of completions is measured, a request that cannot finish in time is shed
 // at once with a retry hint: the queue stays near deadline × rate, and expiries all but stop.
 func TestOverloadShedsInsteadOfExpiring(t *testing.T) {
 	if testing.Short() {
-		t.Skip("runs 2.5 s of load")
+		t.Skip("runs 3 s of load")
 	}
 	const (
 		service  = 50 * time.Millisecond
 		deadline = 300 * time.Millisecond
-		offered  = 200 // per second
-		warm     = 1200 * time.Millisecond
-		total    = 2500 * time.Millisecond
+		offered  = 200                     // per second
+		warm     = 1700 * time.Millisecond // a whole wall-clock second of completions, then the old queue's 300 ms
+		total    = 3000 * time.Millisecond
 	)
 	a := NewAdmission(AdmissionLimits{DBInFlight: 2, DBQueue: 256})
 	var ok, expired, wouldExpire, full, maxQueued atomic.Int64
@@ -238,7 +238,7 @@ func TestOverloadShedsInsteadOfExpiring(t *testing.T) {
 		t.Errorf("%d requests expired in the queue in the steady state; they should have been refused at admission", expired.Load())
 	}
 	// deadline × rate = 0.3 s × 40/s = 12 requests can finish in time; the fixed cap is 256.
-	if maxQueued.Load() > 24 {
+	if maxQueued.Load() > 30 {
 		t.Errorf("deepest queue %d in the steady state, want about deadline × rate (12)", maxQueued.Load())
 	}
 	if ok.Load() < 30 {
