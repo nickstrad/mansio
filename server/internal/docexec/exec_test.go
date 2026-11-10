@@ -198,3 +198,32 @@ func TestSequenceOnAFileWithoutTheTable(t *testing.T) {
 		t.Fatalf("query after two mutations: %+v", got)
 	}
 }
+
+// A conflict's current state is bounded (spec §8.1): entries past MaxCurrentBytes are left out, and
+// currentTruncated tells the client that a precondition missing from the list may fail too.
+func TestConflictCurrentIsBounded(t *testing.T) {
+	s := mustDecode(t, notes)
+	d := openDB(t, s, actor.Config{})
+	big := strings.Repeat("x", 30_000)
+	for _, id := range []string{"s1", "s2", "s3"} {
+		ops := `[{"op":"insert","table":"notes","value":{"title":"` + big + `","n":1}}]`
+		if got := d.exec(body("mutation", "r"+id, s.Fingerprint, ops), &listIDs{ids: []string{id}}, nil); got.err != nil {
+			t.Fatalf("insert %s: %s", id, got.err.Message()[:80])
+		}
+	}
+	stale := func(ids ...string) []byte {
+		var ops []string
+		for _, id := range ids {
+			ops = append(ops, `{"op":"assert","table":"notes","id":"`+id+`","expect":{"version":9}}`)
+		}
+		return body("query", "", s.Fingerprint, "["+strings.Join(ops, ",")+"]")
+	}
+	got := d.exec(stale("s1", "s2"), &listIDs{}, nil)
+	if got.err == nil || got.err.Tag != ir.TagConflict || len(got.err.Field("current").([]any)) != 2 || got.err.Field("currentTruncated") != (ir.Undefined{}) {
+		t.Fatalf("two documents fit: %v", got.err.Fields.Keys())
+	}
+	got = d.exec(stale("s1", "s2", "s3"), &listIDs{}, nil)
+	if got.err == nil || got.err.Field("seq") != 3.0 || len(got.err.Field("current").([]any)) != 2 || got.err.Field("currentTruncated") != true {
+		t.Fatalf("the third does not: %v", got.err.Fields.Keys())
+	}
+}

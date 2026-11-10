@@ -210,15 +210,14 @@ Deno.test("read path 1: a write between two reads of one run never shows a mixed
   );
   model.seed("accounts", [account("a1", 10), account("a2", 5)]);
   assert.equal(await run(client.query("total", { a: "a1", b: "a2" })), 15);
-  // Run 1: the read of a1, then the read of a2 whose assert on a1 fails. Run 2: both reads again.
-  assert.deepEqual(kinds(model), ["query", "query", "query", "query"]);
+  // Run 1: the read of a1, then the read of a2 whose assert on a1 fails. Run 2 has a1 from the conflict
+  // (change 3) and reads a2, asserting a1 as the conflict gave it.
+  assert.deepEqual(kinds(model), ["query", "query", "query"]);
   assert.equal(sleeps.length, 1);
-  assert.deepEqual(model.log[3].ops[0], {
-    op: "assert",
-    table: "accounts",
-    id: "a1",
-    expect: { version: 2 },
-  });
+  assert.deepEqual(model.log[2].ops, [
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 2 } },
+    { op: "get", table: "accounts", id: "a2" },
+  ]);
 });
 
 Deno.test("read path 1: a run whose snapshot keeps moving stops after handlerRetries with the conflict", async () => {
@@ -234,7 +233,7 @@ Deno.test("read path 1: a run whose snapshot keeps moving stops after handlerRet
     assert.equal(out.left._tag, "RemoteError");
     assert.equal((out.left as { remoteTag: string }).remoteTag, "ConflictError");
   }
-  assert.equal(model.log.length, 6); // three runs of two reads
+  assert.equal(model.log.length, 4); // the read of a1, then three runs' reads of a2, each refused
 });
 
 Deno.test("read path 1: a mutation that wrote nothing sends no commit; one that writes asserts what it read", async () => {
@@ -335,4 +334,97 @@ Deno.test("read path 2: finds join the run's snapshot: a later read asserts the 
   assert.deepEqual(model.log[1].ops[0], { op: "assert", table: "names", expect: { unchangedSince: 0 } });
   assert.deepEqual(model.log[3].ops[0], { op: "assert", table: "names", expect: { unchangedSince: 1 } });
   assert.equal(model.log.length, 4);
+});
+
+// ---------------------------------------------------------------------------
+// Change 3: conflict answers carry the current state
+// ---------------------------------------------------------------------------
+
+Deno.test("read path 3: a conflict re-run does not re-read: one extra round trip, not the reads again", async () => {
+  let moved = false;
+  const { model, client } = setup((request) =>
+    request.kind === "mutation" && !moved
+      ? { kind: "before", run: () => (moved = true, moveBehind(model, 3)) }
+      : undefined
+  );
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 4 })), true);
+  // Run 1: the two reads (one trip), the commit refused. Run 2: no read at all, the commit.
+  assert.deepEqual(kinds(model), ["query", "mutation", "mutation"]);
+  // The refused commit's answer is what run 2 computed from: both accounts as the other writer left them.
+  assert.deepEqual(model.log[2].ops, [
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 2 } },
+    { op: "assert", table: "accounts", id: "a2", expect: { version: 2 } },
+    { op: "patch", table: "accounts", id: "a1", value: { balance: 3 } },
+    { op: "patch", table: "accounts", id: "a2", value: { balance: 12 } },
+  ]);
+  assert.equal(model.table("accounts").get("a1")!.balance, 3);
+  assert.equal(model.table("accounts").get("a2")!.balance, 12);
+});
+
+Deno.test("read path 3: a re-run keeps the reads the conflict did not touch, finds included", async () => {
+  // `audit` reads an account and counts the names, then writes. Only the account changes under it.
+  const audit = mutation({
+    args: { a: v.string() },
+    handler: ({ db }, { a }) =>
+      Effect.gen(function* () {
+        const [doc, names] = yield* Effect.all([db.get("accounts", a), db.find("names").count()], {
+          batching: true,
+        });
+        yield* db.patch("accounts", a, { balance: doc!.balance + names });
+        return names;
+      }),
+  });
+  const model = new Model();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  model.seed("names", [{ _id: "n1", _creationTime: 1, _version: 1, name: "ada" }]);
+  let moved = false;
+  const client = createClient({
+    functions: { audit },
+    schema,
+    tenant: "acme",
+    app: "bank",
+    endpoint: "http://agent.test",
+    token: "t0",
+    fetch: modelFetch(
+      model,
+      (request) =>
+        request.kind === "mutation" && !moved
+          ? { kind: "before", run: () => (moved = true, moveBehind(model, 3)) }
+          : undefined,
+    ),
+    sleep: () => Effect.void,
+  });
+  assert.equal(await run(client.mutation("audit", { a: "a1" })), 1);
+  assert.deepEqual(kinds(model), ["query", "mutation", "mutation"]);
+  assert.deepEqual(model.log[2].ops, [
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 2 } },
+    { op: "assert", table: "names", expect: { unchangedSince: 0 } },
+    { op: "patch", table: "accounts", id: "a1", value: { balance: 8 } },
+  ]);
+});
+
+Deno.test("read path 3: a conflict that does not carry the state falls back to reading again", async () => {
+  // An answer without `current` (a 1.0 server, or a payload cut at the size cap): nothing is assumed.
+  let moved = false;
+  const model = new Model();
+  const inner = modelFetch(
+    model,
+    (request) =>
+      request.kind === "mutation" && !moved
+        ? { kind: "before", run: () => (moved = true, moveBehind(model, 3)) }
+        : undefined,
+  );
+  const stripped = (async (url: string, init?: RequestInit) => {
+    const response = await inner(url, init);
+    if (response.status !== 409) return response;
+    const body = await response.json();
+    delete body.error.fields.current;
+    return new Response(JSON.stringify(body), { status: 409 });
+  }) as typeof fetch;
+  const { client } = setup(undefined, { fetch: stripped });
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 4 })), true);
+  assert.deepEqual(kinds(model), ["query", "mutation", "query", "mutation"]);
+  assert.equal(model.table("accounts").get("a1")!.balance, 3);
 });

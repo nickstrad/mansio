@@ -101,9 +101,12 @@ export class Model {
       request.ops.forEach((op, i) => result.push(work.step(op, i)));
     } catch (e) {
       if (!(e instanceof Failure)) throw e;
+      const fields = e.tag === "ConflictError"
+        ? { ...e.fields, ...work.witness(request.ops, e.op) }
+        : e.fields;
       return {
         status: e.status,
-        body: { error: { tag: e.tag, message: e.tag, op: e.op, fields: e.fields } },
+        body: { error: { tag: e.tag, message: e.tag, op: e.op, fields } },
       };
     }
     if (request.kind === "mutation") {
@@ -113,6 +116,33 @@ export class Model {
       this.applied.set(request.requestId!, result);
     }
     return { status: 200, body: { result, seq: this.seq } };
+  }
+
+  /**
+   * A conflict's `seq` and `current` (spec §8.1): the state behind the failing operation's precondition and
+   * behind every later assert that fails too, in the state the failing operation saw. No size cap.
+   */
+  private witness(ops: Op[], at: number): { seq: number; current: unknown[] } {
+    const current: unknown[] = [];
+    ops.forEach((op, i) => {
+      if (i < at || (i > at && op.op !== "assert")) return;
+      if (i > at) {
+        try {
+          this.step(op, i);
+          return; // it holds
+        } catch (e) {
+          if (!(e instanceof Failure)) throw e;
+        }
+      }
+      if (op.op === "assert" && !("id" in op)) {
+        const changed = this.touched.has(op.table) ? this.seq + 1 : this.changes.get(op.table) ?? 0;
+        current.push({ op: i, table: op.table, changed });
+      } else {
+        const id = (op as { id: string }).id;
+        current.push({ op: i, table: op.table, id, doc: this.table(op.table).get(id) ?? null });
+      }
+    });
+    return { seq: this.seq, current };
   }
 
   private step(op: Op, i: number): unknown {

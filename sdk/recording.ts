@@ -26,6 +26,13 @@
  *   conflict that costs a re-run); `find(...).unguarded()` opts a display-only read out. The documents a
  *   `find` returns are not asserted one by one: the table assert covers them.
  *
+ * - **A conflict is also an answer.** A failed assert comes back with the commit sequence the server
+ *   checked at and the current state behind every assert that failed (spec §8.1). `rebase` turns that
+ *   and this run's read set into a `ReadSet`: everything the run read, as it is at that sequence. The next
+ *   run starts from it (`seed`) and reads only what it has not got, so a re-run of a handler that reads by
+ *   id costs one round trip (its commit), not its reads again. What the next run uses of the seed it
+ *   asserts again, like any read.
+ *
  * Asserts go first, before every write, so a conflict on op index `i < asserts` is always one of ours
  * (derived) and the client may re-run the handler; an app-raised `ConflictError` never reaches the
  * server at all (the handler fails locally). Inserts carry the spec's implicit `exists: false` on their
@@ -81,11 +88,42 @@ export type Reads = (ops: (Guard | ReadOp)[]) => Effect.Effect<Answer, RemoteErr
 export type Guard = AssertOp | TableAssertOp;
 
 /**
+ * Reads that hold together at commit sequence `seq`: what a run may start from instead of asking again.
+ * It is plain data, with nothing of the transport in it, so whatever can produce one (a conflict answer
+ * today, later a local store) can seed a run.
+ */
+export interface ReadSet {
+  readonly seq: number;
+  /** Documents by id; `null` where there is none. */
+  readonly docs: readonly { readonly table: string; readonly id: string; readonly doc: Doc | null }[];
+  /** Select answers, each from a table unchanged since `since`. */
+  readonly finds: readonly Found[];
+}
+interface Found {
+  readonly op: SelectOp;
+  readonly value: unknown;
+  readonly since: number;
+}
+
+/**
  * The defect that abandons a run whose reads no longer hold in one snapshot. `error` is the conflict to
- * report if the client stops re-running.
+ * report if the client stops re-running; `seed` is what the next run may start from, when the conflict
+ * said enough.
  */
 export class Restart {
-  constructor(readonly error: RemoteError) {}
+  constructor(readonly error: RemoteError, readonly seed?: ReadSet) {}
+}
+
+/** What a `Recording` is given. */
+export interface RecordingOptions {
+  readonly reads: Reads;
+  /** Document ids for inserts. */
+  readonly ids: IdSource;
+  readonly now: () => number;
+  /** False for a query handler: it gets the read half only (the types already forbid writes). */
+  readonly writable: boolean;
+  /** Reads to start from (the last run's, rebased on its conflict). */
+  readonly seed?: ReadSet;
 }
 
 /** One read waiting for its batch; it answers its result and the sequence it was read at. */
@@ -125,6 +163,12 @@ export class Recording<S extends Schema> implements WriteDB<S> {
   snapshot: number | undefined;
   /** The tables this run's guarded selects read, each with the sequence of its first answer. */
   private readonly tables = new Map<string, number>();
+  /** The guarded selects answered without local writes in the way, by their op's JSON. */
+  private readonly found = new Map<string, Found>();
+  private readonly reads: Reads;
+  private readonly ids: IdSource;
+  private readonly now: () => number;
+  private readonly writable: boolean;
   /** Reads requested together are one `fetch`. */
   private readonly batch = RequestResolver.makeBatched((requests: readonly Fetch[]) =>
     this.fetch(requests.map((request) => request.op)).pipe(
@@ -139,13 +183,17 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     )
   );
 
-  constructor(
-    private readonly reads: Reads,
-    private readonly ids: IdSource,
-    private readonly now: () => number,
-    /** False for a query handler: it gets the read half only (the types already forbid writes). */
-    private readonly writable = true,
-  ) {}
+  constructor(options: RecordingOptions) {
+    this.reads = options.reads;
+    this.ids = options.ids;
+    this.now = options.now;
+    this.writable = options.writable;
+    if (options.seed) {
+      this.snapshot = options.seed.seq;
+      for (const { table, id, doc } of options.seed.docs) this.entry(table, id).base = doc;
+      for (const find of options.seed.finds) this.found.set(JSON.stringify(find.op), find);
+    }
+  }
 
   private entry(table: string, id: string): Entry {
     let entry = this.entries.get(key(table, id));
@@ -188,7 +236,10 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       const asserts = this.preconditions();
       const restart = (error: RemoteError) => Effect.die(new Restart(error));
       if (asserts.length + ops.length <= MAX_OPS) {
-        const answer = yield* Effect.catchAll(this.reads([...asserts, ...ops]), restart);
+        const answer = yield* Effect.catchAll(
+          this.reads([...asserts, ...ops]),
+          (error) => Effect.die(new Restart(error, this.rebase(error, asserts))),
+        );
         this.snapshot = answer.seq;
         return { results: answer.result.slice(asserts.length), seq: answer.seq };
       }
@@ -264,8 +315,14 @@ export class Recording<S extends Schema> implements WriteDB<S> {
         if (guarded && !this.tables.has(plan.table)) this.tables.set(plan.table, seq);
       };
       if (touched.length === 0) {
+        const known = guarded ? this.found.get(JSON.stringify(op)) : undefined;
+        if (known) {
+          guard(known.since);
+          return structuredClone(known.value); // the handler may keep and change what it is given
+        }
         const [value, seq] = yield* this.read(op);
         guard(seq);
+        if (guarded) this.found.set(JSON.stringify(op), { op, value, since: seq });
         return value;
       }
       // Only patched or deleted documents can displace a server row; an insert's fresh id has none.
@@ -359,6 +416,32 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       out.push({ op: "assert", table, expect: { unchangedSince } });
     }
     return out;
+  }
+
+  /**
+   * This run's read set as it is at the sequence a conflict was decided at, for the next run to start
+   * from. `error` is the `ConflictError` of a request whose first operations were `sent`, guards this
+   * recording derived. `undefined` when the conflict does not say enough (no `seq` or `current`, or a
+   * `current` cut short): the next run then reads everything again.
+   */
+  rebase(error: RemoteError, sent: readonly Guard[]): ReadSet | undefined {
+    const { seq, current, currentTruncated } = error.fields ?? {};
+    if (typeof seq !== "number" || !Array.isArray(current) || currentTruncated) return undefined;
+    // The server lists every assert that fails from the first failing one on; the ones before it held.
+    const failed = new Map((current as { op: number; doc?: Doc | null }[]).map((state) => [state.op, state]));
+    const docs: { table: string; id: string; doc: Doc | null }[] = [];
+    const unchanged = new Set<string>();
+    sent.forEach((guard, i) => {
+      const now = failed.get(i);
+      if (!("id" in guard)) {
+        if (!now) unchanged.add(guard.table);
+        return;
+      }
+      const id = guard.id as string;
+      const doc = now ? now.doc ?? null : this.entry(guard.table, id).base;
+      if (doc !== undefined) docs.push({ table: guard.table, id, doc });
+    });
+    return { seq, docs, finds: [...this.found.values()].filter((find) => unchanged.has(find.op.table)) };
   }
 
   /** The mutation's operations: the derived asserts, then the buffered writes in order. */

@@ -20,7 +20,8 @@
  * - `client.mutation(name, args)` also buffers the handler's writes, and on return one mutation request
  *   carries the derived preconditions (`assert` ops, first) and the writes. A run that wrote nothing
  *   sends no commit: its reads were one snapshot already. A `ConflictError` on a derived precondition
- *   re-runs the handler the same way, under a
+ *   re-runs the handler the same way, starting from the current state the conflict carried (so the re-run
+ *   reads again only what the conflict did not cover), under a
  *   new `requestId` (transport retries of one commit keep theirs). A commit holds at most 64 ops
  *   (derived asserts + writes); more fails locally with `RuleError` `ir-op-limit`. An app-raised
  *   `ConflictError` (e.g. `makeMove`'s `expectedVersion`) fails the handler locally and goes to the
@@ -55,7 +56,7 @@ import { schemaFingerprint } from "./fingerprint.ts";
 import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
-import { type Reads, Recording, Restart } from "./recording.ts";
+import { type Guard, type Reads, type ReadSet, Recording, Restart } from "./recording.ts";
 import type { RetryBudget, RetryPolicy } from "./retry.ts";
 import { formatSchemaError, type Schema } from "./schema.ts";
 import {
@@ -270,13 +271,22 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
   const call = (kind: Kind, name: string, args: unknown, call: CallContext) =>
     Effect.gen(function* () {
       const definition = yield* lookup(kind, name);
+      // What the next run starts from: the last run's reads, as its conflict said they now are.
+      let seed: ReadSet | undefined;
       for (let run = 0;; run++) {
-        const recording = new Recording<Schema>(reads(call), newId, now, kind === "mutation");
+        const recording = new Recording<Schema>({
+          reads: reads(call),
+          ids: newId,
+          now,
+          writable: kind === "mutation",
+          seed,
+        });
         const ran = yield* Effect.either(runHandler(definition, recording, args));
         let error: ClientError;
         if (ran._tag === "Left") {
           if (!(ran.left instanceof Restart)) return yield* ran.left;
           error = ran.left.error;
+          seed = ran.left.seed;
         } else {
           const result = yield* roundTrip(ran.right);
           const { ops, asserts } = recording.mutation();
@@ -297,8 +307,10 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           if (committed._tag === "Right") return result;
           error = committed.left;
           if (!derivedConflict(error, ops, asserts)) return yield* error;
+          seed = recording.rebase(error as RemoteError, ops.slice(0, asserts) as Guard[]);
         }
-        // Someone else wrote what this run read: re-run the handler on fresh reads, after a jittered pause.
+        // Someone else wrote what this run read: re-run the handler from what the conflict said, after a
+        // jittered pause.
         if (run >= handlerRetries) return yield* error;
         const wait = Math.floor(random() * Math.min(250, 10 * 2 ** run));
         if (now() + wait >= call.deadline) return yield* error;

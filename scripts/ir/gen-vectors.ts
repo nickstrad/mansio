@@ -2437,6 +2437,116 @@ const SCENARIOS: Scenario[] = [
     seed: SEED,
     ...single({ request: q([guard("nope", 0)]) }, compileErr({ reason: "unknown-collection" }, 0), UNCHANGED),
   },
+  // what a conflict carries (spec §8.1)
+  {
+    name: "conflict carries seq and the state behind every failing assert",
+    why:
+      "the failing assert's document, and each later assert that fails too: holding asserts, writes and reads are not listed, a missing document is null",
+    seed: SEED,
+    ...single(
+      {
+        request: m([
+          { op: "assert", table: "notes", id: "n2", expect: { version: 3 } },
+          { op: "assert", table: "notes", id: "n1", expect: { version: 5 } },
+          { op: "assert", table: "notes", id: "n3", expect: { exists: true } },
+          { op: "assert", table: "notes", id: "n3", expect: { exists: false } },
+          { op: "assert", table: "notes", id: "zz", expect: { version: 1 } },
+          { op: "patch", table: "notes", id: "n2", value: {}, expect: { version: 9 } },
+          getN("n1"),
+        ]),
+      },
+      conflict({
+        table: "notes",
+        id: "n1",
+        check: "version",
+        expected: 5,
+        actual: 1,
+        seq: 0,
+        current: [
+          { op: 1, table: "notes", id: "n1", doc: N1 },
+          { op: 3, table: "notes", id: "n3", doc: N3 },
+          { op: 4, table: "notes", id: "zz", doc: null },
+        ],
+      }, 1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "conflict carries a changed table's last change",
+    why: "a failing table assert is listed with the sequence of the table's last change, first or later",
+    seed: SEED,
+    steps: [
+      { serverIds: ["l1"], request: m([ins({ name: "a" }, undefined, "lists")], "r1"), expect: at(1, "l1") },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }], "r2"),
+        expect: at(2, { _version: 2 }),
+      },
+      {
+        request: q([guard("lists", 0), guard("entries", 0), guard("notes", 1), {
+          op: "assert",
+          table: "notes",
+          id: "n1",
+          expect: { version: 1 },
+        }]),
+        expect: conflict({
+          table: "lists",
+          check: "unchanged",
+          expected: 0,
+          actual: 1,
+          seq: 2,
+          current: [
+            { op: 0, table: "lists", changed: 1 },
+            { op: 2, table: "notes", changed: 2 },
+            { op: 3, table: "notes", id: "n1", doc: { ...N1, _version: 2 } },
+          ],
+        }, 0),
+      },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, N3], lists: [srv("l1", { name: "a" })] },
+  },
+  {
+    name: "conflict on a write's expect carries its document",
+    why:
+      "a patch or delete whose expect fails is listed like an assert; the state is the one that operation saw",
+    seed: SEED,
+    ...single(
+      {
+        request: m([
+          { op: "patch", table: "notes", id: "n1", value: { title: "new" } },
+          { op: "delete", table: "notes", id: "n1", expect: { version: 1 } },
+          { op: "assert", table: "notes", id: "n1", expect: { fields: { title: "alpha" } } },
+        ]),
+      },
+      conflict({
+        check: "version",
+        expected: 1,
+        actual: 2,
+        seq: 0,
+        current: [
+          { op: 1, table: "notes", id: "n1", doc: { ...N1, _version: 2, title: "new" } },
+          { op: 2, table: "notes", id: "n1", doc: { ...N1, _version: 2, title: "new" } },
+        ],
+      }, 1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "conflict on a taken client id carries the document that holds it",
+    why: "the insert's implicit exists:false is a precondition like any other",
+    seed: SEED,
+    steps: [
+      { request: m([ins(BODY, U1)], "r1"), expect: at(1, U1) },
+      {
+        request: m([ins(BODY, U1)], "r2"),
+        expect: conflict({
+          check: "exists",
+          seq: 1,
+          current: [{ op: 0, table: "notes", id: U1, doc: srv(U1, BODY) }],
+        }, 0),
+      },
+    ],
+    final: { notes: [srv(U1, BODY), N1, N2, N3] },
+  },
   {
     name: "query with asserts that hold",
     why: "a query may carry asserts: they are checked in the snapshot the reads come from, and answer null",

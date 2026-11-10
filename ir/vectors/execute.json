@@ -18780,6 +18780,1478 @@
       "finalRequests": []
     },
     {
+      "name": "conflict carries seq and the state behind every failing assert [columns]",
+      "why": "the failing assert's document, and each later assert that fails too: holding asserts, writes and reads are not listed, a missing document is null",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n2",
+                "expect": {
+                  "version": 3
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 5
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n3",
+                "expect": {
+                  "exists": true
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n3",
+                "expect": {
+                  "exists": false
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "zz",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n2",
+                "value": {},
+                "expect": {
+                  "version": 9
+                }
+              },
+              {
+                "op": "get",
+                "table": "notes",
+                "id": "n1"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "table": "notes",
+                "id": "n1",
+                "check": "version",
+                "expected": 5,
+                "actual": 1,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 1,
+                      "title": "alpha",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  },
+                  {
+                    "op": 3,
+                    "table": "notes",
+                    "id": "n3",
+                    "doc": {
+                      "_id": "n3",
+                      "_creationTime": 300,
+                      "_version": 1,
+                      "title": "gamma",
+                      "score": -1,
+                      "rank": 2,
+                      "done": false,
+                      "tag": "b",
+                      "tags": [
+                        "y",
+                        "z"
+                      ],
+                      "grid": [
+                        9,
+                        9,
+                        9
+                      ],
+                      "owner": "amy"
+                    }
+                  },
+                  {
+                    "op": 4,
+                    "table": "notes",
+                    "id": "zz",
+                    "doc": null
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "finalRequests": []
+    },
+    {
+      "name": "conflict carries a changed table's last change [columns]",
+      "why": "a failing table assert is listed with the sequence of the table's last change, first or later",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [
+            "l1"
+          ],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "lists",
+                "value": {
+                  "name": "a"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "l1"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {}
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_version": 2
+              }
+            ],
+            "seq": 2
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "entries",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 0,
+                "actual": 1,
+                "seq": 2,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "lists",
+                    "changed": 1
+                  },
+                  {
+                    "op": 2,
+                    "table": "notes",
+                    "changed": 2
+                  },
+                  {
+                    "op": 3,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "alpha",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 2,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ],
+        "lists": [
+          {
+            "_id": "l1",
+            "_creationTime": 1000,
+            "_version": 1,
+            "name": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conflict on a write's expect carries its document [columns]",
+      "why": "a patch or delete whose expect fails is listed like an assert; the state is the one that operation saw",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {
+                  "title": "new"
+                }
+              },
+              {
+                "op": "delete",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "fields": {
+                    "title": "alpha"
+                  }
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "check": "version",
+                "expected": 1,
+                "actual": 2,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "new",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  },
+                  {
+                    "op": 2,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "new",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "finalRequests": []
+    },
+    {
+      "name": "conflict on a taken client id carries the document that holds it [columns]",
+      "why": "the insert's implicit exists:false is a precondition like any other",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "check": "exists",
+                "seq": 1,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "notes",
+                    "id": "01890a5d-ac96-774b-bcce-b302099a8057",
+                    "doc": {
+                      "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+                      "_creationTime": 1000,
+                      "_version": 1,
+                      "title": "new",
+                      "score": 0.5,
+                      "rank": 7,
+                      "done": true,
+                      "tag": "b",
+                      "tags": [
+                        "p",
+                        "q"
+                      ],
+                      "grid": [
+                        4,
+                        5,
+                        6
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "title": "new",
+            "score": 0.5,
+            "rank": 7,
+            "done": true,
+            "tag": "b",
+            "tags": [
+              "p",
+              "q"
+            ],
+            "grid": [
+              4,
+              5,
+              6
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      }
+    },
+    {
       "name": "query with asserts that hold [columns]",
       "why": "a query may carry asserts: they are checked in the snapshot the reads come from, and answer null",
       "schema": {
@@ -39303,6 +40775,1478 @@
         ]
       },
       "finalRequests": []
+    },
+    {
+      "name": "conflict carries seq and the state behind every failing assert [json]",
+      "why": "the failing assert's document, and each later assert that fails too: holding asserts, writes and reads are not listed, a missing document is null",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n2",
+                "expect": {
+                  "version": 3
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 5
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n3",
+                "expect": {
+                  "exists": true
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n3",
+                "expect": {
+                  "exists": false
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "zz",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n2",
+                "value": {},
+                "expect": {
+                  "version": 9
+                }
+              },
+              {
+                "op": "get",
+                "table": "notes",
+                "id": "n1"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "table": "notes",
+                "id": "n1",
+                "check": "version",
+                "expected": 5,
+                "actual": 1,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 1,
+                      "title": "alpha",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  },
+                  {
+                    "op": 3,
+                    "table": "notes",
+                    "id": "n3",
+                    "doc": {
+                      "_id": "n3",
+                      "_creationTime": 300,
+                      "_version": 1,
+                      "title": "gamma",
+                      "score": -1,
+                      "rank": 2,
+                      "done": false,
+                      "tag": "b",
+                      "tags": [
+                        "y",
+                        "z"
+                      ],
+                      "grid": [
+                        9,
+                        9,
+                        9
+                      ],
+                      "owner": "amy"
+                    }
+                  },
+                  {
+                    "op": 4,
+                    "table": "notes",
+                    "id": "zz",
+                    "doc": null
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "finalRequests": []
+    },
+    {
+      "name": "conflict carries a changed table's last change [json]",
+      "why": "a failing table assert is listed with the sequence of the table's last change, first or later",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [
+            "l1"
+          ],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "lists",
+                "value": {
+                  "name": "a"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "l1"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {}
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              {
+                "_version": 2
+              }
+            ],
+            "seq": 2
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "entries",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 0,
+                "actual": 1,
+                "seq": 2,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "lists",
+                    "changed": 1
+                  },
+                  {
+                    "op": 2,
+                    "table": "notes",
+                    "changed": 2
+                  },
+                  {
+                    "op": 3,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "alpha",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 2,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ],
+        "lists": [
+          {
+            "_id": "l1",
+            "_creationTime": 1000,
+            "_version": 1,
+            "name": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conflict on a write's expect carries its document [json]",
+      "why": "a patch or delete whose expect fails is listed like an assert; the state is the one that operation saw",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {
+                  "title": "new"
+                }
+              },
+              {
+                "op": "delete",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "version": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "id": "n1",
+                "expect": {
+                  "fields": {
+                    "title": "alpha"
+                  }
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "check": "version",
+                "expected": 1,
+                "actual": 2,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "new",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  },
+                  {
+                    "op": 2,
+                    "table": "notes",
+                    "id": "n1",
+                    "doc": {
+                      "_id": "n1",
+                      "_creationTime": 100,
+                      "_version": 2,
+                      "title": "new",
+                      "score": 1.5,
+                      "rank": 1,
+                      "done": false,
+                      "tag": "a",
+                      "tags": [
+                        "x"
+                      ],
+                      "grid": [
+                        1,
+                        2,
+                        3
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "finalRequests": []
+    },
+    {
+      "name": "conflict on a taken client id carries the document that holds it [json]",
+      "why": "the insert's implicit exists:false is a precondition like any other",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "01890a5d-ac96-774b-bcce-b302099a8057"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                },
+                "id": "01890a5d-ac96-774b-bcce-b302099a8057"
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "check": "exists",
+                "seq": 1,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "notes",
+                    "id": "01890a5d-ac96-774b-bcce-b302099a8057",
+                    "doc": {
+                      "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+                      "_creationTime": 1000,
+                      "_version": 1,
+                      "title": "new",
+                      "score": 0.5,
+                      "rank": 7,
+                      "done": true,
+                      "tag": "b",
+                      "tags": [
+                        "p",
+                        "q"
+                      ],
+                      "grid": [
+                        4,
+                        5,
+                        6
+                      ],
+                      "owner": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "01890a5d-ac96-774b-bcce-b302099a8057",
+            "_creationTime": 1000,
+            "_version": 1,
+            "title": "new",
+            "score": 0.5,
+            "rank": 7,
+            "done": true,
+            "tag": "b",
+            "tags": [
+              "p",
+              "q"
+            ],
+            "grid": [
+              4,
+              5,
+              6
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      }
     },
     {
       "name": "query with asserts that hold [json]",

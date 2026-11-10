@@ -75,14 +75,20 @@ func (r *run) assertTable(op *ir.AssertTable) error {
 	if err != nil {
 		return err
 	}
-	changed := r.tables[op.Table]
-	if r.touched[op.Table] {
-		changed = seq + 1
-	}
-	if changed > op.Since {
+	if changed := r.changedAt(op.Table, seq); changed > op.Since {
 		return protocol(ir.NewError(ir.TagConflict, "table", op.Table, "check", "unchanged", "expected", float64(op.Since), "actual", float64(changed)))
 	}
 	return nil
+}
+
+// changedAt is table's last change as the request sees it now, seq being the sequence it started from.
+//
+//	pre: r.guards (sequence read every table's row)
+func (r *run) changedAt(table string, seq int64) int64 {
+	if r.touched[table] {
+		return seq + 1
+	}
+	return r.tables[table]
 }
 
 // commitSequence is the sequence the request answers with: for a mutation that changed a row, the next one,

@@ -92,6 +92,9 @@ func Run(tx Tx, st State, req *ir.Request, ids det.IDGen) (Answer, error) {
 			var f *Failure
 			if errors.As(err, &f) {
 				f.Err.WithOp(i)
+				if f.Cause == nil && f.Err.Tag == ir.TagConflict {
+					r.witness(req.Ops, i, f.Err)
+				}
 			}
 			return Answer{}, err
 		}

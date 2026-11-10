@@ -41,7 +41,26 @@ export class PreconditionConflict extends Data.TaggedError("ConflictError")<{
   readonly check: PreconditionCheck;
   readonly expected: unknown;
   readonly actual: unknown;
+  /** The commit sequence of the state the request ran against (spec §8.1). */
+  readonly seq?: number;
+  /** The state behind every precondition of the request that does not hold in that state. */
+  readonly current?: readonly CurrentState[];
+  /** `current` was cut short at the size cap: a precondition missing from it may fail too. */
+  readonly currentTruncated?: true;
 }> {}
+
+/**
+ * One entry of a conflict's `current` (spec §8.1): the document behind operation `op`'s precondition
+ * (`doc`, `null` when there is none), or for a table precondition the sequence of the table's last change.
+ */
+export type CurrentState =
+  | {
+    readonly op: number;
+    readonly table: string;
+    readonly id: string;
+    readonly doc: Record<string, unknown> | null;
+  }
+  | { readonly op: number; readonly table: string; readonly changed: number };
 
 export class FingerprintMismatch extends Data.TaggedError("SchemaDriftError")<{
   /** The database's fingerprint. */
