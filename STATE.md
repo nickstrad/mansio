@@ -1,5 +1,36 @@
 # mansio — project state
 
+## 2026-11-10 — backpressure fixes B1–B11 (Fable 5.2 build + simplify + merge, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-backpressure-fixes-brief.md`; findings and order in
+  `/root/Software/book-notes-work/backpressure-plan/books/backpressure-in-microservices/APPLICATION-PLAN.md`
+  (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
+  `/root/Software/mansio-work/main-merge` (never the main checkout).
+- Status: **in progress — wave 1 done, wave 2 next (B2).**
+- Per finding:
+  - B1 (wave 1, See): **done** `0277e36`. `mansio_queue_capacity` / `mansio_queue_rejected_total{reason}` /
+    `mansio_queue_wait_seconds` per fixed `queue` label, actor depth in durable mode, `mansio_vactor_dirty`,
+    controld pgx pool stats and admin-API refusal count. Catalog:
+    `server/knowledge/front/2026-11-05-metrics.md`. Overload scenario: `TestOverloadIsVisiblePerQueue`
+    (`server/cmd/agentd/metrics_test.go`).
+  - B2, B3, B4, B5 (wave 2), B6, B7 (wave 3), B8, B11 (wave 4), B10 (a), B9 event-log retention (wave 5): not
+    started.
+  - B10 (b) `max_dirty_age` and B9's warm-set default: **skipped-gated** (Nick's paused LiteFS / write-back
+    decision); not to be implemented in this run.
+- Baseline (clean worktree at `e9488c5`, `go test -race`): two failures exist before any change and are not
+  this branch's: `internal/ir` `TestIndexNamesDecodeFast` (a timing assertion) and `cmd/agentd`
+  `TestAdminFetchLimitAppliesToTheNextFetches` (504s; fails on every run here). `internal/control/locator`
+  `TestLoadTimeoutBoundsALoadNobodyWaitsFor` hung once for the 10 min test timeout and passed on rerun
+  (flaky).
+- Verification so far (B1): `gofmt -l .` clean, `go vet ./...` ok; `go test -race` ok on `internal/metrics`,
+  `actor`, `front`, `vactor/...`, `tenancy/...`, `agentglue`, `sim`, `det`, `cmd/controld`; `cmd/agentd` has
+  only the baseline failure; same packages under `-tags noassert`.
+- Resume: worktree `/root/Software/mansio-work/backpressure-fixes`, branch `feat/backpressure-fixes`;
+  `git log
+  --oneline main..HEAD` shows which findings are committed (B-number in each subject). Nothing runs
+  in the background. A scratch baseline worktree may exist at `/root/Software/mansio-work/bp-baseline`
+  (detached `e9488c5`; safe to `git worktree remove`).
+
 ## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build, Fable final pass)
 
 - Goal/spec: MANSIO-REFACTORS item 1
