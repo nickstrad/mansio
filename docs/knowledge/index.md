@@ -48,6 +48,11 @@ One folder per part of the system, one dated entry per thread that explained it.
 
 ## Where the project stands
 
+- Backpressure fixes B1–B11 landed on `main` 2026-11-10 (merge `039b7ed`): per-queue metrics, the retry
+  contract ([`docs/retry-contract.md`](../retry-contract.md)), the capacity table
+  ([`server/docs/capacity.md`](../../server/docs/capacity.md)) and its alert rules. Notes per finding:
+  [`server/knowledge/backpressure/`](../../server/knowledge/backpressure/README.md). Two items wait on the
+  LiteFS / write-back decision (`STATE.md`).
 - IR plan complete (`docs/plans/ir-protocol.md`): IR-0 to IR-6 and DST-0 to DST-3 landed; the Deno platform is
   deleted and the Go server (`server/`) is the only backend
   ([ADR 0013](../adr/0013-go-server-replaces-deno-platform.md)). S3 backup work is paused

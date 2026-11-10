@@ -7,8 +7,18 @@
   (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
   `/root/Software/mansio-work/main-merge` (never the main checkout). Notes per finding:
   `server/knowledge/backpressure/`.
-- Status: **every in-scope finding implemented, simplify pass done, final verification at baseline; merging to
-  main** (the merge SHA is recorded below once it exists).
+- Status: **merged to main and pushed: merge `039b7ed`** (`git merge --no-ff feat/backpressure-fixes` on top
+  of `e9488c5`, pushed 2026-11-10; `origin/main` = `039b7ed` before this note's own commit). Every in-scope
+  finding is implemented, the simplify pass is done, verification is at baseline.
+- How it was merged: `main` is checked out in `/root/Software/mansio` (Twin's checkout, not to be worked in),
+  so git refuses a second worktree on that branch. The merge was made in
+  `/root/Software/mansio-work/main-merge` with a detached HEAD at `main`'s commit and pushed with
+  `git push origin HEAD:main`. **The local `main` ref and Twin's checkout are still at `e9488c5`**: run
+  `git pull --ff-only` there to catch up.
+- Verified on the merged tree (identical to the verified branch head, `git diff 2fa420b 039b7ed` is empty):
+  `make platform-up` → `platform smoke OK`, `make platform-down` clean; `gofmt`, `go vet`, `go test -race` on
+  the 23 touched packages (only the baseline `TestAdminFetchLimitAppliesToTheNextFetches` fails, as on
+  `e9488c5`); `deno task test` 320 passed.
 - Per finding (commit; overload scenario or main test):
   - B1 (wave 1): **done** `0277e36` (+ notes moved `77778e0`). Per-queue `mansio_queue_*` families, actor
     depth in durable mode, `mansio_vactor_dirty`, controld pgx pool stats. `TestOverloadIsVisiblePerQueue`.
@@ -78,12 +88,14 @@
   and operational-log rotation (not gated, outside the brief's wave 5 scope); `promtool` is not installed
   here, so `backpressure.rules.yml` is parsed as YAML and its series are checked, but the rules were not
   loaded by a Prometheus.
-- Resume: worktree `/root/Software/mansio-work/backpressure-fixes`, branch `feat/backpressure-fixes`;
-  `git log
-  --oneline main..HEAD` shows which findings are committed (B-number in each subject). Scratch,
-  safe to remove: worktrees `/root/Software/mansio-work/bp-baseline` (detached `e9488c5`) and `bp-verify` (a
-  snapshot for full runs); containers `bp-pg` (127.0.0.1:25432) and `bp-seaweed` (127.0.0.1:28333, bucket
-  `coldload` created by hand) for the gated suites: `docker rm -f bp-pg bp-seaweed`. Logs under `/tmp/bp/`.
+- Next: nothing is running and nothing is pending for this work. For Nick to decide: the two gated items, and
+  whether to take the two small ungated B9 leftovers (owner-slot count, operational-log rotation).
+- Resume / cleanup: branch `feat/backpressure-fixes` (worktree
+  `/root/Software/mansio-work/backpressure-fixes`) and the merge worktree
+  `/root/Software/mansio-work/main-merge` are left for inspection; both can be removed with
+  `git worktree remove`. The scratch worktrees and the throwaway test containers this run made were removed.
+  How to run the Postgres/S3-gated Go suites on this VM:
+  `server/knowledge/backpressure/2026-11-10-running-the-gated-suites.md`.
 
 ## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build, Fable final pass)
 
