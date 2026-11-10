@@ -2,6 +2,7 @@
 # Shared by scripts/platform/up.sh and down.sh (sourced; expects $root). Not executable on its own.
 
 state="${PLATFORM_DIR:-$root/.platform}" # everything platform-up generates; down.sh deletes it
+case "$state" in /*) ;; *) state="$PWD/$state" ;; esac # absolute: the scripts cd before they use it
 project=mansio-platform
 pg_port="${PLATFORM_PG_PORT:-15432}"
 s3_port="${PLATFORM_S3_PORT:-18333}"

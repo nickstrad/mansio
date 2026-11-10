@@ -95,6 +95,11 @@ umask 022
 log "starting Postgres (:$pg_port) and SeaweedFS (:$s3_port) (compose project $project)"
 compose up -d --wait --wait-timeout 120 >&2
 compose exec -T postgres psql -q -U mansio -d mansio -c "create schema if not exists $pg_schema" >/dev/null
+# The bucket, before any agent starts: each agentd creates a missing bucket itself, and two starting together
+# race (the loser logs S3.BUCKET_CHECK_FAILED on "you already own it").
+compose exec -T seaweedfs sh -c "echo 's3.bucket.create -name $s3_bucket' | weed shell" >/dev/null 2>&1 || true
+compose exec -T seaweedfs sh -c "echo s3.bucket.list | weed shell" 2>/dev/null | grep -qw "$s3_bucket" ||
+  die "could not create bucket $s3_bucket in SeaweedFS"
 
 # --- 4. Configs and daemons. ----------------------------------------------------------------------------------
 s3="{\"endpoint\":\"127.0.0.1:$s3_port\",\"bucket\":\"$s3_bucket\",\"prefix\":\"platform/\"}"
