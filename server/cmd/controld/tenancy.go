@@ -53,7 +53,7 @@ func (d *daemon) tenancyRoutes(mux *http.ServeMux) error {
 	if d.tenancy == nil {
 		return nil
 	}
-	return tenancyhttp.Mount(mux, d.tenancy, tenancyhttp.Config{AdminToken: d.token, Log: d.log})
+	return tenancyhttp.Mount(mux, d.tenancy, tenancyhttp.Config{AdminToken: d.token, Log: d.log, Pools: &d.tenancyPools})
 }
 
 // appAllowed reports whether credentials may reach app: tenancy.apps when set, else every app (create on first

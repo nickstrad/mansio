@@ -19,7 +19,7 @@ func (e *Edge) Register(reg *metrics.Registry) {
 		e.mu.RLock()
 		agents = make(map[string]int, len(e.ups))
 		for vm, u := range e.ups {
-			agents[vm] = len(u.slots)
+			agents[vm] = u.slots.InUse()
 		}
 		e.mu.RUnlock()
 	})
@@ -57,17 +57,17 @@ func (e *Edge) Register(reg *metrics.Registry) {
 			result string
 			n      int64
 		}{{"hit", e.st.hits.Load()}, {"miss", e.st.misses.Load()}, {"invalid", e.st.invalid.Load()},
-			{"rate_limited", e.st.limited.Load()}, {"verify_busy", e.st.verifyBusy.Load()}} {
+			{"rate_limited", e.st.limited.Load()}, {"verify_busy", e.verify.Shed()}} {
 			m.Value(metrics.Labels{"result", v.result}, float64(v.n))
 		}
 	})
 	reg.Add("mansio_edge_refusals_total", "Requests the edge refused on the way to an agent: unknown_vm, bulkhead_full, breaker_open, "+
-		"transport_error.", metrics.Counter, func(m *metrics.Emit) {
+		"transport_error, max_in_flight.", metrics.Counter, func(m *metrics.Emit) {
 		for _, v := range []struct {
 			reason string
 			n      int64
 		}{{"unknown_vm", e.st.unknownVM.Load()}, {"bulkhead_full", e.st.bulkheadFull.Load()}, {"breaker_open", e.st.open.Load()},
-			{"transport_error", e.st.transportErrs.Load()}} {
+			{"transport_error", e.st.transportErrs.Load()}, {"max_in_flight", e.st.overCap.Load()}} {
 			m.Value(metrics.Labels{"reason", v.reason}, float64(v.n))
 		}
 	})
@@ -78,6 +78,22 @@ func (e *Edge) Register(reg *metrics.Registry) {
 	reg.Add("mansio_edge_agent_in_flight", "Requests in flight to each agent (its bulkhead in use).", metrics.Gauge, func(m *metrics.Emit) {
 		for _, vm := range vms() {
 			m.Value(metrics.Labels{"vm", vm}, float64(agents[vm]))
+		}
+	})
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		full := func(n int64) map[string]int64 { return map[string]int64{metrics.ReasonFull: n} }
+		busiest := 0
+		e.mu.RLock()
+		limit := e.agentInFlight
+		for _, u := range e.ups {
+			busiest = max(busiest, u.slots.InUse())
+		}
+		e.mu.RUnlock()
+		return []metrics.QueueStat{
+			{Queue: "edge_in_flight", Capacity: e.cfg.MaxInFlight, Depth: int(e.st.inFlight.Load()), Rejected: full(e.st.overCap.Load())},
+			// Per agent: the capacity is one agent's, the depth the busiest agent's (each: mansio_edge_agent_in_flight).
+			{Queue: "edge_agent", Capacity: limit, Depth: busiest, Rejected: full(e.st.bulkheadFull.Load())},
+			e.verify.Stat("edge_verify"),
 		}
 	})
 	metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker {

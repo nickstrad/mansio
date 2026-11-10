@@ -14,6 +14,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
@@ -35,7 +36,13 @@ type Config struct {
 	// Credentials, if set, authenticates app resolves (Request.App) whose bearer is not an API key of this
 	// package's form (legacy keys, sessions). nil: API keys only.
 	Credentials Credentials
-	Clock       det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
+	// LoadSlots, if set, bounds store reads in flight (placement and key loads; each takes a slot for as long
+	// as it runs): its capacity is sized below the store's connection pool, so a cold cache or a slow store
+	// answers ErrBusy at once instead of queueing callers inside the pool. Cache hits and callers joining a
+	// load in flight take none. The caller may share the pool with its other reads of the same store, and may
+	// change its limit while serving. nil: no bound.
+	LoadSlots *slots.Pool
+	Clock     det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
 }
 
 func (c *Config) normalize() {
@@ -153,7 +160,7 @@ func New(store Store, signer Signer, cfg Config) *Locator {
 //	      TicketTTL from now
 //	post: errors match ErrUnauthorized, ErrForbidden, ErrNotFound (and ErrCreatable, with r.Create: the
 //	      route's DB and Tenant then name the database to create), ErrMoving or ErrRateLimited (with a
-//	      RetryAfter hint), ErrSuspended, the ctx's error, or the store's own error
+//	      RetryAfter hint), ErrBusy, ErrSuspended, the ctx's error, or the store's own error
 func (l *Locator) Resolve(ctx context.Context, r Request) (Route, error) {
 	key := r.Tenant + ":" + r.Name
 	fail := func(err error) (Route, error) {
@@ -264,6 +271,10 @@ func (l *Locator) authenticateKey(ctx context.Context, raw, src string) (StoredK
 	} else {
 		f := l.keyLoads[id]
 		if f == nil {
+			if !l.loadSlot() {
+				l.mu.Unlock()
+				return StoredKey{}, ErrBusy
+			}
 			f = start(l, func(ctx context.Context) (StoredKey, error) { return l.store.APIKey(ctx, id) }, func(f *flight[StoredKey]) {
 				delete(l.keyLoads, id)
 				if f.ok() {
@@ -306,6 +317,10 @@ func (l *Locator) locate(ctx context.Context, key string, minEpoch uint64) (Plac
 	if f != nil {
 		l.stats.Coalesced++
 	} else {
+		if !l.loadSlot() {
+			l.mu.Unlock()
+			return Placement{}, ErrBusy
+		}
 		l.stats.Misses++
 		f = start(l, func(ctx context.Context) (Placement, error) { return l.store.Locate(ctx, key, lk.primary) }, func(f *flight[Placement]) {
 			delete(l.loads, lk)
@@ -425,9 +440,16 @@ type flight[T any] struct {
 
 func (f *flight[T]) ok() bool { return f.err == nil && f.panic == nil }
 
+// loadSlot takes a slot of LoadSlots for a load about to start (the pool counts a refusal).
+//
+//	post: true ⇒ the caller starts a load (start releases the slot when it ends)
+func (l *Locator) loadSlot() bool { return l.cfg.LoadSlots == nil || l.cfg.LoadSlots.TryAcquire() }
+
 // start runs load in its own goroutine under LoadTimeout, so a caller that gives up does not cancel it for
 // the others and it cannot run longer than that. finish runs under l.mu before the waiters wake. A panic in
 // load is re-raised in every waiter (panicx).
+//
+//	pre: the caller took a slot (loadSlot); it is released when the load ends
 func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish func(f *flight[T])) *flight[T] {
 	f := &flight[T]{done: make(chan struct{})}
 	go func() {
@@ -436,6 +458,9 @@ func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish 
 			l.mu.Lock()
 			finish(f)
 			l.mu.Unlock()
+			if l.cfg.LoadSlots != nil {
+				l.cfg.LoadSlots.Release()
+			}
 			close(f.done)
 		}()
 		ctx, cancel := det.WithTimeout(context.Background(), l.cfg.Clock, l.cfg.LoadTimeout)

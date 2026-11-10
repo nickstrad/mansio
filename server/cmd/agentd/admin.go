@@ -12,6 +12,8 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
 // The admin endpoints: runtime controls without a deploy (Release It C4, ch. 16; plan RI-16). They are served
@@ -23,6 +25,9 @@ import (
 //	POST /admin/breaker/{dep}:trip     force breaker dep open until reset   → {"code":"ok","dep","state","forced","changed"}
 //	POST /admin/breaker/{dep}:reset    close breaker dep                    → same
 //	POST /admin/fetch:limit?n=N        S3 fetches in flight, N >= 1          → {"code":"ok","fetch_limit","previous"}
+//	POST /admin/limit?queue=Q&n=N      set a slot pool's limit from now on (queues: verify; durable mode also lifecycle,
+//	                                   credential_place; with tenancy routes tenancy_admin, tenancy_auth)
+//	                                   → {"code":"ok","queue","limit","previous"}
 //	POST /admin/drain                  front drain: shed new queries, /readyz and /healthz say draining (one way) → {"code":"ok","in_flight"}
 //	POST /admin/passivate?key=K        write K back and drop its warm copy  → {"code":"ok","key"}
 //	POST /admin/backup?key=K           write K back now (it stays warm)     → {"code":"ok", K's manifest…, "version","wrote"}
@@ -44,12 +49,15 @@ type admin struct{ *agent }
 // adminHandler is the admin listener's handler.
 func (a *agent) adminHandler() http.Handler {
 	ad := admin{a}
-	ep := &jsonEndpoints{log: a.log, event: "ADMIN", timeout: a.cfg.LifecycleTimeout.Duration, sem: make(chan struct{}, adminConcurrency),
+	pool := slots.New(adminConcurrency)
+	metrics.Queues(a.reg, func() []metrics.QueueStat { return []metrics.QueueStat{pool.Stat("admin")} })
+	ep := &jsonEndpoints{log: a.log, event: "ADMIN", timeout: a.cfg.LifecycleTimeout.Duration, slots: pool,
 		logRefusal: func(*controlError) bool { return true }}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /admin/breaker/{op}", ep.handle(ad.breaker))
 	mux.HandleFunc("POST /admin/drain", ep.handle(ad.drain))
 	mux.HandleFunc("POST /admin/loglevel", ep.handle(ad.loglevel))
+	mux.HandleFunc("POST /admin/limit", ep.handle(ad.limit))
 	if a.be.host != nil {
 		mux.HandleFunc("POST /admin/fetch:limit", ep.handle(ad.fetchLimit))
 		mux.HandleFunc("POST /admin/passivate", ep.handle(ad.passivate))
@@ -96,6 +104,42 @@ func (ad *admin) fetchLimit(_ context.Context, r *http.Request) (any, error) {
 	prev := ad.be.host.SetFetchLimit(n)
 	ad.log.Warn("admin: fetch limit set", "event", "ADMIN.FETCH_LIMIT", "fetch_limit", n, "previous", prev, "remote", r.RemoteAddr)
 	return map[string]any{"code": "ok", "fetch_limit": n, "previous": prev}, nil
+}
+
+// limits are the slot pools whose limit POST /admin/limit may change, by their metrics queue name: the ones
+// in front of a dependency (verify: the tenancy store, schema registry and placement authority; in durable
+// mode lifecycle and credential_place: the placement authority and S3; with tenancy routes tenancy_admin and
+// tenancy_auth: the tenancy store). The fetch bulkhead has its own endpoint (fetch:limit).
+func (ad *admin) limits() map[string]*slots.Pool {
+	pools := map[string]*slots.Pool{}
+	if v := ad.srv.OpsVerify(); v != nil {
+		pools["verify"] = v
+	}
+	for name, p := range ad.be.limits {
+		pools[name] = p
+	}
+	if t := ad.tenancy; t != nil && t.pools.Admin != nil {
+		pools["tenancy_admin"], pools["tenancy_auth"] = t.pools.Admin, t.pools.Auth
+	}
+	return pools
+}
+
+// limit sets one slot pool's limit; calls already holding a slot finish, the next ones meet the new limit.
+// It lasts until the process restarts (the config file's value applies again then).
+func (ad *admin) limit(_ context.Context, r *http.Request) (any, error) {
+	pools := ad.limits()
+	queue := r.URL.Query().Get("queue")
+	pool := pools[queue]
+	if pool == nil {
+		return nil, notFound(fmt.Sprintf("no slot pool %q here; have %s", queue, strings.Join(slices.Sorted(maps.Keys(pools)), ", ")))
+	}
+	n, err := strconv.Atoi(r.URL.Query().Get("n"))
+	if err != nil || n < 1 {
+		return nil, badRequest("n must be an integer >= 1")
+	}
+	prev := pool.SetLimit(n)
+	ad.log.Warn("admin: limit set", "event", "ADMIN.LIMIT", "queue", queue, "limit", n, "previous", prev, "remote", r.RemoteAddr)
+	return map[string]any{"code": "ok", "queue": queue, "limit": n, "previous": prev}, nil
 }
 
 // drain stops the front taking queries (they are shed as draining; /readyz and /healthz say draining). It is

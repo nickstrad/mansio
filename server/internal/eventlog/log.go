@@ -51,7 +51,12 @@ type Config struct {
 	Level        Level  // records below it are not queued; drop reports ignore it
 	Buffer       int    // queue capacity; default DefaultBuffer
 	MaxFileBytes int64  // roll after this many bytes; default DefaultMaxFileBytes
-	PID          int    // default os.Getpid()
+	// MaxTotalBytes and MaxAge are the retention limits for this role's files (retention.go): the oldest files
+	// are deleted when they total more, or are older. 0 = DefaultMaxTotalBytes / DefaultMaxAge; negative = no
+	// limit of that kind.
+	MaxTotalBytes int64
+	MaxAge        time.Duration
+	PID           int // default os.Getpid()
 	// Now is the clock for ts and file names (local date and hour, as the TS sink); default time.Now.
 	Now func() time.Time
 	// Log receives the degradation reports (EVENTLOG.WRITE_FAILED), at most one a minute; nil = none.
@@ -62,9 +67,12 @@ type Config struct {
 type Stats struct {
 	Written int64 // records written
 	Dropped int64 // records refused because the queue was full
-	Lost    int64 // records taken but not written (a write failed)
+	Lost    int64 // records taken but not written (a write failed, or Close gave up with them queued)
 	Depth   int   // records queued now
 	Cap     int
+	// Retention (retention.go): files and bytes deleted since Open, and this role's bytes on disk after the
+	// last sweep.
+	Retired, RetiredBytes, TreeBytes int64
 }
 
 // Log is an open event log. Emit is safe for concurrent use.
@@ -77,7 +85,10 @@ type Log struct {
 	closed bool
 
 	written, dropped, lost atomic.Int64
-	reported               int64 // dropped already reported (writer only)
+	reported               int64       // dropped already reported (writer only)
+	abandoned              atomic.Bool // Close gave up: the writer counts what is still queued as lost
+	retired, retiredBytes  atomic.Int64
+	treeBytes              atomic.Int64
 
 	f        *os.File
 	w        *bufio.Writer
@@ -110,6 +121,12 @@ func open(cfg Config, beforeWrite func()) (*Log, error) {
 	}
 	if cfg.MaxFileBytes <= 0 {
 		cfg.MaxFileBytes = DefaultMaxFileBytes
+	}
+	if cfg.MaxTotalBytes == 0 {
+		cfg.MaxTotalBytes = DefaultMaxTotalBytes
+	}
+	if cfg.MaxAge == 0 {
+		cfg.MaxAge = DefaultMaxAge
 	}
 	if cfg.PID == 0 {
 		cfg.PID = os.Getpid()
@@ -146,11 +163,16 @@ func (l *Log) Emit(ev Event) {
 
 // Stats returns the counters.
 func (l *Log) Stats() Stats {
-	return Stats{Written: l.written.Load(), Dropped: l.dropped.Load(), Lost: l.lost.Load(), Depth: len(l.ch), Cap: cap(l.ch)}
+	return Stats{Written: l.written.Load(), Dropped: l.dropped.Load(), Lost: l.lost.Load(), Depth: len(l.ch), Cap: cap(l.ch),
+		Retired: l.retired.Load(), RetiredBytes: l.retiredBytes.Load(), TreeBytes: l.treeBytes.Load()}
 }
 
 // Close stops accepting records, writes what is queued, and syncs and closes the file, giving up when ctx
-// ends (the rest is lost). It is safe to call more than once.
+// ends: the records still queued then are lost, and counted (Stats.Lost; the error says how many were
+// queued). It is safe to call more than once.
+//
+//	post: err != nil ⇒ the writer writes nothing more; every record it had not written is in Stats.Lost
+//	      once it has seen them (it may still be inside one write)
 func (l *Log) Close(ctx context.Context) error {
 	l.mu.Lock()
 	if !l.closed {
@@ -162,7 +184,9 @@ func (l *Log) Close(ctx context.Context) error {
 	case <-l.done:
 		return nil
 	case <-ctx.Done():
-		return errs.Wrap(module, ctx.Err(), "the event log did not finish writing in time; queued records are lost")
+		queued := len(l.ch)
+		l.abandoned.Store(true)
+		return errs.Wrap(module, ctx.Err(), "the event log did not finish writing in time; %d queued records are lost (counted)", queued)
 	}
 }
 
@@ -172,6 +196,10 @@ func (l *Log) run() {
 	defer close(l.done)
 	defer l.closeFile()
 	for ev := range l.ch {
+		if l.abandoned.Load() { // Close gave up: count the rest instead of writing it
+			l.lost.Add(1)
+			continue
+		}
 		l.reportDrops()
 		l.write(ev)
 		if len(l.ch) == 0 {
@@ -179,7 +207,9 @@ func (l *Log) run() {
 			l.flush()
 		}
 	}
-	l.reportDrops()
+	if !l.abandoned.Load() {
+		l.reportDrops()
+	}
 }
 
 // reportDrops writes one queue record for the drops not reported yet. Drop reports bypass the queue (and the
@@ -247,6 +277,7 @@ func (l *Log) roll(t time.Time, n int64) error {
 			return errs.Wrap(module, err, "cannot create the event log file").With("path", path)
 		}
 		l.f, l.w, l.path, l.dayHour, l.size = f, bufio.NewWriterSize(f, 64<<10), path, dayHour, 0
+		l.retire() // a file was just closed: the only moment the tree grows by a whole file
 		return nil
 	}
 }
@@ -309,13 +340,17 @@ func (l *Log) fail(err error) {
 		l.f.Close()
 		l.f, l.w = nil, nil
 	}
+	l.warn(err, "event log write failed; records are being lost")
+}
+
+// warn reports a degradation (EVENTLOG.WRITE_FAILED), at most once a minute.
+func (l *Log) warn(err error, msg string) {
 	now := l.cfg.Now()
 	if l.cfg.Log == nil || now.Sub(l.lastWarn) < time.Minute {
 		return
 	}
 	l.lastWarn = now
-	l.cfg.Log.Warn("event log write failed; records are being lost", "event", "EVENTLOG.WRITE_FAILED",
-		"error", err.Error(), "chain", errs.Chain(err), "lost", l.lost.Load())
+	l.cfg.Log.Warn(msg, "event", "EVENTLOG.WRITE_FAILED", "error", err.Error(), "chain", errs.Chain(err), "lost", l.lost.Load())
 }
 
 // NewID returns a random UUID (version 4), as crypto.randomUUID: event, span and generated trace ids.

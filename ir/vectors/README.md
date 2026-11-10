@@ -27,6 +27,12 @@ by decision.
 | `compile.json`                   | 70      | schema + plan / write / DDL → SQLite SQL text and binds, or compile error (both layouts)  |
 | `execute.json`                   | 130     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
 | `generated/compile-corpus.jsonl` | 2000    | fast-check schemas + plans → SQL or error, for differential testing                       |
+| `retry.json`                     | 27      | an answer (agent or controld resolve) → what a client library does by itself              |
+
+`retry.json` is the caller contract ([`docs/retry-contract.md`](../../docs/retry-contract.md)). Unlike the
+others its source is Go: mansio-server's `front.Contract`; regenerate it and the document with
+`(cd server && go test ./internal/front -run TestContractFiles -update)`. The Go client runs it in
+`server/internal/client/contract_test.go`, the SDK in `tests/unit/sdk_retry_contract_test.ts`.
 
 `execute.json` holds 65 scenarios, each once per storage layout (`[columns]`, `[json]` in the name). The four
 `sdk: …` scenarios (IR-3) are SDK-generated: the requests are what `sdk/client.ts` sends for the sample app's

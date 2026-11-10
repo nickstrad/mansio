@@ -71,6 +71,9 @@ var (
 	ErrMoving       = errors.New("locator: database is moving or being created; retry after the hint")
 	ErrSuspended    = errors.New("locator: database is suspended")
 	ErrRateLimited  = errors.New("locator: too many api key lookups from this source; retry after the hint")
+	// ErrBusy: the answer is not cached and Config.LoadSlots store reads are already in flight; nothing was
+	// read. Retry shortly.
+	ErrBusy = errors.New("locator: too many store reads in flight; nothing read, retry")
 	// ErrCreatable: no such database, but the request asked to create it on first use (Request.Create) and the
 	// key may write: the caller creates it and resolves again. It also matches ErrNotFound, so a caller that
 	// cannot create answers not found.

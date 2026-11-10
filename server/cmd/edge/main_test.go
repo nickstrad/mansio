@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -382,6 +383,124 @@ func TestRegistryRoutes(t *testing.T) {
 	mu.Unlock()
 	if n < 3 || n > 4 {
 		t.Fatalf("%d registry fetches, want 3 or 4: start, vm-b's miss, vm-c's miss (kicks coalesce)", n)
+	}
+	if c := e.stop(); c != exitOK {
+		t.Fatalf("exit %d\n%s", c, e.stderr)
+	}
+}
+
+// B5: with drain_delay, shutdown fails /readyz first and keeps serving for the delay, so a load balancer
+// polling readiness stops routing before the listener closes. Before, readiness flipped and the listener
+// closed in consecutive statements: a request sent right after the flip was refused.
+func TestDrainDelayServesWhileNotReady(t *testing.T) {
+	dir := t.TempDir()
+	keysFile, mint := keys(t, dir)
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"code":"ok"}`) }))
+	defer agent.Close()
+	const delay = 600 * time.Millisecond
+	e := start(t, dir, fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","keys_file":%q,"agents":{"vm-a":%q},
+		"drain_delay":"600ms","drain_timeout":"3s","log_file":"edge.log"}`, keysFile, agent.URL), "-dev")
+	ready := func() int {
+		res, err := http.Get("http://" + e.health + front.ReadyPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if ready() != 200 {
+		t.Fatal("not ready before shutdown")
+	}
+	t0 := time.Now()
+	code := make(chan int)
+	go func() { code <- e.stop() }()
+	for ready() != 503 {
+		time.Sleep(2 * time.Millisecond)
+	}
+	// Not ready, still serving: new connections included (a fresh client has no pooled connection).
+	for i := range 3 {
+		status, out, _, err := query(t, &http.Client{Transport: &http.Transport{}}, "http://"+e.addr, mint("vm-a"))
+		if err != nil || status != 200 {
+			t.Fatalf("request %d during drain_delay (%v after shutdown began): %d %v %v", i, time.Since(t0), status, out, err)
+		}
+	}
+	if c := <-code; c != exitOK {
+		t.Fatalf("exit %d\n%s", c, e.stderr)
+	}
+	if took := time.Since(t0); took < delay || took > delay+5*time.Second {
+		t.Fatalf("shutdown took %v, want drain_delay (%v) and little more", took, delay)
+	}
+	if _, _, _, err := query(t, &http.Client{Transport: &http.Transport{}}, "http://"+e.addr, mint("vm-a")); err == nil {
+		t.Fatal("the listener still accepts after shutdown")
+	}
+}
+
+// B11: the per-agent bulkhead has a runtime lever on the loopback admin listener. Lowered to 1 with one
+// request in flight, the next request to that agent is shed; the capacity gauge shows the new limit.
+func TestAdminAgentLimit(t *testing.T) {
+	dir := t.TempDir()
+	keysFile, mint := keys(t, dir)
+	release := make(chan struct{})
+	agent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		io.WriteString(w, `{"code":"ok"}`)
+	}))
+	defer agent.Close()
+	l, err := net.Listen("tcp", "127.0.0.1:0") // a free port for the admin listener
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminAddr := l.Addr().String()
+	l.Close()
+	e := start(t, dir, fmt.Sprintf(`{"listen":"127.0.0.1:0","health_listen":"127.0.0.1:0","admin_listen":%q,"keys_file":%q,
+		"agents":{"vm-a":%q},"log_file":"edge.log"}`, adminAddr, keysFile, agent.URL), "-dev")
+	post := func(path string) (int, map[string]any) {
+		res, err := http.Post("http://"+adminAddr+path, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	for _, bad := range []string{"/admin/agent:limit?n=0", "/admin/agent:limit", "/admin/agent:limit?n=x"} {
+		if code, out := post(bad); code != 400 || out["code"] != "bad_request" {
+			t.Errorf("%s: %d %v", bad, code, out)
+		}
+	}
+	if code, out := post("/admin/nothing"); code != 404 {
+		t.Errorf("unknown admin path: %d %v", code, out)
+	}
+	if code, out := post("/admin/agent:limit?n=1"); code != 200 || out["agent_in_flight"] != 1.0 || out["previous"] != 4096.0 {
+		t.Fatalf("agent:limit n=1 (on point): %d %v", code, out)
+	}
+	first := make(chan int)
+	go func() {
+		status, _, _, _ := query(t, http.DefaultClient, "http://"+e.addr, mint("vm-a"))
+		first <- status
+	}()
+	metric := func() string {
+		res, err := http.Get("http://" + e.health + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+	for !strings.Contains(metric(), `mansio_edge_agent_in_flight{vm="vm-a"} 1`) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if status, out, _, err := query(t, http.DefaultClient, "http://"+e.addr, mint("vm-a")); err != nil || status != 503 || out["code"] != "shed" {
+		t.Fatalf("a second request with the bulkhead lowered to 1: %d %v %v", status, out, err)
+	}
+	if m := metric(); !strings.Contains(m, `mansio_queue_capacity{queue="edge_agent"} 1`) || !strings.Contains(m, `mansio_queue_depth{queue="edge_agent"} 1`) {
+		t.Fatalf("the capacity and depth gauges do not show the lowered bulkhead:\n%s", m)
+	}
+	close(release)
+	if s := <-first; s != 200 {
+		t.Fatalf("the request in flight: %d", s)
 	}
 	if c := e.stop(); c != exitOK {
 		t.Fatalf("exit %d\n%s", c, e.stderr)

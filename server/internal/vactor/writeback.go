@@ -685,7 +685,7 @@ func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) (uploa
 		if ddb, ok := e.db.(DurableDB); ok {
 			commits = ddb.Commits()
 		}
-		path, cleanup, perr := h.closedCopy(key)
+		path, cleanup, perr := h.closedCopy(ctx, key)
 		if perr != nil {
 			err = perr
 		} else {
@@ -702,8 +702,9 @@ func (h *Host) writeBackClosed(ctx context.Context, key string, e *entry) (uploa
 }
 
 // closedCopy returns a single-file copy of key's closed database. Normally that is the file itself (SQLite
-// checkpoints and removes the WAL on the last close); if a WAL is left, it reopens the file and snapshots it.
-func (h *Host) closedCopy(key string) (string, func(), error) {
+// checkpoints and removes the WAL on the last close); if a WAL is left, it reopens the file and snapshots it,
+// within WriteBackTimeout and never past ctx (the passivation's: at shutdown, the shutdown budget).
+func (h *Host) closedCopy(ctx context.Context, key string) (string, func(), error) {
 	path := h.LocalPath(key)
 	if fi, err := os.Stat(path + "-wal"); err != nil || fi.Size() == 0 {
 		return path, func() {}, nil
@@ -719,7 +720,7 @@ func (h *Host) closedCopy(key string) (string, func(), error) {
 	}
 	snap := path + ".snap"
 	RemoveDB(snap)
-	ctx, cancel := det.WithTimeout(context.Background(), h.opts.Clock, h.opts.WriteBackTimeout)
+	ctx, cancel := det.WithTimeout(ctx, h.opts.Clock, h.opts.WriteBackTimeout)
 	defer cancel()
 	if _, err := ddb.Snapshot(ctx, snap); err != nil {
 		RemoveDB(snap)

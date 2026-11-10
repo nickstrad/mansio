@@ -5,18 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // Config is agentd's JSON config. Defaults are applied before decoding (a file overrides them); unknown fields
@@ -90,10 +91,13 @@ type Config struct {
 	SchemasDir     string        `json:"schemas_dir"`
 	SchemasTimeout load.Duration `json:"schemas_timeout"` // one fetch; default 3 s
 	SchemaCache    int           `json:"schema_cache"`    // schemas cached (by app and fingerprint); default 1024
-	KeysTimeout    load.Duration `json:"keys_timeout"`    // one fetch; default 3 s
-	ClockSkew      load.Duration `json:"clock_skew"`
-	MaxTicketTTL   load.Duration `json:"max_ticket_ttl"`
-	TicketCache    int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	// VerifySlots bounds /v1/ops credential requests inside their pre-admission checks at once (the tenancy
+	// store, the schema registry, a claim or create); more are shed at once. 0 = 64.
+	VerifySlots  int           `json:"verify_slots"`
+	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
+	ClockSkew    load.Duration `json:"clock_skew"`
+	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
+	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 
 	// Static mode's admitter: every served database is owned at default_epoch unless epochs overrides it.
 	DefaultEpoch uint64            `json:"default_epoch"`
@@ -111,6 +115,8 @@ type Config struct {
 	BodyReadTimeout   load.Duration         `json:"body_read_timeout"` // whole request body; default 5 s
 	IdleTimeout       load.Duration         `json:"idle_timeout"`
 	Actor             load.ActorConfig      `json:"actor"`
+	// actorQueues counts every actor's refusals and mailbox waits (set by newAgent; nil counts nothing).
+	actorQueues *actor.Queues
 
 	// Startup and readiness (Release It H1, H2). Databases open in the background, startup_workers at a time,
 	// while the agent already serves. /readyz reflects a probe every ready_interval, each bounded by
@@ -139,6 +145,14 @@ type EventLogConfig struct {
 	TraceSQL     bool   `json:"trace_sql"`      // a sql record per statement (TRACE_SQL); failed statements always
 	Buffer       int    `json:"buffer"`         // queued records before drops; default 8192
 	MaxFileBytes int64  `json:"max_file_bytes"` // roll size; default 64 MiB (LOG_MAX_FILE_BYTES)
+	// MaxTotalBytes and MaxAge bound the files this agent keeps under <dir>/server: when a new file is opened,
+	// the oldest are deleted until the rest total at most max_total_bytes (default 4 GiB) and none is older
+	// than max_age (default 45 days = "1080h"). They are the writer's own ceiling, looser by default than the
+	// offline sweep's (`deno task logs:sweep`: 1 GiB, 30 days, ingested files only), so a tree that is ingested
+	// and swept never reaches them. A file deleted here before it was ingested is lost telemetry, counted in
+	// mansio_eventlog_retired_total. 0 = the default; negative = no limit of that kind.
+	MaxTotalBytes int64         `json:"max_total_bytes"`
+	MaxAge        load.Duration `json:"max_age"`
 }
 
 // S3Config is where durable mode keeps databases. The keys come from the secrets file.
@@ -191,6 +205,13 @@ type Maintenance struct {
 	MaxActive        int           `json:"max_active"`         // warm budget by count; 0 = none
 	MaxBytes         int64         `json:"max_bytes"`          // warm budget by bytes; default from cache_bytes
 	WriteBackTimeout load.Duration `json:"write_back_timeout"` // one write-back or passivation; default 60 s
+}
+
+// actorConfig is the config every actor of this agent runs with.
+func (c *Config) actorConfig() actor.Config {
+	a := c.Actor.Actor()
+	a.Queues = c.actorQueues
+	return a
 }
 
 // Durable reports whether the config runs durable mode.
@@ -279,7 +300,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		bad("tls: cert_file and key_file are both required")
 	}
-	if c.AdminListen != "" && !loopback(c.AdminListen) {
+	if c.AdminListen != "" && !tlsx.Loopback(c.AdminListen) {
 		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7072 (binding is the admin endpoints' only access control)", c.AdminListen)
 	}
 	if len(c.Protocols) == 0 {
@@ -327,6 +348,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
 		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)
+	}
+	if c.VerifySlots < 0 {
+		bad("verify_slots must be >= 0 (0 = 64)")
 	}
 	if c.Limits.MaxBody <= 0 || c.Limits.MaxSQL <= 0 || c.Limits.MaxArgs <= 0 || c.Limits.MaxRows <= 0 {
 		bad("limits must all be > 0")
@@ -432,20 +456,6 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 	if c.LifecycleTimeout.Duration <= 0 || c.LifecycleConcurrency < 1 || c.ReconcilePerKey.Duration <= 0 {
 		bad("lifecycle_timeout and reconcile_per_key must be > 0, lifecycle_concurrency >= 1")
 	}
-}
-
-// loopback reports whether addr (host:port) names a loopback host: localhost or a loopback IP. An empty host
-// (":7072") binds every interface, so it is not.
-func loopback(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 // checkDev refuses what only local development may do unless -dev is given: durable mode over plain-HTTP S3

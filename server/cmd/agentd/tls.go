@@ -29,7 +29,7 @@ func (c *Config) queryTLS() (*tls.Config, error) {
 // outside a laptop, agents sit behind the edge and speak TLS to it (object-storage guide S2's rule, applied to
 // the agent's own listener).
 func (c *Config) checkTLS() error {
-	if c.TLS == nil && c.Listen != "" && !loopback(c.Listen) && !c.Dev { // "" is refused by parseConfig
+	if c.TLS == nil && c.Listen != "" && !tlsx.Loopback(c.Listen) && !c.Dev { // "" is refused by parseConfig
 		return errs.Wrap(module, nil, "listen %s is not loopback and there is no tls section: plain HTTP off this host is for local "+
 			"development only; add \"tls\": {\"cert_file\", \"key_file\"} (a private CA the edge trusts), or pass -dev", c.Listen)
 	}

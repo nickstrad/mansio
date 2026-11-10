@@ -33,9 +33,12 @@ import type { Kind, Request, Response } from "../core/ir/types.ts";
 import {
   backoff,
   decide,
+  DEFAULT_MAX_REROUTES,
   DEFAULT_RETRY,
+  mayHaveApplied as codeMayHaveApplied,
   minEpochAfter,
   refreshAt,
+  resolveStep,
   retryAfterMs,
   RetryBudget,
   type RetryPolicy,
@@ -92,8 +95,6 @@ export type Send = (
   request: Request,
   call: CallContext,
 ) => Effect.Effect<Response, RemoteError | Unavailable>;
-
-const DEFAULT_MAX_REROUTES = 5;
 
 /** One attempt's answer, as the loop sees it. */
 interface Answer {
@@ -202,8 +203,8 @@ export function makeTransport(options: TransportOptions): Send {
           const failure = routed.left;
           const code = `resolve:${failure.code}`;
           hint = failure.retryAfterMs;
-          if (failure.code === "moving") step = "reroute";
-          else if (["unavailable", "shed", "timeout", TRANSPORT].includes(failure.code)) step = "retry";
+          const next = resolveStep(failure.code);
+          if (next === "reroute" || next === "retry") step = next;
           else {
             return yield* new RemoteError({
               status: failure.status,
@@ -224,9 +225,14 @@ export function makeTransport(options: TransportOptions): Send {
           const answer = yield* attempt(target, body, call);
           last = answer;
           hint = answer.retryAfterMs;
-          if (mutation && (answer.code === TRANSPORT || answer.code === "expired")) mayHaveApplied = true;
+          if (mutation && codeMayHaveApplied(answer.code)) mayHaveApplied = true;
           const next = decide(answer.code);
           if (next === "done") return answer.body as unknown as Response;
+          // expired is final like any other failure, but it is the server not answering in time, not an
+          // application error: the caller gets Unavailable (with mayHaveApplied), as when retries run out.
+          if (next === "fail" && answer.code === "expired") {
+            return yield* unavailable(answer.code, answer.message, answer.status);
+          }
           if (next === "fail") return yield* remoteErrorOf(answer);
           if (now() >= call.deadline) {
             return yield* unavailable("deadline", `the call's deadline passed; last answer ${answer.code}`);
@@ -242,11 +248,13 @@ export function makeTransport(options: TransportOptions): Send {
               ? yield* remoteErrorOf(last)
               : yield* unavailable(code, last.message, last.status || undefined);
           }
-          if (reroutes >= maxReroutes) {
+          // The first reroute of a call is free; each later one takes a token of the retry budget, unless it
+          // is controld's "moving" (no target: the resolve itself said so), which paces a planned move.
+          if (reroutes >= maxReroutes || (reroutes >= 1 && target !== undefined && !budget.tryRetry())) {
             return yield* unavailable(code, last.message, last.status || undefined);
           }
           reroutes++;
-          wait = reroutes > 1 ? backoff(policy, reroutes, hint, random()) : hint;
+          wait = backoff(policy, reroutes, hint, random());
         } else {
           if (retries + 1 >= policy.maxAttempts || !budget.tryRetry()) {
             return yield* unavailable(last.code, last.message, last.status || undefined);

@@ -31,6 +31,8 @@ type Config struct {
 	// Clock is the time for deadlines, queue expiry, idle passivation, request-id stamps and timings. Default
 	// det.System().
 	Clock det.Clock
+	// Queues, if set, counts this actor's refusals and mailbox waits (shared by a process's actors).
+	Queues *Queues
 }
 
 // JournalModes and SynchronousModes are the values Config accepts (upper case; input is case-insensitive).

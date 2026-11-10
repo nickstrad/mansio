@@ -31,6 +31,9 @@ import (
 type Config struct {
 	Listen       string `json:"listen"`        // client listener; default 127.0.0.1:7443
 	HealthListen string `json:"health_listen"` // lifecycle listener (/livez, /readyz, /metrics); default 127.0.0.1:7444
+	// AdminListen is the optional admin listener (the runtime lever POST /admin/agent:limit?n=N): a loopback
+	// address only, since binding is its only access control. Default off.
+	AdminListen string `json:"admin_listen"`
 	// TLS is the client-facing server certificate. Required unless -dev (then the listener speaks h1 + h2c).
 	TLS *TLSFiles `json:"tls"`
 
@@ -57,10 +60,13 @@ type Config struct {
 	Registry *Registry `json:"registry"`
 	AgentTLS AgentTLS  `json:"agent_tls"`
 	// AgentInFlight bounds requests in flight per agent (0 = 4096); more are shed.
-	AgentInFlight int           `json:"agent_in_flight"`
-	AgentBreaker  BreakerConfig `json:"agent_breaker"`
-	DialTimeout   load.Duration `json:"dial_timeout"`  // connect to an agent; default 2 s
-	TLSHandshake  load.Duration `json:"tls_handshake"` // handshake with an agent; default 3 s
+	AgentInFlight int `json:"agent_in_flight"`
+	// MaxInFlight bounds requests in the edge at once across agents (0 = 2 × agent_in_flight); more are shed
+	// before their body is read. Memory ceiling for request bodies: max_in_flight × max_body.
+	MaxInFlight  int           `json:"max_in_flight"`
+	AgentBreaker BreakerConfig `json:"agent_breaker"`
+	DialTimeout  load.Duration `json:"dial_timeout"`  // connect to an agent; default 2 s
+	TLSHandshake load.Duration `json:"tls_handshake"` // handshake with an agent; default 3 s
 
 	DefaultTimeout    load.Duration `json:"default_timeout"` // as the agents' (default 2 s / 30 s)
 	MaxTimeout        load.Duration `json:"max_timeout"`
@@ -69,8 +75,12 @@ type Config struct {
 	BodyReadTimeout   load.Duration `json:"body_read_timeout"`
 	ReadHeaderTimeout load.Duration `json:"read_header_timeout"`
 	IdleTimeout       load.Duration `json:"idle_timeout"`
-	DrainTimeout      load.Duration `json:"drain_timeout"`   // in-flight requests finish within this at shutdown
-	ShutdownBudget    load.Duration `json:"shutdown_budget"` // the whole shutdown
+	// DrainDelay is how long the edge keeps serving after /readyz starts failing at shutdown, before it stops
+	// accepting: set it to at least the load balancer's readiness poll interval so the balancer stops routing
+	// here before the listener closes. Default 0 (stop accepting at once). Part of shutdown_budget.
+	DrainDelay     load.Duration `json:"drain_delay"`
+	DrainTimeout   load.Duration `json:"drain_timeout"`   // in-flight requests finish within this at shutdown
+	ShutdownBudget load.Duration `json:"shutdown_budget"` // the whole shutdown
 
 	LogFile  string `json:"log_file"`
 	LogLevel string `json:"log_level"` // debug | info | warn
@@ -204,8 +214,8 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if rl := c.RateLimit; rl.PerSecond <= 0 || rl.Burst < 1 || rl.MaxSources < 1 {
 		bad("rate_limit: verifies_per_second > 0, burst >= 1 and max_sources >= 1 required")
 	}
-	if c.TicketCache < 0 || c.VerifySlots < 0 || c.AgentInFlight < 0 || c.MaxBody <= 0 {
-		bad("ticket_cache, verify_slots and agent_in_flight must be >= 0 (0 = default), max_body > 0")
+	if c.TicketCache < 0 || c.VerifySlots < 0 || c.AgentInFlight < 0 || c.MaxInFlight < 0 || c.MaxBody <= 0 {
+		bad("ticket_cache, verify_slots, agent_in_flight and max_in_flight must be >= 0 (0 = default), max_body > 0")
 	}
 	if bc := c.AgentBreaker.config(); bc.Normalize() != nil {
 		bad("agent_breaker: invalid thresholds (window, min_calls >= 1, failure_rate in (0, 1], cool_down)")
@@ -226,8 +236,14 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.DefaultTimeout.Duration > c.MaxTimeout.Duration {
 		bad("default_timeout %v is over max_timeout %v", c.DefaultTimeout, c.MaxTimeout)
 	}
-	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
-		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)
+	if c.AdminListen != "" && !tlsx.Loopback(c.AdminListen) {
+		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7445 (binding is the admin endpoint's only access control)", c.AdminListen)
+	}
+	if c.DrainDelay.Duration < 0 {
+		bad("drain_delay must be >= 0")
+	}
+	if c.DrainDelay.Duration+c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
+		bad("drain_delay %v + drain_timeout %v is over shutdown_budget %v (both are part of the shutdown)", c.DrainDelay, c.DrainTimeout, c.ShutdownBudget)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn":

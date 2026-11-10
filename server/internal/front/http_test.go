@@ -5,12 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -384,5 +386,41 @@ func BenchmarkHTTP(b *testing.B) {
 				}
 			})
 		})
+	}
+}
+
+// B2: Deadlines covers routes mounted beside the front's on the same listener. A handler there that reads its
+// body from a sender who stalls gets a deadline error at BodyReadTimeout instead of waiting forever, and the
+// front's own routes behind the same wrapper still answer.
+func TestDeadlinesCoverRoutesBesideTheFront(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+	r := newRig(t, front.Config{BodyReadTimeout: timeout})
+	readErr := make(chan error, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /beside", func(w http.ResponseWriter, req *http.Request) {
+		_, err := io.ReadAll(req.Body)
+		readErr <- err
+	})
+	mux.Handle("/", front.NewRoutes(r.s, logx.New(io.Discard, slog.LevelDebug)))
+	srv := httptest.NewServer(r.s.Deadlines(mux))
+	t.Cleanup(srv.Close)
+
+	c, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	start := time.Now()
+	fmt.Fprint(c, "POST /beside HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n{") // then nothing
+	select {
+	case err := <-readErr:
+		if el := time.Since(start); !errors.Is(err, os.ErrDeadlineExceeded) || el < timeout || el > timeout+time.Second {
+			t.Fatalf("body read ended with %v after %v, want a deadline error at about %v", err, el, timeout)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stalled body still held its handler 5 s later: the route beside the front has no read deadline")
+	}
+	if res, out := post(t, srv.URL, "Bearer "+r.tok(t, "db-1", nil), body("db-1", front.KindRead, fronttest.ScanSQL), nil); res.StatusCode != 200 || out.Code != front.OK {
+		t.Fatalf("query through the shared wrapper: %d %+v", res.StatusCode, out)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/control"
@@ -22,9 +21,14 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
+// What a client does after each resolve answer (retry, resolve again, fail) is not written here: it is the
+// caller contract, front.Contract (docs/retry-contract.md), and TestResolveAnswersMatchTheContract holds the
+// codes and statuses below to it.
+//
 // The control API (Authorization: Bearer <admin_token>). Every call runs under api_timeout, at most
 // api_concurrency at once (more are refused 503 at once, never queued; Release It T1, B1). Answers are JSON:
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
@@ -63,14 +67,18 @@ func (d *daemon) routes(reg *metrics.Registry) (http.Handler, error) {
 	mux.Handle("GET /metrics", reg.Handler())
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if !d.ready.Load() {
+		switch {
+		case d.stopping.Load():
+			http.Error(w, "stopping", http.StatusServiceUnavailable)
+		case !d.ready.Load():
 			http.Error(w, "startup: migrating and registering agents", http.StatusServiceUnavailable)
-			return
+		default:
+			w.Write([]byte("ok\n"))
 		}
-		w.Write([]byte("ok\n"))
 	})
 	d.resolveRoutes(mux)
 	d.schemaRoutes(mux)
+	d.limitRoutes(mux)
 	mux.HandleFunc("POST /v1/databases", d.handle("create", func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct{ Tenant, Name string }
 		if err := decode(r, &req); err != nil {
@@ -176,12 +184,12 @@ func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Requ
 
 // handleAs is handle for the holder of any of tokens (named who in the refusal). An empty token never matches.
 func (d *daemon) handleAs(tokens []string, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
-	return d.handleIn(d.sem, d.cfg.APITimeout.Duration, tokens, who, action, fn)
+	return d.handleIn(d.api, d.cfg.APITimeout.Duration, tokens, who, action, fn)
 }
 
-// handleIn is handleAs in the bulkhead sem under timeout: data-path reads (schema fetches) use the locator's,
-// so they never queue behind admin moves (Release It B1).
-func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []string, who, action string,
+// handleIn is handleAs in the bulkhead pool under timeout: data-path reads (schema fetches) use the locator's
+// load slots, so they never queue behind admin moves (Release It B1).
+func (d *daemon) handleIn(pool *slots.Pool, timeout time.Duration, tokens []string, who, action string,
 	fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -189,7 +197,7 @@ func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []str
 			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
-		d.call(w, r, sem, nil, timeout, func(ctx context.Context, r *http.Request) (any, error) {
+		d.call(w, r, pool, timeout, func(ctx context.Context, r *http.Request) (any, error) {
 			out, err := fn(ctx, r)
 			if err == nil && action != "" {
 				d.log.Info("control action", "event", "CONTROLD."+strings.ToUpper(strings.ReplaceAll(action, "-", "_")), "path", r.URL.Path)
@@ -199,25 +207,20 @@ func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []str
 	}
 }
 
-// call is every API call's pipeline after authentication: refused until startup is done, one slot of sem
-// (refused at once when full, counted in shed if not nil; never queued, Release It B1), fn under timeout
-// (T1), the answer written.
-func (d *daemon) call(w http.ResponseWriter, r *http.Request, sem chan struct{}, shed *atomic.Int64, timeout time.Duration,
+// call is every API call's pipeline after authentication: refused until startup is done, one slot of pool
+// (refused at once when full, and counted; never queued, Release It B1), fn under timeout (T1), the answer
+// written.
+func (d *daemon) call(w http.ResponseWriter, r *http.Request, pool *slots.Pool, timeout time.Duration,
 	fn func(ctx context.Context, r *http.Request) (any, error)) {
 	if !d.ready.Load() {
 		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "starting: the schema is not migrated yet", false})
 		return
 	}
-	select {
-	case sem <- struct{}{}:
-		defer func() { <-sem }()
-	default:
-		if shed != nil {
-			shed.Add(1)
-		}
+	if !pool.TryAcquire() {
 		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "too many calls in flight; retry", false})
 		return
 	}
+	defer pool.Release()
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	out, err := fn(ctx, r)
@@ -240,6 +243,8 @@ func classify(err error) *apiError {
 		return &apiError{"moving", http.StatusServiceUnavailable, "the database is moving or being created; resolve again after Retry-After", true}
 	case errors.Is(err, locator.ErrRateLimited): // counted (controld_locator_rate_limited_total), not logged: a flood
 		return &apiError{"shed", http.StatusServiceUnavailable, "too many unknown api key ids from this source; retry after Retry-After", true}
+	case errors.Is(err, locator.ErrBusy): // counted (mansio_queue_rejected_total{queue="resolve_load"}), not logged
+		return &apiError{"shed", http.StatusServiceUnavailable, "too many placement or key reads in flight; nothing read, retry after Retry-After", true}
 	case errors.Is(err, locator.ErrSuspended):
 		return &apiError{"suspended", http.StatusConflict, "the database is suspended", false}
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):

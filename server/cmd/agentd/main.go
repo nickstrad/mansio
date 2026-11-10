@@ -50,6 +50,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
@@ -165,6 +166,7 @@ type agent struct {
 	events     *eventlog.Log // the event log (events.go); nil = none
 	// queryRoutes adds routes beside the front's on the query listener (tenancy's /admin/ and /api/auth/); may be nil.
 	queryRoutes func(mux *http.ServeMux) error
+	tenancy     *tenancyPart // its slot pools exist once queryRoutes mounted them
 }
 
 // backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
@@ -183,6 +185,8 @@ type backend struct {
 	// static mode: no breaker, fetch-limit or passivate controls).
 	breakers map[string]*breaker.Breaker
 	host     *vactor.Host
+	// limits are the mode's slot pools an operator may resize (POST /admin/limit), by queue name; nil in static mode.
+	limits map[string]*slots.Pool
 	// backup forces a key's write-back and answers its manifest (POST /admin/backup, backup.go); nil in static mode.
 	backup func(ctx context.Context, key string) (backupAnswer, error)
 	// credentialPlace is durable mode's front.OpsConfig.CredentialPlace (tenancy.go); nil in static mode.
@@ -196,6 +200,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if err != nil {
 		return nil, err
 	}
+	cfg.actorQueues = actor.NewQueues()
 	canary, cleanCanary, err := openCanary(cfg)
 	if err != nil {
 		closeEventLog(events, time.Second)
@@ -237,7 +242,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		}
 	}
 	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache, Credentials: ten.creds, CredentialEpoch: cfg.DefaultEpoch,
-		CredentialPlace: be.credentialPlace}
+		CredentialPlace: be.credentialPlace, VerifySlots: cfg.VerifySlots}
 	if events != nil {
 		ops.Observer = opsObserver(events, cfg.EventLog.TraceSQL)
 	}
@@ -252,9 +257,12 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	)
 	reg := metrics.NewRegistry()
 	metrics.Process(reg)
-	frontMetrics(reg, srv)
+	frontMetrics(reg, srv, cfg)
 	lifecycleMetrics(reg, be.pending, ready, time.Now())
 	be.metrics(reg)
+	if cfg.Tenancy != nil {
+		metrics.Queues(reg, ten.pools.Queues)
+	}
 	eventLogMetrics(reg, events)
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, reg.Handler())
@@ -274,7 +282,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		}
 		cleanCanary()
 	}
-	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events, queryRoutes: ten.mount,
+	return &agent{cfg: cfg, log: log, srv: srv, be: be, lifecycle: mux, reg: reg, cleanup: cleanup, events: events, queryRoutes: ten.mount, tenancy: ten,
 		background: append(append(be.background, ten.background...),
 			func(ctx context.Context) { ready.Run(ctx, cfg.ReadyInterval.Duration, logReadiness(log)) })}, nil
 }
@@ -295,7 +303,7 @@ func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHo
 		executor: front.ActorExecutor{Host: lookup, Grace: cfg.ReplyGrace.Duration},
 		ready:    st.readyCheck,
 		pending:  host.PendingCount,
-		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host) },
+		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host.QueueDepths) },
 		background: []func(context.Context){
 			func(ctx context.Context) { st.openAll(ctx, cfg, dbs, log) },
 		},
@@ -335,7 +343,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	protos.SetHTTP1(slices.Contains(cfg.Protocols, "h1") || a.tls != nil)
 	protos.SetUnencryptedHTTP2(slices.Contains(cfg.Protocols, "h2c") && a.tls == nil)
 	protos.SetHTTP2(a.tls != nil)
-	var handler http.Handler = front.NewHandler(srv, log)
+	handler := front.NewRoutes(srv, log)
 	if cfg.HealthListen == "" || a.queryRoutes != nil {
 		mux := http.NewServeMux()
 		if cfg.HealthListen == "" {
@@ -352,6 +360,9 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		mux.Handle("/", handler)
 		handler = mux
 	}
+	// One deadline wrapper around every route on this listener, the tenancy and lifecycle ones included: the
+	// server below has no read or write timeout of its own.
+	handler = srv.Deadlines(handler)
 	hs := &http.Server{Handler: handler, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	servers := []*http.Server{hs}

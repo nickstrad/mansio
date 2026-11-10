@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 )
@@ -62,4 +63,18 @@ func LoadPool(caFile string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("%s holds no PEM certificate", caFile)
 	}
 	return pool, nil
+}
+
+// Loopback reports whether a listen address (host:port) binds a loopback interface only. A listener that does
+// not needs TLS, and an admin listener must be loopback: binding is its only access control.
+func Loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

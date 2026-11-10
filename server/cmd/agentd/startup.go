@@ -51,7 +51,7 @@ func (st *startup) readyCheck(context.Context) error {
 // jittered backoff until every one is open or ctx ends. One log line per round (AGENT.STARTUP_ROUND; WARN while
 // some fail), and AGENT.ALL_OPEN at the end.
 func (st *startup) openAll(ctx context.Context, cfg *Config, dbs []string, log *slog.Logger) {
-	acfg := cfg.Actor.Actor()
+	acfg := cfg.actorConfig()
 	ids := make(map[string]int, len(dbs))
 	for i, db := range dbs {
 		ids[db] = i
@@ -114,7 +114,7 @@ func openCanary(cfg *Config) (*actor.Actor, func(), error) {
 		cleanup()
 		return nil, nil, errs.Wrap(module, err, "cannot create the canary database")
 	}
-	a := actor.New(-1, path, cfg.Actor.Actor())
+	a := actor.New(-1, path, cfg.actorConfig())
 	if err := a.Start(true); err != nil {
 		cleanup()
 		return nil, nil, errs.Wrap(module, err, "cannot open the canary database")

@@ -51,6 +51,8 @@ func TestCommandsHitTheirEndpoints(t *testing.T) {
 		{[]string{"breaker", "s3", "trip"}, "/admin/breaker/s3:trip"},
 		{[]string{"breaker", "placement", "reset"}, "/admin/breaker/placement:reset"},
 		{[]string{"fetch-limit", "1"}, "/admin/fetch:limit?n=1"}, // on point: the least limit
+		{[]string{"limit", "verify", "1"}, "/admin/limit?queue=verify&n=1"},
+		{[]string{"limit", "credential_place", "32"}, "/admin/limit?queue=credential_place&n=32"},
 		{[]string{"drain"}, "/admin/drain"},
 		{[]string{"passivate", "db 1"}, "/admin/passivate?key=db+1"},
 		{[]string{"backup", "acme:ttt"}, "/admin/backup?key=acme%3Attt"},
@@ -95,7 +97,7 @@ func TestFailuresAndUsage(t *testing.T) {
 
 	unused := newFake(t, 200, `{"code":"ok"}`, 0)
 	for _, args := range [][]string{
-		{}, {"nope"}, {"breaker", "s3"}, {"breaker", "s3", "open"}, {"fetch-limit", "0"}, {"fetch-limit", "x"},
+		{}, {"nope"}, {"breaker", "s3"}, {"breaker", "s3", "open"}, {"fetch-limit", "0"}, {"fetch-limit", "x"}, {"limit", "verify"}, {"limit", "verify", "0"}, {"limit", "verify", "x"},
 		{"drain", "now"}, {"passivate"}, {"backup"}, {"loglevel"}, {"-timeout", "0s", "drain"}, {"-bogus"},
 	} {
 		if code, _, _ := run(context.Background(), append([]string{"-addr", unused.addr()}, args...)...); code != exitUsage {

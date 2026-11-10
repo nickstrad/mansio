@@ -51,7 +51,8 @@ func openEventLog(cfg *Config, log *slog.Logger) (*eventlog.Log, error) {
 		return nil, nil
 	}
 	level, _ := eventlog.ParseLevel(e.Level)
-	ev, err := eventlog.Open(eventlog.Config{Dir: e.Dir, Role: "server", Level: level, Buffer: e.Buffer, MaxFileBytes: e.MaxFileBytes, Log: log})
+	ev, err := eventlog.Open(eventlog.Config{Dir: e.Dir, Role: "server", Level: level, Buffer: e.Buffer, MaxFileBytes: e.MaxFileBytes,
+		MaxTotalBytes: e.MaxTotalBytes, MaxAge: e.MaxAge.Duration, Log: log})
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot open the event log")
 	}
@@ -212,6 +213,13 @@ func eventLogMetrics(reg *metrics.Registry, ev *eventlog.Log) {
 			e.Value(metrics.Labels{"result", "dropped"}, float64(st.Dropped))
 			e.Value(metrics.Labels{"result", "lost"}, float64(st.Lost))
 		})
+	reg.Add("mansio_eventlog_retired_total", "Event log files and bytes deleted by retention (max_total_bytes, max_age).", metrics.Counter,
+		func(e *metrics.Emit) {
+			e.Value(metrics.Labels{"what", "files"}, float64(st.Retired))
+			e.Value(metrics.Labels{"what", "bytes"}, float64(st.RetiredBytes))
+		})
+	reg.Add("mansio_eventlog_bytes", "Bytes of this agent's event log files on disk after the last retention sweep.", metrics.Gauge,
+		func(e *metrics.Emit) { e.Value(nil, float64(st.TreeBytes)) })
 	reg.Add("mansio_eventlog_queue_depth", "Event log records queued for the writer.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(nil, float64(st.Depth))
 	})

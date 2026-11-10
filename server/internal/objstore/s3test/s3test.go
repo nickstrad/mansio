@@ -35,7 +35,7 @@ type Mode int
 
 const (
 	Healthy            Mode = iota
-	HeadersThenStall        // GET/HEAD: send the headers, then nothing until the client gives up
+	HeadersThenStall        // GET/HEAD (a listing too): send the headers, then nothing until the client gives up
 	Dribble                 // GET: send the body at Rate bytes/s (default 1)
 	TruncateBody            // GET: declare the full length, send half, close the connection
 	WrongContentLength      // GET: declare and send one byte less than the object holds
@@ -244,6 +244,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == "" {
+		if f.Mode == HeadersThenStall { // a listing whose status line and headers arrive and whose body never does
+			s.mu.Unlock()
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			s.wait(r, time.Duration(1<<62))
+			return
+		}
 		s.bucketOp(w, r, bucket, body) // unlocks
 		return
 	}

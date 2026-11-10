@@ -11,6 +11,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
 // jsonEndpoints is the shape the lifecycle (control.go) and admin (admin.go) endpoints share: an optional
@@ -22,7 +23,7 @@ type jsonEndpoints struct {
 	log        *slog.Logger
 	event      string // the log event prefix: LIFECYCLE, ADMIN
 	timeout    time.Duration
-	sem        chan struct{}
+	slots      *slots.Pool                 // calls in flight; a full pool refuses
 	authorize  func(r *http.Request) error // nil: no identity check
 	logRefusal func(ce *controlError) bool
 }
@@ -36,13 +37,11 @@ func (e *jsonEndpoints) handle(fn func(ctx context.Context, r *http.Request) (an
 				return
 			}
 		}
-		select {
-		case e.sem <- struct{}{}:
-			defer func() { <-e.sem }()
-		default:
+		if !e.slots.TryAcquire() {
 			e.write(w, r, nil, &controlError{"unavailable", http.StatusServiceUnavailable, "too many calls in flight; retry"})
 			return
 		}
+		defer e.slots.Release()
 		timeout := e.timeout
 		if ms, err := strconv.Atoi(r.Header.Get(front.TimeoutHeader)); err == nil && ms > 0 {
 			timeout = min(timeout, time.Duration(ms)*time.Millisecond)

@@ -11,6 +11,7 @@
 package tenancyhttp
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -24,7 +25,9 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
@@ -37,17 +40,36 @@ type Config struct {
 	// burst 10.
 	SignInRate, SignInBurst float64
 	Log                     *slog.Logger // required
+	// Pools, if set, receives the two slot pools Mount creates (for metrics).
+	Pools *Pools
+}
+
+// DefaultConcurrency is Config.Concurrency's default.
+const DefaultConcurrency = 16
+
+// Pools are the routes' slot pools: admin calls, and sign-in/up calls, each Config.Concurrency slots, so
+// neither starves the other. A call that finds none free is refused at once and counted.
+type Pools struct{ Admin, Auth *slots.Pool }
+
+// Queues is the two pools for metrics.Queues (nothing before Mount).
+func (p *Pools) Queues() []metrics.QueueStat {
+	if p.Admin == nil {
+		return nil
+	}
+	return []metrics.QueueStat{p.Admin.Stat("tenancy_admin"), p.Auth.Stat("tenancy_auth")}
 }
 
 // maxBody caps every request body (Release It B6).
 const maxBody = 4 << 10
 
+// writeGrace is how long past a call's Timeout its answer may take to write.
+const writeGrace = 2 * time.Second
+
 type routes struct {
-	svc      *tenancy.Service
-	cfg      Config
-	adminSem chan struct{} // admin calls; sign-in/up have their own slots (authSem), so neither starves the other
-	authSem  chan struct{}
-	limiter  *ratelimit.SourceLimiter
+	svc     *tenancy.Service
+	cfg     Config
+	pools   Pools
+	limiter *ratelimit.SourceLimiter
 }
 
 // Mount registers "/admin/" and, in session mode, "/api/auth/" on mux. Without a store (off mode) the admin
@@ -57,7 +79,7 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 		cfg.Timeout = 10 * time.Second
 	}
 	if cfg.Concurrency == 0 {
-		cfg.Concurrency = 16
+		cfg.Concurrency = DefaultConcurrency
 	}
 	if cfg.SignInRate == 0 {
 		cfg.SignInRate, cfg.SignInBurst = 1, 10
@@ -68,8 +90,11 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 	case cfg.Log == nil || cfg.Timeout < 0 || cfg.Concurrency < 1 || cfg.SignInRate < 0 || cfg.SignInBurst < 1:
 		return errs.Wrap("tenancy", tenancy.ErrInvalid, "tenancyhttp: log required; timeout >= 0, concurrency >= 1, sign-in burst >= 1")
 	}
-	rt := &routes{svc: svc, cfg: cfg, adminSem: make(chan struct{}, cfg.Concurrency), authSem: make(chan struct{}, cfg.Concurrency),
+	rt := &routes{svc: svc, cfg: cfg, pools: Pools{Admin: slots.New(cfg.Concurrency), Auth: slots.New(cfg.Concurrency)},
 		limiter: ratelimit.NewSourceLimiter(cfg.SignInRate, cfg.SignInBurst, 100_000)}
+	if cfg.Pools != nil {
+		*cfg.Pools = rt.pools
+	}
 	admin := http.NewServeMux()
 	if svc.Mode() != tenancy.Off {
 		rt.adminRoutes(admin)
@@ -192,7 +217,7 @@ func toIssued(k tenancy.IssuedKey) map[string]any {
 
 // decode reads a JSON object body (at most maxBody, unknown fields refused) into v.
 func decode(r *http.Request, v any) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxBody))
+	dec := json.NewDecoder(r.Body) // bounded and already in memory: prepare read it
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return errs.Wrap("tenancy", tenancy.ErrInvalid, "the body must be a JSON object with only the documented fields")
@@ -200,26 +225,34 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
-// enter takes a slot of sem, or reports false (all taken: refuse, never queue).
-func enter(sem chan struct{}) bool {
-	select {
-	case sem <- struct{}{}:
-		return true
-	default:
+// prepare runs before a call takes a slot, so a client that sends slowly holds none: it reads the whole body
+// (at most maxBody; the rest is ignored) into memory, under whatever read deadline the listener set, and
+// allows the answer to be written for the call's Timeout plus writeGrace. It reports false if the body could
+// not be read; the caller answers 400.
+func (rt *routes) prepare(w http.ResponseWriter, r *http.Request) bool {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	if err != nil {
 		return false
 	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(rt.cfg.Timeout + writeGrace)) // error: a test recorder
+	return true
 }
 
 // admin wraps an admin handler: slot, deadline, the {"result"} / {"error"} answer. notFound is the tag of
 // ErrNotFound.
 func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !enter(rt.adminSem) {
+		if !rt.prepare(w, r) {
+			adminError(w, http.StatusBadRequest, "SchemaError", "the body could not be read in time")
+			return
+		}
+		if !rt.pools.Admin.TryAcquire() {
 			w.Header().Set("Retry-After", "1")
 			adminError(w, http.StatusServiceUnavailable, "shed", "too many admin calls at once; retry")
 			return
 		}
-		defer func() { <-rt.adminSem }()
+		defer rt.pools.Admin.Release()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		out, err := fn(ctx, r)
@@ -319,16 +352,20 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 			authError(w, http.StatusTooManyRequests, "TOO_MANY_REQUESTS", "Too many requests. Please try again later.")
 			return
 		}
-		if !enter(rt.authSem) {
+		if !rt.prepare(w, r) {
+			authError(w, http.StatusBadRequest, "VALIDATION_ERROR", "The body could not be read in time.")
+			return
+		}
+		if !rt.pools.Auth.TryAcquire() {
 			w.Header().Set("Retry-After", "1")
 			authError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "Too many requests at once; retry.")
 			return
 		}
-		defer func() { <-rt.authSem }()
+		defer rt.pools.Auth.Release()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		var b authBody
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&b); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			authError(w, http.StatusBadRequest, "VALIDATION_ERROR", "The body must be a JSON object.")
 			return
 		}

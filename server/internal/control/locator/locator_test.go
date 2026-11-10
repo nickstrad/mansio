@@ -15,6 +15,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
@@ -637,5 +638,74 @@ func TestCredentialsResolveApps(t *testing.T) {
 	// A cached credential is never charged.
 	if _, err := f.l.Resolve(ctx, Request{Name: "notes", App: true, APIKey: "legacy-globex", Source: "s"}); err != nil {
 		t.Fatalf("cached credential with the source out of tokens: %v", err)
+	}
+}
+
+// B4's overload scenario: a cold cache in front of a slow store. Before, every distinct key started a store
+// read at once (bounded only by the 256 resolve slots) and the callers beyond the connection pool waited
+// inside it until LoadTimeout. With LoadSlots sized below the pool, at most that many reads run; the other
+// cold keys are refused ErrBusy at once, callers joining a load in flight and cache hits are not affected,
+// and the slots free when the loads end.
+func TestLoadSlotsBoundStoreReads(t *testing.T) {
+	const loads, cold = 2, 10
+	pool := slots.New(loads)
+	f := newFixture(t, Config{LoadSlots: pool})
+	f.l.Reset() // a listener is connected: the cache is in use
+	for i := range cold {
+		f.st.set(fmt.Sprintf("acme:cold-%d", i), Placement{Intent: "active", Found: true, VM: "vm-a", Epoch: 1})
+	}
+	if _, err := f.resolve(t, "db", 0); err != nil { // warms the key and acme:db
+		t.Fatal(err)
+	}
+	if n := pool.InUse(); n != 0 {
+		t.Fatalf("%d load slots held with nothing loading", n)
+	}
+
+	f.st.block = make(chan struct{}) // the store goes slow
+	errc := make(chan error, cold)
+	start := time.Now()
+	for i := range cold {
+		go func() { _, err := f.resolve(t, fmt.Sprintf("cold-%d", i), 0); errc <- err }()
+	}
+	var busy int
+	for range cold - loads { // the refused ones answer while the store is still blocked
+		select {
+		case err := <-errc:
+			if !errors.Is(err, ErrBusy) {
+				t.Fatalf("a cold resolve beyond the load slots: %v, want ErrBusy", err)
+			}
+			busy++
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d of %d cold resolves were refused while the store was blocked", busy, cold-loads)
+		}
+	}
+	if el := time.Since(start); el > time.Second {
+		t.Fatalf("refusals took %v; they must not wait for the store", el)
+	}
+	if pool.Shed() != cold-loads || pool.InUse() != loads {
+		t.Fatalf("load shed %d (want %d), slots held %d (want %d)", pool.Shed(), cold-loads, pool.InUse(), loads)
+	}
+	if replica, _ := f.st.counts(); replica != 1+loads {
+		t.Fatalf("%d store reads started, want the warm-up and %d", replica, loads)
+	}
+	// Warm traffic is untouched while every load slot is taken.
+	if _, err := f.resolve(t, "db", 0); err != nil {
+		t.Fatalf("a cached resolve with the load slots full: %v", err)
+	}
+
+	close(f.st.block)
+	for range loads {
+		if err := <-errc; err != nil {
+			t.Fatalf("a load that had a slot: %v", err)
+		}
+	}
+	waitFor(t, func() bool { return pool.InUse() == 0 })
+	f.st.mu.Lock()
+	f.st.block = nil
+	f.st.mu.Unlock()
+	for i := range cold { // the refused keys resolve once the store answers again
+		if _, err := f.resolve(t, fmt.Sprintf("cold-%d", i), 0); err != nil {
+			t.Fatalf("cold-%d after the store recovered: %v", i, err)
+		}
 	}
 }

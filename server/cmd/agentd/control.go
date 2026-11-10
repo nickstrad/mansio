@@ -63,11 +63,10 @@ type control struct {
 	d     *durableAgent
 	srv   *front.Server
 	token string
-	sem   chan struct{} // lifecycle_concurrency slots; a full one sheds
 }
 
 func (c *control) routes(mux *http.ServeMux) {
-	ep := &jsonEndpoints{log: c.d.log, event: "LIFECYCLE", timeout: c.d.cfg.LifecycleTimeout.Duration, sem: c.sem, authorize: c.authorize,
+	ep := &jsonEndpoints{log: c.d.log, event: "LIFECYCLE", timeout: c.d.cfg.LifecycleTimeout.Duration, slots: c.d.lifecycle, authorize: c.authorize,
 		logRefusal: func(ce *controlError) bool { return ce.status >= 500 || ce.code == "fenced" }}
 	mux.HandleFunc("POST "+claimPath, ep.handle(c.claim))
 	mux.HandleFunc("POST "+fencePath, ep.handle(c.fence))

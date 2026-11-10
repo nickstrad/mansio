@@ -25,6 +25,8 @@ type TickReport struct {
 	// with the oldest last write-back (or activation) has gone unpublished, at the start of the tick. It
 	// bounds the writes a crash would lose (RPO). 0 when nothing is dirty.
 	OldestDirtyAge time.Duration
+	// Dirty counts the warm databases with unpublished writes at the start of the tick.
+	Dirty int
 	// Took is the tick's duration; Missed counts the intervals RunMaintenance skipped while it ran (ticks
 	// never overlap: a slow tick is reported, not stacked). Missed is 0 from a direct Tick.
 	Took   time.Duration
@@ -83,7 +85,8 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 		}
 		cands[i] = c
 	}
-	r := TickReport{Plan: PlanTick(now, cands, h.opts.Policy), Errors: map[string]error{}, OldestDirtyAge: oldestDirtyAge(now, cands)}
+	r := TickReport{Plan: PlanTick(now, cands, h.opts.Policy), Errors: map[string]error{}}
+	r.OldestDirtyAge, r.Dirty = dirtyState(now, cands)
 	t0 := h.opts.Clock.Now()
 
 	var jobs []string
@@ -133,15 +136,15 @@ func (h *Host) Tick(ctx context.Context) (TickReport, error) {
 	return r, nil
 }
 
-// oldestDirtyAge is the age of the oldest unpublished state among cands.
-func oldestDirtyAge(now time.Time, cands []Candidate) time.Duration {
-	var age time.Duration
+// dirtyState is the age of the oldest unpublished state among cands, and how many of them are dirty.
+func dirtyState(now time.Time, cands []Candidate) (oldest time.Duration, dirty int) {
 	for _, c := range cands {
 		if c.Dirty {
-			age = max(age, now.Sub(c.LastWriteBack))
+			oldest = max(oldest, now.Sub(c.LastWriteBack))
+			dirty++
 		}
 	}
-	return age
+	return oldest, dirty
 }
 
 // RunMaintenance calls Tick every interval until ctx ends or the host closes, passing each report to report

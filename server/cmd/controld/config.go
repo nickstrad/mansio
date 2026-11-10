@@ -29,8 +29,15 @@ type Config struct {
 	SecretsFile string      `json:"secrets_file"` // 0600: pg_dsn, control_token, admin_token, s3 keys (required)
 
 	PG struct {
-		Schema   string `json:"schema"`    // search_path ("" = server default); tests use one schema each
-		MaxConns int32  `json:"max_conns"` // default 20
+		Schema string `json:"schema"` // search_path ("" = server default); tests use one schema each
+		// MaxConns is this process's pool (default 32). It is a per-process limit on a shared dependency: N
+		// controld instances hold up to N × max_conns connections (plus one listener connection each), so keep
+		// N × (max_conns + 1) under Postgres's max_connections less what other clients need (three instances
+		// fit under the stock 100). Inside one process the callers of the pool are budgeted below it, so nobody
+		// queues inside the pool: locator.load_concurrency (10) + locator.create_concurrency (2) +
+		// api_concurrency (16) = 28 of 32, and the rest is for the heartbeat, the resumer and tenancy. The
+		// config is refused if the three do not leave a connection free.
+		MaxConns int32 `json:"max_conns"`
 	} `json:"pg"`
 
 	// S3 is where the databases live: controld deletes a dropped database's prefix (the gc identity: Read,
@@ -66,21 +73,31 @@ type Config struct {
 	ResumeLimit       int           `json:"resume_limit"`       // keys per scan per pass; default 100
 	PerKeyTimeout     load.Duration `json:"per_key_timeout"`    // one key's resume or restore; default 60 s
 	APITimeout        load.Duration `json:"api_timeout"`        // one API call; default 2 min (a restore moves many keys)
-	APIConcurrency    int           `json:"api_concurrency"`    // API calls at once; more are refused 503; default 16
+	APIConcurrency    int           `json:"api_concurrency"`    // API calls at once; more are refused 503; default 16 (see pg.max_conns)
 	ShutdownBudget    load.Duration `json:"shutdown_budget"`    // default 10 s
+	// DrainDelay is how long controld keeps serving after /readyz starts failing at shutdown, before it stops
+	// accepting: at least the load balancer's readiness poll interval. Default 0. Part of shutdown_budget.
+	DrainDelay load.Duration `json:"drain_delay"`
 
 	// Locator is the resolve API (CP-5): POST /v1/resolve with an API key, answered from a placement cache
 	// that Postgres notifications invalidate (PG-10). Its own bulkhead: resolves never queue behind admin calls.
 	Locator struct {
-		TicketTTL   load.Duration `json:"ticket_ttl"`   // default 60 s; must not exceed the agents' max_ticket_ttl
-		CacheTTL    load.Duration `json:"cache_ttl"`    // default 5 min (notifications invalidate sooner)
-		CacheMax    int           `json:"cache_max"`    // default 100 000
-		AuthTTL     load.Duration `json:"auth_ttl"`     // API key rows cached; default 10 s
-		Timeout     load.Duration `json:"timeout"`      // one resolve; default 3 s
-		Concurrency int           `json:"concurrency"`  // resolves at once; more are refused 503; default 256
-		MovingRetry load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
-		ClaimRetry  load.Duration `json:"claim_retry"`  // retry_after_ms while a new owner's claim is pending; default 50 ms
-		ListenPing  load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
+		TicketTTL   load.Duration `json:"ticket_ttl"`  // default 60 s; must not exceed the agents' max_ticket_ttl
+		CacheTTL    load.Duration `json:"cache_ttl"`   // default 5 min (notifications invalidate sooner)
+		CacheMax    int           `json:"cache_max"`   // default 100 000
+		AuthTTL     load.Duration `json:"auth_ttl"`    // API key rows cached; default 10 s
+		Timeout     load.Duration `json:"timeout"`     // one resolve; default 3 s
+		Concurrency int           `json:"concurrency"` // resolves at once; more are refused 503; default 256
+		// LoadConcurrency bounds the Postgres reads resolves start (placement and API-key loads on a cache miss,
+		// and the agents' schema reads): more are refused shed + Retry-After at once. Cache hits take none, so
+		// concurrency stays wide. Default 10 (see pg.max_conns).
+		LoadConcurrency int `json:"load_concurrency"`
+		// CreateConcurrency bounds creates on first use in flight (each counts databases, writes the registry and
+		// calls an agent's lifecycle API); more are refused shed + Retry-After. Default 2.
+		CreateConcurrency int           `json:"create_concurrency"`
+		MovingRetry       load.Duration `json:"moving_retry"` // Retry-After while a database moves; default 1 s
+		ClaimRetry        load.Duration `json:"claim_retry"`  // retry_after_ms while a new owner's claim is pending; default 50 ms
+		ListenPing        load.Duration `json:"listen_ping"`  // a silent listener connection is pinged after this; default 5 s
 		// RateLimit charges each source (client IP, IPv6 /64) one token per API key id not in the key cache
 		// (unknown ids are never cached and each costs a primary read). Empty: answer shed + Retry-After.
 		RateLimit struct {
@@ -147,9 +164,10 @@ func defaults() Config {
 		HeartbeatTimeout: d(time.Second), ResumeInterval: d(5 * time.Second), ResumeAfter: d(30 * time.Second), ResumeLimit: 100,
 		PerKeyTimeout: d(time.Minute), APITimeout: d(2 * time.Minute), APIConcurrency: 16, ShutdownBudget: d(10 * time.Second),
 		LogLevel: "info"}
-	c.PG.MaxConns = 20
+	c.PG.MaxConns = 32
 	c.Locator.TicketTTL, c.Locator.CacheTTL, c.Locator.AuthTTL = d(time.Minute), d(5*time.Minute), d(10*time.Second)
 	c.Locator.CacheMax, c.Locator.Timeout, c.Locator.Concurrency = 100_000, d(3*time.Second), 256
+	c.Locator.LoadConcurrency, c.Locator.CreateConcurrency = 10, 2
 	c.Locator.RateLimit.PerSecond, c.Locator.RateLimit.Burst, c.Locator.RateLimit.MaxSources = 20, 50, 100_000
 	c.Locator.MaxDBs, c.Locator.MaxDBsPerTenant = 10_000, 100
 	c.Locator.MovingRetry, c.Locator.ClaimRetry, c.Locator.ListenPing = d(time.Second), d(50*time.Millisecond), d(5*time.Second)
@@ -250,6 +268,15 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.ResumeAfter.Duration < 0 || c.ResumeLimit < 1 || c.APIConcurrency < 1 || c.PG.MaxConns < 1 {
 		bad("resume_after must be >= 0; resume_limit, api_concurrency and pg.max_conns >= 1")
+	}
+	if l := c.Locator; l.LoadConcurrency < 1 || l.CreateConcurrency < 1 {
+		bad("locator.load_concurrency and locator.create_concurrency must be >= 1")
+	} else if used := l.LoadConcurrency + l.CreateConcurrency + c.APIConcurrency; used >= int(c.PG.MaxConns) {
+		bad("locator.load_concurrency %d + locator.create_concurrency %d + api_concurrency %d = %d must be below pg.max_conns %d "+
+			"(the heartbeat and the resumer need a connection too)", l.LoadConcurrency, l.CreateConcurrency, c.APIConcurrency, used, c.PG.MaxConns)
+	}
+	if c.DrainDelay.Duration < 0 || c.DrainDelay.Duration >= c.ShutdownBudget.Duration {
+		bad("drain_delay %v must be >= 0 and below shutdown_budget %v (it is part of the shutdown)", c.DrainDelay, c.ShutdownBudget)
 	}
 	if c.HeartbeatTimeout.Duration >= c.HeartbeatInterval.Duration {
 		bad("heartbeat_timeout %v must be shorter than heartbeat_interval %v", c.HeartbeatTimeout, c.HeartbeatInterval)

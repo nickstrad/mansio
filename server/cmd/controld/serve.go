@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/control"
 	"github.com/nickstrad/mansio/server/internal/control/agenthttp"
@@ -30,7 +32,9 @@ import (
 	"github.com/nickstrad/mansio/server/internal/parallel"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
+	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
@@ -44,20 +48,25 @@ type daemon struct {
 	agents map[string]*agenthttp.Client
 	token  string // the API's admin token
 	edge   string // the edges' token for GET /v1/agents; "" = off
-	sem    chan struct{}
+	// The slot pools; a full one refuses at once. api: the admin API (api_concurrency). resolves: every resolve
+	// (locator.concurrency). loads: the Postgres reads the data path starts (locator.load_concurrency), shared
+	// by the locator's loads and the agents' schema reads. creates: creates on first use
+	// (locator.create_concurrency). limits.go is the lever that changes a limit at run time.
+	api, resolves, loads, creates *slots.Pool
+	// tenancyPools are the tenant admin and sign-in slot pools (tenancy.go).
+	tenancyPools tenancyhttp.Pools
 
 	ready      atomic.Bool // schema migrated and agents registered
+	stopping   atomic.Bool // shutdown began: /readyz fails while the API still answers for drain_delay
 	agentUp    sync.Map    // vm → bool: last health answer ok (transitions logged)
 	resumed    atomic.Int64
 	resumeFail atomic.Int64 // keys that failed in the last pass
 
 	// The locator and issuer (CP-5, locator.go).
-	replica     *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
-	loc         *locator.Locator
-	signer      *ticket.Signer
-	keys        *keyDir
-	resolveSem  chan struct{}
-	resolveShed atomic.Int64
+	replica *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
+	loc     *locator.Locator
+	signer  *ticket.Signer
+	keys    *keyDir
 
 	// Multi-node tenancy (tenancy.go): nil without a "tenancy" section.
 	tenancy *tenancy.Service
@@ -132,7 +141,8 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
 		schemas: p, control: sec.ControlToken, checkSchema: canonicalSchema,
-		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency), signer: &ticket.Signer{}}
+		api: slots.New(cfg.APIConcurrency), resolves: slots.New(cfg.Locator.Concurrency),
+		loads: slots.New(cfg.Locator.LoadConcurrency), creates: slots.New(cfg.Locator.CreateConcurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
 			Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "placement-replica")}}); err != nil {
@@ -157,7 +167,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds,
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds, LoadSlots: d.loads,
 		Limiter: ratelimit.NewSourceLimiter(lc.RateLimit.PerSecond, lc.RateLimit.Burst, lc.RateLimit.MaxSources)})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
@@ -248,8 +258,17 @@ func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, 
 	}
 	sctx, cancel := context.WithTimeout(context.Background(), d.cfg.ShutdownBudget.Duration)
 	defer cancel()
+	// Fail readiness first and keep serving for drain_delay, so a balancer polling /readyz stops routing here
+	// before the listener closes.
+	d.stopping.Store(true)
+	if serveErr == nil {
+		time.Sleep(d.cfg.DrainDelay.Duration)
+	}
 	stop()
 	shutErr := hs.Shutdown(sctx)
+	if shutErr != nil {
+		hs.Close() // the budget passed with calls still in flight: cut them rather than outlive it
+	}
 	done := make(chan struct{})
 	go func() { bg.Wait(); close(done) }()
 	select {
@@ -379,6 +398,18 @@ func (d *daemon) register(reg *metrics.Registry) {
 	}
 	metrics.Breakers(reg, deps)
 	d.registerLocator(reg)
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		return []metrics.QueueStat{d.api.Stat("controld_api"), d.resolves.Stat("resolve"), d.loads.Stat("resolve_load"),
+			d.creates.Stat("resolve_create")}
+	})
+	if d.tenancy != nil {
+		metrics.Queues(reg, d.tenancyPools.Queues)
+	}
+	pools := map[string]*pg.Placement{"placement": d.pg}
+	if d.replica != d.pg {
+		pools["placement-replica"] = d.replica
+	}
+	poolMetrics(reg, pools)
 	reg.Add("controld_agent_up", "1 when the agent's last health call answered.", metrics.Gauge, func(e *metrics.Emit) {
 		for _, vm := range slices.Sorted(maps.Keys(d.agents)) {
 			v := 0.0
@@ -405,3 +436,38 @@ func (d *daemon) register(reg *metrics.Registry) {
 
 // wellFormed are the error modules whose errors controld reports as expected failures (exit 1).
 var wellFormed = map[string]bool{module: true, "placement": true, "objstore": true, "agenthttp": true, "control": true}
+
+// poolMetrics exposes each Postgres pool's own counters (pgxpool.Stat): callers beyond max_conns wait inside
+// the pool, so its acquire wait is a queue's wait and must be visible (one Stat per pool per scrape).
+func poolMetrics(reg *metrics.Registry, pools map[string]*pg.Placement) {
+	names := slices.Sorted(maps.Keys(pools))
+	stats := make([]*pgxpool.Stat, len(names))
+	reg.OnScrape(func() {
+		for i, name := range names {
+			stats[i] = pools[name].Stat()
+		}
+	})
+	each := func(name, help string, typ metrics.Type, v func(st *pgxpool.Stat) float64) {
+		reg.Add(name, help, typ, func(e *metrics.Emit) {
+			for i, pool := range names {
+				e.Value(metrics.Labels{"pool", pool}, v(stats[i]))
+			}
+		})
+	}
+	each("controld_pg_pool_acquires_total", "Connections acquired from the pool.", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.AcquireCount()) })
+	each("controld_pg_pool_acquires_waited_total", "Acquires that waited for a connection to be released or opened (it grows while the pool warms up; steady growth means callers queue in the pool).", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.EmptyAcquireCount()) })
+	each("controld_pg_pool_acquires_canceled_total", "Acquires given up while waiting (the caller's deadline passed).", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.CanceledAcquireCount()) })
+	each("controld_pg_pool_acquire_wait_seconds_total", "Total time spent acquiring connections.", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return st.AcquireDuration().Seconds() })
+	reg.Add("controld_pg_pool_conns", "Pool connections: in use, idle, and the limit (pg.max_conns).", metrics.Gauge, func(e *metrics.Emit) {
+		for i, pool := range names {
+			st := stats[i]
+			e.Value(metrics.Labels{"pool", pool, "state", "in_use"}, float64(st.AcquiredConns()))
+			e.Value(metrics.Labels{"pool", pool, "state", "idle"}, float64(st.IdleConns()))
+			e.Value(metrics.Labels{"pool", pool, "state", "max"}, float64(st.MaxConns()))
+		}
+	})
+}

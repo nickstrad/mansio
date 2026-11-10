@@ -19,11 +19,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/nickstrad/mansio/server/internal/control/locator"
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
+	"github.com/nickstrad/mansio/server/internal/slots"
+	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
 // The schema registry routes (schemas.go): spec tests against a fake store, then the agent's client
@@ -35,6 +38,7 @@ type memSchemas struct {
 	mu   sync.Mutex
 	regs map[[2]string][]byte
 	fail error // every call fails with this (e.g. pg.ErrUnavailable)
+	apps int   // AppRegistered calls
 }
 
 func (m *memSchemas) RegisterSchema(_ context.Context, app, fp string, text []byte) (bool, error) {
@@ -68,6 +72,7 @@ func (m *memSchemas) GetSchema(_ context.Context, app, fp string) ([]byte, error
 func (m *memSchemas) AppRegistered(_ context.Context, app string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.apps++
 	for k := range m.regs {
 		if k[0] == app {
 			return true, m.fail
@@ -88,7 +93,8 @@ func schemaDaemon(t *testing.T, store schemaStore) (*httptest.Server, *daemon) {
 	cfg := defaults()
 	cfg.APITimeout = load.Duration{Duration: 5 * time.Second}
 	d := &daemon{cfg: &cfg, log: slog.New(slog.NewTextHandler(io.Discard, nil)), token: adminToken, control: controlToken,
-		sem: make(chan struct{}, 4), resolveSem: make(chan struct{}, 4), schemas: store}
+		api: slots.New(4), resolves: slots.New(4), loads: slots.New(4), creates: slots.New(2),
+		schemas: store}
 	d.ready.Store(true)
 	h, err := d.routes(metrics.NewRegistry())
 	if err != nil {
@@ -105,8 +111,8 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	srv, d := schemaDaemon(t, store)
 	fp := schemareg.Fingerprint([]byte(schemaText))
 	store.RegisterSchema(context.Background(), "tic-tac-toe", fp, []byte(schemaText))
-	for range cap(d.sem) {
-		d.sem <- struct{}{}
+	for range d.api.Limit() {
+		d.api.TryAcquire()
 	}
 	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 200 {
 		t.Fatalf("GET with the admin bulkhead full: %d %v", code, out)
@@ -114,6 +120,9 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"fingerprint": fp, "schema": schemaText})
 	if code, _ := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != 503 {
 		t.Fatalf("PUT with the admin bulkhead full: %d, want 503", code)
+	}
+	if d.api.Shed() != 1 || d.resolves.Shed() != 0 || d.loads.Shed() != 0 { // B1: counted against its own pool
+		t.Fatalf("refusals counted: api %d resolve %d load %d, want 1, 0 and 0", d.api.Shed(), d.resolves.Shed(), d.loads.Shed())
 	}
 }
 
@@ -294,5 +303,109 @@ func TestRegisterSchemaChecksFingerprintForm(t *testing.T) {
 	}
 	if len(store.regs) != 1 {
 		t.Fatalf("stored %d schemas, want 1", len(store.regs))
+	}
+}
+
+// creatableStore is a locator.Store with one API key and no databases: every app resolve with "create" is
+// creatable.
+type creatableStore struct {
+	id  string
+	key locator.StoredKey
+}
+
+func (s creatableStore) Locate(context.Context, string, bool) (locator.Placement, error) {
+	return locator.Placement{}, nil
+}
+
+func (s creatableStore) APIKey(_ context.Context, id string) (locator.StoredKey, error) {
+	if id != s.id {
+		return locator.StoredKey{}, locator.ErrNotFound
+	}
+	return s.key, nil
+}
+
+type noSigner struct{}
+
+func (noSigner) Mint(ticket.Claims) (string, error) { return "", errors.New("not reached") }
+
+// B4: create on first use has its own small bulkhead. With every create slot taken, a creating resolve is
+// refused shed with Retry-After before it reads the schema registry, counts databases or calls an agent.
+func TestCreateOnFirstUseIsBoundedByItsOwnSlots(t *testing.T) {
+	store := &memSchemas{regs: map[[2]string][]byte{}}
+	srv, d := schemaDaemon(t, store)
+	key, id, hash, err := locator.NewAPIKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.loc = locator.New(creatableStore{id, locator.StoredKey{Tenant: "acme", Principal: "app", Perms: ticket.Read | ticket.Write, Hash: hash}},
+		noSigner{}, locator.Config{LoadSlots: d.loads})
+	for range d.creates.Limit() {
+		d.creates.TryAcquire()
+	}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/resolve", strings.NewReader(`{"tenant":"acme","app":"tic-tac-toe","create":true}`))
+	req.Header.Set("Authorization", "Bearer "+key)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	json.NewDecoder(res.Body).Decode(&out)
+	if res.StatusCode != 503 || out["code"] != "shed" || res.Header.Get("Retry-After") == "" {
+		t.Fatalf("creating resolve with the create slots taken: %d %v (Retry-After %q)", res.StatusCode, out, res.Header.Get("Retry-After"))
+	}
+	if d.creates.Shed() != 1 || store.appReads() != 0 {
+		t.Fatalf("create refusals %d (want 1), schema registry reads %d (want 0: refused before any work)", d.creates.Shed(), store.appReads())
+	}
+}
+
+func (m *memSchemas) appReads() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.apps
+}
+
+// B11: the pools in front of Postgres have a runtime lever. Lowering resolve_load applies to the next read; the
+// pool budget (load + create + api below pg.max_conns) cannot be broken at run time either.
+func TestLimitLever(t *testing.T) {
+	store := &memSchemas{regs: map[[2]string][]byte{}}
+	srv, d := schemaDaemon(t, store) // api 4, loads 4, creates 2; pg.max_conns 32
+	fp := schemareg.Fingerprint([]byte(schemaText))
+	store.RegisterSchema(context.Background(), "tic-tac-toe", fp, []byte(schemaText))
+	limit := func(queue string, n int) (int, map[string]any) {
+		body, _ := json.Marshal(map[string]int{"limit": n})
+		return do(t, srv, http.MethodPost, "/v1/limits/"+queue, adminToken, body)
+	}
+	if code, out := limit("resolve_load", 1); code != 200 || out["previous"] != 4.0 || out["limit"] != 1.0 || d.loads.Limit() != 1 {
+		t.Fatalf("lower resolve_load to 1 (on point): %d %v, pool limit %d", code, out, d.loads.Limit())
+	}
+	d.loads.TryAcquire() // one store read in flight: the lowered pool is full
+	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 503 {
+		t.Fatalf("a schema read beyond the lowered limit: %d %v, want 503", code, out)
+	}
+	d.loads.Release()
+	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 200 {
+		t.Fatalf("a schema read within the lowered limit: %d %v", code, out)
+	}
+	for _, tc := range []struct {
+		queue  string
+		n      int
+		status int
+		code   string
+	}{
+		{"resolve_load", 0, 400, "bad_request"},   // off point
+		{"resolve_load", 26, 400, "bad_request"},  // 26 + 2 + 4 = 32: not below pg.max_conns (off point)
+		{"resolve_load", 25, 200, "ok"},           // 31: the on point
+		{"resolve_create", 3, 400, "bad_request"}, // 25 + 3 + 4 = 32
+		{"resolve", 2, 404, "not_found"},          // the wide gate has no lever: it protects no dependency
+		{"controld_api", 2, 200, "ok"},
+		{"resolve_create", 1, 200, "ok"},
+	} {
+		if code, out := limit(tc.queue, tc.n); code != tc.status || out["code"] != tc.code {
+			t.Errorf("limit %s %d: %d %v, want %d %s", tc.queue, tc.n, code, out, tc.status, tc.code)
+		}
+	}
+	if d.loads.Limit() != 25 || d.creates.Limit() != 1 || d.api.Limit() != 2 {
+		t.Fatalf("pool limits %d, %d and %d; want 25, 1 and 2", d.loads.Limit(), d.creates.Limit(), d.api.Limit())
 	}
 }

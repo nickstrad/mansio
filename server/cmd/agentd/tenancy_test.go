@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 	"github.com/nickstrad/mansio/server/internal/placement/file"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
@@ -211,4 +215,100 @@ func TestTenancyDurableClaimCreates(t *testing.T) {
 		return code == 200 && strings.Contains(out, `"text":"hi"`)
 	})
 
+}
+
+// newClaims is a claimingPlace over a fake placement authority and a real owner table.
+func newClaims(t *testing.T, cfg Config) (*claimingPlace, *ownertest.Placement) {
+	t.Helper()
+	pl := ownertest.NewPlacement()
+	tab, err := owner.Open(context.Background(), owner.Config{Self: cfg.VM, Store: ownertest.NewMemStore(), Placement: pl,
+		WriteBack: &ownertest.WriteBack{Objects: ownertest.NewObjects(), Disk: ownertest.NewDisk()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newClaimingPlace(&durableAgent{cfg: &cfg, tab: tab, place: pl}), pl
+}
+
+// B6's overload scenario for the claim path: a first-use storm against a slow placement store. Before, every
+// credential request for a database not yet active queued on one process-wide mutex, held across the authority
+// calls: unbounded in number, outside every limit, and deaf to the request's deadline. Now each database has
+// one flight, at most lifecycle_concurrency flights run, other databases are shed at once, and a waiter leaves
+// at its own deadline while the flight goes on for the rest.
+func TestClaimStormIsBoundedAndObeysDeadlines(t *testing.T) {
+	p, pl := newClaims(t, Config{VM: "vm-1", CreateDBs: true, MaxDBs: 100, MaxDBsPerTenant: 100, LifecycleConcurrency: 2,
+		LifecycleTimeout: load.Duration{Duration: 10 * time.Second}})
+	pl.SetDelay(300 * time.Millisecond) // every authority call is slow
+	ctx := context.Background()
+	type placed struct {
+		epoch uint64
+		err   error
+	}
+	call := func(ctx context.Context, db string) chan placed {
+		c := make(chan placed, 1)
+		go func() { e, _, err := p.place(ctx, db); c <- placed{e, err} }()
+		return c
+	}
+	a, b := call(ctx, "t1:a"), call(ctx, "t2:b")
+	waitUntil(t, func() bool { return p.flights.InUse() == 2 })
+
+	// A third database: refused at once, nothing started for it.
+	t0 := time.Now()
+	if _, _, err := p.place(ctx, "t3:c"); !errors.Is(err, front.ErrShed) || time.Since(t0) > 100*time.Millisecond {
+		t.Fatalf("a claim beyond lifecycle_concurrency: %v after %v, want shed at once", err, time.Since(t0))
+	}
+	if _, ok := pl.Row("t3:c"); ok || p.flights.Shed() != 1 {
+		t.Fatalf("the shed claim wrote a placement row or was not counted (shed %d)", p.flights.Shed())
+	}
+	// More requests for a database already being claimed join its flight: none is shed, none starts another.
+	joined := []chan placed{call(ctx, "t1:a"), call(ctx, "t1:a"), call(ctx, "t1:a")}
+	// One of them has a short deadline: it leaves on time, and the flight is not cancelled for the others.
+	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	t0 = time.Now()
+	if _, _, err := p.place(short, "t1:a"); !errors.Is(err, context.DeadlineExceeded) || time.Since(t0) > 250*time.Millisecond {
+		t.Fatalf("a waiter with a 50 ms deadline: %v after %v", err, time.Since(t0))
+	}
+	for _, c := range append(joined, a, b) {
+		if r := <-c; r.err != nil || r.epoch != 1 {
+			t.Fatalf("a request that waited for its database's flight: %+v", r)
+		}
+	}
+	if p.flights.Shed() != 1 || p.flights.InUse() != 0 {
+		t.Fatalf("after the storm: shed %d (want 1), flights in flight %d (want 0)", p.flights.Shed(), p.flights.InUse())
+	}
+	// Warm now: no authority call, so the store's delay is not paid.
+	t0 = time.Now()
+	if e, _, err := p.place(ctx, "t1:a"); err != nil || e != 1 || time.Since(t0) > 100*time.Millisecond {
+		t.Fatalf("warm place: epoch %d, %v after %v", e, err, time.Since(t0))
+	}
+	if e, _, err := p.place(ctx, "t3:c"); err != nil || e != 1 {
+		t.Fatalf("the shed database on retry: epoch %d, %v", e, err)
+	}
+}
+
+// Creates stay exact against the caps although claims now run in parallel: of four first uses for one tenant
+// capped at two databases, exactly two create.
+func TestConcurrentCreatesRespectTheTenantCap(t *testing.T) {
+	p, pl := newClaims(t, Config{VM: "vm-1", CreateDBs: true, MaxDBs: 100, MaxDBsPerTenant: 2, LifecycleConcurrency: 4,
+		LifecycleTimeout: load.Duration{Duration: 10 * time.Second}})
+	pl.SetDelay(20 * time.Millisecond)
+	errc := make(chan error, 4)
+	for i := range 4 {
+		go func() { _, _, err := p.place(context.Background(), fmt.Sprintf("acme:db%d", i)); errc <- err }()
+	}
+	var created, refused int
+	for range 4 {
+		var q *front.QuotaError
+		switch err := <-errc; {
+		case err == nil:
+			created++
+		case errors.As(err, &q) && q.Scope == "tenant" && q.Limit == 2:
+			refused++
+		default:
+			t.Fatalf("a first use: %v", err)
+		}
+	}
+	if created != 2 || refused != 2 {
+		t.Fatalf("%d created, %d refused; want 2 and 2", created, refused)
+	}
 }

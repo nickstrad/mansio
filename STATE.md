@@ -1,5 +1,90 @@
 # mansio — project state
 
+## 2026-11-10 — backpressure fixes B1–B11 (Fable 5.2 build + simplify + merge, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-backpressure-fixes-brief.md`; findings and order in
+  `/root/Software/book-notes-work/backpressure-plan/books/backpressure-in-microservices/APPLICATION-PLAN.md`
+  (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
+  `/root/Software/mansio-work/main-merge` (never the main checkout). Notes per finding:
+  `server/knowledge/backpressure/`.
+- Status: **every in-scope finding implemented, simplify pass done, final verification at baseline; merging to
+  main** (the merge SHA is recorded below once it exists).
+- Per finding (commit; overload scenario or main test):
+  - B1 (wave 1): **done** `0277e36` (+ notes moved `77778e0`). Per-queue `mansio_queue_*` families, actor
+    depth in durable mode, `mansio_vactor_dirty`, controld pgx pool stats. `TestOverloadIsVisiblePerQueue`.
+  - B2 (wave 2): **done** `65d1031`. Deadlines on every query-listener route; tenancy reads the body before
+    taking a slot. `TestStalledBodiesHoldNoSlot`.
+  - B3 (wave 2): **done** `3164ec6`. Edge refuses before reading the body; `max_in_flight`.
+    `TestRefusalsCostNoBodyRead`. Deviation: the pre-body check looks at the bulkhead and breaker but holds
+    nothing while the client sends (see `2026-11-10-edge-admission.md`).
+  - B4 (wave 2): **done** `b5071dd`. `locator.load_concurrency` (10) and `locator.create_concurrency` (2);
+    budget enforced at parse time. `TestLoadSlotsBoundStoreReads`. Deviation: `pg.max_conns` default 20 → 32
+    and `api_concurrency` kept at 16 (the plan's example cut it to 4, which breaks `TestGate`'s 8-way
+    creates).
+  - B5 (wave 2): **done** `2429639` (+ test timeout `89f3c30`). `drain_delay` on edge and controld (default
+    0), controld closes at its budget, snapshot and LIST contexts.
+  - B6 (wave 3): **done** `0b0edec`. `verify_slots` before the credential checks, per-database claim flights
+    instead of the global mutex, drain before the body. `TestOpsCredentialChecksAreBounded`,
+    `TestClaimStormIsBoundedAndObeysDeadlines`.
+  - B7 (wave 3): **done** `0c2987e`. Would-expire shedding at admission. `TestOverloadShedsInsteadOfExpiring`
+    (before 203 expired / queue 61, after 0 expired / 203 shed / queue 9).
+  - B8 (wave 4): **done** `9d39f8b` + `fb70e0e`. One contract table (`server/internal/front/contract.go`) →
+    `docs/retry-contract.md` and the shared vectors `ir/vectors/retry.json`, run by both clients; the SDK
+    stops retrying `expired`; reroutes after the first are charged to the budget. Deviation (`fb70e0e`): the
+    locator's `moving` is not charged, because charging it failed requests during routine moves
+    (`TestClientGate`).
+  - B11 (wave 4): **done** `253976e` (one resizable `slots.Pool`, `mansio_queue_depth`) + `15cc322`
+    (`server/docs/capacity.md` generated from the config defaults,
+    `server/deploy/prometheus/backpressure.rules.yml`, runbooks, levers: `agentctl limit`, `controld limit`,
+    the edge's `admin_listen`).
+  - B10 (a) (wave 5): **done** `9db6910`. The write-back window stated exactly in `README.md` and `docs.md`;
+    alert `MansioUnpublishedWritesOld`; `TestStoreOutageShowsAsGrowingDirtyAge`.
+  - B9, event-log retention (wave 5): **done** `4c50817`. `event_log.max_total_bytes` (4 GiB) and `max_age`
+    (45 days) enforced by the writer; records lost at close are counted. `TestRetentionBoundsTheTree`. Not
+    done and not gated (outside this brief's wave 5 scope): exporting the owner-slot count and rotating the
+    operational log.
+  - B10 (b) `max_dirty_age` and B9's warm-set default: **skipped-gated** (Nick's paused LiteFS / write-back
+    decision); not to be implemented in this run.
+- Baseline (clean worktree at `e9488c5`): failures that exist before any change and are not this branch's:
+  `internal/ir` `TestIndexNamesDecodeFast` (timing assertion, fails under `-race`); `cmd/agentd`
+  `TestAdminFetchLimitAppliesToTheNextFetches` (fails every run here); `cmd/agentd` `TestSIGTERMMeetsBudget`
+  (2 of 8 runs under `-race`, same rate on the baseline); `internal/control/locator`
+  `TestLoadTimeoutBoundsALoadNobodyWaitsFor` (hung once for the 10 min timeout, passes on rerun);
+  `internal/bench` `TestCancelDoesNotWaitOutBackoffs` (1 of 10 under `-race`, same on the baseline).
+- Simplify pass: `a235c2d` (no behaviour change): one `tlsx.Loopback` instead of two copies, the edge's verify
+  slots on the shared `slots.Pool`, an unused accessor removed, `vactor.Host.Open` renamed `OpenDBs`. The
+  larger simplification landed inside B11 (`253976e`): one resizable `slots.Pool` replaced five
+  channel-semaphore + counter pairs. `7a7f2e3` corrects one metric's description.
+- Verification (final, at `7a7f2e3`, this VM, 2026-11-10; logs under `/tmp/bp/final-*.log`):
+  - Go, clean snapshot worktree: `gofmt -l .` clean, `go vet ./...` ok; `go test -race ./...` 60 packages ok,
+    failing only the baseline tests listed above (`cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches`,
+    `TestSIGTERMMeetsBudget`, `TestDrainTimeoutIsReported`; `internal/bench`
+    `TestCancelDoesNotWaitOutBackoffs`; `internal/ir` `TestIndexNamesDecodeFast`);
+    `go test -tags noassert
+    ./...` 62 packages ok, failing only
+    `TestAdminFetchLimitAppliesToTheNextFetches`.
+  - Gated Go suites with throwaway Postgres + SeaweedFS (`MANSIO_PG_URL`, `COLDLOAD_S3`): `cmd/controld` (all
+    gates, including `TestGate`, `TestClientGate`, `TestLocatorGate`) and `internal/placement/pg` pass.
+  - `deno task ci` exit 0: fmt, lint, check, 320 unit tests, 61 property tests.
+  - `work-scripts/bash/e2e-linux.sh`: `E2E PASS seed=20261010 scenarios=8`.
+  - `make platform-up` → `platform smoke OK` (write and read through the edge), `make platform-down` clean;
+    run before and after the simplify pass. On the live platform: the new `mansio_queue_*` series on controld,
+    both agents and the edge, `mansio_actor_queue_depth` in durable mode, and `controld limit` changing
+    `mansio_queue_capacity{queue="resolve_load"}`.
+- More baseline flakes met on the way (each reproduced on the untouched baseline): `cmd/agentd`
+  `TestDrainTimeoutIsReported` (6 of 12 under `-race` on the baseline); `internal/metrics` `TestProcess` and
+  `internal/bench` `TestCancelStopsSendingButFinishesTheFiles` (once each under load; both tests untouched).
+- Open, for Nick: B10 (b) `max_dirty_age` and B9's warm-set default (gated, not built); B9's owner-slot count
+  and operational-log rotation (not gated, outside the brief's wave 5 scope); `promtool` is not installed
+  here, so `backpressure.rules.yml` is parsed as YAML and its series are checked, but the rules were not
+  loaded by a Prometheus.
+- Resume: worktree `/root/Software/mansio-work/backpressure-fixes`, branch `feat/backpressure-fixes`;
+  `git log
+  --oneline main..HEAD` shows which findings are committed (B-number in each subject). Scratch,
+  safe to remove: worktrees `/root/Software/mansio-work/bp-baseline` (detached `e9488c5`) and `bp-verify` (a
+  snapshot for full runs); containers `bp-pg` (127.0.0.1:25432) and `bp-seaweed` (127.0.0.1:28333, bucket
+  `coldload` created by hand) for the gated suites: `docker rm -f bp-pg bp-seaweed`. Logs under `/tmp/bp/`.
+
 ## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build, Fable final pass)
 
 - Goal/spec: MANSIO-REFACTORS item 1

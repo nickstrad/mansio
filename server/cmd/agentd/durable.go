@@ -20,6 +20,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/placement/file"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
@@ -46,6 +47,10 @@ type durableAgent struct {
 	ticks   *tickLog
 	events  *ownerEvents
 	probe   s3Probe
+	// lifecycle is the lifecycle endpoints' slot pool (lifecycle_concurrency; a full one sheds).
+	lifecycle *slots.Pool
+	// claims is the credential path's claim-or-create (tenancy.go); nil without a tenancy section.
+	claims *claimingPlace
 
 	firstRound atomic.Bool // the first reconcile round finished (some keys may still be retrying)
 }
@@ -75,9 +80,10 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	}
 	raw := objstore.NewDurable(st, s.Prefix)
 	d := &durableAgent{cfg: cfg, log: log, s3: st, s3b: b, raw: raw, store: durable.WithBreaker(raw, b, s3Transient, nil),
-		canary: canary, ticks: &tickLog{log: log}, events: &ownerEvents{log: log}}
+		canary: canary, ticks: &tickLog{log: log}, events: &ownerEvents{log: log},
+		lifecycle: slots.New(cfg.LifecycleConcurrency)}
 	m := cfg.Maintenance
-	d.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: cfg.Actor.Actor()}, vactor.Options{
+	d.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: cfg.actorConfig()}, vactor.Options{
 		CacheDir: cfg.CacheDir, Store: d.store, GenCacheBytes: cfg.GenCacheBytes,
 		Policy: vactor.Policy{WriteBackEvery: m.WriteBackEvery.Duration, WriteBackCommits: m.WriteBackCommits,
 			IdleAfter: m.IdleAfter.Duration, MaxActive: m.MaxActive, MaxBytes: m.MaxBytes},
@@ -125,7 +131,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		pending:  d.unreconciled,
 		metrics:  d.register,
 		routes: func(mux *http.ServeMux, srv *front.Server) {
-			(&control{d: d, srv: srv, token: sec.ControlToken, sem: make(chan struct{}, cfg.LifecycleConcurrency)}).routes(mux)
+			(&control{d: d, srv: srv, token: sec.ControlToken}).routes(mux)
 		},
 		background: []func(context.Context){d.reconcile, d.maintain, d.runProbe},
 		close:      d.close,
@@ -134,8 +140,11 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		host:       d.host,
 		backup:     d.backup,
 	}
+	be.limits = map[string]*slots.Pool{"lifecycle": d.lifecycle}
 	if cfg.Tenancy != nil {
-		be.credentialPlace = (&claimingPlace{d: d}).place
+		d.claims = newClaimingPlace(d)
+		be.credentialPlace = d.claims.place
+		be.limits["credential_place"] = d.claims.flights
 	}
 	return be, nil
 }
@@ -252,6 +261,23 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
 	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
+	actorMetrics(reg, func() []int {
+		open := d.host.OpenDBs()
+		depths := make([]int, 0, len(open)+1)
+		for _, db := range open {
+			if a, ok := db.(*actordb.DB); ok {
+				depths = append(depths, a.Actor().QueueLen())
+			}
+		}
+		return append(depths, d.canary.QueueDepths()...)
+	})
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		qs := []metrics.QueueStat{d.lifecycle.Stat("lifecycle")}
+		if d.claims != nil {
+			qs = append(qs, d.claims.flights.Stat("credential_place"))
+		}
+		return qs
+	})
 	if d.schemas != nil {
 		schemaMetrics(reg, d.schemas)
 	}

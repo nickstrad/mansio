@@ -177,9 +177,15 @@ control is optimistic: the SDK's derived preconditions make a handler that read 
 `ConflictError` and re-run. A statement that runs past agentd's `statement_timeout` is interrupted and the
 request fails with `StatementDeadlineError` (504); nothing changed.
 
-A successful mutation acknowledges the local SQLite commit. In durable mode the S3 copy follows on the
-write-back schedule (`maintenance.write_back_every`, default 10 s) and on clean shutdown, so a host loss can
-lose acknowledged writes inside that window. This is not a replicated database.
+A successful mutation acknowledges the local SQLite commit, not a durable copy. In durable mode the S3 copy
+follows on the write-back schedule (`maintenance.write_back_every`, default 10 s) and on clean shutdown, so a
+host loss can lose acknowledged writes inside that window. The window is about 11 s with the defaults, not 10:
+the setting, plus up to one 1 s maintenance tick, plus the time the copy and upload take. It has no upper
+bound while S3 is unreachable or its breaker is open: write-backs fail fast, the database stays warm and
+writes keep being acknowledged, so the unpublished window is as long as the outage. agentd exports it as
+`mansio_vactor_oldest_dirty_age_seconds` (with `mansio_vactor_dirty`, the number of databases with unpublished
+writes), and `server/deploy/prometheus/backpressure.rules.yml` alerts when it passes 60 s. This is not a
+replicated database.
 
 ## Errors
 

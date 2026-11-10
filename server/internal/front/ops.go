@@ -13,6 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
@@ -68,6 +69,11 @@ type OpsConfig struct {
 	// the credential and the schema are checked. Errors are answered as they are (ErrUnknownDB, ErrUnavailable,
 	// QuotaError, ...).
 	CredentialPlace func(ctx context.Context, db string) (epoch, gen uint64, err error)
+	// VerifySlots bounds credential requests inside their checks at once: Credentials.Authenticate, the schema
+	// lookup and CredentialPlace may each call a remote store, and they run before admission. A request that
+	// finds no free slot is shed at once, never queued (the edge's verify slots are the same shape). A warm
+	// request holds its slot for microseconds. Default 64.
+	VerifySlots int
 	// Observer, if set, receives every /v1/ops request's trace from the HTTP adapter (opstrace.go).
 	Observer OpsObserver
 }
@@ -81,7 +87,12 @@ type ops struct {
 	schemas  SchemaSource
 	ids      det.IDGen
 	cache    *docexec.Schemas
+	// verify is the credential path's pre-admission slots (OpsConfig.VerifySlots).
+	verify *slots.Pool
 }
+
+// DefaultVerifySlots is OpsConfig.VerifySlots' default.
+const DefaultVerifySlots = 64
 
 // EnableOps turns on /v1/ops (without it the route is an unknown path).
 //
@@ -92,8 +103,20 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 		cfg.IDs = docexec.NewUUIDv7(s.clock, nil)
 	}
 	assert.That(cfg.Credentials == nil || cfg.CredentialEpoch > 0 || cfg.CredentialPlace != nil, "front: credentials need an epoch")
+	if cfg.VerifySlots <= 0 {
+		cfg.VerifySlots = DefaultVerifySlots
+	}
 	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, place: cfg.CredentialPlace, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
-		cache: docexec.NewSchemas(cfg.SchemaCache)}
+		cache: docexec.NewSchemas(cfg.SchemaCache), verify: slots.New(cfg.VerifySlots)}
+}
+
+// OpsVerify is the credential path's pre-admission slots, for metrics and the runtime limit; nil before
+// EnableOps.
+func (s *Server) OpsVerify() *slots.Pool {
+	if s.ops == nil {
+		return nil
+	}
+	return s.ops.verify
 }
 
 // OpsEnabled reports whether EnableOps was called.
@@ -234,6 +257,12 @@ func (s *Server) verifyOps(ctx context.Context, in Input, req *ir.Request, kind 
 			return claims, err
 		}
 	}
+	// The steps below may each call a remote store (the tenancy store, the schema registry, the placement
+	// authority) and run before admission: bound how many requests are inside them, and refuse the rest at once.
+	if !s.ops.verify.TryAcquire() {
+		return ticket.Claims{}, fmt.Errorf("%w: too many credential checks in flight; nothing ran", ErrShed)
+	}
+	defer s.ops.verify.Release()
 	tenant, sub, err := s.ops.creds.Authenticate(ctx, token, req.DB.App)
 	if err != nil {
 		return ticket.Claims{}, err

@@ -177,15 +177,16 @@ func TestResolveIsSingleFlight(t *testing.T) {
 }
 
 // wrong_owner and fenced: drop the route, re-resolve with min_epoch = epoch + 1, retry the write with the SAME
-// request id at the new owner. fenced waits its Retry-After first.
+// request id at the new owner. The first reroute waits a short jittered delay (at most the backoff base), or
+// the server's Retry-After when that is longer (fenced), and does not spend the retry budget.
 func TestRerouteAfterAMove(t *testing.T) {
 	for _, tc := range []struct {
-		code front.Code
-		ra   string
-		wait time.Duration
+		code     front.Code
+		ra       string
+		min, max time.Duration
 	}{
-		{front.WrongOwner, "", 0},
-		{front.Fenced, "1", time.Second},
+		{front.WrongOwner, "", 0, retry.DefaultBase},
+		{front.Fenced, "1", time.Second, time.Second},
 	} {
 		t.Run(string(tc.code), func(t *testing.T) {
 			f := newFake(t)
@@ -210,11 +211,11 @@ func TestRerouteAfterAMove(t *testing.T) {
 			if f.queries[0].requestID != "w-1" || f.queries[1].requestID != "w-1" || f.queries[1].ticket != "vm-new-ticket-4" {
 				t.Fatalf("queries %+v", f.queries)
 			}
-			if len(s.d) != 1 || s.d[0] != tc.wait {
-				t.Fatalf("waits %v, want [%s]", s.d, tc.wait)
+			if len(s.d) != 1 || s.d[0] < tc.min || s.d[0] > tc.max {
+				t.Fatalf("waits %v, want one in [%s, %s]", s.d, tc.min, tc.max)
 			}
 			if _, r := c.Budget().Counts(); r != 0 {
-				t.Fatalf("a reroute spent the retry budget (%d)", r)
+				t.Fatalf("the first reroute spent the retry budget (%d)", r)
 			}
 			// The cache now holds the new route.
 			if _, err := c.Do(context.Background(), write("w-2")); err != nil || len(f.resolves) != 2 {
@@ -302,6 +303,46 @@ func TestRetryHonorsRetryAfter(t *testing.T) {
 	}
 	if f.queries[0].requestID != f.queries[2].requestID {
 		t.Fatal("a retried write changed its request id")
+	}
+}
+
+// B8: reroutes after a call's first are charged to the retry budget and back off, so an agent going away does
+// not turn each call in flight into MaxReroutes free re-resolves against controld. With a budget of one token:
+// the first reroute is free, the second takes the token, the third is refused.
+func TestReroutesAfterTheFirstSpendTheBudget(t *testing.T) {
+	f := newFake(t)
+	a := f.agent("a", func(int) (int, string, front.Response) { return 421, "", front.Response{Code: front.WrongOwner} })
+	f.resolve = func(n int, _ uint64) (int, string, map[string]any) { return 200, "", routeTo("vm-a", a, uint64(n)) }
+	c, s := f.client(func(c *Config) { c.Budget = &retry.Budget{Ratio: 0.01, Burst: 1} })
+	res, err := c.Do(context.Background(), write("w-1"))
+	var ce *Error
+	if !errors.As(err, &ce) || ce.Code != "wrong_owner" || res.Reroutes != 2 || res.Attempts != 3 {
+		t.Fatalf("%+v %v; want wrong_owner after 2 reroutes (3 attempts): the budget refuses the third", res, err)
+	}
+	if _, r := c.Budget().Counts(); r != 1 || len(s.d) != 2 {
+		t.Fatalf("budget retries %d (want 1: the second reroute), waits %v (want 2)", r, s.d)
+	}
+	if len(f.resolves) != 3 {
+		t.Fatalf("%d resolves, want 3 (before the fix: %d, one per free reroute)", len(f.resolves), DefaultMaxReroutes+1)
+	}
+}
+
+// controld's no_capacity (503 + Retry-After) is retried like its other "not now" answers.
+func TestResolveNoCapacityIsRetried(t *testing.T) {
+	f := newFake(t)
+	a := f.agent("a", ok)
+	f.resolve = func(n int, _ uint64) (int, string, map[string]any) {
+		if n == 1 {
+			return 503, "1", map[string]any{"code": "no_capacity"}
+		}
+		return 200, "", routeTo("vm-a", a, 1)
+	}
+	c, s := f.client(nil)
+	if res, err := c.Do(context.Background(), write("")); err != nil || len(s.d) != 1 || s.d[0] != time.Second {
+		t.Fatalf("%+v %v, waits %v; want one retry after the 1 s hint", res, err, s.d)
+	}
+	if _, r := c.Budget().Counts(); r != 1 {
+		t.Fatalf("budget retries %d, want 1", r)
 	}
 }
 

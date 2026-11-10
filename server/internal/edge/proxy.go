@@ -26,6 +26,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
 const module = "edge"
@@ -44,8 +45,13 @@ type Config struct {
 	// free slot is shed at once, so a many-source flood costs at most this much CPU (Release It B1, B2).
 	VerifySlots int
 	// AgentInFlight bounds requests in flight to one agent (default 4096; at least the agent's vm_in_flight +
-	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds.
+	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds. SetAgentInFlight changes
+	// it while serving.
 	AgentInFlight int
+	// MaxInFlight bounds requests in the edge at once, whatever their agent (default 2 × AgentInFlight); more
+	// are shed before their body is read. It is the edge's memory ceiling: MaxInFlight × MaxBody of request
+	// bodies (8 GiB with the defaults; size it to the machine).
+	MaxInFlight int
 	// Breaker is each agent's breaker (zero value: Release It §P). Only transport failures count: an agent
 	// that answers, whatever the code, is reachable (an agent's own S3 outage must not stop its warm traffic,
 	// Release It C5). OnBreaker, if set, gives each agent's breaker its OnChange (log transitions).
@@ -66,10 +72,11 @@ type Config struct {
 // same pipeline for both, the path kept upstream; the edge's own answers take each path's wire format.
 type Edge struct {
 	cfg    Config
-	verify chan struct{} // verify slots
+	verify *slots.Pool // verify slots
 
-	mu  sync.RWMutex
-	ups map[string]*upstream // by VM
+	mu            sync.RWMutex
+	ups           map[string]*upstream // by VM
+	agentInFlight int                  // each upstream's bulkhead limit now (Config.AgentInFlight, or the last SetAgentInFlight)
 
 	draining atomic.Bool
 	st       counters
@@ -79,7 +86,7 @@ type Edge struct {
 type upstream struct {
 	base  string // the agent's base URL; the request's path is appended
 	b     *breaker.Breaker
-	slots chan struct{}
+	slots *slots.Pool // the agent's bulkhead: requests in flight to it
 }
 
 // counters are the edge's request stats; all atomics (the request path takes no lock for them).
@@ -87,9 +94,10 @@ type counters struct {
 	answers                                      [len(front.Codes)]atomic.Int64 // answers the edge made, by code
 	ambiguous                                    atomic.Int64                   // of answers[Expired]: a write may have run
 	agent                                        [6]atomic.Int64                // agent answers by status/100
-	hits, misses, invalid, limited, verifyBusy   atomic.Int64
+	hits, misses, invalid, limited               atomic.Int64
 	inFlight, inFlightHigh                       atomic.Int64
 	transportErrs, unknownVM, bulkheadFull, open atomic.Int64
+	overCap                                      atomic.Int64 // shed at MaxInFlight
 }
 
 // New validates cfg and returns the edge. No I/O.
@@ -106,6 +114,9 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.AgentInFlight <= 0 {
 		cfg.AgentInFlight = 4096
 	}
+	if cfg.MaxInFlight <= 0 {
+		cfg.MaxInFlight = 2 * cfg.AgentInFlight
+	}
 	if err := cfg.Breaker.Normalize(); err != nil {
 		return nil, errs.Wrap(module, err, "edge: invalid agent breaker config")
 	}
@@ -113,8 +124,23 @@ func New(cfg Config) (*Edge, error) {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	cfg.Clock = det.Or(cfg.Clock)
-	return &Edge{cfg: cfg, verify: make(chan struct{}, cfg.VerifySlots), ups: map[string]*upstream{},
+	return &Edge{cfg: cfg, verify: slots.New(cfg.VerifySlots), ups: map[string]*upstream{}, agentInFlight: cfg.AgentInFlight,
 		latency: metrics.NewLatency(nil)}, nil
+}
+
+// SetAgentInFlight changes every agent's bulkhead limit from now on and returns the previous one (an
+// operator's lever: lower it to take load off agents that are struggling, without a restart). Requests in
+// flight finish; an agent over the new limit takes no new request until it is under it.
+//
+//	pre: n >= 1
+func (e *Edge) SetAgentInFlight(n int) (prev int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	prev, e.agentInFlight = e.agentInFlight, n
+	for _, u := range e.ups {
+		u.slots.SetLimit(n)
+	}
+	return prev
 }
 
 // Drain makes the edge shed new requests (and /readyz fail, see cmd/edge); in-flight requests finish.
@@ -173,6 +199,9 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 		return answer{code: front.BadRequest, status: http.StatusMethodNotAllowed, msg: "use POST"}, false
 	case e.draining.Load():
 		return answer{code: front.Shed, msg: "edge draining; nothing ran"}, false
+	case e.st.inFlight.Load() > int64(e.cfg.MaxInFlight): // this request is already counted
+		e.st.overCap.Add(1)
+		return answer{code: front.Shed, msg: "too many requests in flight at the edge; nothing ran"}, false
 	}
 	timeout := e.cfg.DefaultTimeout
 	if v := r.Header.Get(front.TimeoutHeader); v != "" {
@@ -198,14 +227,11 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 			e.st.limited.Add(1)
 			return answer{code: front.Shed, hint: wait, msg: "too many new tickets from this source; nothing ran"}, false
 		}
-		select {
-		case e.verify <- struct{}{}:
-		default:
-			e.st.verifyBusy.Add(1)
+		if !e.verify.TryAcquire() {
 			return answer{code: front.Shed, msg: "edge busy verifying tickets; nothing ran"}, false
 		}
 		c, err = e.cfg.Gate.Verify(token, start)
-		<-e.verify
+		e.verify.Release()
 	}
 	if err != nil {
 		e.st.invalid.Add(1)
@@ -216,6 +242,20 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 	if !found {
 		e.st.unknownVM.Add(1)
 		return answer{code: front.WrongOwner, msg: "the ticket's vm is not served by this edge; re-resolve"}, false
+	}
+	// Admission before expensive work: an agent that is saturated or unreachable is refused here, before the
+	// body is read, so a refusal costs no body under overload. Nothing is held while the client sends (a slow
+	// sender must not pin an agent's slot or a half-open breaker's one probe); forward takes the slot and the
+	// permit once the body is in, and may still refuse if either went in between.
+	if up.slots.InUse() >= up.slots.Limit() {
+		return e.bulkheadFull(), false
+	}
+	if up.b.State(start) == breaker.Open {
+		p, wait, ok := up.b.Allow(start)
+		if !ok {
+			return e.breakerOpen(wait), false
+		}
+		up.b.Done(p, start, breaker.Ignore) // reset or half-opened in between: forward asks again
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(e.cfg.MaxBody)))
 	if err != nil {
@@ -234,18 +274,14 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 // forward sends the request to up under its bulkhead and breaker, and relays the answer.
 func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.ResponseController, up *upstream, body []byte,
 	deadline time.Time) (answer, bool) {
-	select {
-	case up.slots <- struct{}{}:
-		defer func() { <-up.slots }()
-	default:
-		e.st.bulkheadFull.Add(1)
-		return answer{code: front.Shed, msg: "too many requests in flight to this agent; nothing ran"}, false
+	if !up.slots.TryAcquire() {
+		return e.bulkheadFull(), false
 	}
+	defer up.slots.Release()
 	now := e.cfg.Clock.Now()
 	p, wait, ok := up.b.Allow(now)
 	if !ok {
-		e.st.open.Add(1)
-		return answer{code: front.Unavailable, hint: wait, msg: "agent unreachable (breaker open); nothing ran"}, false
+		return e.breakerOpen(wait), false
 	}
 	left := deadline.Sub(now)
 	if left <= 0 {
@@ -304,6 +340,16 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 	return answer{}, true
 }
 
+func (e *Edge) bulkheadFull() answer {
+	e.st.bulkheadFull.Add(1)
+	return answer{code: front.Shed, msg: "too many requests in flight to this agent; nothing ran"}
+}
+
+func (e *Edge) breakerOpen(wait time.Duration) answer {
+	e.st.open.Add(1)
+	return answer{code: front.Unavailable, hint: wait, msg: "agent unreachable (breaker open); nothing ran"}
+}
+
 // copyBufs are relay buffers: the h2 ResponseWriter has no ReadFrom, so io.Copy would allocate 32 KiB per answer.
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 
@@ -340,7 +386,7 @@ func (e *Edge) upstream(vm string) (*upstream, bool) {
 	}
 	b, err := breaker.New(bc)
 	assert.That(err == nil, "edge: breaker config was normalized in New: %v", err)
-	u = &upstream{base: base, b: b, slots: make(chan struct{}, e.cfg.AgentInFlight)}
+	u = &upstream{base: base, b: b, slots: slots.New(e.agentInFlight)}
 	e.ups[vm] = u
 	return u, true
 }

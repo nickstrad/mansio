@@ -137,7 +137,7 @@ type resolveAnswer struct {
 // forbidden.
 func (d *daemon) resolve(w http.ResponseWriter, r *http.Request) {
 	key, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d.call(w, r, d.resolveSem, &d.resolveShed, d.cfg.Locator.Timeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
+	d.call(w, r, d.resolves, d.cfg.Locator.Timeout.Duration, func(ctx context.Context, r *http.Request) (any, error) {
 		var req struct {
 			Tenant   string `json:"tenant"`
 			DB       string `json:"db"`
@@ -184,7 +184,7 @@ func (d *daemon) registerLocator(reg *metrics.Registry) {
 		{"controld_locator_coalesced_total", "Resolves that joined a load in flight (single-flight).", func() int64 { return st.Coalesced }},
 		{"controld_locator_notifications_total", "Placement notifications applied.", func() int64 { return st.Notifications }},
 		{"controld_locator_resets_total", "Listener connects (each resets the cache).", func() int64 { return st.Resets }},
-		{"controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", d.resolveShed.Load},
+		{"controld_locator_shed_total", "Resolves refused because locator.concurrency were in flight.", d.resolves.Shed},
 		{"controld_locator_rate_limited_total", "Resolves refused: an uncached api key id from a source out of tokens.", func() int64 { return st.RateLimited }},
 	} {
 		reg.Add(m.name, m.help, metrics.Counter, func(e *metrics.Emit) { e.Value(nil, float64(m.v())) })

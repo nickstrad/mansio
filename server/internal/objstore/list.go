@@ -41,9 +41,25 @@ func (s *Store) ListPage(ctx context.Context, prefix, delimiter, token string, l
 	}
 	var res minio.ListBucketV2Result
 	err := s.retryIdempotent(ctx, OpList, prefix, s.cfg.OpTimeout, func(a *attempt) error {
-		var err error
-		res, err = s.core.ListObjectsV2(s.bucket, prefix, "", token, delimiter, limit)
-		return err
+		// minio's one-page LIST takes no context, so the attempt's deadline and the caller's cancel cannot
+		// reach it: it runs on its own goroutine and the attempt stops waiting when its context ends. The
+		// abandoned request ends by itself at the transport's response-header timeout (OpTimeout).
+		type listed struct {
+			res minio.ListBucketV2Result
+			err error
+		}
+		done := make(chan listed, 1)
+		go func() {
+			r, err := s.core.ListObjectsV2(s.bucket, prefix, "", token, delimiter, limit)
+			done <- listed{r, err}
+		}()
+		select {
+		case l := <-done:
+			res = l.res
+			return l.err
+		case <-a.ctx.Done():
+			return context.Cause(a.ctx)
+		}
 	})
 	if err != nil {
 		return Page{}, wrap(err, "cannot list %s/%s (is the store up?); nothing changed, safe to retry", s.bucket, prefix)

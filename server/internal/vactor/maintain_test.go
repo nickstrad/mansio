@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/durable"
+	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
@@ -124,8 +125,8 @@ func TestStalenessGauges(t *testing.T) {
 	r.clk.Add(3 * time.Second)
 	r.put("b", "1") // b's last write-back (activation) is as old as a's
 	r.clk.Add(4 * time.Second)
-	if age := tick().OldestDirtyAge; age != 7*time.Second {
-		t.Fatalf("dirty for 7 s: age %v", age)
+	if rep := tick(); rep.OldestDirtyAge != 7*time.Second || rep.Dirty != 2 {
+		t.Fatalf("dirty for 7 s: age %v, %d dirty (want 2)", rep.OldestDirtyAge, rep.Dirty)
 	}
 	if _, err := r.h.WriteBack(ctx, "a"); err != nil {
 		t.Fatal(err)
@@ -138,7 +139,58 @@ func TestStalenessGauges(t *testing.T) {
 	}
 	r.put("a", "2")
 	r.clk.Add(time.Second)
-	if age := tick().OldestDirtyAge; age != time.Second {
-		t.Fatalf("dirty again 1 s after a write-back: age %v", age)
+	if rep := tick(); rep.OldestDirtyAge != time.Second || rep.Dirty != 1 || len(r.h.OpenDBs()) != 2 {
+		t.Fatalf("dirty again 1 s after a write-back: age %v, %d dirty (want 1), %d open (want 2)", rep.OldestDirtyAge, rep.Dirty, len(r.h.OpenDBs()))
+	}
+}
+
+// B10 (a): what an S3 outage looks like from the write path. Write-backs fail, writes keep being acknowledged,
+// and the only thing that moves is the unpublished window: the oldest dirty age grows with the outage, without
+// a limit, and the dirty count says how many databases are exposed. Once S3 is back, one tick publishes them
+// and both gauges return to zero.
+func TestStoreOutageShowsAsGrowingDirtyAge(t *testing.T) {
+	r := newDurable(t, func(o *vactor.Options) { o.Policy = vactor.Policy{WriteBackEvery: 10 * time.Second} })
+	tick := func() vactor.TickReport {
+		t.Helper()
+		rep, err := r.h.Tick(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rep
+	}
+	r.put("a", "1")
+	r.put("b", "1")
+	r.clk.Add(11 * time.Second) // the healthy window: the setting plus a tick
+	if rep := tick(); len(rep.WroteBack) != 2 || rep.Dirty != 2 || rep.OldestDirtyAge != 11*time.Second {
+		t.Fatalf("healthy tick: wrote back %d, %d dirty at its start, age %v; want 2, 2 and 11s", len(rep.WroteBack), rep.Dirty, rep.OldestDirtyAge)
+	}
+
+	r.s.SetFaults(durabletest.Faults{Down: true})
+	failures := r.h.Stats().WriteBackFailures
+	for i, outage := range []time.Duration{11 * time.Second, time.Minute, 10 * time.Minute, time.Hour} {
+		r.put("a", "during the outage") // still acknowledged
+		r.put("b", "during the outage")
+		r.clk.Add(outage)
+		rep := tick()
+		if rep.Dirty != 2 || len(rep.WroteBack) != 0 || len(rep.Errors) != 2 {
+			t.Fatalf("outage tick %d: %d dirty, wrote back %d, %d errors; want 2, 0 and 2", i, rep.Dirty, len(rep.WroteBack), len(rep.Errors))
+		}
+		if i > 0 && rep.OldestDirtyAge < outage {
+			t.Fatalf("outage tick %d: oldest dirty age %v did not grow past the %v just waited", i, rep.OldestDirtyAge, outage)
+		}
+	}
+	if got := r.h.Stats().WriteBackFailures - failures; got != 8 {
+		t.Fatalf("%d write-back failures counted during the outage, want 8", got)
+	}
+	if r.local("a") != "during the outage" || r.published("a") == "during the outage" {
+		t.Fatal("the outage's writes should be local only")
+	}
+
+	r.s.SetFaults(durabletest.Faults{})
+	if rep := tick(); len(rep.WroteBack) != 2 {
+		t.Fatalf("first tick after the outage wrote back %d, want 2", len(rep.WroteBack))
+	}
+	if rep := tick(); rep.Dirty != 0 || rep.OldestDirtyAge != 0 || r.published("a") != "during the outage" {
+		t.Fatalf("after recovery: %d dirty, age %v, published %q", rep.Dirty, rep.OldestDirtyAge, r.published("a"))
 	}
 }
