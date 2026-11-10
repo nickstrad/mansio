@@ -6,11 +6,19 @@
   reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
   owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
   simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
-- Status: **items A, B and C done, simplify pass done, verification at baseline; the merge to main is next.**
-  Commits: A `67d4deb`, B `e4a24cf`, C `4a6d2c0`, simplify `263b591`. No cross-family review ran: the brief
-  directed Fable to merge after the simplify pass. Branch `feat/version-fixes`, worktree
-  `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
-- Item A, the version floor: **done** (this commit). Reference:
+- Status: **merged to main and pushed: merge `e127a46`** (`git merge --no-ff feat/version-fixes` on top of
+  `7dcb164`, pushed 2026-11-10). Commits: A `67d4deb`, B `e4a24cf`, C `4a6d2c0`, simplify `263b591`. All three
+  items are done, the simplify pass is done, verification is at baseline. No cross-family review ran: the
+  brief directed Fable to merge after the simplify pass.
+- How it was merged: as the read-path merge was, in `/root/Software/mansio-work/main-merge` on a detached HEAD
+  at `origin/main`, pushed with `git push origin HEAD:main`. **The local `main` ref and Twin's checkout
+  (`/root/Software/mansio`) are behind**: run `git pull --ff-only` there to catch up.
+- Verified on the merged tree (identical to the verified branch head `e6d4d6b`): `make platform-up` exit 0
+  (`warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`), `make platform-down` exit 0; `gofmt`,
+  `go vet ./...`; `go test -race` on the touched packages (only the baseline
+  `TestAdminFetchLimitAppliesToTheNextFetches` fails); `deno task test` 341 passed; `deno task test:prop` 61
+  passed.
+- Item A, the version floor: **done** `67d4deb`. Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
   - The rule: a write sets `_version = max(v, floor)`, `floor = seal << 32` (`docexec.VersionFloor`), the seal
     being the manifest's stamp count at activation (host → `Opener.Open(path, incarnation)` →
@@ -45,9 +53,9 @@
     `dbtool
     rebuild-manifest` over an unreadable manifest, and `dbtool restore` + `import` into a key
     without a manifest, restart the seal (an operator rollback the floor does not see).
-- Item B, `EnsureBucket` is idempotent: **done** (this commit). `objstore.Store.EnsureBucket` treats the
-  store's `BucketAlreadyOwnedByYou` to its create as success (the bucket is there and ours); another account's
-  name (`BucketAlreadyExists`, or a refused HEAD) still fails.
+- Item B, `EnsureBucket` is idempotent: **done** `e4a24cf`. `objstore.Store.EnsureBucket` treats the store's
+  `BucketAlreadyOwnedByYou` to its create as success (the bucket is there and ours); another account's name
+  (`BucketAlreadyExists`, or a refused HEAD) still fails.
   - Tests: `objstore` `TestEnsureBucket` (five bucket states on the in-process S3, `s3test.SetBucket`) and
     `TestEnsureBucketFromTwoStartersAtOnce`; both fail without the fix.
   - The `up.sh` workaround (creating the bucket with `weed shell` before the agents start) is **removed**: it
@@ -58,8 +66,8 @@
     `BucketAlreadyOwnedByYou`, probed directly).
   - Verified: `gofmt`, `go vet`; `go test ./internal/objstore/...` and `-race` on `objstore`, `vactor`,
     `cmd/agentd` ok.
-- Item C, a Compose project per checkout: **done** (this commit). `scripts/platform/lib.sh` derives the
-  project from the resolved state directory (`realpath -m` of `PLATFORM_DIR`, default `<checkout>/.platform`):
+- Item C, a Compose project per checkout: **done** `4a6d2c0`. `scripts/platform/lib.sh` derives the project
+  from the resolved state directory (`realpath -m` of `PLATFORM_DIR`, default `<checkout>/.platform`):
   `mansio-platform-<first 8 hex of its sha256>`. `compose.yml` takes the name from `PLATFORM_PROJECT` (it has
   none of its own and refuses without it); the marker in the state directory is `.<project>`, so `down.sh`
   deletes only a directory this path's `up.sh` made. Comments in `up.sh`, `down.sh`, `compose.yml` and the
@@ -100,7 +108,11 @@
   `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
   host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
   protocol change (sketch in the note's last section). The sim does not exercise table preconditions.
-- Resume: nothing is running. `make platform-down` in this worktree removes a platform left up.
+- Next: Nick decides the open finding below (the commit sequence after a rollback). Item 2 (the green
+  baseline) now has two red Go tests to own, listed below.
+- Resume: nothing is running and no platform is up (`docker ps | grep mansio-platform` is empty). The branch
+  `feat/version-fixes` and its worktree `/root/Software/mansio-work/version-fixes` are merged and can be
+  removed (`git worktree remove`).
 
 ## 2026-11-10 — read path: survey changes 1–4 and the colocated-runner explainer (Fable 5.2, Nick-directed)
 
