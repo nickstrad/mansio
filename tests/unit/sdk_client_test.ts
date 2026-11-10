@@ -303,12 +303,12 @@ Deno.test("sdk: a lost reply is retried with the same body and answered as a dup
   }
 });
 
-Deno.test("sdk: shed honors Retry-After; aborted and expired retry; the budget and attempts bound it", async () => {
+Deno.test("sdk: shed honors Retry-After; aborted retries; expired is final; the budget and attempts bound it", async () => {
   const shed = setup((_r, n) => n === 0 ? { kind: "shed", retryAfter: "2" } : undefined);
   await Effect.runPromise(shed.client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));
   assert.deepEqual(shed.sleeps, [2000]);
 
-  const flaky = setup((_r, n) => n === 0 ? { kind: "aborted" } : n === 1 ? { kind: "expired" } : undefined);
+  const flaky = setup((_r, n) => n === 0 ? { kind: "aborted" } : n === 1 ? { kind: "shed" } : undefined);
   await Effect.runPromise(flaky.client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));
   assert.equal(flaky.model.table("games").size, 1);
   assert.deepEqual(
@@ -316,6 +316,14 @@ Deno.test("sdk: shed honors Retry-After; aborted and expired retry; the budget a
     ["req-1"],
     "only the attempt that got through ran",
   );
+
+  // B8: expired is not retried (its deadline is spent). The caller gets Unavailable and, for a mutation,
+  // is told it may have applied.
+  const late = setup(() => ({ kind: "expired" }));
+  const expired = await either(late.client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));
+  assert.ok(Either.isLeft(expired) && expired.left instanceof Unavailable);
+  assert.deepEqual([expired.left.code, expired.left.mayHaveApplied], ["expired", true]);
+  assert.equal(late.sleeps.length, 0, "no retry of an expired request");
 
   const always = setup(() => ({ kind: "shed" }));
   const out = await either(always.client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));

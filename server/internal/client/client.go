@@ -362,14 +362,14 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 		var d time.Duration
 		switch st {
 		case stepReroute: // wrong_owner, fenced, ticket_invalid, no answer, the locator's moving
-			if res.Reroutes >= c.cfg.MaxReroutes {
+			// The first reroute of a call is free and waits a short jittered delay (an agent going away must
+			// not turn every call in flight into an immediate re-resolve at the same instant); each later one
+			// backs off and takes a token of the retry budget, so a call cannot hammer controld for nothing.
+			if res.Reroutes >= c.cfg.MaxReroutes || res.Reroutes >= 1 && !c.budget.TryRetry() {
 				return fail(last)
 			}
 			res.Reroutes++
-			d = a.RetryAfter
-			if res.Reroutes > 1 {
-				d = max(d, c.cfg.Retry.Delay(c.rng, res.Reroutes, prev))
-			}
+			d = max(a.RetryAfter, c.cfg.Retry.Delay(c.rng, res.Reroutes+1, prev))
 		case stepRetry:
 			var ok bool
 			d, ok = c.cfg.Retry.Decide(c.rng, retry.Attempt{N: retries + 1, Outcome: oc, Elapsed: det.Since(c.cfg.Clock, first), Prev: prev, ServerHint: a.RetryAfter})

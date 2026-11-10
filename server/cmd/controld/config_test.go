@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +17,12 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/control"
 	"github.com/nickstrad/mansio/server/internal/control/agenthttp"
+	"github.com/nickstrad/mansio/server/internal/control/locator"
 	"github.com/nickstrad/mansio/server/internal/errs"
+	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/tenancy"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
@@ -165,5 +174,49 @@ func TestShippedConfigsParse(t *testing.T) {
 		if _, err := loadConfig(p); err != nil {
 			t.Errorf("%s: %v", p, err)
 		}
+	}
+}
+
+// B8: controld's resolve answers are the caller contract's rows (front.Contract, docs/retry-contract.md):
+// each code's status, and Retry-After exactly on the answers the contract says carry it.
+func TestResolveAnswersMatchTheContract(t *testing.T) {
+	cause := map[string][]error{
+		"moving":         {locator.ErrMoving},
+		"shed":           {locator.ErrRateLimited, locator.ErrBusy},
+		"unavailable":    {pg.ErrUnavailable, agenthttp.ErrUnavailable},
+		"no_capacity":    {control.ErrNoCapacity},
+		"timeout":        {context.DeadlineExceeded},
+		"bad_request":    {errBadRequest("x")},
+		"unauthorized":   {locator.ErrUnauthorized},
+		"forbidden":      {locator.ErrForbidden},
+		"not_found":      {locator.ErrNotFound},
+		"suspended":      {locator.ErrSuspended},
+		"conflict":       {tenancy.ErrDeactivated},
+		"quota_exceeded": {errQuota("x")},
+		"internal":       {errors.New("bug")},
+	}
+	d := &daemon{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	rows := 0
+	for _, row := range front.Contract() {
+		if row.From != "resolve" || row.Status == 0 || row.Code == "ok" {
+			continue
+		}
+		rows++
+		if len(cause[row.Code]) == 0 {
+			t.Errorf("no error here produces the contract's resolve code %q", row.Code)
+		}
+		for _, err := range cause[row.Code] {
+			w := httptest.NewRecorder()
+			d.write(w, httptest.NewRequest(http.MethodPost, "/v1/resolve", nil), nil, errs.Wrap("control", err, "cannot resolve"))
+			var body struct{ Code string }
+			json.Unmarshal(w.Body.Bytes(), &body)
+			if body.Code != row.Code || w.Code != row.Status || (w.Header().Get("Retry-After") != "") != row.RetryAfter {
+				t.Errorf("%v: answered %s %d (Retry-After %q); the contract says %s %d, Retry-After %v", err, body.Code, w.Code,
+					w.Header().Get("Retry-After"), row.Code, row.Status, row.RetryAfter)
+			}
+		}
+	}
+	if rows != len(cause) {
+		t.Errorf("%d resolve rows in the contract, %d codes covered here", rows, len(cause))
 	}
 }

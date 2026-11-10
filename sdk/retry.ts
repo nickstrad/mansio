@@ -8,10 +8,15 @@
  * - **Budget.** A token bucket: each first attempt adds `ratio` tokens (default 0.1), each retry takes
  *   one, the bucket holds at most `burst` (default 10). Credit expires, so a quiet hour banks at most
  *   `burst` retries for the storm that follows (Release It R4). Shared by every call of one client.
- * - **What an answer means** (`decide`): `ok` done; `shed`, `unavailable`, `aborted`, `expired` retry
- *   (with the same request body, so a mutation keeps its `requestId`); `wrong_owner`, `fenced`,
- *   `ticket_invalid` and no answer at all reroute (re-resolve, or fetch a fresh ticket) when the client
- *   can, else fail; everything else is final.
+ * - **What an answer means** (`decide`, `resolveStep`): the caller contract in `docs/retry-contract.md`,
+ *   generated from mansio-server's `front.Contract` and shared with the Go client as test vectors
+ *   (`ir/vectors/retry.json`, run by `tests/unit/sdk_retry_contract_test.ts`). `ok` done; `shed`,
+ *   `unavailable`, `aborted` retry (with the same request body, so a mutation keeps its `requestId`);
+ *   `wrong_owner`, `fenced`, `ticket_invalid` and no answer at all reroute (re-resolve, or fetch a fresh
+ *   ticket) when the client can, else fail; everything else is final. `expired` is final too: its deadline
+ *   is already spent, and resubmitting it would add load when the server is slowest.
+ * - **Reroutes.** The first reroute of a call is free and waits a short jittered delay; each later one
+ *   backs off and takes a budget token, so an agent going away is not answered with a burst of re-resolves.
  */
 
 export interface RetryPolicy {
@@ -25,8 +30,11 @@ export interface RetryPolicy {
 
 export const DEFAULT_RETRY: RetryPolicy = { maxAttempts: 3, baseMs: 50, maxMs: 5_000 };
 
-/** Longest Retry-After honored, ms (mansio-server `front.MaxRetryAfter`). */
-export const MAX_RETRY_AFTER_MS = 30_000;
+/** Longest Retry-After honored, ms (mansio-server `front.MaxRetryAfter`: one minute). */
+export const MAX_RETRY_AFTER_MS = 60_000;
+
+/** Most reroutes (re-resolves, fresh tickets) of one call. */
+export const DEFAULT_MAX_REROUTES = 5;
 
 /**
  * The wait before attempt `attempt + 1` (attempt 1 just failed): full jitter over the capped exponential
@@ -73,7 +81,6 @@ export function decide(code: string): Step {
     case "shed":
     case "unavailable":
     case "aborted":
-    case "expired":
       return "retry";
     case "wrong_owner":
     case "fenced":
@@ -82,6 +89,26 @@ export function decide(code: string): Step {
       return "reroute";
   }
   return "fail";
+}
+
+/** The next step after a failed resolve with controld's code `code` (never `"done"`). */
+export function resolveStep(code: string): Step {
+  switch (code) {
+    case "moving":
+      return "reroute";
+    case "unavailable":
+    case "shed":
+    case "no_capacity":
+    case "timeout":
+    case TRANSPORT:
+      return "retry";
+  }
+  return "fail";
+}
+
+/** Whether a mutation that ended with `code` may have committed (the caller is told; the requestId is safe to reuse). */
+export function mayHaveApplied(code: string): boolean {
+  return code === TRANSPORT || code === "expired";
 }
 
 /** The `min_epoch` of the re-resolve after a reroute from a route at `epoch` (0 = a plain re-resolve). */

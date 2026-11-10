@@ -31,14 +31,16 @@ type answer struct {
 // codeTransport is the code of an attempt that got no answer: connect failure, reset, unreadable body.
 const codeTransport = "transport"
 
-// decide maps an answer from an agent to the next step (contract 3, front.Spec's "client should" column):
+// decide maps an answer from an agent to the next step. The contract is front.Contract (docs/retry-contract.md;
+// TestRetryContractVectors holds this file and the default policy to it):
 //
 //	ok                                   → done
 //	wrong_owner, fenced, ticket_invalid  → reroute (fenced: after Retry-After)
 //	no answer (connect failure, reset)   → reroute: the VM may be gone; a write retries with the same request_id
 //	shed, unavailable, aborted, expired,
-//	stmt_timeout, internal               → the retry policy decides (by outcome; stmt_timeout and internal are
-//	                                       not in the default RetryOn)
+//	stmt_timeout, internal               → the retry policy decides by outcome: the default RetryOn is shed,
+//	                                       unavailable and aborted, so expired, stmt_timeout and internal fail
+//	                                       (a bench profile may opt in to model a badly behaved client)
 //	bad_request, anything unknown        → fail
 func decide(a answer) (step, outcome.Code) {
 	if a.Code == codeTransport {
@@ -68,18 +70,18 @@ func minEpochAfter(a answer, epoch uint64) uint64 {
 	return 0
 }
 
-// resolveStep maps a locator answer (POST /v1/resolve, CP-5) to the next step:
+// resolveStep maps a locator answer (POST /v1/resolve, CP-5) to the next step (front.Contract's resolve rows):
 //
-//	moving, unavailable, shed, timeout,
-//	no answer                                → retry the resolve after Retry-After (moving: not a failure,
-//	                                           so it does not spend the retry budget)
+//	moving                                   → reroute: resolve again after Retry-After (the first is free)
+//	unavailable, shed, no_capacity, timeout,
+//	no answer                                → retry the resolve after Retry-After, under the policy and budget
 //	not_found, forbidden, unauthorized,
 //	suspended, bad_request, unknown          → fail
 func resolveStep(a answer) (step, outcome.Code) {
 	switch a.Code {
 	case "moving":
 		return stepReroute, outcome.Unavailable
-	case "unavailable", "shed", "timeout", codeTransport:
+	case "unavailable", "shed", "no_capacity", "timeout", codeTransport:
 		return stepRetry, outcome.Unavailable
 	}
 	return stepFail, outcome.Error

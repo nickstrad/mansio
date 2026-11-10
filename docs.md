@@ -213,8 +213,11 @@ await Effect.runPromise(program);
 Calls return Effects; run them at your program's boundary (`createPromiseClient` returns promises instead).
 Failures are typed. `RemoteError` carries the error's `status` and `remoteTag`; an app-raised `RuleError` or
 `ConflictError` fails locally, with the status the server would have used. `Unavailable` means the server
-could not be reached, or kept answering "retry later", past the retry policy and budget. The statuses and tags
-are the table in [ir/spec/v1.md](ir/spec/v1.md) §8.
+could not be reached, or kept answering "retry later", past the retry policy and budget, or that a request
+`expired` (not retried: its deadline is spent). The statuses and tags are the table in
+[ir/spec/v1.md](ir/spec/v1.md) §8; what the client does by itself after each answer (retry, re-resolve or
+fail, and what it charges to its retry budget) is the one table in
+[docs/retry-contract.md](docs/retry-contract.md), which the Go client follows too.
 
 For `tic-tac-toe-json`, use `withStorage(schema, "json")` from `sdk/schema.ts` as the schema and
 `JSON_APP_TOKEN` as the token.
@@ -328,8 +331,12 @@ Each entry is symptom → cause → fix.
   schema value and `withStorage` layout the database was created with, or a fresh database.
 - **409 `ConflictError` from `makeMove`** → a stale `expectedVersion` → read the game again before the next
   move.
-- **503 `shed` or `unavailable`, 504 `expired`** → the agent is overloaded or a dependency is down; the SDK
-  already retried within its budget and the call's deadline → reduce load, check agentd's log and metrics.
+- **503 `shed` or `unavailable`** → the agent is overloaded or a dependency is down; the SDK already retried
+  within its budget and the call's deadline → reduce load, check agentd's log and metrics.
+- **504 `expired`** → the request's deadline passed before an answer; the SDK does not retry it
+  ([retry contract](docs/retry-contract.md)) → retry from the application with a fresh deadline if the work
+  still matters (a mutation keeps its `requestId`, so it applies at most once), and treat a steady stream of
+  them as overload.
 - **504 `StatementDeadlineError`** → a statement ran past `statement_timeout` → narrow the read (an index, a
   lower limit) or raise the timeout.
 - **`deno task logs:*` fails with a lock error** → another `logs:ingest` holds the DuckDB file → wait for it

@@ -25,6 +25,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
+// What a client does after each resolve answer (retry, resolve again, fail) is not written here: it is the
+// caller contract, front.Contract (docs/retry-contract.md), and TestResolveAnswersMatchTheContract holds the
+// codes and statuses below to it.
+//
 // The control API (Authorization: Bearer <admin_token>). Every call runs under api_timeout, at most
 // api_concurrency at once (more are refused 503 at once, never queued; Release It T1, B1). Answers are JSON:
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
