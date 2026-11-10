@@ -220,6 +220,10 @@ type Stats struct {
 	Failures    int64
 	Fetches     int64
 	LocalHits   int64
+	// FetchShed counts activations refused because the fetch queue was full; TombstoneRefusals counts Gets
+	// failed fast inside a key's failure backoff. Neither started anything.
+	FetchShed         int64
+	TombstoneRefusals int64
 
 	WriteBacks        int64 // generations published
 	WriteBackFailures int64
@@ -277,7 +281,8 @@ type Host struct {
 	writeBacks, writeBackFailures, bytesUploaded atomic.Int64
 	lastWriteBackOK                              atomic.Int64 // UnixNano by opts.Clock; 0 = never
 	generationsDeleted, retentionFailures        atomic.Int64
-	publishesInDoubt                             atomic.Int64           // ErrInDoubt answers
+	publishesInDoubt                             atomic.Int64 // ErrInDoubt answers
+	fetchShed, tombRefusals                      atomic.Int64
 	requests                                     durable.RequestCounter // opts.Store, if it counts; else nil
 }
 
@@ -408,11 +413,13 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 		if !ok {
 			if t, wait, ok := h.tombstoned(key); ok {
 				h.mu.Unlock()
+				h.tombRefusals.Add(1)
 				return Result{}, errs.Wrap(module, &hinted{t.err, wait},
 					"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
 			}
 			if h.gate.shedding() { // fail fast before any storage call (guide F1)
 				h.mu.Unlock()
+				h.fetchShed.Add(1)
 				return Result{}, errs.Wrap(module, errShed, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
 					key, h.opts.MaxFetchQueue)
 			}
@@ -670,6 +677,9 @@ func (h *Host) activationCtx(start time.Time, size int64) (context.Context, cont
 func (h *Host) gatedFetch(ctx context.Context, key string, size int64, e *entry, fetch func(context.Context) (Fetched, error)) error {
 	release, err := h.gate.acquire(ctx, size)
 	if err != nil {
+		if errors.Is(err, errShed) {
+			h.fetchShed.Add(1)
+		}
 		return errs.Wrap(module, err, "no fetch slot for %s (%d bytes); retry later", key, size)
 	}
 	defer release()
@@ -708,6 +718,23 @@ func (h *Host) Active() int {
 	return len(h.entries)
 }
 
+// Open returns the databases that are open now (activation finished), for a scrape-time scan (O(active)).
+func (h *Host) Open() []DB {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	dbs := make([]DB, 0, len(h.entries))
+	for _, e := range h.entries {
+		select {
+		case <-e.done:
+			if e.db != nil {
+				dbs = append(dbs, e.db)
+			}
+		default:
+		}
+	}
+	return dbs
+}
+
 func (h *Host) Stats() Stats {
 	var reqs map[string]int64
 	if h.requests != nil {
@@ -720,6 +747,8 @@ func (h *Host) Stats() Stats {
 		Failures:          h.failures.Load(),
 		Fetches:           h.fetches.Load(),
 		LocalHits:         h.localHits.Load(),
+		FetchShed:         h.fetchShed.Load(),
+		TombstoneRefusals: h.tombRefusals.Load(),
 		WriteBacks:        h.writeBacks.Load(),
 		WriteBackFailures: h.writeBackFailures.Load(),
 		BytesUploaded:     h.bytesUploaded.Load(),

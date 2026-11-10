@@ -196,6 +196,7 @@ func (a *Actor) Submit(r *Request) error {
 	case a.mailbox <- r:
 		return nil
 	default:
+		a.cfg.Queues.refusedMailbox()
 		return ErrMailboxFull
 	}
 }
@@ -348,7 +349,9 @@ func (a *Actor) process(batch []*Request) {
 		}
 		meta.reopened = true
 	}
-	expired, writes, reads := split(batch, a.cfg.Clock.Now())
+	now := a.cfg.Clock.Now()
+	a.cfg.Queues.pickedUp(batch, now)
+	expired, writes, reads := split(batch, now)
 	for _, r := range expired {
 		meta.fail(r, ErrExpired)
 	}
@@ -365,6 +368,7 @@ func (a *Actor) process(batch []*Request) {
 			case a.readQ <- r:
 			default: // every reader busy and their queue full: shed rather than stall the writes behind us
 				a.readQueued.Add(-1)
+				a.cfg.Queues.refusedRead()
 				meta.fail(r, ErrMailboxFull)
 			}
 		default:

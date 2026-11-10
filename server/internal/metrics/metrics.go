@@ -120,6 +120,7 @@ type Registry struct {
 	mu     sync.Mutex
 	fams   map[string]family
 	before []func()
+	queues []func() []QueueStat // Queues' sources
 
 	scrape sync.Mutex // serializes WriteText, so OnScrape snapshots are shared by one scrape's collectors
 }

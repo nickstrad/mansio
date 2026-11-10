@@ -40,6 +40,9 @@ func TestActivationTimesOutAndIsRetryable(t *testing.T) {
 	if _, err := r.h.Get(ctx, "k"); !errors.Is(err, vactor.ErrBusy) {
 		t.Fatalf("Get inside the key's backoff = %v, want the same cause, at once", err)
 	}
+	if st := r.h.Stats(); st.TombstoneRefusals != 1 || st.FetchShed != 0 {
+		t.Fatalf("refusals %+v, want one tombstone refusal", st)
+	}
 	r.clk.Add(time.Second)
 	res, err := r.h.Get(ctx, "k")
 	if err != nil || res.Act == nil {
@@ -96,6 +99,9 @@ func TestFetchBulkheadShedsBeyondQueue(t *testing.T) {
 	}
 	if f.Calls("c") != 0 || h.Active() != 2 {
 		t.Fatalf("a shed Get started work: fetches(c)=%d active=%d", f.Calls("c"), h.Active())
+	}
+	if st, g := h.Stats(), h.Gauges(); st.FetchShed != 1 || g.FetchQueueCap != 1 || len(h.Open()) != 0 {
+		t.Fatalf("shed %d (want 1), queue cap %d (want 1), open %d (want 0: both still activating)", st.FetchShed, g.FetchQueueCap, len(h.Open()))
 	}
 
 	close(hold)

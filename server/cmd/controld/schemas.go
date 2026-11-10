@@ -104,7 +104,7 @@ func (d *daemon) schemaRoutes(mux *http.ServeMux) {
 	}))
 	// The agents' read is on the data path (a database's first request per schema): the locator's bulkhead and
 	// deadline, not the admin API's.
-	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleIn(d.resolveSem, d.cfg.Locator.Timeout.Duration,
+	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleIn(d.resolveSem, &d.resolveShed, d.cfg.Locator.Timeout.Duration,
 		[]string{d.token, d.control}, "admin or control", "",
 		func(ctx context.Context, r *http.Request) (any, error) {
 			app, fp := r.PathValue("app"), r.PathValue("fingerprint")

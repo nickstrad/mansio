@@ -7,10 +7,11 @@ type Gauges struct {
 	FetchesInFlight    int   // fetch bulkhead: fetches running
 	FetchBytesInFlight int64 // ...and their bytes
 	FetchQueued        int   // activations waiting for a fetch slot (MaxFetchQueue bounds it)
+	FetchQueueCap      int   // Options.MaxFetchQueue after defaults
 }
 
 // Gauges reads the levels (read-only; O(1)).
 func (h *Host) Gauges() Gauges {
 	n, b, q := h.gate.inFlight()
-	return Gauges{Active: h.Active(), FetchesInFlight: n, FetchBytesInFlight: b, FetchQueued: q}
+	return Gauges{Active: h.Active(), FetchesInFlight: n, FetchBytesInFlight: b, FetchQueued: q, FetchQueueCap: h.opts.MaxFetchQueue}
 }

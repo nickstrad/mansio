@@ -124,8 +124,8 @@ func TestStalenessGauges(t *testing.T) {
 	r.clk.Add(3 * time.Second)
 	r.put("b", "1") // b's last write-back (activation) is as old as a's
 	r.clk.Add(4 * time.Second)
-	if age := tick().OldestDirtyAge; age != 7*time.Second {
-		t.Fatalf("dirty for 7 s: age %v", age)
+	if rep := tick(); rep.OldestDirtyAge != 7*time.Second || rep.Dirty != 2 {
+		t.Fatalf("dirty for 7 s: age %v, %d dirty (want 2)", rep.OldestDirtyAge, rep.Dirty)
 	}
 	if _, err := r.h.WriteBack(ctx, "a"); err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestStalenessGauges(t *testing.T) {
 	}
 	r.put("a", "2")
 	r.clk.Add(time.Second)
-	if age := tick().OldestDirtyAge; age != time.Second {
-		t.Fatalf("dirty again 1 s after a write-back: age %v", age)
+	if rep := tick(); rep.OldestDirtyAge != time.Second || rep.Dirty != 1 || len(r.h.Open()) != 2 {
+		t.Fatalf("dirty again 1 s after a write-back: age %v, %d dirty (want 1), %d open (want 2)", rep.OldestDirtyAge, rep.Dirty, len(r.h.Open()))
 	}
 }

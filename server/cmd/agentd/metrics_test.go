@@ -116,13 +116,20 @@ func TestMetricCatalogAfterFaultScript(t *testing.T) {
 		`mansio_startup_pending`:                                                       1, // db-bad
 		`mansio_ready`:                                                                 1,
 		`mansio_admission_shed_total`:                                                  0,
+		// B1: per-queue capacity, refusals and waits; db-1's mailbox is the default 256.
+		`mansio_queue_capacity{queue="mailbox"}`:                       256,
+		`mansio_queue_capacity{queue="read"}`:                          256,
+		`mansio_queue_rejected_total{queue="admission",reason="full"}`: 0,
+		`mansio_queue_rejected_total{queue="mailbox",reason="full"}`:   0,
+		`mansio_queue_rejected_total{queue="read",reason="full"}`:      0,
 	} {
 		if got := sample(t, text, series); got != want {
 			t.Errorf("%s = %v, want %v", series, got, want)
 		}
 	}
 	for _, series := range []string{`mansio_in_flight_high_water{point="front"}`, `mansio_admission{stat="in_flight_high_water"}`,
-		`mansio_actors`, `mansio_startup_pending_age_seconds`} {
+		`mansio_actors`, `mansio_startup_pending_age_seconds`, `mansio_queue_capacity{queue="admission"}`,
+		`mansio_queue_wait_seconds_count{queue="admission"}`, `mansio_queue_wait_seconds_count{queue="mailbox"}`} {
 		if sample(t, text, series) < 1e-9 {
 			t.Errorf("%s is 0", series)
 		}
@@ -217,6 +224,10 @@ func TestDependencyMetricsAndCodes(t *testing.T) {
 		`mansio_vactor{stat="active"}`:                                                    1,
 		`mansio_vactor_last_writeback_ok_timestamp_seconds`:                               0,
 		`mansio_vactor_tick{stat="timed_out"}`:                                            1,
+		`mansio_vactor_dirty`:                                                             1,
+		`mansio_queue_capacity{queue="fetch"}`:                                            256,
+		`mansio_queue_rejected_total{queue="fetch",reason="full"}`:                        0,
+		`mansio_queue_rejected_total{queue="fetch",reason="failure_backoff"}`:             0,
 		`mansio_owner_transitions_total{to="active"}`:                                     1,
 		`mansio_owner_transitions_total{to="fenced"}`:                                     1,
 	} {
@@ -257,4 +268,71 @@ func TestOwnerCodes(t *testing.T) {
 			t.Errorf("%s → %s: %s %v, want %s %v", tc.from, tc.to, code, level, tc.code, tc.level)
 		}
 	}
+}
+
+// B1's overload scenario: one database capped at one statement in flight and two queued, hit by a burst of
+// slow reads. Before B1 the scrape showed only depth gauges and one shed counter; now the same overload reads
+// as refusals per queue, a capacity to hold the depth against, and how long the admitted requests waited.
+func TestOverloadIsVisiblePerQueue(t *testing.T) {
+	cfg := fixture(t, []string{"db-1"}, `,"health_listen":"127.0.0.1:0","statement_timeout":"200ms",`+
+		`"admission":{"db_in_flight":1,"db_queue":2,"tenant_in_flight":1}`)
+	addrFile := filepath.Join(t.TempDir(), "addr")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stderr syncBuf
+	done := make(chan int)
+	go func() { done <- realMain(ctx, []string{"-config", cfg, "-addr-file", addrFile}, &stderr) }()
+	addr := waitAddr(t, addrFile, done)
+	life := lifecycleAddr(t, addrFile)
+	waitReady(t, life)
+
+	const burst = 12
+	codes := make(chan int, burst)
+	for range burst {
+		go func() {
+			b, _ := json.Marshal(map[string]any{"db": "db-1", "kind": "read", "sql": fronttest.SlowSQL})
+			req, _ := http.NewRequest(http.MethodPost, "http://"+addr+front.QueryPath, bytes.NewReader(b))
+			req.Header.Set("Authorization", "Bearer "+iss.Mint(t, iss.Claims("db-1", "vm-1", time.Now(), time.Minute)))
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			io.Copy(io.Discard, res.Body)
+			res.Body.Close()
+			codes <- res.StatusCode
+		}()
+	}
+	var shed int
+	for range burst {
+		if <-codes == http.StatusServiceUnavailable {
+			shed++
+		}
+	}
+	res, err := http.Get("http://" + life + metricsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	text := string(body)
+	if shed < burst-3 {
+		t.Fatalf("%d of %d shed; at most 3 fit the database's slot and queue", shed, burst)
+	}
+	if got := sample(t, text, `mansio_queue_rejected_total{queue="admission",reason="full"}`); got != float64(shed) {
+		t.Errorf("admission refusals %v, want the %d shed answers", got, shed)
+	}
+	// The two that queued behind a 200 ms statement waited: the histogram's sum shows it, its count every
+	// admitted request.
+	if sum := sample(t, text, `mansio_queue_wait_seconds_sum{queue="admission"}`); sum < 0.1 {
+		t.Errorf("admission wait sum %v s, want the queued requests' wait (>= 0.1 s)", sum)
+	}
+	if n := sample(t, text, `mansio_queue_wait_seconds_count{queue="admission"}`); n < burst-float64(shed) {
+		t.Errorf("admission wait count %v, want at least the %d admitted", n, burst-shed)
+	}
+	if capacity := sample(t, text, `mansio_queue_capacity{queue="admission"}`); capacity <= 0 {
+		t.Errorf("admission capacity %v", capacity)
+	}
+	cancel()
+	<-done
 }

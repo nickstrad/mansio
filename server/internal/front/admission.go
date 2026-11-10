@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/det"
+	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
 // Admission is the concurrent wrapper around the pure limiter: one mutex, and a channel per waiter.
@@ -18,13 +19,15 @@ type Admission struct {
 	shed            int64
 	inFlightHW, qHW int
 	drained         drainRate
+
+	wait *metrics.LatencyHistogram // every request that was not shed: 0 if it ran at once, else its time queued
 }
 
 // NewAdmission returns admission with lim's caps (zero fields take defaults).
 func NewAdmission(lim AdmissionLimits) *Admission { return newAdmission(lim, det.System()) }
 
 func newAdmission(lim AdmissionLimits, clock det.Clock) *Admission {
-	return &Admission{l: newLimiter(lim), now: clock.Now}
+	return &Admission{l: newLimiter(lim), now: clock.Now, wait: metrics.NewLatency(nil)}
 }
 
 // Acquire takes a slot for (tenant, db), waiting in the queue until ctx ends if both are at their caps.
@@ -51,13 +54,16 @@ func (a *Admission) Acquire(ctx context.Context, tenant, db string) (release fun
 	case shed:
 		return nil, WithRetryAfter(ErrShed, drain) // Retry-After: when the VM queue should have drained
 	case run:
+		a.wait.Observe(0)
 		return a.releaser(k), nil
 	}
 	select {
 	case <-w.ch:
+		a.wait.Observe(a.now().Sub(now))
 		return a.releaser(k), nil
 	case <-ctx.Done():
 	}
+	a.wait.Observe(a.now().Sub(now))
 	a.mu.Lock()
 	cancelled := a.l.cancel(w)
 	a.mu.Unlock()
@@ -87,6 +93,7 @@ func (a *Admission) releaser(k dbKey) func() {
 // AdmissionStats are the current totals across tenants, and counters since NewAdmission.
 type AdmissionStats struct {
 	Tenants, DBs, InFlight, Queued     int
+	QueueCap                           int // the VM queue's cap (AdmissionLimits.VMQueue after defaults)
 	InFlightHighWater, QueuedHighWater int
 	Shed                               int64   // requests refused because a queue was full (times full)
 	DrainPerSec                        float64 // completions in the last whole second (the shed Retry-After's rate)
@@ -102,9 +109,12 @@ func (a *Admission) Stats() AdmissionStats {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AdmissionStats{Tenants: len(a.l.tenants), DBs: len(a.l.dbs), InFlight: a.l.vm.inFlight, Queued: a.l.vm.queued,
-		InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed,
+		QueueCap: a.l.lim.VMQueue, InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed,
 		DrainPerSec: a.drained.perSec(a.now())}
 }
+
+// Wait is the histogram of time spent queued in Acquire, over every request that was not shed.
+func (a *Admission) Wait() *metrics.LatencyHistogram { return a.wait }
 
 // drainRate counts completions per wall-clock second. The rate is the last whole second's count: an estimate
 // of how fast the VM queue drains, recent enough to follow load and stable within a second.

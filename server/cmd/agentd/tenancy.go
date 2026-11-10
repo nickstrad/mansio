@@ -133,6 +133,7 @@ type tenancyPart struct {
 	ready      func(context.Context) error
 	background []func(context.Context)
 	breaker    *breaker.Breaker // the tenancy store's (nil in off mode)
+	shed       tenancyhttp.Shed // the admin and sign-in slot pools' refusals
 	close      func()
 }
 
@@ -180,7 +181,7 @@ func newTenancy(cfg *Config, log *slog.Logger, schemas front.SchemaSource) (*ten
 	}
 	part.creds = credentials{svc}
 	part.mount = func(mux *http.ServeMux) error {
-		return tenancyhttp.Mount(mux, svc, tenancyhttp.Config{AdminToken: sec.AdminToken, Log: log})
+		return tenancyhttp.Mount(mux, svc, tenancyhttp.Config{AdminToken: sec.AdminToken, Log: log, Shed: &part.shed})
 	}
 	return part, nil
 }
@@ -283,7 +284,7 @@ func (h *creatingHost) Lookup(ctx context.Context, db string) (*actor.Actor, err
 	case !errors.Is(err, os.ErrExist):
 		return nil, fmt.Errorf("%w: cannot create database %s: %w", front.ErrUnavailable, db, err)
 	}
-	a = actor.New(h.next+1, path, h.cfg.Actor.Actor())
+	a = actor.New(h.next+1, path, h.cfg.actorConfig())
 	if err := a.Start(true); err != nil {
 		a.Close()
 		if created {

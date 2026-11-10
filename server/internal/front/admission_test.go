@@ -67,6 +67,14 @@ func TestAdmissionWaiterExpires(t *testing.T) {
 	if s := a.Stats(); s.Queued != 0 || s.InFlight != 1 {
 		t.Fatalf("%+v", s)
 	}
+	// B1: both requests are in the wait histogram, the first at 0 and the second at its ~20 ms in the queue.
+	_, counts, sum := a.Wait().Snapshot()
+	if counts[0] != 1 || sum < 20*time.Millisecond {
+		t.Fatalf("wait histogram %v (sum %v), want one immediate and one of >= 20ms", counts, sum)
+	}
+	if s, want := a.Stats(), (AdmissionLimits{DBInFlight: 1}).WithDefaults().VMQueue; s.QueueCap != want {
+		t.Fatalf("queue cap %d, want the VM queue's default %d", s.QueueCap, want)
+	}
 	rel()
 	if s := a.Stats(); !s.Idle() {
 		t.Fatalf("%+v", s)

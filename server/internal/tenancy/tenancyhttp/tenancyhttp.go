@@ -20,10 +20,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/logx"
+	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
@@ -37,6 +39,24 @@ type Config struct {
 	// burst 10.
 	SignInRate, SignInBurst float64
 	Log                     *slog.Logger // required
+	Shed                    *Shed        // counts refusals for lack of a slot; nil: not counted
+}
+
+// DefaultConcurrency is Config.Concurrency's default.
+const DefaultConcurrency = 16
+
+// Shed counts the calls refused because every slot of their pool was taken.
+type Shed struct{ Admin, Auth atomic.Int64 }
+
+// Queues is the two slot pools for metrics.Queues; concurrency is Config.Concurrency (0: the default).
+func (s *Shed) Queues(concurrency int) []metrics.QueueStat {
+	if concurrency == 0 {
+		concurrency = DefaultConcurrency
+	}
+	return []metrics.QueueStat{
+		{Queue: "tenancy_admin", Capacity: concurrency, Rejected: map[string]int64{metrics.ReasonFull: s.Admin.Load()}},
+		{Queue: "tenancy_auth", Capacity: concurrency, Rejected: map[string]int64{metrics.ReasonFull: s.Auth.Load()}},
+	}
 }
 
 // maxBody caps every request body (Release It B6).
@@ -57,7 +77,10 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 		cfg.Timeout = 10 * time.Second
 	}
 	if cfg.Concurrency == 0 {
-		cfg.Concurrency = 16
+		cfg.Concurrency = DefaultConcurrency
+	}
+	if cfg.Shed == nil {
+		cfg.Shed = &Shed{}
 	}
 	if cfg.SignInRate == 0 {
 		cfg.SignInRate, cfg.SignInBurst = 1, 10
@@ -215,6 +238,7 @@ func enter(sem chan struct{}) bool {
 func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !enter(rt.adminSem) {
+			rt.cfg.Shed.Admin.Add(1)
 			w.Header().Set("Retry-After", "1")
 			adminError(w, http.StatusServiceUnavailable, "shed", "too many admin calls at once; retry")
 			return
@@ -320,6 +344,7 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 			return
 		}
 		if !enter(rt.authSem) {
+			rt.cfg.Shed.Auth.Add(1)
 			w.Header().Set("Retry-After", "1")
 			authError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "Too many requests at once; retry.")
 			return

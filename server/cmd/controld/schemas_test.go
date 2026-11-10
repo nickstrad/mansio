@@ -115,6 +115,9 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	if code, _ := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != 503 {
 		t.Fatalf("PUT with the admin bulkhead full: %d, want 503", code)
 	}
+	if d.apiShed.Load() != 1 || d.resolveShed.Load() != 0 { // B1: the refusal is counted against its own pool
+		t.Fatalf("refusals counted: api %d resolve %d, want 1 and 0", d.apiShed.Load(), d.resolveShed.Load())
+	}
 }
 
 // do sends one request with token and decodes the answer into a map.

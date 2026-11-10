@@ -27,10 +27,19 @@ const metricsPath = "/metrics"
 
 // frontMetrics exposes the request pipeline and its admission (point="front"). One snapshot per scrape: the
 // admission lock is the request path's.
-func frontMetrics(reg *metrics.Registry, srv *front.Server) {
+func frontMetrics(reg *metrics.Registry, srv *front.Server, cfg *Config) {
 	var st front.ServerStats
 	var adm front.AdmissionStats
 	reg.OnScrape(func() { st, adm = srv.Stats(), srv.Admission().Stats() })
+	// The request path's queues, outermost first. mailbox and read are per database: capacity is one actor's.
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		adm, q, mailbox := srv.Admission().Stats(), cfg.actorQueues, cfg.actorConfig().MailboxSize
+		return []metrics.QueueStat{
+			{Queue: "admission", Capacity: adm.QueueCap, Rejected: map[string]int64{metrics.ReasonFull: adm.Shed}, Wait: srv.Admission().Wait()},
+			{Queue: "mailbox", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.MailboxFull()}, Wait: q.MailboxWait()},
+			{Queue: "read", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
+		}
+	})
 	reg.Add("mansio_requests_total", "Answers per integration point by outcome class and wire code.", metrics.Counter, func(e *metrics.Emit) {
 		for i, c := range front.Codes {
 			n := st.Outcomes[i]
@@ -69,10 +78,11 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server) {
 		metrics.Gauge, func(e *metrics.Emit) { e.Value(nil, adm.DrainPerSec) })
 }
 
-// actorMetrics exposes the actors' queue depths (one scan of the actors per scrape).
-func actorMetrics(reg *metrics.Registry, host *front.StaticHost) {
+// actorMetrics exposes the actors' queue depths; depths scans them once per scrape (static mode: the host's
+// actors; durable mode: the open databases and the canary).
+func actorMetrics(reg *metrics.Registry, depths func() []int) {
 	var q front.QueueStats
-	reg.OnScrape(func() { q = host.QueueStats() })
+	reg.OnScrape(func() { q = front.SummarizeQueues(depths()) })
 	reg.Add("mansio_actor_queue_depth", "Requests queued in actors: total, deepest, and the p99 across actors.", metrics.Gauge, func(e *metrics.Emit) {
 		e.Value(metrics.Labels{"stat", "total"}, float64(q.Total))
 		e.Value(metrics.Labels{"stat", "max"}, float64(q.Max))
@@ -167,6 +177,11 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 	var st vactor.Stats
 	var tick vactor.TickReport
 	reg.OnScrape(func() { st, tick = h.Stats(), lastTick() })
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		st := h.Stats()
+		return []metrics.QueueStat{{Queue: "fetch", Capacity: h.Gauges().FetchQueueCap,
+			Rejected: map[string]int64{metrics.ReasonFull: st.FetchShed, "failure_backoff": st.TombstoneRefusals}}}
+	})
 	reg.Add("mansio_vactor_events_total", "Virtual-actor host counters since start.", metrics.Counter, func(e *metrics.Emit) {
 		for _, v := range []struct {
 			event string
@@ -194,6 +209,8 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 	})
 	reg.Add("mansio_vactor_oldest_dirty_age_seconds", "Age of the oldest unpublished writes at the last tick (the RPO).", metrics.Gauge,
 		func(e *metrics.Emit) { e.Value(nil, tick.OldestDirtyAge.Seconds()) })
+	reg.Add("mansio_vactor_dirty", "Warm databases with unpublished writes at the last tick.", metrics.Gauge,
+		func(e *metrics.Emit) { e.Value(nil, float64(tick.Dirty)) })
 	reg.Add("mansio_vactor_tick", "The last maintenance tick: duration, intervals missed, jobs that hit their deadline.", metrics.Gauge,
 		func(e *metrics.Emit) {
 			e.Value(metrics.Labels{"stat", "took_seconds"}, tick.Took.Seconds())

@@ -196,6 +196,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	if err != nil {
 		return nil, err
 	}
+	cfg.actorQueues = actor.NewQueues()
 	canary, cleanCanary, err := openCanary(cfg)
 	if err != nil {
 		closeEventLog(events, time.Second)
@@ -252,9 +253,12 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	)
 	reg := metrics.NewRegistry()
 	metrics.Process(reg)
-	frontMetrics(reg, srv)
+	frontMetrics(reg, srv, cfg)
 	lifecycleMetrics(reg, be.pending, ready, time.Now())
 	be.metrics(reg)
+	if cfg.Tenancy != nil {
+		metrics.Queues(reg, func() []metrics.QueueStat { return ten.shed.Queues(0) })
+	}
 	eventLogMetrics(reg, events)
 	mux := http.NewServeMux()
 	mux.Handle(metricsPath, reg.Handler())
@@ -295,7 +299,7 @@ func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHo
 		executor: front.ActorExecutor{Host: lookup, Grace: cfg.ReplyGrace.Duration},
 		ready:    st.readyCheck,
 		pending:  host.PendingCount,
-		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host) },
+		metrics:  func(reg *metrics.Registry) { actorMetrics(reg, host.QueueDepths) },
 		background: []func(context.Context){
 			func(ctx context.Context) { st.openAll(ctx, cfg, dbs, log) },
 		},

@@ -46,6 +46,8 @@ type durableAgent struct {
 	ticks   *tickLog
 	events  *ownerEvents
 	probe   s3Probe
+	// lifecycle is the lifecycle endpoints' slot pool (lifecycle_concurrency; a full one sheds).
+	lifecycle slots
 
 	firstRound atomic.Bool // the first reconcile round finished (some keys may still be retrying)
 }
@@ -75,9 +77,10 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	}
 	raw := objstore.NewDurable(st, s.Prefix)
 	d := &durableAgent{cfg: cfg, log: log, s3: st, s3b: b, raw: raw, store: durable.WithBreaker(raw, b, s3Transient, nil),
-		canary: canary, ticks: &tickLog{log: log}, events: &ownerEvents{log: log}}
+		canary: canary, ticks: &tickLog{log: log}, events: &ownerEvents{log: log},
+		lifecycle: slots{sem: make(chan struct{}, cfg.LifecycleConcurrency)}}
 	m := cfg.Maintenance
-	d.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: cfg.Actor.Actor()}, vactor.Options{
+	d.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: cfg.actorConfig()}, vactor.Options{
 		CacheDir: cfg.CacheDir, Store: d.store, GenCacheBytes: cfg.GenCacheBytes,
 		Policy: vactor.Policy{WriteBackEvery: m.WriteBackEvery.Duration, WriteBackCommits: m.WriteBackCommits,
 			IdleAfter: m.IdleAfter.Duration, MaxActive: m.MaxActive, MaxBytes: m.MaxBytes},
@@ -125,7 +128,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		pending:  d.unreconciled,
 		metrics:  d.register,
 		routes: func(mux *http.ServeMux, srv *front.Server) {
-			(&control{d: d, srv: srv, token: sec.ControlToken, sem: make(chan struct{}, cfg.LifecycleConcurrency)}).routes(mux)
+			(&control{d: d, srv: srv, token: sec.ControlToken}).routes(mux)
 		},
 		background: []func(context.Context){d.reconcile, d.maintain, d.runProbe},
 		close:      d.close,
@@ -252,6 +255,17 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
 	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
+	actorMetrics(reg, func() []int {
+		open := d.host.Open()
+		depths := make([]int, 0, len(open)+1)
+		for _, db := range open {
+			if a, ok := db.(*actordb.DB); ok {
+				depths = append(depths, a.Actor().QueueLen())
+			}
+		}
+		return append(depths, d.canary.QueueDepths()...)
+	})
+	metrics.Queues(reg, func() []metrics.QueueStat { return []metrics.QueueStat{d.lifecycle.stat("lifecycle")} })
 	if d.schemas != nil {
 		schemaMetrics(reg, d.schemas)
 	}

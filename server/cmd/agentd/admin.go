@@ -12,6 +12,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
+	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
 // The admin endpoints: runtime controls without a deploy (Release It C4, ch. 16; plan RI-16). They are served
@@ -44,7 +45,9 @@ type admin struct{ *agent }
 // adminHandler is the admin listener's handler.
 func (a *agent) adminHandler() http.Handler {
 	ad := admin{a}
-	ep := &jsonEndpoints{log: a.log, event: "ADMIN", timeout: a.cfg.LifecycleTimeout.Duration, sem: make(chan struct{}, adminConcurrency),
+	pool := &slots{sem: make(chan struct{}, adminConcurrency)}
+	metrics.Queues(a.reg, func() []metrics.QueueStat { return []metrics.QueueStat{pool.stat("admin")} })
+	ep := &jsonEndpoints{log: a.log, event: "ADMIN", timeout: a.cfg.LifecycleTimeout.Duration, slots: pool,
 		logRefusal: func(*controlError) bool { return true }}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /admin/breaker/{op}", ep.handle(ad.breaker))

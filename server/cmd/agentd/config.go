@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nickstrad/mansio/server/internal/actor"
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
@@ -111,6 +112,8 @@ type Config struct {
 	BodyReadTimeout   load.Duration         `json:"body_read_timeout"` // whole request body; default 5 s
 	IdleTimeout       load.Duration         `json:"idle_timeout"`
 	Actor             load.ActorConfig      `json:"actor"`
+	// actorQueues counts every actor's refusals and mailbox waits (set by newAgent; nil counts nothing).
+	actorQueues *actor.Queues
 
 	// Startup and readiness (Release It H1, H2). Databases open in the background, startup_workers at a time,
 	// while the agent already serves. /readyz reflects a probe every ready_interval, each bounded by
@@ -191,6 +194,13 @@ type Maintenance struct {
 	MaxActive        int           `json:"max_active"`         // warm budget by count; 0 = none
 	MaxBytes         int64         `json:"max_bytes"`          // warm budget by bytes; default from cache_bytes
 	WriteBackTimeout load.Duration `json:"write_back_timeout"` // one write-back or passivation; default 60 s
+}
+
+// actorConfig is the config every actor of this agent runs with.
+func (c *Config) actorConfig() actor.Config {
+	a := c.Actor.Actor()
+	a.Queues = c.actorQueues
+	return a
 }
 
 // Durable reports whether the config runs durable mode.

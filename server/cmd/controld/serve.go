@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/nickstrad/mansio/server/internal/breaker"
 	"github.com/nickstrad/mansio/server/internal/control"
 	"github.com/nickstrad/mansio/server/internal/control/agenthttp"
@@ -31,6 +33,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
+	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
@@ -45,6 +48,10 @@ type daemon struct {
 	token  string // the API's admin token
 	edge   string // the edges' token for GET /v1/agents; "" = off
 	sem    chan struct{}
+	// apiShed counts admin-API calls refused because api_concurrency were in flight.
+	apiShed atomic.Int64
+	// tenancyShed counts the tenant admin and sign-in calls refused for lack of a slot (tenancy.go).
+	tenancyShed tenancyhttp.Shed
 
 	ready      atomic.Bool // schema migrated and agents registered
 	agentUp    sync.Map    // vm → bool: last health answer ok (transitions logged)
@@ -379,6 +386,20 @@ func (d *daemon) register(reg *metrics.Registry) {
 	}
 	metrics.Breakers(reg, deps)
 	d.registerLocator(reg)
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		return []metrics.QueueStat{
+			{Queue: "controld_api", Capacity: cap(d.sem), Rejected: map[string]int64{metrics.ReasonFull: d.apiShed.Load()}},
+			{Queue: "resolve", Capacity: cap(d.resolveSem), Rejected: map[string]int64{metrics.ReasonFull: d.resolveShed.Load()}},
+		}
+	})
+	if d.tenancy != nil {
+		metrics.Queues(reg, func() []metrics.QueueStat { return d.tenancyShed.Queues(0) })
+	}
+	pools := map[string]*pg.Placement{"placement": d.pg}
+	if d.replica != d.pg {
+		pools["placement-replica"] = d.replica
+	}
+	poolMetrics(reg, pools)
 	reg.Add("controld_agent_up", "1 when the agent's last health call answered.", metrics.Gauge, func(e *metrics.Emit) {
 		for _, vm := range slices.Sorted(maps.Keys(d.agents)) {
 			v := 0.0
@@ -405,3 +426,38 @@ func (d *daemon) register(reg *metrics.Registry) {
 
 // wellFormed are the error modules whose errors controld reports as expected failures (exit 1).
 var wellFormed = map[string]bool{module: true, "placement": true, "objstore": true, "agenthttp": true, "control": true}
+
+// poolMetrics exposes each Postgres pool's own counters (pgxpool.Stat): callers beyond max_conns wait inside
+// the pool, so its acquire wait is a queue's wait and must be visible (one Stat per pool per scrape).
+func poolMetrics(reg *metrics.Registry, pools map[string]*pg.Placement) {
+	names := slices.Sorted(maps.Keys(pools))
+	stats := make([]*pgxpool.Stat, len(names))
+	reg.OnScrape(func() {
+		for i, name := range names {
+			stats[i] = pools[name].Stat()
+		}
+	})
+	each := func(name, help string, typ metrics.Type, v func(st *pgxpool.Stat) float64) {
+		reg.Add(name, help, typ, func(e *metrics.Emit) {
+			for i, pool := range names {
+				e.Value(metrics.Labels{"pool", pool}, v(stats[i]))
+			}
+		})
+	}
+	each("controld_pg_pool_acquires_total", "Connections acquired from the pool.", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.AcquireCount()) })
+	each("controld_pg_pool_acquires_waited_total", "Acquires that waited because every connection was in use.", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.EmptyAcquireCount()) })
+	each("controld_pg_pool_acquires_canceled_total", "Acquires given up while waiting (the caller's deadline passed).", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return float64(st.CanceledAcquireCount()) })
+	each("controld_pg_pool_acquire_wait_seconds_total", "Total time spent acquiring connections.", metrics.Counter,
+		func(st *pgxpool.Stat) float64 { return st.AcquireDuration().Seconds() })
+	reg.Add("controld_pg_pool_conns", "Pool connections: in use, idle, and the limit (pg.max_conns).", metrics.Gauge, func(e *metrics.Emit) {
+		for i, pool := range names {
+			st := stats[i]
+			e.Value(metrics.Labels{"pool", pool, "state", "in_use"}, float64(st.AcquiredConns()))
+			e.Value(metrics.Labels{"pool", pool, "state", "idle"}, float64(st.IdleConns()))
+			e.Value(metrics.Labels{"pool", pool, "state", "max"}, float64(st.MaxConns()))
+		}
+	})
+}

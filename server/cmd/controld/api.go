@@ -176,12 +176,12 @@ func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Requ
 
 // handleAs is handle for the holder of any of tokens (named who in the refusal). An empty token never matches.
 func (d *daemon) handleAs(tokens []string, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
-	return d.handleIn(d.sem, d.cfg.APITimeout.Duration, tokens, who, action, fn)
+	return d.handleIn(d.sem, &d.apiShed, d.cfg.APITimeout.Duration, tokens, who, action, fn)
 }
 
-// handleIn is handleAs in the bulkhead sem under timeout: data-path reads (schema fetches) use the locator's,
-// so they never queue behind admin moves (Release It B1).
-func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []string, who, action string,
+// handleIn is handleAs in the bulkhead sem (refusals counted in shed) under timeout: data-path reads (schema
+// fetches) use the locator's, so they never queue behind admin moves (Release It B1).
+func (d *daemon) handleIn(sem chan struct{}, shed *atomic.Int64, timeout time.Duration, tokens []string, who, action string,
 	fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -189,7 +189,7 @@ func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []str
 			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
-		d.call(w, r, sem, nil, timeout, func(ctx context.Context, r *http.Request) (any, error) {
+		d.call(w, r, sem, shed, timeout, func(ctx context.Context, r *http.Request) (any, error) {
 			out, err := fn(ctx, r)
 			if err == nil && action != "" {
 				d.log.Info("control action", "event", "CONTROLD."+strings.ToUpper(strings.ReplaceAll(action, "-", "_")), "path", r.URL.Path)
@@ -200,8 +200,8 @@ func (d *daemon) handleIn(sem chan struct{}, timeout time.Duration, tokens []str
 }
 
 // call is every API call's pipeline after authentication: refused until startup is done, one slot of sem
-// (refused at once when full, counted in shed if not nil; never queued, Release It B1), fn under timeout
-// (T1), the answer written.
+// (refused at once when full, counted in shed; never queued, Release It B1), fn under timeout (T1), the
+// answer written.
 func (d *daemon) call(w http.ResponseWriter, r *http.Request, sem chan struct{}, shed *atomic.Int64, timeout time.Duration,
 	fn func(ctx context.Context, r *http.Request) (any, error)) {
 	if !d.ready.Load() {
@@ -212,9 +212,7 @@ func (d *daemon) call(w http.ResponseWriter, r *http.Request, sem chan struct{},
 	case sem <- struct{}{}:
 		defer func() { <-sem }()
 	default:
-		if shed != nil {
-			shed.Add(1)
-		}
+		shed.Add(1)
 		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "too many calls in flight; retry", false})
 		return
 	}
