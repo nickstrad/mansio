@@ -7,9 +7,20 @@
   `/root/Software/mansio-work/schema-survey`), framed by its §3.1 and §3.4. Nick approved "keep placement B,
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
-- Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Changes 1 to 4, the explainer and the simplify pass are done and
-  verified; the merge to main is next.
+- Status: **merged to main and pushed: merge `8fa7779`** (`git merge --no-ff feat/read-path-1234` on top of
+  `8075b8d`, pushed 2026-11-10). All four changes are implemented, the explainer is written, the simplify pass
+  is done, and verification is at baseline. No cross-family review ran: the brief directed Fable to merge
+  after the simplify pass.
+- How it was merged: as the backpressure merge was. `main` is checked out in `/root/Software/mansio` (Twin's
+  checkout, not to be worked in), so the merge was made in `/root/Software/mansio-work/main-merge` on a
+  detached HEAD at `origin/main` and pushed with `git push origin HEAD:main`. **The local `main` ref and
+  Twin's checkout are behind**: run `git pull --ff-only` there to catch up.
+- Verified on the merged tree (identical to the verified branch head `f31bdda`): `make platform-up` →
+  `makeMove round trips through the edge: warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`;
+  `make platform-down` clean; `deno task test` 340 passed; the SDK and decode property tests; `gofmt`,
+  `go vet` and `go test -race` on `internal/docexec/...`, `internal/ir`, `internal/front/...`, `cmd/agentd`
+  (only the baseline `TestAdminFetchLimitAppliesToTheNextFetches` and, under `-race`,
+  `TestIndexNamesDecodeFast` fail; the latter passes without `-race`).
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -160,8 +171,12 @@
 - Not done, for Nick: no cross-family review ran on this branch; the brief directed Fable to merge after the
   simplify pass. Open candidates: the clock reading in mutation answers (above); a query-side opt-in to cached
   reads (survey change 4's "unless the call opts in to staleness").
-- Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
-  change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
+- Next: nothing is running and nothing is pending for this work. For Nick to decide: change 5 (the explainer
+  ends with the build order an approval would start), and the two open candidates above.
+- Resume / cleanup: branch `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`) and
+  the merge worktree `/root/Software/mansio-work/main-merge` are left for inspection; both can be removed with
+  `git worktree remove`. No platform is up (`docker ps | grep mansio-platform` is empty). Scratch logs:
+  `/tmp/rp/`.
 
 ## 2026-11-10 — backpressure fixes B1–B11 (Fable 5.2 build + simplify + merge, Nick-directed)
 
