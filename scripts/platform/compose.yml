@@ -1,11 +1,15 @@
 # The dev platform's own services (`make platform-up`, scripts/platform/up.sh). DEV ONLY: every credential here
 # is a public test value.
 #
-# A separate Compose project (`mansio-platform`) from the root docker-compose.yml (`make up`): its own
-# containers, its own volumes, and loopback-only ports that do not collide with the root stack's 5432/8333,
-# so the platform can run beside it and `make platform-down` (`down -v`) removes only what this file created.
+# A separate Compose project from the root docker-compose.yml (`make up`): its own containers, its own
+# volumes, and loopback-only ports that do not collide with the root stack's 5432/8333, so the platform can
+# run beside it and `make platform-down` (`down -v`) removes only what this file created.
+#
+# The project is named per checkout, `mansio-platform-<hash of the state directory>`, by
+# scripts/platform/lib.sh: a `down` in one checkout cannot remove another checkout's platform. Use the
+# scripts (or `make`), not `docker compose -f` on this file: it has no name of its own.
 
-name: mansio-platform
+name: ${PLATFORM_PROJECT:?set by scripts/platform/lib.sh; use make platform-up / platform-down}
 
 services:
   postgres:
@@ -77,6 +81,6 @@ configs:
         ]
       }
 
-volumes: # project-scoped (mansio-platform_pg, mansio-platform_s3): `down -v` removes them
+volumes: # project-scoped (<project>_pg, <project>_s3): `down -v` removes them
   pg:
   s3:

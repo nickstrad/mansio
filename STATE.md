@@ -6,7 +6,7 @@
   reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
   owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
   simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
-- Status: **items A and B done; C in progress.** Branch `feat/version-fixes`, worktree
+- Status: **items A, B and C done; the simplify pass is next.** Branch `feat/version-fixes`, worktree
   `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
 - Item A, the version floor: **done** (this commit). Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
@@ -56,6 +56,23 @@
     `BucketAlreadyOwnedByYou`, probed directly).
   - Verified: `gofmt`, `go vet`; `go test ./internal/objstore/...` and `-race` on `objstore`, `vactor`,
     `cmd/agentd` ok.
+- Item C, a Compose project per checkout: **done** (this commit). `scripts/platform/lib.sh` derives the
+  project from the resolved state directory (`realpath -m` of `PLATFORM_DIR`, default `<checkout>/.platform`):
+  `mansio-platform-<first 8 hex of its sha256>`. `compose.yml` takes the name from `PLATFORM_PROJECT` (it has
+  none of its own and refuses without it); the marker in the state directory is `.<project>`, so `down.sh`
+  deletes only a directory this path's `up.sh` made. Comments in `up.sh`, `down.sh`, `compose.yml` and the
+  `Makefile` say so.
+  - Proof (2026-11-10, this worktree and a second checkout of the same commit at `/tmp/vf-base`):
+    `make platform-up` here → project `mansio-platform-9d884e4e`, smoke OK. `make platform-down` in the second
+    checkout → `removing compose project mansio-platform-caed965e`, exit 0; here, the same two container ids
+    still running, both volumes present, all four daemons alive, and `make platform-up` again (smoke only)
+    `platform smoke OK`. `make platform-up` in the second checkout while this one is up →
+    `port 15432 is in
+    use`, exit 2, nothing created (accepted: the host ports are fixed).
+    `make platform-down` here → exit 0; containers identical to the pre-run list, 0 `mansio-platform` volumes
+    and networks, `.platform/` gone, no platform port held.
+  - Verified: `shellcheck -x scripts/platform/*.sh` clean; six `platform-up` / `platform-down` cycles on the
+    new names, all exit 0.
 - **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
   `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
   host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a

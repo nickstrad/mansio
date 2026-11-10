@@ -103,8 +103,9 @@ POSTGRES_DB   ?= mansio
 db-shell: ## Open an interactive psql shell in the postgres service
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-# The multi-node dev platform: its own Compose project (mansio-platform; Postgres :15432, S3 :18333), so it
-# runs beside `make up`'s stack and never touches it. State lives in .platform/. See scripts/platform/up.sh.
+# The multi-node dev platform: its own Compose project (mansio-platform-<hash>, one per checkout; Postgres
+# :15432, S3 :18333), so it runs beside `make up`'s stack and never touches it, nor another checkout's
+# platform. State lives in .platform/. See scripts/platform/up.sh.
 platform-up: ## Build and start controld, two agentd and the edge; prove it with an SDK write+read
 	scripts/platform/up.sh
 
