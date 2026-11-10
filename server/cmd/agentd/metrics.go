@@ -17,7 +17,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// The metric catalog (Release It O1, O2) is documented in knowledge/front/2026-11-05-metrics.md. Every
+// The metric catalog (Release It O1, O2) is documented in knowledge/front/2026-11-05-metrics.md; the per-queue
+// families (B1) in knowledge/backpressure/2026-11-10-queue-metrics.md. Every
 // family pulls from a component's own counters at scrape time; thresholds and alerts live in the monitoring
 // config, never here. Integration points share one family per kind, labeled point="front|s3|...", and the
 // six outcome classes of front.OutcomeClass.
