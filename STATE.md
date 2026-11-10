@@ -8,8 +8,8 @@
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
 - Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Changes 1 to 4 and the explainer done; the simplify pass and the merge
-  are next.
+  based on `origin/main` `8075b8d`). Changes 1 to 4, the explainer and the simplify pass are done and
+  verified; the merge to main is next.
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -131,6 +131,35 @@
   carrying the request's clock reading (the one reading of spec §6.3). The client would then know the
   documents its commit inserted exactly, so inserts become cacheable (the first `makeMove` after `createGame`
   drops from two round trips to one) and a local store could apply its own commits without reading them back.
+- After the changes: `64b422e` (not a simplification, so its own commit): an oversized commit (`ir-op-limit`)
+  and an unserializable answer were reported before the run's cached reads had been asserted; they now go
+  through the same check as a handler's own failure.
+- Simplify pass: **done** `0b533bb` (no behaviour change). The Go executor reads `_mansio_changes` with one
+  statement for every request (the second statement shape, the pre-scan for table asserts and its flag are
+  gone); the recording executor builds restarts and its own conflicts through two helpers and computes a
+  select's key once; the test model computes a table's last change in one place. The client's run loop was
+  collapsed to one outcome path in `64b422e`. Reviewed and left alone: `witness.go`, the decoders,
+  `sdk/cache.ts`. Docs brought in line: `SKIM.md` excerpts `799dc37`; knowledge entry
+  `docs/knowledge/ir/2026-11-10-read-path.md` `a326e64`.
+- Final verification (this VM, 2026-11-10, branch head after the simplify pass; logs `/tmp/rp/s-*.log`):
+  - `deno task ci` exit 0: fmt, lint, check, 340 unit tests, 61 property tests.
+  - Go: `gofmt -l .` clean, `go vet ./...` ok. `go test -race ./...` fails only tests that fail or flake on
+    the untouched baseline: `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (every run) and
+    `TestDrainTimeoutIsReported`, `internal/ir` `TestIndexNamesDecodeFast` (all three listed in the section
+    below), `cmd/sqlbench` `TestInterruptMidRunFinishesFiles` (2 of 6 on `8075b8d` in the merge worktree, 1 of
+    4 here; the package imports nothing this branch changes), and once `cmd/frontbench`
+    `TestKeygenSeedAndRunEveryMode` ("0 req" in a timed run while the whole suite ran; 14 of 14 alone here, 6
+    of 6 on the baseline). `go test -tags noassert ./...` fails only
+    `TestAdminFetchLimitAppliesToTheNextFetches`.
+  - `work-scripts/bash/e2e-linux.sh`: `E2E PASS seed=20261010 scenarios=8`.
+  - `make platform-up` exit 0:
+    `smoke: makeMove round trips through the edge: warm cache 1 and 1, cold 2, stale
+    cache 2`,
+    `platform smoke OK`; `make platform-down` exit 0, `.platform/` gone.
+  - Not run: the gated Go suites that need `MANSIO_PG_URL` / `COLDLOAD_S3` (no code they cover changed).
+- Not done, for Nick: no cross-family review ran on this branch; the brief directed Fable to merge after the
+  simplify pass. Open candidates: the clock reading in mutation answers (above); a query-side opt-in to cached
+  reads (survey change 4's "unless the call opts in to staleness").
 - Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
   change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
 
