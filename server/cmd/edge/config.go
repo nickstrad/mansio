@@ -236,7 +236,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.DefaultTimeout.Duration > c.MaxTimeout.Duration {
 		bad("default_timeout %v is over max_timeout %v", c.DefaultTimeout, c.MaxTimeout)
 	}
-	if c.AdminListen != "" && !loopback(c.AdminListen) {
+	if c.AdminListen != "" && !tlsx.Loopback(c.AdminListen) {
 		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7445 (binding is the admin endpoint's only access control)", c.AdminListen)
 	}
 	if c.DrainDelay.Duration < 0 {
@@ -434,17 +434,4 @@ func readToken(path string) (string, error) {
 		return "", errs.Wrap(module, nil, "registry.token_file %s: the token must be at least %d characters", path, minToken)
 	}
 	return tok, nil
-}
-
-// loopback reports whether addr (host:port) binds a loopback address.
-func loopback(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

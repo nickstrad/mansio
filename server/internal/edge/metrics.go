@@ -57,7 +57,7 @@ func (e *Edge) Register(reg *metrics.Registry) {
 			result string
 			n      int64
 		}{{"hit", e.st.hits.Load()}, {"miss", e.st.misses.Load()}, {"invalid", e.st.invalid.Load()},
-			{"rate_limited", e.st.limited.Load()}, {"verify_busy", e.st.verifyBusy.Load()}} {
+			{"rate_limited", e.st.limited.Load()}, {"verify_busy", e.verify.Shed()}} {
 			m.Value(metrics.Labels{"result", v.result}, float64(v.n))
 		}
 	})
@@ -93,7 +93,7 @@ func (e *Edge) Register(reg *metrics.Registry) {
 			{Queue: "edge_in_flight", Capacity: e.cfg.MaxInFlight, Depth: int(e.st.inFlight.Load()), Rejected: full(e.st.overCap.Load())},
 			// Per agent: the capacity is one agent's, the depth the busiest agent's (each: mansio_edge_agent_in_flight).
 			{Queue: "edge_agent", Capacity: limit, Depth: busiest, Rejected: full(e.st.bulkheadFull.Load())},
-			{Queue: "edge_verify", Capacity: e.cfg.VerifySlots, Depth: len(e.verify), Rejected: full(e.st.verifyBusy.Load())},
+			e.verify.Stat("edge_verify"),
 		}
 	})
 	metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker {

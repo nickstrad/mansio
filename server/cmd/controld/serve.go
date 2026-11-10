@@ -51,7 +51,7 @@ type daemon struct {
 	// The slot pools; a full one refuses at once. api: the admin API (api_concurrency). resolves: every resolve
 	// (locator.concurrency). loads: the Postgres reads the data path starts (locator.load_concurrency), shared
 	// by the locator's loads and the agents' schema reads. creates: creates on first use
-	// (locator.create_concurrency). limits.go changes loads and creates at run time.
+	// (locator.create_concurrency). limits.go is the lever that changes a limit at run time.
 	api, resolves, loads, creates *slots.Pool
 	// tenancyPools are the tenant admin and sign-in slot pools (tenancy.go).
 	tenancyPools tenancyhttp.Pools

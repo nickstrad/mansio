@@ -726,8 +726,8 @@ func (h *Host) Active() int {
 	return len(h.entries)
 }
 
-// Open returns the databases that are open now (activation finished), for a scrape-time scan (O(active)).
-func (h *Host) Open() []DB {
+// OpenDBs returns the databases that are open now (activation finished), for a scrape-time scan (O(active)).
+func (h *Host) OpenDBs() []DB {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	dbs := make([]DB, 0, len(h.entries))

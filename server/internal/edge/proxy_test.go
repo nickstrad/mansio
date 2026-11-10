@@ -239,16 +239,16 @@ func TestVerifySlotsBound(t *testing.T) {
 	now := time.Now()
 	cached := f.is.mint(t, "vm-a", "db-1", now, time.Minute)
 	f.do(t, "192.0.2.1", cached, nil)
-	f.e.verify <- struct{}{} // a verify in progress
+	f.e.verify.TryAcquire() // a verify in progress
 	if r := f.do(t, "192.0.2.2", f.is.mint(t, "vm-a", "db-2", now, time.Minute), nil); r.status != 503 || r.code() != "shed" {
 		t.Fatalf("miss with no slot: %d %v", r.status, r.resp)
 	}
 	if r := f.do(t, "192.0.2.2", cached, nil); r.status != 200 {
 		t.Fatalf("hit with no slot: %d %v", r.status, r.resp)
 	}
-	<-f.e.verify
-	if f.e.st.verifyBusy.Load() != 1 {
-		t.Fatalf("verify_busy %d", f.e.st.verifyBusy.Load())
+	f.e.verify.Release()
+	if f.e.verify.Shed() != 1 {
+		t.Fatalf("verify_busy %d", f.e.verify.Shed())
 	}
 }
 

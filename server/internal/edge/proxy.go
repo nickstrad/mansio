@@ -72,7 +72,7 @@ type Config struct {
 // same pipeline for both, the path kept upstream; the edge's own answers take each path's wire format.
 type Edge struct {
 	cfg    Config
-	verify chan struct{} // verify slots
+	verify *slots.Pool // verify slots
 
 	mu            sync.RWMutex
 	ups           map[string]*upstream // by VM
@@ -94,7 +94,7 @@ type counters struct {
 	answers                                      [len(front.Codes)]atomic.Int64 // answers the edge made, by code
 	ambiguous                                    atomic.Int64                   // of answers[Expired]: a write may have run
 	agent                                        [6]atomic.Int64                // agent answers by status/100
-	hits, misses, invalid, limited, verifyBusy   atomic.Int64
+	hits, misses, invalid, limited               atomic.Int64
 	inFlight, inFlightHigh                       atomic.Int64
 	transportErrs, unknownVM, bulkheadFull, open atomic.Int64
 	overCap                                      atomic.Int64 // shed at MaxInFlight
@@ -124,7 +124,7 @@ func New(cfg Config) (*Edge, error) {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
 	cfg.Clock = det.Or(cfg.Clock)
-	return &Edge{cfg: cfg, verify: make(chan struct{}, cfg.VerifySlots), ups: map[string]*upstream{}, agentInFlight: cfg.AgentInFlight,
+	return &Edge{cfg: cfg, verify: slots.New(cfg.VerifySlots), ups: map[string]*upstream{}, agentInFlight: cfg.AgentInFlight,
 		latency: metrics.NewLatency(nil)}, nil
 }
 
@@ -141,13 +141,6 @@ func (e *Edge) SetAgentInFlight(n int) (prev int) {
 		u.slots.SetLimit(n)
 	}
 	return prev
-}
-
-// AgentInFlight is each agent's bulkhead limit now.
-func (e *Edge) AgentInFlight() int {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return e.agentInFlight
 }
 
 // Drain makes the edge shed new requests (and /readyz fail, see cmd/edge); in-flight requests finish.
@@ -234,14 +227,11 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 			e.st.limited.Add(1)
 			return answer{code: front.Shed, hint: wait, msg: "too many new tickets from this source; nothing ran"}, false
 		}
-		select {
-		case e.verify <- struct{}{}:
-		default:
-			e.st.verifyBusy.Add(1)
+		if !e.verify.TryAcquire() {
 			return answer{code: front.Shed, msg: "edge busy verifying tickets; nothing ran"}, false
 		}
 		c, err = e.cfg.Gate.Verify(token, start)
-		<-e.verify
+		e.verify.Release()
 	}
 	if err != nil {
 		e.st.invalid.Add(1)

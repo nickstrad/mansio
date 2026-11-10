@@ -262,7 +262,7 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 	metrics.Breakers(reg, d.breakers())
 	vactorMetrics(reg, d.host, d.ticks.lastTick)
 	actorMetrics(reg, func() []int {
-		open := d.host.Open()
+		open := d.host.OpenDBs()
 		depths := make([]int, 0, len(open)+1)
 		for _, db := range open {
 			if a, ok := db.(*actordb.DB); ok {

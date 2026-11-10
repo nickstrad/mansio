@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/ticket"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // Config is agentd's JSON config. Defaults are applied before decoding (a file overrides them); unknown fields
@@ -300,7 +300,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		bad("tls: cert_file and key_file are both required")
 	}
-	if c.AdminListen != "" && !loopback(c.AdminListen) {
+	if c.AdminListen != "" && !tlsx.Loopback(c.AdminListen) {
 		bad("admin_listen %q must be a loopback address such as 127.0.0.1:7072 (binding is the admin endpoints' only access control)", c.AdminListen)
 	}
 	if len(c.Protocols) == 0 {
@@ -456,20 +456,6 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 	if c.LifecycleTimeout.Duration <= 0 || c.LifecycleConcurrency < 1 || c.ReconcilePerKey.Duration <= 0 {
 		bad("lifecycle_timeout and reconcile_per_key must be > 0, lifecycle_concurrency >= 1")
 	}
-}
-
-// loopback reports whether addr (host:port) names a loopback host: localhost or a loopback IP. An empty host
-// (":7072") binds every interface, so it is not.
-func loopback(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 // checkDev refuses what only local development may do unless -dev is given: durable mode over plain-HTTP S3

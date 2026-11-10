@@ -12,7 +12,7 @@ front agent's and is unchanged). Code: `internal/metrics/queue.go`, `internal/ac
 | `mansio_queue_rejected_total` | counter | `queue`, `reason` = full, would_expire (admission, B7), failure_backoff (fetch) | refusals counted where they happen |
 | `mansio_queue_wait_seconds` | histogram | `queue` = admission, mailbox | enqueue → pickup; admission counts every request it did not shed (0 when it ran at once) |
 | `mansio_vactor_dirty` | gauge | | warm databases with unpublished writes at the last tick (beside `mansio_vactor_oldest_dirty_age_seconds`) |
-| `mansio_actor_queue_depth` | gauge | `stat` = total, max, p99 | now also in durable mode: the open databases (`vactor.Host.Open`) and the canary |
+| `mansio_actor_queue_depth` | gauge | `stat` = total, max, p99 | now also in durable mode: the open databases (`vactor.Host.OpenDBs`) and the canary |
 
 `metrics.Queues` (`internal/metrics/queue.go`) is one set of families for every bounded queue and slot pool, so
 "which boundary is refusing" is one query. The `queue` label is a fixed list, never a tenant, database or path:

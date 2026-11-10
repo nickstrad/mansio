@@ -139,8 +139,8 @@ func TestStalenessGauges(t *testing.T) {
 	}
 	r.put("a", "2")
 	r.clk.Add(time.Second)
-	if rep := tick(); rep.OldestDirtyAge != time.Second || rep.Dirty != 1 || len(r.h.Open()) != 2 {
-		t.Fatalf("dirty again 1 s after a write-back: age %v, %d dirty (want 1), %d open (want 2)", rep.OldestDirtyAge, rep.Dirty, len(r.h.Open()))
+	if rep := tick(); rep.OldestDirtyAge != time.Second || rep.Dirty != 1 || len(r.h.OpenDBs()) != 2 {
+		t.Fatalf("dirty again 1 s after a write-back: age %v, %d dirty (want 1), %d open (want 2)", rep.OldestDirtyAge, rep.Dirty, len(r.h.OpenDBs()))
 	}
 }
 

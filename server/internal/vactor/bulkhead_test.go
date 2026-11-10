@@ -100,8 +100,8 @@ func TestFetchBulkheadShedsBeyondQueue(t *testing.T) {
 	if f.Calls("c") != 0 || h.Active() != 2 {
 		t.Fatalf("a shed Get started work: fetches(c)=%d active=%d", f.Calls("c"), h.Active())
 	}
-	if st, g := h.Stats(), h.Gauges(); st.FetchShed != 1 || g.FetchQueueCap != 1 || len(h.Open()) != 0 {
-		t.Fatalf("shed %d (want 1), queue cap %d (want 1), open %d (want 0: both still activating)", st.FetchShed, g.FetchQueueCap, len(h.Open()))
+	if st, g := h.Stats(), h.Gauges(); st.FetchShed != 1 || g.FetchQueueCap != 1 || len(h.OpenDBs()) != 0 {
+		t.Fatalf("shed %d (want 1), queue cap %d (want 1), open %d (want 0: both still activating)", st.FetchShed, g.FetchQueueCap, len(h.OpenDBs()))
 	}
 
 	close(hold)
