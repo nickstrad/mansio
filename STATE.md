@@ -8,8 +8,8 @@
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
 - Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Changes 1 to 3 done; change 4, the explainer, the simplify pass and the
-  merge are next, in that order.
+  based on `origin/main` `8075b8d`). Changes 1 to 4 done and verified end to end; the explainer, the simplify
+  pass and the merge are next, in that order.
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -91,6 +91,39 @@
   - Local logic later: `ReadSet` is plain data (documents, select answers, one sequence) and
     `RecordingOptions.seed` takes one from anywhere, which is the shape a local store would hand a speculative
     run; `rebase` is the pure step a local re-run or rebase would call with the server's verdict.
+- Change 4, version-checked cached reads: **done** `5e77f02` (+ tests `655b266`, platform smoke `62a8422`).
+  - SDK only. `sdk/cache.ts`: `ReadCache` (`get`/`put`/`delete`) and `memoryCache(maxDocuments = 1024)`, an
+    LRU that keeps the newer `_version` and hands out copies. `ClientOptions.cache` (default: one
+    `memoryCache()` per client; `false` turns it off; any `ReadCache` may be passed).
+  - A mutation handler's `get` is answered from the cache when it holds the document; the entry is
+    `unverified` until a request has carried its assert (the run's next read, or its commit). A run that ends
+    without a commit (it failed locally, or wrote nothing) and still has unverified reads sends one query of
+    its asserts first (`Recording.verify`); a failed one re-runs the handler on the current document. So no
+    answer and no failure reaches the caller on an unchecked cached read: the survey's red line.
+  - Filled by: every `get` and select answer (queries too), a conflict's `current`, and the client's own
+    commits (a document read then written is cached as computed; a deleted one is dropped). Not cached: a
+    `find`'s answer, a document the run inserted (its `_creationTime` is the server's to say) or wrote without
+    reading. A commit that failed or may have applied drops what it wrote from the cache. A conflict that does
+    not say which documents are stale drops them all. Query handlers do not read the cache.
+  - Tests: "read path 4: …" (six tests; the brief's "stale-cache mutation that cannot commit" is the second)
+    and "read path: makeMove is two round trips cold and one warm; …" on the sample app.
+  - Verified: `deno task ci` exit 0 (340 unit, 61 property); `work-scripts/bash/e2e-linux.sh`
+    `E2E PASS seed=20261010 scenarios=8`; `make platform-up` exit 0 with the smoke now playing four moves
+    through the edge (`makeMove round trips through the edge: warm cache 1 and 1, cold 2, stale cache 2`,
+    `platform smoke OK`), `make platform-down` exit 0 and nothing left.
+  - Round trips for `makeMove` (the survey's representative mutation; one `get`, one commit). Before
+    (`8075b8d`, from its tests): 2, and 4 when the commit conflicts (the reads again, then the commit). After:
+    2 cold, **1 warm**, and a conflict or a stale cache costs **one** more (the refused request carries the
+    document). Measured on the real platform by the smoke, and pinned by the unit tests above.
+  - Deviations: (1) the survey's "queries do not use the cache unless the call opts in to staleness": the
+    opt-in is not built; queries never read the cache. (2) The cache is on by default; the survey did not say.
+    It cannot produce a wrong answer, and the one-trip mutation is the point of the change. (3) The first
+    mutation after `createGame` is still two trips, because an inserted document is not cached.
+  - Local logic later: `ReadCache` is the seam a local store would implement (documents with versions);
+    `unverified` + `verify` is the rule a speculative run needs (compute on local data, let the server check).
+    The trade taken: the cache holds documents only, not select answers, so a `find` is always a round trip;
+    caching selects safely needs the table's sequence to be known locally, which is what a synced local store
+    would bring.
 - Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
   change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
 
