@@ -78,13 +78,7 @@ type Answer struct {
 //	post: req is not modified
 func Run(tx Tx, st State, req *ir.Request, ids det.IDGen) (Answer, error) {
 	r := &run{tx: tx, st: st, s: st.Schema.Schema, ids: ids, write: req.Kind == ir.Mutation,
-		now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops)), touched: map[string]bool{}}
-	for _, op := range req.Ops {
-		if _, ok := op.(*ir.AssertTable); ok {
-			r.guards, r.tables = true, map[string]int64{}
-			break
-		}
-	}
+		now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops)), tables: map[string]int64{}, touched: map[string]bool{}}
 	result := make([]any, 0, len(req.Ops))
 	for i, op := range req.Ops {
 		v, err := r.step(op)
@@ -124,8 +118,7 @@ type run struct {
 
 	seq      int64 // the commit sequence the request started from; valid when seqKnown
 	seqKnown bool
-	guards   bool             // the request holds a table assert
-	tables   map[string]int64 // with guards: each table's last change, as the request found it
+	tables   map[string]int64 // once seqKnown: each table's last change, as the request found it
 	touched  map[string]bool  // the tables this request changed a row of
 }
 

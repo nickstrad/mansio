@@ -165,6 +165,11 @@ interface Entry {
 
 const key = (table: string, id: string) => `${table}\u0000${id}`;
 
+/** Abandons the run: `error` is what the caller gets if the client stops re-running. */
+const restart = (error: RemoteError, seed?: ReadSet) => Effect.die(new Restart(error, seed));
+/** A conflict this process found, in the server's form. */
+const conflict = (message: string) => new RemoteError({ status: 409, remoteTag: "ConflictError", message });
+
 /** One handler run's recording. */
 export class Recording<S extends Schema> implements WriteDB<S> {
   private readonly entries = new Map<string, Entry>();
@@ -249,11 +254,10 @@ export class Recording<S extends Schema> implements WriteDB<S> {
   private fetch(ops: ReadOp[]): Effect.Effect<{ results: unknown[]; seq: number }> {
     return Effect.gen(this, function* () {
       const asserts = this.preconditions();
-      const restart = (error: RemoteError) => Effect.die(new Restart(error));
       if (asserts.length + ops.length <= MAX_OPS) {
         const answer = yield* Effect.catchAll(
           this.reads([...asserts, ...ops]),
-          (error) => Effect.die(new Restart(error, this.rebase(error, asserts))),
+          (error) => restart(error, this.rebase(error, asserts)),
         );
         this.snapshot = answer.seq;
         for (const guard of asserts) {
@@ -265,17 +269,16 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       }
       const results: unknown[] = [];
       for (let i = 0; i < ops.length; i += MAX_OPS) {
-        const answer = yield* Effect.catchAll(this.reads(ops.slice(i, i + MAX_OPS)), restart);
+        const answer = yield* Effect.catchAll(
+          this.reads(ops.slice(i, i + MAX_OPS)),
+          (error) => restart(error),
+        );
         this.snapshot ??= answer.seq;
         if (answer.seq !== this.snapshot) {
-          return yield* restart(
-            new RemoteError({
-              status: 409,
-              remoteTag: "ConflictError",
-              message: `the database changed between the reads of one run (sequence ${this.snapshot} to ` +
-                `${answer.seq}), and they are too many to check in one request`,
-            }),
-          );
+          return yield* restart(conflict(
+            `the database changed between the reads of one run (sequence ${this.snapshot} to ` +
+              `${answer.seq}), and they are too many to check in one request`,
+          ));
         }
         results.push(...answer.result);
       }
@@ -342,14 +345,15 @@ export class Recording<S extends Schema> implements WriteDB<S> {
         if (guarded && !this.tables.has(plan.table)) this.tables.set(plan.table, seq);
       };
       if (touched.length === 0) {
-        const known = guarded ? this.found.get(JSON.stringify(op)) : undefined;
+        const asked = JSON.stringify(op);
+        const known = guarded ? this.found.get(asked) : undefined;
         if (known) {
           guard(known.since);
           return structuredClone(known.value); // the handler may keep and change what it is given
         }
         const [value, seq] = yield* this.read(op);
         guard(seq);
-        if (guarded) this.found.set(JSON.stringify(op), { op, value, since: seq });
+        if (guarded) this.found.set(asked, { op, value, since: seq });
         return value;
       }
       // Only patched or deleted documents can displace a server row; an insert's fresh id has none.
@@ -460,15 +464,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     for (const entry of this.entries.values()) {
       if (entry.unverified) this.cache?.delete(entry.table, entry.id);
     }
-    return Effect.die(
-      new Restart(
-        new RemoteError({
-          status: 409,
-          remoteTag: "ConflictError",
-          message: "the run read more cached documents than one request can assert",
-        }),
-      ),
-    );
+    return restart(conflict("the run read more cached documents than one request can assert"));
   }
 
   /** Fills the cache from an answer: the documents `get`s and selects returned. */

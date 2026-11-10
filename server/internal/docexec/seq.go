@@ -18,7 +18,6 @@ import (
 const (
 	changesTableDDL = `CREATE TABLE IF NOT EXISTS "_mansio_changes" (table_name TEXT NOT NULL PRIMARY KEY, seq INTEGER NOT NULL) STRICT, WITHOUT ROWID`
 	changesExist    = `(SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_mansio_changes')`
-	seqSelect       = `SELECT seq FROM "_mansio_changes" WHERE table_name = ''`
 	changesSelect   = `SELECT table_name, seq FROM "_mansio_changes"`
 	changesUpsert   = `INSERT INTO "_mansio_changes" (table_name, seq) VALUES (?, ?)`
 	changesConflict = ` ON CONFLICT (table_name) DO UPDATE SET seq = excluded.seq`
@@ -39,18 +38,7 @@ func (r *run) sequence() (int64, error) {
 			return 0, storage(err)
 		}
 	}
-	if !r.guards { // the common request: one row
-		rows, err := r.tx.Query(seqSelect, 1)
-		if err != nil {
-			return 0, storage(err)
-		}
-		if len(rows.Values) == 1 {
-			r.seq, _ = rows.Values[0][0].(int64)
-		}
-		r.seqKnown = true
-		return r.seq, nil
-	}
-	// A request with a table assert reads every row once: the sequence and each table's last change.
+	// One statement reads it all: the sequence and each table's last change (at most a row per table).
 	rows, err := r.tx.Query(changesSelect, len(r.s.Names())+1)
 	if err != nil {
 		return 0, storage(err)
@@ -83,7 +71,7 @@ func (r *run) assertTable(op *ir.AssertTable) error {
 
 // changedAt is table's last change as the request sees it now, seq being the sequence it started from.
 //
-//	pre: r.guards (sequence read every table's row)
+//	pre: seq is r.sequence()'s answer
 func (r *run) changedAt(table string, seq int64) int64 {
 	if r.touched[table] {
 		return seq + 1

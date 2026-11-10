@@ -135,14 +135,18 @@ export class Model {
         }
       }
       if (op.op === "assert" && !("id" in op)) {
-        const changed = this.touched.has(op.table) ? this.seq + 1 : this.changes.get(op.table) ?? 0;
-        current.push({ op: i, table: op.table, changed });
+        current.push({ op: i, table: op.table, changed: this.changedAt(op.table) });
       } else {
         const id = (op as { id: string }).id;
         current.push({ op: i, table: op.table, id, doc: this.table(op.table).get(id) ?? null });
       }
     });
     return { seq: this.seq, current };
+  }
+
+  /** `table`'s last change as the request running on this copy sees it: its own writes count as the next. */
+  private changedAt(table: string): number {
+    return this.touched.has(table) ? this.seq + 1 : this.changes.get(table) ?? 0;
   }
 
   private step(op: Op, i: number): unknown {
@@ -171,7 +175,7 @@ export class Model {
       case "delete":
       case "assert": {
         if (!("id" in op)) {
-          const changed = this.touched.has(op.table) ? this.seq + 1 : this.changes.get(op.table) ?? 0;
+          const changed = this.changedAt(op.table);
           if (changed > op.expect.unchangedSince) {
             throw new Failure(409, "ConflictError", i, {
               table: op.table,
