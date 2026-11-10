@@ -281,6 +281,22 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
     return Effect.succeed(definition);
   };
 
+  /** Whether the run wrote and its commit (derived asserts + writes) would not fit in one request. */
+  const tooManyOps = (recording: Recording<Schema>) => {
+    const { ops, asserts } = recording.mutation();
+    return ops.length > asserts && ops.length > MAX_OPS;
+  };
+  const opLimit = (name: string, recording: Recording<Schema>) => {
+    const { ops, asserts } = recording.mutation();
+    return localFailure(
+      new RuleError({
+        rule: "ir-op-limit",
+        detail: `${name} needs ${ops.length} operations (${asserts} derived asserts + ` +
+          `${ops.length - asserts} writes); one IR mutation holds at most ${MAX_OPS}`,
+      }),
+    );
+  };
+
   /** Runs handler `name` until a run stands: its reads held in one snapshot and its commit, if any, applied. */
   const call = (kind: Kind, name: string, args: unknown, call: CallContext) =>
     Effect.gen(function* () {
@@ -296,34 +312,34 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           seed,
           cache,
         });
-        let ran = yield* Effect.either(runHandler(definition, recording, args));
+        // The run's outcome before any commit: the handler's answer as it will cross the wire, or why
+        // there is none (its failure, a run the recording abandoned, a commit too large to send).
+        let ran = yield* Effect.either(
+          runHandler(definition, recording, args).pipe(
+            Effect.flatMap(roundTrip),
+            Effect.filterOrFail(() => !tooManyOps(recording), () => opLimit(name, recording)),
+          ),
+        );
         const { ops, asserts } = recording.mutation();
-        const wrote = ops.length > asserts;
-        // A run that ends without a commit (it failed, or wrote nothing) answers from its reads alone:
-        // any that came from the cache are asserted first, and a stale one re-runs the handler.
-        if (
-          recording.pending && !(ran._tag === "Left" && ran.left instanceof Restart) &&
-          !(ran._tag === "Right" && wrote)
-        ) {
+        const commits = ran._tag === "Right" && ops.length > asserts;
+        // A run that ends without a commit answers from its reads alone: any that came from the cache are
+        // asserted first, and a stale one re-runs the handler.
+        if (!commits && recording.pending && !(ran._tag === "Left" && ran.left instanceof Restart)) {
           const verified = yield* Effect.either(settle(recording.verify()));
-          if (verified._tag === "Left") ran = verified;
+          if (verified._tag === "Left") {
+            ran = verified;
+          }
         }
         let error: ClientError;
         if (ran._tag === "Left") {
-          if (!(ran.left instanceof Restart)) return yield* ran.left;
+          if (!(ran.left instanceof Restart)) {
+            return yield* ran.left;
+          }
           error = ran.left.error;
           seed = ran.left.seed;
         } else {
-          const result = yield* roundTrip(ran.right);
-          if (!wrote) return result; // its reads were one snapshot already
-          if (ops.length > MAX_OPS) {
-            return yield* localFailure(
-              new RuleError({
-                rule: "ir-op-limit",
-                detail: `${name} needs ${ops.length} operations (${asserts} derived asserts + ` +
-                  `${ops.length - asserts} writes); one IR mutation holds at most ${MAX_OPS}`,
-              }),
-            );
+          if (!commits) {
+            return ran.right; // wrote nothing: its reads were one snapshot already
           }
           // A re-run is a new request: its op list differs (fresh reads, fresh ids), and the last one failed.
           const committed = yield* Effect.either(
@@ -331,7 +347,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           );
           if (committed._tag === "Right") {
             recording.committed();
-            return result;
+            return ran.right;
           }
           error = committed.left;
           recording.forget();
