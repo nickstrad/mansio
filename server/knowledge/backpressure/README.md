@@ -5,6 +5,8 @@ Owner: the backpressure-fixes run (2026-11-10; state in the repo root `STATE.md`
 
 Notes, newest first:
 
+- [2026-11-10 event-log retention](2026-11-10-eventlog-retention.md) (B9, event-log part): the writer bounds its
+  own files by bytes and age and counts what a timed-out close loses; the warm-set default is gated.
 - [2026-11-10 durability promise](2026-11-10-durability-promise.md) (B10 (a)): the write-back window stated
   exactly, the dirty-age alert; part (b) is gated and not built.
 - [2026-11-10 capacity table](2026-11-10-capacity-table.md) (B11): `docs/capacity.md` generated from the config

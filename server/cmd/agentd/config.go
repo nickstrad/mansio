@@ -145,6 +145,14 @@ type EventLogConfig struct {
 	TraceSQL     bool   `json:"trace_sql"`      // a sql record per statement (TRACE_SQL); failed statements always
 	Buffer       int    `json:"buffer"`         // queued records before drops; default 8192
 	MaxFileBytes int64  `json:"max_file_bytes"` // roll size; default 64 MiB (LOG_MAX_FILE_BYTES)
+	// MaxTotalBytes and MaxAge bound the files this agent keeps under <dir>/server: when a new file is opened,
+	// the oldest are deleted until the rest total at most max_total_bytes (default 4 GiB) and none is older
+	// than max_age (default 45 days = "1080h"). They are the writer's own ceiling, looser by default than the
+	// offline sweep's (`deno task logs:sweep`: 1 GiB, 30 days, ingested files only), so a tree that is ingested
+	// and swept never reaches them. A file deleted here before it was ingested is lost telemetry, counted in
+	// mansio_eventlog_retired_total. 0 = the default; negative = no limit of that kind.
+	MaxTotalBytes int64         `json:"max_total_bytes"`
+	MaxAge        load.Duration `json:"max_age"`
 }
 
 // S3Config is where durable mode keeps databases. The keys come from the secrets file.

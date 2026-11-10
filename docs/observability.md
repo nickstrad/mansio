@@ -433,6 +433,18 @@ An ingest failure fails the whole call before anything is swept. A sweep failure
 changing nothing — no ingest, no sealing, no file touched (and, when it succeeds, no event emitted). The
 reader process runs the same coordinator when `POST /admin/logs/ingest` is called.
 
+### The writer's own ceiling
+
+The sweep above runs only when someone runs it, and never touches a file it has not ingested. So that an agent
+nobody ingests from cannot fill its volume, agentd's event log also bounds its own tree
+(`server/internal/eventlog/retention.go`): each time it opens a new file it deletes the oldest files under
+`<dir>/server` until the rest total at most `event_log.max_total_bytes` (default 4 GiB) and none is older than
+`event_log.max_age` (default 45 days). The defaults are looser than the sweep's (1 GiB, 30 days), so a tree
+that is ingested and swept never reaches them. This ceiling is **not** ingest-gated: a file it deletes before
+ingest took it is lost telemetry, counted in `mansio_eventlog_retired_total` and logged as `EVENTLOG.RETIRED`.
+It never deletes the file being written, a file written in the last ten minutes, another role's files, or
+anything that is not an `events-<HH>-<pid>-<seq>.jsonl[.gz]` file. A negative value turns a limit off.
+
 ### The DuckDB file is not pruned
 
 Retention does not prune the DuckDB event log. The file **grows with every ingested event** until an explicit

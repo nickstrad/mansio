@@ -96,11 +96,15 @@ func capacityRows() []capacity.Row {
 			Metric:    "`mansio_vactor_dirty`, `mansio_vactor_oldest_dirty_age_seconds`, `mansio_vactor_events_total{event=\"writeback_failure\"}`",
 			Lever:     "`agentctl breaker s3 trip|reset`; `agentctl backup KEY` forces one",
 			FirstLook: "the S3 breaker and `mansio_s3_requests_total{class=\"5xx\"}`: the dirty age is the data a host loss would lose"},
-		{Queue: "events", Protects: "the event log's disk writer; the request path never waits on it",
-			Capacity: fmt.Sprintf("%d records (fixed)", eventlog.DefaultBuffer), Workers: "one writer goroutine",
-			Policy: "the newest record is dropped and counted; the next write records how many", Deadline: "none (telemetry)",
-			Metric: "`mansio_eventlog_queue_depth`, `mansio_eventlog_records_total{result=\"dropped\"}`", Lever: capacity.NoLever,
-			FirstLook: "a slow or full disk under `event_log.dir`"},
+		{Queue: "events", Protects: "the event log's disk writer and its volume; the request path never waits on it",
+			Capacity: fmt.Sprintf("%d records (`event_log.buffer`); on disk %d GiB (`event_log.max_total_bytes`) and %d days (`event_log.max_age`)",
+				eventlog.DefaultBuffer, eventlog.DefaultMaxTotalBytes>>30, int(eventlog.DefaultMaxAge.Hours()/24)),
+			Workers:   "one writer goroutine",
+			Policy:    "queue full: the newest record is dropped and counted, and the next write records how many; disk over its limits: the oldest files are deleted when a new one opens",
+			Deadline:  "none (telemetry); at shutdown the writer gets 2 s and counts what it could not write as lost",
+			Metric:    "`mansio_eventlog_queue_depth`, `mansio_eventlog_records_total{result=\"dropped|lost\"}`, `mansio_eventlog_bytes`, `mansio_eventlog_retired_total`",
+			Lever:     capacity.NoLever,
+			FirstLook: "a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files go before the offline ingest took them"},
 	}
 }
 
