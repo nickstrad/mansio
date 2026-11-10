@@ -51,7 +51,6 @@ type ClusterStats struct {
 	Steps, Requests, Acked, Kills, Restarts, Attests, Moves, MovesDone, Creates, Partitions int
 	LostInRPO                                                                               int
 	LostExcused                                                                             int            // of LostInRPO: older than the RPO, excused by faults
-	VersionReuse                                                                            int            // (account, _version) read with two balances: a rollback re-issued it
 	Answers                                                                                 map[string]int // client-side answers by tag
 	Ops                                                                                     int            // linearizability: operations checked
 	Internal                                                                                []string
@@ -117,7 +116,7 @@ func RunCluster(cfg ClusterConfig, live io.Writer) ClusterResult {
 	w.mu.Lock()
 	res.Stats, res.Script = w.stats, slices.Clone(w.script)
 	w.mu.Unlock()
-	res.Stats.LostInRPO, res.Stats.LostExcused, res.Stats.Ops, res.Stats.VersionReuse = w.model.lostOK, w.model.excused, w.model.checked, w.model.reused
+	res.Stats.LostInRPO, res.Stats.LostExcused, res.Stats.Ops = w.model.lostOK, w.model.excused, w.model.checked
 	return res
 }
 

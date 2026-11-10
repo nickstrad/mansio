@@ -83,6 +83,9 @@ type durableState struct {
 	// first. All are conditional on ver, so at most one of them applied (or ever will).
 	pending  []pendingPub
 	stranded bool // passivation's write-back failed and the file could not be reopened
+	// incarnation is the seal of the manifest this activation restored the file under (Opener.Open). It stays
+	// while the file does: a later stamp of the warm key raises man.Seal, not this.
+	incarnation uint64
 	// published are the generation objects this entry saw published, oldest first: the current one and the
 	// ones owner-side retention has not deleted yet (guide GC2).
 	published []string
@@ -309,7 +312,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	t = h.opts.Clock.Now()
 	obj := next
 	next, err = h.publish(ctx, key, e, func(cur *durable.Manifest) (durable.Manifest, error) {
-		m := obj
+		m := obj.Succeeding(cur)
 		m.Epoch = max(m.Epoch, e.epoch.Load()) // raised since the upload (GetAt): the object keeps its name
 		return m, durable.CheckPublish(cur, m)
 	})
@@ -709,7 +712,7 @@ func (h *Host) closedCopy(ctx context.Context, key string) (string, func(), erro
 	if fi, err := os.Stat(path + "-wal"); err != nil || fi.Size() == 0 {
 		return path, func() {}, nil
 	}
-	db, err := h.open.Open(path)
+	db, err := h.open.Open(path, 0) // opened only to snapshot: nothing is issued under it
 	if err != nil {
 		return "", nil, errs.Wrap(module, err, "cannot write back %s: WAL left after close and reopen failed; safe to retry", key)
 	}
@@ -737,12 +740,13 @@ func (h *Host) reinstate(key string, e *entry) {
 	n := &entry{done: make(chan struct{})}
 	close(n.done)
 	n.man, n.ver, n.lastGen, n.pending, n.published = e.man, e.ver, e.lastGen, slices.Clone(e.pending), e.published
+	n.incarnation = e.incarnation // the same file, nothing rolled back
 	n.epoch.Store(e.epoch.Load())
 	n.stale.Store(e.stale.Load())
 	n.lastUsed.Store(e.lastUsed.Load())
 	n.lastWB.Store(e.lastWB.Load())
 	n.forceDirty.Store(true) // the new db's commit counter starts again; what it holds is not published
-	db, err := h.open.Open(h.LocalPath(key))
+	db, err := h.open.Open(h.LocalPath(key), n.incarnation)
 	switch {
 	case err != nil:
 		n.stranded = true

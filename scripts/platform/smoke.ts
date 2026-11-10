@@ -89,28 +89,27 @@ async function main() {
     `smoke: SDK read through the edge: getGame(${gameId}) → xPlayer ${game.xPlayer}, oPlayer ${game.oPlayer}`,
   );
 
-  const move = async (
-    who: ReturnType<typeof newClient>,
-    playerId: string,
-    cell: number,
-    expectedVersion: number,
-  ) => {
+  // The game's version as the last answer gave it. Versions only rise; the numbers are the server's (a durable
+  // agent counts from its version floor, spec §6.3), so each move expects the version the one before answered.
+  let version = game._version;
+  const move = async (who: ReturnType<typeof newClient>, playerId: string, cell: number) => {
     trips = 0;
     const after = await Effect.runPromise(
-      who.mutation("makeMove", { gameId, playerId, cell, expectedVersion }),
+      who.mutation("makeMove", { gameId, playerId, cell, expectedVersion: version }),
     );
-    if (after?._version !== expectedVersion + 1) {
+    if (!after || after._version <= version) {
       throw new Error(
-        `makeMove(cell ${cell}) answered version ${after?._version}, want ${expectedVersion + 1}`,
+        `makeMove(cell ${cell}) answered version ${after?._version}, want one above ${version}`,
       );
     }
+    version = after._version;
     return trips;
   };
   const other = newClient(); // a second caller, with its own (empty) cache
   const counts = {
-    warm: [await move(client, xPlayer, 0, 1), await move(client, "bob", 1, 2)], // getGame cached the game
-    cold: await move(other, xPlayer, 2, 3),
-    stale: await move(client, "bob", 3, 4), // this client's cache still holds version 3
+    warm: [await move(client, xPlayer, 0), await move(client, "bob", 1)], // getGame cached the game
+    cold: await move(other, xPlayer, 2),
+    stale: await move(client, "bob", 3), // this client's cache still holds the game before `other` moved
   };
   console.log(
     `smoke: makeMove round trips through the edge: warm cache ${
@@ -122,7 +121,7 @@ async function main() {
     throw new Error(`makeMove round trips ${JSON.stringify(counts)}, want warm 1, cold 2, stale 2`);
   }
   const final = await Effect.runPromise(client.query("getGame", { gameId }));
-  if (final?._version !== 5 || final.board.filter((cell) => cell !== null).length !== 4) {
+  if (final?._version !== version || final.board.filter((cell) => cell !== null).length !== 4) {
     throw new Error(`after four moves the game is ${JSON.stringify(final)}`);
   }
   console.log(

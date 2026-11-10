@@ -7,6 +7,10 @@ Code: `internal/durable` (manifest, layout, `Store` port, fake + contract suite)
 
 ## Findings (newest first)
 
+- 2026-11-10 [the version floor](2026-11-10-version-floor.md) (version-fixes run): `_version` is not reissued
+  after a rollback: a write sets `max(prev+1, seal<<32)` and the manifest's seal no longer restarts with a
+  generation (the note's formula failed on the saved vector while it did). Closes open issue 2 below. Open:
+  the commit sequence (`seq`, `unchangedSince`) repeats the same way.
 - 2026-11-06 **PAUSED by the user** — [backup paused, open issues](2026-11-06-backup-paused-open-issues.md): default backup every 10 s (kill -9 RPO ~11 s, not the 170 ms the Jepsen config showed); `_version` reuse after rollback (open sim vector); full-file copies too costly; LiteFS/similar to be evaluated. Code left working as is.
 - 2026-11-06 [publishes in doubt and generation numbers](2026-11-06-pending-and-generation-numbers.md): a
   publish in doubt is kept until one of ours applies or the grace window passes (`ErrInDoubt` at

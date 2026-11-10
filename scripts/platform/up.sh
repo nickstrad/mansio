@@ -5,7 +5,8 @@
 #   1. builds agentd, controld and the edge into .platform/bin
 #   2. generates a throwaway dev CA and one server certificate (127.0.0.1/localhost), the controld/agent/edge
 #      tokens and secrets files, and the ticket key ring (`controld keygen`)
-#   3. starts Postgres and SeaweedFS (scripts/platform/compose.yml, Compose project `mansio-platform`)
+#   3. starts Postgres and SeaweedFS (scripts/platform/compose.yml, in this checkout's own Compose project,
+#      `mansio-platform-<hash of the state directory>`: scripts/platform/lib.sh)
 #   4. starts controld (Postgres placement, tenancy in api-key mode), two durable agentd (vm-a, vm-b; S3
 #      generations in bucket mansio-test) and the edge, every listener on HTTPS from the dev CA
 #   5. runs scripts/platform/smoke.ts: registers the tic-tac-toe schema, creates a tenant and an API key, and
@@ -14,8 +15,10 @@
 # The steps are assembled from server/scripts/soak/run.sh (TLS, config shapes, process handling) and
 # tests/e2e/platform/cluster.ts (tenancy, schema registry, SDK locator client).
 #
-# Everything it creates is in .platform/ (gitignored) and the `mansio-platform` Compose project;
-# scripts/platform/down.sh removes exactly that. Daemons keep running after this script exits.
+# Everything it creates is in .platform/ (gitignored) and this checkout's Compose project;
+# scripts/platform/down.sh removes exactly that, and nothing of a platform started from another checkout.
+# Daemons keep running after this script exits. Two checkouts cannot be up at once: the host ports are fixed,
+# and the second `platform-up` refuses on them.
 #
 # Run again while the platform is up: nothing is rebuilt or restarted; it re-runs the smoke proof against the
 # running platform (a new tenant each time). Leftover state from a platform that is no longer running: it
@@ -42,12 +45,12 @@ for tool in go docker openssl curl jq; do command -v "$tool" >/dev/null || die "
 command -v deno >/dev/null || die "deno is required (export PATH=\"\$HOME/.deno/bin:\$PATH\")"
 docker compose version >/dev/null 2>&1 || die "docker compose (v2) is required"
 for p in "$pg_port" "$s3_port" 27080 27070 27071 27072 27073 27074 27075 27443 27444; do
-  port_free "$p" || die "port $p is in use; is another platform running? (make platform-down)"
+  port_free "$p" || die "port $p is in use; is a platform up from another checkout? (\`make platform-down\` there)"
 done
 
 mkdir -p "$state"/{bin,tls,controld,edge,vm-a,vm-b}
 chmod 700 "$state"
-touch "$state/.mansio-platform" # down.sh deletes only a directory carrying this marker
+touch "$marker" # down.sh deletes only a directory carrying this marker (named for the Compose project)
 # A failure from here on stops whatever this run started (processes, containers, state), so a failed
 # platform-up leaves nothing behind.
 # shellcheck disable=SC2154 # rc is assigned inside the trap string
@@ -95,11 +98,8 @@ umask 022
 log "starting Postgres (:$pg_port) and SeaweedFS (:$s3_port) (compose project $project)"
 compose up -d --wait --wait-timeout 120 >&2
 compose exec -T postgres psql -q -U mansio -d mansio -c "create schema if not exists $pg_schema" >/dev/null
-# The bucket, before any agent starts: each agentd creates a missing bucket itself, and two starting together
-# race (the loser logs S3.BUCKET_CHECK_FAILED on "you already own it").
-compose exec -T seaweedfs sh -c "echo 's3.bucket.create -name $s3_bucket' | weed shell" >/dev/null 2>&1 || true
-compose exec -T seaweedfs sh -c "echo s3.bucket.list | weed shell" 2>/dev/null | grep -qw "$s3_bucket" ||
-  die "could not create bucket $s3_bucket in SeaweedFS"
+# The bucket is not created here: each agentd creates a missing bucket itself when it starts
+# (objstore.EnsureBucket), and the two starting together both succeed.
 
 # --- 4. Configs and daemons. ----------------------------------------------------------------------------------
 s3="{\"endpoint\":\"127.0.0.1:$s3_port\",\"bucket\":\"$s3_bucket\",\"prefix\":\"platform/\"}"

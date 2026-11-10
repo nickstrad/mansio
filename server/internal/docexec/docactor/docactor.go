@@ -70,7 +70,9 @@ func (c *Call) Fn(t *actor.Tx) (actor.Output, error) {
 	if c.Wrap != nil {
 		x = c.Wrap(x)
 	}
-	answer, err := docexec.Run(x, c.state, c.Req, c.IDs)
+	st := c.state
+	st.Floor = docexec.VersionFloor(t.Incarnation())
+	answer, err := docexec.Run(x, st, c.Req, c.IDs)
 	if err != nil {
 		return actor.Output{}, err
 	}

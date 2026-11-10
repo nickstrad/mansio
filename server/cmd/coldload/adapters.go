@@ -34,7 +34,7 @@ func (f s3Fetcher) Size(ctx context.Context, key string) (int64, error) {
 // actorOpener adapts internal/actor to vactor's Opener port: one actor (goroutine + connections) per database.
 type actorOpener struct{ cfg actor.Config }
 
-func (o actorOpener) Open(path string) (vactor.DB, error) {
+func (o actorOpener) Open(path string, _ uint64) (vactor.DB, error) {
 	if _, err := os.Stat(path); err != nil { // SQLite would create a missing file; the port forbids that
 		return nil, err
 	}

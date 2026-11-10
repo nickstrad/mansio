@@ -13,8 +13,9 @@ move, kill -9 losses only inside a parameterized RPO, per-database linearizabili
 segments, bank conservation. Determinism needs doors (one request per actor per step), sub-ms phases and
 per-goroutine trace streams. DST-3: `MANSIO_SIM_SWARM=1` varies fault rates per seed, `ShrinkCluster` cuts
 a failure to a minimal script, vectors in `testdata/cluster`, nightly `scripts/sim-swarm.sh`. Found: periodic
-write-backs stopped while a fence was pending (RPO; fixed in `owner.Table.Publish`); **open**: `_version`
-reuse after a kill -9 rollback breaks `expect` (`testdata/open`).
+write-backs stopped while a fence was pending (RPO; fixed in `owner.Table.Publish`); `_version`
+reuse after a kill -9 rollback broke `expect` (fixed 2026-11-10:
+[the version floor](../writeback/2026-11-10-version-floor.md)).
 
 ## 2026-11-05 DST-1: single-node simulation (branch `dst/1-single-node`)
 

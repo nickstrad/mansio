@@ -346,7 +346,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
             Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
           );
           if (committed._tag === "Right") {
-            recording.committed();
+            recording.committed(committed.right.result.slice(asserts));
             return ran.right;
           }
           error = committed.left;

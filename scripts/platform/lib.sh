@@ -2,8 +2,12 @@
 # Shared by scripts/platform/up.sh and down.sh (sourced; expects $root). Not executable on its own.
 
 state="${PLATFORM_DIR:-$root/.platform}" # everything platform-up generates; down.sh deletes it
-case "$state" in /*) ;; *) state="$PWD/$state" ;; esac # absolute: the scripts cd before they use it
-project=mansio-platform
+state="$(realpath -m -- "$state")" # absolute (the scripts cd before they use it) and one spelling per directory
+# The Compose project, one per state directory (so per checkout): mansio-platform-<8 hex of the path's sha256>.
+# `make platform-down` in one checkout then removes its own containers and volumes, never those of a platform
+# started from another checkout. The same name is the marker file up.sh leaves in $state.
+project="mansio-platform-$(printf '%s' "$state" | sha256sum | cut -c1-8)"
+marker="$state/.$project"
 pg_port="${PLATFORM_PG_PORT:-15432}"
 s3_port="${PLATFORM_S3_PORT:-18333}"
 pg_schema=control
@@ -18,9 +22,9 @@ export PATH="$HOME/.deno/bin:$PATH"
 log() { echo "platform: $*" >&2; }
 die() { log "error: $*"; exit 1; }
 
-compose() {
-  PLATFORM_PG_PORT="$pg_port" PLATFORM_S3_PORT="$s3_port" \
-    docker compose -p "$project" -f "$root/scripts/platform/compose.yml" "$@"
+compose() { # compose.yml takes its project name from PLATFORM_PROJECT
+  PLATFORM_PROJECT="$project" PLATFORM_PG_PORT="$pg_port" PLATFORM_S3_PORT="$s3_port" \
+    docker compose -f "$root/scripts/platform/compose.yml" "$@"
 }
 
 port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }

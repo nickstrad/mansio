@@ -90,8 +90,13 @@ type Fetched struct {
 }
 
 // Opener opens the local database file at path. It must not create a missing file.
+//
+// incarnation tells one restore of the database from the next: in durable mode it is the seal of the manifest
+// the file was activated under (durable.Manifest.Seal), which rises with every stamp, so a database restored
+// after a crash never opens under the incarnation that wrote what the crash lost. 0 without a store, where a
+// file is never rolled back. The opener hands it to whatever issues numbers that must not repeat.
 type Opener interface {
-	Open(path string) (DB, error)
+	Open(path string, incarnation uint64) (DB, error)
 }
 
 // DB is an open database as the host needs it.
@@ -541,6 +546,7 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 		if err != nil {
 			return nil, err
 		}
+		e.incarnation = m.Seal
 		if m.Size > 0 {
 			cancel()
 			ctx, cancel = h.activationCtx(start, m.Size)
@@ -571,7 +577,7 @@ func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 	}
 
 	t := h.opts.Clock.Now()
-	db, err := h.open.Open(path)
+	db, err := h.open.Open(path, e.incarnation)
 	act.Open = h.since(t)
 	if err != nil {
 		return nil, errs.Wrap(module, err, "cannot activate %s: open failed; safe to retry", key)

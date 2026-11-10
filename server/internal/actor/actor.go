@@ -468,7 +468,7 @@ func (a *Actor) apply(ctx context.Context, r *Request, now time.Time) Result {
 		if r.StmtTimeout > 0 {
 			cctx, cancel = det.WithTimeout(ctx, a.cfg.Clock, r.StmtTimeout)
 		}
-		err := runCheck(cctx, a.w, r, now)
+		err := runCheck(cctx, a.w, r, now, a.cfg.Incarnation)
 		timedOut := err != nil && cctx.Err() != nil
 		cancel()
 		if err != nil {
@@ -574,10 +574,10 @@ func (a *Actor) run1(k executor, r *Request, now time.Time, onWriter bool) Resul
 	case r.backupTo != "":
 		res.Err = k.backup(ctx, r.backupTo)
 	case r.Fn != nil && r.Write:
-		res = runFn(ctx, k, r, now)
+		res = runFn(ctx, k, r, now, a.cfg.Incarnation)
 	case r.Fn != nil:
 		var ok bool
-		if res, ok = readFn(ctx, k, r, now, onWriter); !ok && onWriter { // only the run goroutine writes wStuck
+		if res, ok = readFn(ctx, k, r, now, a.cfg.Incarnation, onWriter); !ok && onWriter { // only the run goroutine writes wStuck
 			a.wStuck = true
 		}
 	default:

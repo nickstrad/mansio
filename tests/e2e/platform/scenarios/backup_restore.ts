@@ -39,7 +39,7 @@ const durable = () =>
             expectedVersion: game._version,
           }),
         );
-        assert.equal(advanced!._version, game._version + 1);
+        assert.ok(advanced!._version > game._version);
         snapshots.push({ app, game, backup, advanced: advanced! });
       }
       await first.stop(); // writes back the advanced moves

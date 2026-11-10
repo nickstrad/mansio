@@ -249,7 +249,7 @@ func (s *Store) Seed(key string, epoch uint64, data []byte) durable.Manifest {
 		}
 		gen++
 	}
-	m := durable.NextManifest(key, gen, epoch, DigestOf(data), s.clock())
+	m := durable.NextManifest(key, gen, epoch, DigestOf(data), s.clock()).Succeeding(&st.m)
 	s.objects[m.Object] = bytes.Clone(data)
 	s.meta[m.Object] = m.ObjectInfo()
 	s.mod[m.Object] = s.clock()

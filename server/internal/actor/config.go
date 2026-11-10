@@ -31,6 +31,9 @@ type Config struct {
 	// Clock is the time for deadlines, queue expiry, idle passivation, request-id stamps and timings. Default
 	// det.System().
 	Clock det.Clock
+	// Incarnation tells one restore of the database file from the next (vactor.Opener); closures read it as
+	// Tx.Incarnation. 0 for a file that is never rolled back.
+	Incarnation uint64
 	// Queues, if set, counts this actor's refusals and mailbox waits (shared by a process's actors).
 	Queues *Queues
 }

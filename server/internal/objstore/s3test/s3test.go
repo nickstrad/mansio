@@ -30,6 +30,24 @@ import (
 	"time"
 )
 
+// BucketState is what bucket HEAD and PUT (create) answer for one bucket. Object requests ignore it.
+type BucketState int
+
+const (
+	// BucketOwned (every bucket, unless SetBucket says otherwise): it exists and is the caller's. HEAD 200;
+	// PUT 409 BucketAlreadyOwnedByYou, as S3 answers outside us-east-1 and SeaweedFS everywhere.
+	BucketOwned BucketState = iota
+	// BucketMissing: HEAD 404; PUT creates it (200), and it is BucketOwned from then on.
+	BucketMissing
+	// BucketCreatedSinceHead: HEAD 404, PUT 409 BucketAlreadyOwnedByYou: what the loser of two creators of one
+	// account sees (the other's PUT landed between its HEAD and its PUT).
+	BucketCreatedSinceHead
+	// BucketTakenSinceHead: HEAD 404, PUT 409 BucketAlreadyExists: another account created the name in between.
+	BucketTakenSinceHead
+	// BucketForeign: another account's bucket. HEAD 403; PUT 409 BucketAlreadyExists.
+	BucketForeign
+)
+
 // Mode is one protocol fault.
 type Mode int
 
@@ -85,6 +103,7 @@ type Server struct {
 
 	mu      sync.Mutex
 	objects map[string]object // "/bucket/key" → object
+	buckets map[string]BucketState
 	fault   Fault
 	left    int
 	reqs    []Request
@@ -118,6 +137,16 @@ func (s *Server) Close() {
 	s.once.Do(func() { close(s.done) })
 	s.srv.CloseClientConnections()
 	s.srv.Close()
+}
+
+// SetBucket sets what bucket HEAD and PUT answer for bucket (default: BucketOwned).
+func (s *Server) SetBucket(bucket string, st BucketState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.buckets == nil {
+		s.buckets = map[string]BucketState{}
+	}
+	s.buckets[bucket] = st
 }
 
 // Inject sets the fault for the next matching requests (replacing any previous one).
@@ -383,7 +412,8 @@ func dropConnection(w http.ResponseWriter) {
 	}
 }
 
-// bucketOp serves bucket-level requests. Buckets always exist. Called with s.mu held; unlocks it.
+// bucketOp serves bucket-level requests. A bucket exists and is the caller's unless SetBucket said otherwise
+// (which only HEAD and PUT look at). Called with s.mu held; unlocks it.
 func (s *Server) bucketOp(w http.ResponseWriter, r *http.Request, bucket string, body []byte) {
 	q := r.URL.Query()
 	switch {
@@ -412,7 +442,26 @@ func (s *Server) bucketOp(w http.ResponseWriter, r *http.Request, bucket string,
 		s.mu.Unlock()
 		writeXML(w, res)
 	case r.Method == http.MethodHead || r.Method == http.MethodPut:
+		st := s.buckets[bucket]
+		if st == BucketMissing && r.Method == http.MethodPut {
+			delete(s.buckets, bucket) // created: BucketOwned from now on
+		}
 		s.mu.Unlock()
+		status, code := http.StatusOK, ""
+		switch {
+		case r.Method == http.MethodHead && st == BucketForeign:
+			status, code = http.StatusForbidden, "AccessDenied"
+		case r.Method == http.MethodHead && st != BucketOwned:
+			status, code = http.StatusNotFound, "NoSuchBucket"
+		case r.Method == http.MethodHead || st == BucketMissing:
+		case st == BucketOwned || st == BucketCreatedSinceHead:
+			status, code = http.StatusConflict, "BucketAlreadyOwnedByYou"
+		default:
+			status, code = http.StatusConflict, "BucketAlreadyExists"
+		}
+		if code != "" {
+			writeError(w, r, status, code)
+		}
 	default:
 		s.mu.Unlock()
 		writeError(w, r, http.StatusMethodNotAllowed, "MethodNotAllowed")

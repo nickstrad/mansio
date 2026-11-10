@@ -342,3 +342,20 @@ code.
   an agent's `bash -c '... pkill -f "vite preview" ...'` contains the pattern itself, so the shell kills
   itself. Stop a preview or dev server by PID (`kill $!` after starting it, or `kill $(lsof -ti :4173)`) or by
   port, never by a pattern that also appears in your own command (PG-02, 2026-10-15).
+
+## `.gitignore` hides new files under `server/internal/objstore/`
+
+The root `.gitignore` has a runtime-data rule `objstore/`, and it also matches the Go package
+`server/internal/objstore/`. The files tracked there were force-added; a **new** file in that package does not
+show up in `git status` and `git add <dir>` refuses it. Use `git add -f server/internal/objstore/<file>`, and
+check `git status --ignored` before a commit that adds files there (bitten 2026-11-10, `bucket_test.go`).
+
+## A Go test that mixes a fixed fake clock with real file times rots on its date
+
+`server/internal/eventlog` `TestRetentionBoundsTheTree` fixes its clock at 2026-11-10 09:00 local, but the
+files it writes get the real modification time. It passed until the real clock passed the fake one, then
+failed on every checkout, `origin/main` included (seen 2026-11-10 20:42 UTC). Before blaming a branch for a
+red Go test, run the same test on an untouched `origin/main` worktree
+(`git worktree add --detach /tmp/base
+origin/main`). When writing such a test, set file times from the fake
+clock as well (`os.Chtimes`).

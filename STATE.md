@@ -1,5 +1,107 @@
 # mansio — project state
 
+## 2026-11-10 — version fixes: `_version` after a rollback, EnsureBucket, per-checkout Compose project (Fable 5.2, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-version-fixes-brief.md`. Item A: MANSIO-REFACTORS item 3 (`_version`
+  reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
+  owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
+  simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
+- Status: **items A, B and C done, simplify pass done, verification at baseline; the merge to main is next.**
+  Commits: A `67d4deb`, B `e4a24cf`, C `4a6d2c0`, simplify `263b591`. No cross-family review ran: the brief
+  directed Fable to merge after the simplify pass. Branch `feat/version-fixes`, worktree
+  `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
+- Item A, the version floor: **done** (this commit). Reference:
+  `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
+  - The rule: a write sets `_version = max(v, floor)`, `floor = seal << 32` (`docexec.VersionFloor`), the seal
+    being the manifest's stamp count at activation (host → `Opener.Open(path, incarnation)` →
+    `actor.Tx.Incarnation()` → `docexec.State.Floor`). No store: no floor, versions as before. Durable mode:
+    versions start at 2^32.
+  - The note's `max(prev+1, seal<<32)` was evaluated against the code and adopted with one change it needed:
+    `Manifest.Seal` restarted with each generation, so two incarnations could share a seal; it now survives a
+    new generation (`Manifest.Succeeding`). Evidence on the saved vector (swarm seed 2761): before,
+    `conservation: a full bank read sums to 398, want 400`; with the floor on a restarting seal,
+    `version reuse:
+    account 0 read at version 4294967331 with balance 95, earlier with 78`; as landed, the
+    vector passes and moved to `server/internal/sim/testdata/cluster/` (`testdata/open` is empty).
+  - Tests: `docexec` `TestVersionIsNotReissuedAfterARollback` (a patch expecting a pre-rollback version is a
+    `ConflictError`; no lost version is issued again; fails under either mutant) and `TestVersionFloor`; the
+    cluster checker now treats a reused `(account, _version)` as a violation and the bank model takes versions
+    from the answers; SDK "read path 4: the cache takes the version the commit answered, not the last plus
+    one" (`Recording.committed(results)`: the SDK no longer counts a patched document's version itself).
+  - Verified: `deno task ci` exit 0 (341 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only
+    `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline) and `internal/eventlog`
+    `TestRetentionBoundsTheTree`, which fails the same way on an untouched `origin/main` checkout when run
+    late in the UTC day (20:42 UTC here; it passed in the earlier runs recorded below) and touches nothing
+    this branch changes; `go test -race` and `-tags noassert` on the touched packages (`docexec`, `vactor`,
+    `durable`, `actor`, `sim`, `front`, `owner`, `agentglue`, `cmd/dbtool`, `cmd/coldload`) ok;
+    `scripts/sim-swarm.sh 150 2700` (seeds 2700–2849): 150 passed; `work-scripts/bash/e2e-linux.sh`
+    `E2E PASS
+    seed=20261010 scenarios=8`; `make platform-up` exit 0
+    (`warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`, on versions that start at 2^32) and
+    `make platform-down` clean.
+  - Callers that pinned version numbers on a durable agent now require only that versions rise:
+    `tests/e2e/platform/scenarios/{documents,backup_restore}.ts`, `scripts/platform/smoke.ts`.
+  - Limits, accepted (in the note): 2^21 stamps per database, then writes fail closed;
+    `dbtool
+    rebuild-manifest` over an unreadable manifest, and `dbtool restore` + `import` into a key
+    without a manifest, restart the seal (an operator rollback the floor does not see).
+- Item B, `EnsureBucket` is idempotent: **done** (this commit). `objstore.Store.EnsureBucket` treats the
+  store's `BucketAlreadyOwnedByYou` to its create as success (the bucket is there and ours); another account's
+  name (`BucketAlreadyExists`, or a refused HEAD) still fails.
+  - Tests: `objstore` `TestEnsureBucket` (five bucket states on the in-process S3, `s3test.SetBucket`) and
+    `TestEnsureBucketFromTwoStartersAtOnce`; both fail without the fix.
+  - The `up.sh` workaround (creating the bucket with `weed shell` before the agents start) is **removed**: it
+    is unnecessary now, and without it `make platform-up` exercises the path production takes. Four
+    `platform-up` / `platform-down` cycles without it: all exit 0, `platform smoke OK`, no
+    `S3.BUCKET_CHECK_FAILED`; on each agent `mansio_s3_requests_total{op="bucket",kind="ok"} 2` and every
+    error kind 0 (both agents sent the create; the platform's SeaweedFS answers a second create 409
+    `BucketAlreadyOwnedByYou`, probed directly).
+  - Verified: `gofmt`, `go vet`; `go test ./internal/objstore/...` and `-race` on `objstore`, `vactor`,
+    `cmd/agentd` ok.
+- Item C, a Compose project per checkout: **done** (this commit). `scripts/platform/lib.sh` derives the
+  project from the resolved state directory (`realpath -m` of `PLATFORM_DIR`, default `<checkout>/.platform`):
+  `mansio-platform-<first 8 hex of its sha256>`. `compose.yml` takes the name from `PLATFORM_PROJECT` (it has
+  none of its own and refuses without it); the marker in the state directory is `.<project>`, so `down.sh`
+  deletes only a directory this path's `up.sh` made. Comments in `up.sh`, `down.sh`, `compose.yml` and the
+  `Makefile` say so.
+  - Proof (2026-11-10, this worktree and a second checkout of the same commit at `/tmp/vf-base`):
+    `make platform-up` here → project `mansio-platform-9d884e4e`, smoke OK. `make platform-down` in the second
+    checkout → `removing compose project mansio-platform-caed965e`, exit 0; here, the same two container ids
+    still running, both volumes present, all four daemons alive, and `make platform-up` again (smoke only)
+    `platform smoke OK`. `make platform-up` in the second checkout while this one is up →
+    `port 15432 is in
+    use`, exit 2, nothing created (accepted: the host ports are fixed).
+    `make platform-down` here → exit 0; containers identical to the pre-run list, 0 `mansio-platform` volumes
+    and networks, `.platform/` gone, no platform port held.
+  - Verified: `shellcheck -x scripts/platform/*.sh` clean; six `platform-up` / `platform-down` cycles on the
+    new names, all exit 0.
+- Simplify pass: **done** `263b591` (behaviour unchanged). Removed the sim's `Stats.VersionReuse` and its
+  counter (dead once a reused version is a violation); `s3test`'s bucket HEAD/PUT answers are one status
+  table; `docexec`'s test `restart()` and `crash()` share `abandon()`. Reviewed and left: the incarnation's
+  path through `actor` (four signatures, no shorter road to `Tx`), `Manifest.Succeeding` (three callers).
+- Final verification on `263b591` (2026-11-10, this VM, `/tmp/vf-verify.sh`): `gofmt -l` empty;
+  `go vet
+  ./...`; `go test ./...`: only the two baseline failures below; `go test -race` and
+  `-tags noassert` on `internal/{docexec,vactor,durable,actor,sim,front,owner,agentglue,objstore}/...`,
+  `cmd/{dbtool,coldload,
+  agentd}`: only `TestAdminFetchLimitAppliesToTheNextFetches`; `deno task ci` exit 0
+  (341 unit, 61 property); `work-scripts/bash/e2e-linux.sh` `E2E PASS seed=20261010 scenarios=8`;
+  `shellcheck -x` clean; `make
+  platform-up` exit 0 (`warm cache 1 and 1, cold 2, stale cache 2`,
+  `platform smoke OK`), `make platform-down` exit 0.
+- Baseline failures, both reproduced on an untouched `origin/main` (`7dcb164`) checkout, neither touched here
+  (item 2 owns the green baseline):
+  - `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (known).
+  - `internal/eventlog` `TestRetentionBoundsTheTree` (**new to this list**, from backpressure B9): its fake
+    clock is fixed at 2026-11-10 09:00 local but the files it writes carry real modification times, so once
+    the real clock is past the fake one the files look newer than "now" and are never swept. It passed in this
+    morning's runs and fails from now on, on every checkout.
+- **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
+  `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
+  host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
+  protocol change (sketch in the note's last section). The sim does not exercise table preconditions.
+- Resume: nothing is running. `make platform-down` in this worktree removes a platform left up.
+
 ## 2026-11-10 — read path: survey changes 1–4 and the colocated-runner explainer (Fable 5.2, Nick-directed)
 
 - Goal/spec: brief `/root/briefs/mansio-read-path-brief.md`; the spec is the survey's §3.2 changes 1–4

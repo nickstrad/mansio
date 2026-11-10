@@ -92,7 +92,11 @@ type Tx struct {
 	done     atomic.Bool // set when the closure returns; a stray use from any goroutine then answers ErrTxDone
 	failed   error       // a write closure's first statement error: it poisons the Tx (see Func)
 	stmts    int
+	inc      uint64
 }
+
+// Incarnation is the actor's Config.Incarnation: which restore of the database file the closure runs on.
+func (tx *Tx) Incarnation() uint64 { return tx.inc }
 
 // Now is the request's one clock reading (the actor's Config.Clock): for a write, the batch's time, which is
 // also the request id's applied_ms; for a read, when it started. Use it for _creationTime (ir/spec/v1.md §6.3).
@@ -165,21 +169,21 @@ func (tx *Tx) check(sql string) error {
 //
 //	post: the Tx given to Fn is dead (every later use answers ErrTxDone)
 //	post: a statement error poisoned the Tx ⇒ res.Err != nil, even if Fn returned nil
-func runFn(ctx context.Context, k executor, r *Request, now time.Time) Result {
-	return withTx(ctx, k, !r.Write, now, r.Fn)
+func runFn(ctx context.Context, k executor, r *Request, now time.Time, inc uint64) Result {
+	return withTx(ctx, k, !r.Write, now, inc, r.Fn)
 }
 
 // runCheck runs r.Check on k in a read-only Tx (Exec refused); nil when there is none.
-func runCheck(ctx context.Context, k executor, r *Request, now time.Time) error {
+func runCheck(ctx context.Context, k executor, r *Request, now time.Time, inc uint64) error {
 	if r.Check == nil {
 		return nil
 	}
-	return withTx(ctx, k, true, now, func(tx *Tx) (Output, error) { return Output{}, r.Check(tx) }).Err
+	return withTx(ctx, k, true, now, inc, func(tx *Tx) (Output, error) { return Output{}, r.Check(tx) }).Err
 }
 
-// withTx gives fn a fresh Tx on k and kills it afterwards.
-func withTx(ctx context.Context, k executor, readOnly bool, now time.Time, fn Func) (res Result) {
-	tx := &Tx{k: k, ctx: ctx, now: now, readOnly: readOnly}
+// withTx gives fn a fresh Tx on k (inc is the actor's Config.Incarnation) and kills it afterwards.
+func withTx(ctx context.Context, k executor, readOnly bool, now time.Time, inc uint64, fn Func) (res Result) {
+	tx := &Tx{k: k, ctx: ctx, now: now, readOnly: readOnly, inc: inc}
 	defer func() {
 		tx.done.Store(true)
 		if p := panicx.From(recover()); p != nil {
@@ -204,7 +208,7 @@ func withTx(ctx context.Context, k executor, readOnly bool, now time.Time, fn Fu
 //
 //	pre:  no transaction is open on k
 //	post: no transaction is open on k, and nothing the closure did is committed
-func readFn(ctx context.Context, k executor, r *Request, now time.Time, onWriter bool) (res Result, ok bool) {
+func readFn(ctx context.Context, k executor, r *Request, now time.Time, inc uint64, onWriter bool) (res Result, ok bool) {
 	bg := context.Background() // setup and cleanup run whatever the closure's deadline
 	if onWriter {
 		if err := k.run(bg, "PRAGMA query_only = 1"); err != nil {
@@ -215,10 +219,10 @@ func readFn(ctx context.Context, k executor, r *Request, now time.Time, onWriter
 	if err := k.run(bg, "BEGIN"); err != nil {
 		return Result{Err: err}, true
 	}
-	if err := runCheck(ctx, k, r, now); err != nil {
+	if err := runCheck(ctx, k, r, now, inc); err != nil {
 		res = Result{Err: err}
 	} else {
-		res = runFn(ctx, k, r, now)
+		res = runFn(ctx, k, r, now, inc)
 	}
 	_ = k.run(bg, "ROLLBACK") // fails only if a statement already ended the transaction: nothing left open
 	return res, true

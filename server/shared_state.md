@@ -898,3 +898,38 @@ Branch `ir/06-cutover`. ADR: `docs/adr/0013-go-server-replaces-deno-platform.md`
   (`internal/docexec`) is the only executor of those vectors. TS still runs decode/validation/schema/compile and
   regenerates every file (`scripts/ir/gen-vectors.ts`).
 - k6 (`perf/`) always speaks `/v1/ops`; `BACKEND`/`TOKEN` are gone, `BASE_URL` defaults to `127.0.0.1:7070`.
+
+## 2026-11-10 — version-fixes: the version floor (`_version` after a rollback)
+
+Branch `feat/version-fixes`. Note: `knowledge/writeback/2026-11-10-version-floor.md`.
+
+- **Closes the open finding of 2026-11-06** (`_version` repeats after a kill -9 rollback). The vector is
+  `internal/sim/testdata/cluster/version-reuse-after-rollback.json` now; `testdata/open` is empty.
+- **docexec (behaviour change, spec §6.3 / revision 1.2):** a write sets `_version = max(v, floor)`;
+  `docexec.VersionFloor(incarnation) = incarnation << 32`; `State.Floor` (set by `docactor.Call.Fn`). In
+  durable mode versions start at 2^32, not 1. Do not assert `prev + 1` on a durable database: take the
+  version the patch answers.
+- **vactor (port change):** `Opener.Open(path string, incarnation uint64)`; the host passes the manifest's seal
+  at activation. Implementations: `actordb.Opener`, `vactortest.Opener`, `cmd/coldload`.
+- **actor:** `Config.Incarnation`, `Tx.Incarnation()`.
+- **durable (behaviour change):** `Manifest.Seal` counts the key's stamps and no longer restarts with a
+  generation; `Manifest.Succeeding(stored)` keeps it. A publisher of a new generation must call it
+  (`vactor` does, `durabletest.Store.Seed` does, `dbtool rebuild-manifest` does over a readable manifest).
+- **sim:** a reused `(account, _version)` is a violation (class `version-reuse`); the bank model takes
+  versions from the answers.
+- **Open finding (needs a decision):** the commit sequence (`seq`, `unchangedSince`) repeats after a rollback
+  the same way (the note's last section).
+
+## 2026-11-10 — version-fixes: `objstore.EnsureBucket` is idempotent
+
+- **objstore (behaviour change):** `Store.EnsureBucket` succeeds when its create is answered
+  `BucketAlreadyOwnedByYou` (another process of the same account created the bucket between the HEAD and the
+  PUT: two agentd starting together). Before, the loser logged `S3.BUCKET_CHECK_FAILED` and counted an
+  `op="bucket"` error, though the bucket was there. `BucketAlreadyExists` (another account's name) and a
+  refused HEAD still fail. SeaweedFS 4.48 answers 409 `BucketAlreadyOwnedByYou` (measured on the platform's
+  own store).
+- **s3test:** `Server.SetBucket(bucket, BucketState)` (`BucketOwned` default, `BucketMissing`,
+  `BucketCreatedSinceHead`, `BucketTakenSinceHead`, `BucketForeign`); a PUT of an existing bucket now answers
+  409 `BucketAlreadyOwnedByYou` instead of 200. Tests: `objstore` `TestEnsureBucket`,
+  `TestEnsureBucketFromTwoStartersAtOnce`.
+- `scripts/platform/up.sh` no longer creates the bucket before the agents start: they do.

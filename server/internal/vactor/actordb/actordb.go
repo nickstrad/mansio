@@ -14,12 +14,15 @@ import (
 // Opener opens each database as a started actor with Cfg.
 type Opener struct{ Cfg actor.Config }
 
-// Open starts an actor on the existing file at path. It never creates a missing file (the port forbids it).
-func (o Opener) Open(path string) (vactor.DB, error) {
+// Open starts an actor on the existing file at path, under incarnation (actor.Config.Incarnation). It never
+// creates a missing file (the port forbids it).
+func (o Opener) Open(path string, incarnation uint64) (vactor.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	a := actor.New(0, path, o.Cfg)
+	cfg := o.Cfg
+	cfg.Incarnation = incarnation
+	a := actor.New(0, path, cfg)
 	if err := a.Start(true); err != nil {
 		return nil, err
 	}

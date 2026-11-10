@@ -1,7 +1,6 @@
 {
   "name": "version-reuse-after-rollback",
-  "why": "OPEN (not fixed; plan \u00a79 kill -9 decision). A kill -9 of the owner rolls the database back to its last published generation (inside the RPO), so document _version numbers are issued again for different contents. A bank transfer computed before the crash (read at versions v, patch absolute balances with expect {version: v}) that is still in flight or retried with its request id after the restart passes its expect against the new, different document at the same version and writes stale balances: the bank no longer sums to 400 (398 here). Loss inside the RPO becomes silent corruption, not just loss. Shrunk from swarm seed 2761 to three kill/restart pairs of vm2.",
-  "expect": "conservation",
+  "why": "A kill -9 of the owner rolls the database back to its last published generation (inside the RPO), and counting on from the restored numbers issued the lost writes' _version numbers again for other contents. A bank transfer computed before the crash (read at versions v, patch absolute balances with expect {version: v}) that was still in flight or retried with its request id after the restart then passed its expect against the new, different document at the same version and wrote stale balances: the bank summed to 398, not 400. Fixed by the version floor (docexec.VersionFloor: a write sets max(prev+1, seal<<32), and the manifest's seal no longer restarts with a generation). Shrunk from swarm seed 2761 to three kill/restart pairs of vm2.",
   "config": {
     "Seed": 2761,
     "Duration": 242000000000,

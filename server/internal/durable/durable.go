@@ -79,10 +79,14 @@ type Manifest struct {
 	SHA256     string    `json:"sha256"`        // lower-case hex; "" for generation 0
 	MD5        string    `json:"md5,omitempty"` // lower-case hex, when the writer computed it (Content-MD5)
 	WrittenAt  time.Time `json:"written_at"`
-	// Seal counts the stamps of this generation (Stamp raises it every time). It makes every stamp change the
-	// manifest's bytes and so its version, even at the stored epoch: (Epoch, Generation, Seal) only rises
-	// (guide W3). A restarted owner stamps on reopen, so every publish its crashed incarnation still had in
-	// flight, conditional on an older version, fails. 0 for a new generation.
+	// Seal counts the stamps of this key (Stamp raises it every time; a new generation keeps it: Succeeding).
+	// It makes every stamp change the manifest's bytes and so its version, even at the stored epoch: (Epoch,
+	// Generation, Seal) only rises (guide W3). A restarted owner stamps on reopen, so every publish its crashed
+	// incarnation still had in flight, conditional on an older version, fails.
+	//
+	// Because it never falls, the seal a database was activated under also names its incarnation: two
+	// activations that may have lost different writes never share one. Document versions are floored by it
+	// (docexec.VersionFloor), which a seal that restarted with each generation could not do.
 	Seal uint64 `json:"seal,omitempty"`
 }
 
@@ -289,6 +293,15 @@ func (m Manifest) ObjectInfo() GenInfo {
 func NextManifest(key string, gen, epoch uint64, d Digest, now time.Time) Manifest {
 	return Manifest{Key: key, Generation: gen, Epoch: epoch, Object: GenObject(key, gen, epoch), Size: d.Size,
 		SHA256: d.SHA256, MD5: d.MD5, WrittenAt: now.UTC()}
+}
+
+// Succeeding is m as the manifest that replaces stored (nil: none yet): it keeps the key's seal, which a new
+// generation must not restart (Manifest.Seal).
+func (m Manifest) Succeeding(stored *Manifest) Manifest {
+	if stored != nil {
+		m.Seal = stored.Seal
+	}
+	return m
 }
 
 // CheckPublish decides whether next may replace stored (nil: no manifest yet). Pure; the Store's

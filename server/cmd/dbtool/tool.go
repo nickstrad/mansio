@@ -154,7 +154,9 @@ func (t *tool) rebuildManifest(ctx context.Context, a rebuildArgs) error {
 			"cannot rebuild %s at (epoch %d, generation %d): the stored manifest is at (%d, %d); a rollback needs a higher epoch; nothing published",
 			a.key, m.Epoch, m.Generation, stored.Epoch, stored.Generation)
 	default:
-		prev = v
+		// A rollback keeps the key's seal, so the next owner's stamp puts document versions above everything
+		// issued so far (docexec.VersionFloor). An unreadable manifest's seal is lost: the count restarts.
+		prev, m = v, m.Succeeding(&stored)
 	}
 	nv, err := t.s.PublishManifest(ctx, m, prev)
 	if err != nil {
