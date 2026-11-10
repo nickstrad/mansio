@@ -33,6 +33,14 @@
  *   id costs one round trip (its commit), not its reads again. What the next run uses of the seed it
  *   asserts again, like any read.
  *
+ * - **Cached reads are asserted, always.** With a `cache`, a mutation handler's `get` of a document the
+ *   cache holds is answered from it, with no round trip. The document is then `unverified`: its assert
+ *   goes out with the run's next request, and the run is not done until it has (`pending`, `verify`).
+ *   A warm-cache mutation is therefore one round trip, its commit, and a stale cache makes that commit
+ *   fail on the assert, never apply. Every answer from the server fills the cache; a query handler fills
+ *   it but does not read from it (a query has no commit to prove its reads), and a `find` is never
+ *   answered from it.
+ *
  * Asserts go first, before every write, so a conflict on op index `i < asserts` is always one of ours
  * (derived) and the client may re-run the handler; an app-raised `ConflictError` never reaches the
  * server at all (the handler fails locally). Inserts carry the spec's implicit `exists: false` on their
@@ -57,6 +65,7 @@ import {
 } from "../core/ir/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
+import type { ReadCache } from "./cache.ts";
 import type { IdSource } from "./ids.ts";
 import { type Doc, overlay, widenedLimit } from "./overlay.ts";
 import { MAX_LIMIT } from "../core/plan.ts";
@@ -124,6 +133,8 @@ export interface RecordingOptions {
   readonly writable: boolean;
   /** Reads to start from (the last run's, rebased on its conflict). */
   readonly seed?: ReadSet;
+  /** Documents seen before: filled by every answer, and read by a mutation handler's `get`. */
+  readonly cache?: ReadCache;
 }
 
 /** One read waiting for its batch; it answers its result and the sequence it was read at. */
@@ -146,6 +157,8 @@ interface Entry {
   base?: Doc | null;
   /** A handler `get` observed `base` on the server: assert it at commit. */
   guarded: boolean;
+  /** `base` came from the cache and no request has asserted it yet. */
+  unverified?: boolean;
   /** Buffered writes, in order. */
   readonly writes: Write[];
 }
@@ -169,6 +182,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
   private readonly ids: IdSource;
   private readonly now: () => number;
   private readonly writable: boolean;
+  private readonly cache: ReadCache | undefined;
   /** Reads requested together are one `fetch`. */
   private readonly batch = RequestResolver.makeBatched((requests: readonly Fetch[]) =>
     this.fetch(requests.map((request) => request.op)).pipe(
@@ -188,6 +202,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     this.ids = options.ids;
     this.now = options.now;
     this.writable = options.writable;
+    this.cache = options.cache;
     if (options.seed) {
       this.snapshot = options.seed.seq;
       for (const { table, id, doc } of options.seed.docs) this.entry(table, id).base = doc;
@@ -241,7 +256,12 @@ export class Recording<S extends Schema> implements WriteDB<S> {
           (error) => Effect.die(new Restart(error, this.rebase(error, asserts))),
         );
         this.snapshot = answer.seq;
-        return { results: answer.result.slice(asserts.length), seq: answer.seq };
+        for (const guard of asserts) {
+          if ("id" in guard) this.entry(guard.table, guard.id as string).unverified = false;
+        }
+        const results = answer.result.slice(asserts.length);
+        this.learn(ops, results);
+        return { results, seq: answer.seq };
       }
       const results: unknown[] = [];
       for (let i = 0; i < ops.length; i += MAX_OPS) {
@@ -259,6 +279,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
         }
         results.push(...answer.result);
       }
+      this.learn(ops, results);
       return { results, seq: this.snapshot! };
     });
   }
@@ -267,8 +288,14 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     const entry = this.entry(table, id);
     return Effect.gen(this, function* () {
       if (!this.known(entry)) {
-        const [fetched] = (yield* this.read({ op: "get", table, id })) as [Doc | null, number];
-        entry.base ??= fetched; // a read made at the same time may have answered first
+        const cached = this.writable ? this.cache?.get(table, id) : undefined;
+        if (cached) {
+          entry.base = cached;
+          entry.unverified = true;
+        } else {
+          const [fetched] = (yield* this.read({ op: "get", table, id })) as [Doc | null, number];
+          entry.base ??= fetched; // a read made at the same time may have answered first
+        }
       }
       // Guard what the server told this run, not what the run wrote itself.
       if (entry.base !== undefined && entry.writes[0]?.op !== "insert") entry.guarded = true;
@@ -418,6 +445,70 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     return out;
   }
 
+  /** Whether the run read cached documents that no request has asserted yet: it is not done until `verify`. */
+  get pending(): boolean {
+    return [...this.entries.values()].some((entry) => entry.unverified);
+  }
+
+  /**
+   * Asserts everything the run has read, in one query with no reads. Dies with `Restart`, like any read,
+   * when something does not hold. For a run that ends without a commit to carry its asserts.
+   */
+  verify(): Effect.Effect<void> {
+    if (this.preconditions().length <= MAX_OPS) return Effect.asVoid(this.fetch([]));
+    // Too many to assert in one request: drop what the cache gave, so the next run asks the server.
+    for (const entry of this.entries.values()) {
+      if (entry.unverified) this.cache?.delete(entry.table, entry.id);
+    }
+    return Effect.die(
+      new Restart(
+        new RemoteError({
+          status: 409,
+          remoteTag: "ConflictError",
+          message: "the run read more cached documents than one request can assert",
+        }),
+      ),
+    );
+  }
+
+  /** Fills the cache from an answer: the documents `get`s and selects returned. */
+  private learn(ops: readonly ReadOp[], results: readonly unknown[]) {
+    if (!this.cache) return;
+    ops.forEach((op, i) => {
+      const result = results[i];
+      if (op.op === "get") {
+        if (result) this.cache!.put(op.table, result as Doc);
+        else this.cache!.delete(op.table, op.id as string);
+      } else if (!op.aggregate) {
+        for (const doc of result as Doc[]) this.cache!.put(op.table, doc);
+      }
+    });
+  }
+
+  /**
+   * Updates the cache after this run's commit applied: a document the run read and then wrote is now what
+   * the run computed (its base was asserted, so the result is exact); a deleted one is gone. Documents
+   * the run inserted or wrote without reading are not cached: their state is the server's to say.
+   */
+  committed() {
+    if (!this.cache) return;
+    for (const entry of this.entries.values()) {
+      if (entry.writes.length === 0) continue;
+      const doc = entry.guarded && entry.base !== undefined && entry.writes[0].op !== "insert"
+        ? Effect.runSync(Effect.orElseSucceed(this.view(entry), () => null))
+        : null;
+      if (doc) this.cache.put(entry.table, doc);
+      else this.cache.delete(entry.table, entry.id);
+    }
+  }
+
+  /** Drops what the run wrote from the cache: its commit did not apply, or may have. */
+  forget() {
+    for (const entry of this.entries.values()) {
+      if (entry.writes.length > 0) this.cache?.delete(entry.table, entry.id);
+    }
+  }
+
   /**
    * This run's read set as it is at the sequence a conflict was decided at, for the next run to start
    * from. `error` is the `ConflictError` of a request whose first operations were `sent`, guards this
@@ -426,7 +517,12 @@ export class Recording<S extends Schema> implements WriteDB<S> {
    */
   rebase(error: RemoteError, sent: readonly Guard[]): ReadSet | undefined {
     const { seq, current, currentTruncated } = error.fields ?? {};
-    if (typeof seq !== "number" || !Array.isArray(current) || currentTruncated) return undefined;
+    if (typeof seq !== "number" || !Array.isArray(current) || currentTruncated) {
+      // Which documents are stale is not known: the cache forgets them all, or the next run would read
+      // the same stale ones again.
+      for (const guard of sent) if ("id" in guard) this.cache?.delete(guard.table, guard.id as string);
+      return undefined;
+    }
     // The server lists every assert that fails from the first failing one on; the ones before it held.
     const failed = new Map((current as { op: number; doc?: Doc | null }[]).map((state) => [state.op, state]));
     const docs: { table: string; id: string; doc: Doc | null }[] = [];
@@ -440,6 +536,8 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       const id = guard.id as string;
       const doc = now ? now.doc ?? null : this.entry(guard.table, id).base;
       if (doc !== undefined) docs.push({ table: guard.table, id, doc });
+      if (now?.doc) this.cache?.put(guard.table, now.doc);
+      else if (now) this.cache?.delete(guard.table, id);
     });
     return { seq, docs, finds: [...this.found.values()].filter((find) => unchanged.has(find.op.table)) };
   }

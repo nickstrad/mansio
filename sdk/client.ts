@@ -56,6 +56,7 @@ import { schemaFingerprint } from "./fingerprint.ts";
 import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
+import { memoryCache, type ReadCache } from "./cache.ts";
 import { type Guard, type Reads, type ReadSet, Recording, Restart } from "./recording.ts";
 import type { RetryBudget, RetryPolicy } from "./retry.ts";
 import { formatSchemaError, type Schema } from "./schema.ts";
@@ -96,6 +97,14 @@ export interface ClientOptions<F extends Functions> {
   /** Shared windowed retry budget (default: one per client, ratio 0.1, burst 10). */
   readonly budget?: RetryBudget;
   readonly maxReroutes?: number;
+
+  /**
+   * The document cache a mutation handler's `get` is answered from (`sdk/cache.ts`): every cached read is
+   * asserted at the server before the call answers, so a warm mutation is one round trip and a stale
+   * entry costs one more, never a wrong commit. Default: an in-memory cache of 1024 documents per client.
+   * `false` turns it off: every `get` then asks the server.
+   */
+  readonly cache?: ReadCache | false;
 
   readonly newTraceId?: () => string;
   /** Document ids for inserts (default UUIDv7). */
@@ -176,6 +185,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
   const timeoutMs = options.timeoutMs ?? 10_000;
   const handlerRetries = options.handlerRetries ?? 4;
   const db = { tenant: options.tenant, app: options.app };
+  const cache = options.cache === false ? undefined : options.cache ?? memoryCache();
   if (!options.transport && !options.locator && !options.endpoint) {
     throw new TypeError("createClient: give endpoint (single node), locator (multi-node) or transport");
   }
@@ -210,7 +220,11 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
    * recording abandoned as its `Restart`.
    */
   const runHandler = (definition: AnyDefinition, recording: Recording<Schema>, args: unknown) =>
-    definition.invoke(recording, args).pipe(
+    settle(definition.invoke(recording, args));
+
+  /** `effect` with the recording's defects (`Escape`, `Restart`) and local failures in the error channel. */
+  const settle = <A, E>(effect: Effect.Effect<A, E>) =>
+    effect.pipe(
       Effect.catchSomeDefect((defect): Option.Option<Effect.Effect<never, ClientError | Restart>> =>
         defect instanceof Escape
           ? Option.some(Effect.fail(defect.error))
@@ -280,8 +294,20 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           now,
           writable: kind === "mutation",
           seed,
+          cache,
         });
-        const ran = yield* Effect.either(runHandler(definition, recording, args));
+        let ran = yield* Effect.either(runHandler(definition, recording, args));
+        const { ops, asserts } = recording.mutation();
+        const wrote = ops.length > asserts;
+        // A run that ends without a commit (it failed, or wrote nothing) answers from its reads alone:
+        // any that came from the cache are asserted first, and a stale one re-runs the handler.
+        if (
+          recording.pending && !(ran._tag === "Left" && ran.left instanceof Restart) &&
+          !(ran._tag === "Right" && wrote)
+        ) {
+          const verified = yield* Effect.either(settle(recording.verify()));
+          if (verified._tag === "Left") ran = verified;
+        }
         let error: ClientError;
         if (ran._tag === "Left") {
           if (!(ran.left instanceof Restart)) return yield* ran.left;
@@ -289,8 +315,7 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           seed = ran.left.seed;
         } else {
           const result = yield* roundTrip(ran.right);
-          const { ops, asserts } = recording.mutation();
-          if (ops.length === asserts) return result; // wrote nothing: its reads were one snapshot already
+          if (!wrote) return result; // its reads were one snapshot already
           if (ops.length > MAX_OPS) {
             return yield* localFailure(
               new RuleError({
@@ -304,8 +329,12 @@ export function createClient<F extends Functions>(options: ClientOptions<F>) {
           const committed = yield* Effect.either(
             Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
           );
-          if (committed._tag === "Right") return result;
+          if (committed._tag === "Right") {
+            recording.committed();
+            return result;
+          }
           error = committed.left;
+          recording.forget();
           if (!derivedConflict(error, ops, asserts)) return yield* error;
           seed = recording.rebase(error as RemoteError, ops.slice(0, asserts) as Guard[]);
         }

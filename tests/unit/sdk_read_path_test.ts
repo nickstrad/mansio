@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { Effect } from "effect";
 import type { Op, Request } from "../../core/ir/types.ts";
+import { RuleError } from "../../core/errors.ts";
+import { memoryCache } from "../../sdk/cache.ts";
 import { type ClientOptions, createClient } from "../../sdk/client.ts";
 import { defineFunctions } from "../../sdk/functions.ts";
 import { defineSchema, defineTable, v } from "../../sdk/schema.ts";
@@ -427,4 +429,159 @@ Deno.test("read path 3: a conflict that does not carry the state falls back to r
   assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 4 })), true);
   assert.deepEqual(kinds(model), ["query", "mutation", "query", "mutation"]);
   assert.equal(model.table("accounts").get("a1")!.balance, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Change 4: version-checked cached reads
+// ---------------------------------------------------------------------------
+
+Deno.test("read path 4: a warm-cache mutation is one round trip, and its commit asserts the cached versions", async () => {
+  const { model, client } = setup();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  // Cold: the reads (one trip) and the commit.
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 })), true);
+  assert.deepEqual(kinds(model), ["query", "mutation"]);
+  // Warm: the first commit left both accounts in the cache at the versions it wrote.
+  model.log.length = 0;
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 })), true);
+  assert.deepEqual(kinds(model), ["mutation"]);
+  assert.deepEqual(model.log[0].ops, [
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 2 } },
+    { op: "assert", table: "accounts", id: "a2", expect: { version: 2 } },
+    { op: "patch", table: "accounts", id: "a1", value: { balance: 8 } },
+    { op: "patch", table: "accounts", id: "a2", value: { balance: 7 } },
+  ]);
+  assert.equal(model.table("accounts").get("a1")!.balance, 8);
+  // A query's answer also warms the cache: a first mutation after it is one trip too.
+  const other = setup();
+  other.model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  await run(other.client.query("pair", { a: "a1", b: "a2" }));
+  other.model.log.length = 0;
+  await run(other.client.mutation("transfer", { from: "a1", to: "a2", amount: 1 }));
+  assert.deepEqual(kinds(other.model), ["mutation"]);
+});
+
+Deno.test("read path 4: a stale-cache mutation cannot commit: it is refused, then re-run on the current state", async () => {
+  const { model, client } = setup();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  await run(client.query("pair", { a: "a1", b: "a2" })); // the cache now holds a1 = 10, a2 = 5 at version 1
+  moveBehind(model, 7); // another writer: a1 = 3, a2 = 12, both at version 2
+  model.log.length = 0;
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 })), true);
+  // The commit computed from the stale cache asserted version 1 and was refused; nothing of it applied.
+  assert.deepEqual(kinds(model), ["mutation", "mutation"]);
+  assert.deepEqual(model.log[0].ops.slice(2), [
+    { op: "patch", table: "accounts", id: "a1", value: { balance: 9 } },
+    { op: "patch", table: "accounts", id: "a2", value: { balance: 6 } },
+  ]);
+  // The re-run computed from what the refusal carried: one extra round trip, and the right numbers.
+  assert.deepEqual(model.log[1].ops.slice(2), [
+    { op: "patch", table: "accounts", id: "a1", value: { balance: 2 } },
+    { op: "patch", table: "accounts", id: "a2", value: { balance: 13 } },
+  ]);
+  assert.equal(model.table("accounts").get("a1")!.balance, 2);
+  assert.equal(model.table("accounts").get("a2")!.balance, 13);
+  // And the cache is current again: the next transfer is one trip.
+  model.log.length = 0;
+  await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 }));
+  assert.deepEqual(kinds(model), ["mutation"]);
+});
+
+/** Fails in the handler when the balance does not cover the amount: a decision that writes nothing. */
+const withdraw = mutation({
+  args: { a: v.string(), amount: v.integer() },
+  handler: ({ db }, { a, amount }) =>
+    Effect.gen(function* () {
+      const doc = yield* db.get("accounts", a);
+      if (!doc || doc.balance < amount) {
+        return yield* new RuleError({ rule: "insufficient", detail: `balance ${doc?.balance}` });
+      }
+      yield* db.patch("accounts", a, { balance: doc.balance - amount });
+      return doc.balance - amount;
+    }),
+});
+
+function bank(over: Partial<ClientOptions<{ withdraw: typeof withdraw; peek: typeof functions.peek }>> = {}) {
+  const model = new Model();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  const client = createClient({
+    functions: { withdraw, peek: functions.peek },
+    schema,
+    tenant: "acme",
+    app: "bank",
+    endpoint: "http://agent.test",
+    token: "t0",
+    fetch: modelFetch(model),
+    sleep: () => Effect.void,
+    ...over,
+  });
+  return { model, client };
+}
+
+Deno.test("read path 4: a handler that fails on a cached read is checked before the failure is believed", async () => {
+  const { model, client } = bank();
+  await run(client.mutation("peek", { a: "a1" })); // caches a1 = 10
+  // The cache is right: the refusal stands, after one request that asserts the cached version.
+  model.log.length = 0;
+  const refused = await run(Effect.either(client.mutation("withdraw", { a: "a1", amount: 50 })));
+  assert.equal(refused._tag, "Left");
+  assert.deepEqual(model.log.map((r) => [r.kind, r.ops]), [
+    ["query", [{ op: "assert", table: "accounts", id: "a1", expect: { version: 1 } }]],
+  ]);
+  // The cache is stale (the account was topped up behind it): the same call must not fail on old data.
+  model.exec({
+    v: 1,
+    db: { tenant: "acme", app: "bank" },
+    kind: "mutation",
+    requestId: "top-up",
+    schema: "",
+    ops: [{ op: "patch", table: "accounts", id: "a1", value: { balance: 100 } }],
+  });
+  model.log.length = 0;
+  assert.equal(await run(client.mutation("withdraw", { a: "a1", amount: 50 })), 50);
+  // The assert of the cached version fails and answers the current account; the re-run commits.
+  assert.deepEqual(kinds(model), ["query", "mutation"]);
+  assert.equal(model.table("accounts").get("a1")!.balance, 50);
+});
+
+Deno.test("read path 4: a mutation that only reads never answers an unchecked cached document", async () => {
+  const { model, client } = bank();
+  await run(client.mutation("peek", { a: "a1" }));
+  moveBehind(model, 4); // a1 = 6 at version 2; the cache still says 10
+  model.log.length = 0;
+  assert.deepEqual(await run(client.mutation("peek", { a: "a1" })), account("a1", 6, 2));
+  assert.deepEqual(model.log.map((r) => r.ops), [[
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 1 } },
+  ]]);
+});
+
+Deno.test("read path 4: queries do not read the cache; cache: false turns it off for mutations", async () => {
+  const { model, client } = setup();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  await run(client.query("pair", { a: "a1", b: "a2" }));
+  await run(client.query("pair", { a: "a1", b: "a2" }));
+  assert.deepEqual(kinds(model), ["query", "query"], "a query has no commit to prove a cached read");
+
+  const off = setup(undefined, { cache: false });
+  off.model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  await run(off.client.mutation("transfer", { from: "a1", to: "a2", amount: 1 }));
+  await run(off.client.mutation("transfer", { from: "a1", to: "a2", amount: 1 }));
+  assert.deepEqual(kinds(off.model), ["query", "mutation", "query", "mutation"]);
+});
+
+Deno.test("read path 4: the cache keeps the newer version, forgets deletes, and is bounded", () => {
+  const cache = memoryCache(2);
+  cache.put("accounts", account("a1", 10, 3));
+  cache.put("accounts", account("a1", 9, 2)); // an older answer arriving late
+  assert.equal(cache.get("accounts", "a1")!.balance, 10);
+  const given = cache.get("accounts", "a1")!;
+  given.balance = 0; // what a caller does to its copy stays its own
+  assert.equal(cache.get("accounts", "a1")!.balance, 10);
+  cache.put("accounts", account("a2", 5));
+  cache.get("accounts", "a1"); // a1 is now the more recently used
+  cache.put("accounts", account("a3", 1));
+  assert.equal(cache.get("accounts", "a2"), undefined, "the least recently used went");
+  assert.ok(cache.get("accounts", "a1") && cache.get("accounts", "a3"));
+  cache.delete("accounts", "a1");
+  assert.equal(cache.get("accounts", "a1"), undefined);
 });
