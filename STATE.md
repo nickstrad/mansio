@@ -8,8 +8,8 @@
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
 - Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Changes 1 to 4 done and verified end to end; the explainer, the simplify
-  pass and the merge are next, in that order.
+  based on `origin/main` `8075b8d`). Changes 1 to 4 and the explainer done; the simplify pass and the merge
+  are next.
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -124,6 +124,13 @@
     The trade taken: the cache holds documents only, not select answers, so a `find` is always a round trip;
     caching selects safely needs the table's sequence to be known locally, which is what a synced local store
     would bring.
+- Explainer: **done** `98bd9bf`, `docs/colocated-runner-explainer.md` (changes 5, 6 and 7; no code). Its
+  local-logic verdict: feasible as an evolution; nothing in changes 1–4, the runner or in-agentd execution
+  forecloses it; the full version needs a local store and a change feed, neither needed yet.
+- Candidate that could ride along later (named by the explainer, **not built**, for Nick): a mutation's answer
+  carrying the request's clock reading (the one reading of spec §6.3). The client would then know the
+  documents its commit inserted exactly, so inserts become cacheable (the first `makeMove` after `createGame`
+  drops from two round trips to one) and a local store could apply its own commits without reading them back.
 - Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
   change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
 
