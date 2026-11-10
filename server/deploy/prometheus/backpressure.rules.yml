@@ -65,3 +65,14 @@ groups:
         annotations:
           summary: "{{ $labels.instance }} is shedding and S3 is still slow"
           description: "Backpressure is active but the dependency has not recovered: lower the fetch limit (agentctl fetch-limit) or trip the S3 breaker (agentctl breaker s3 trip)."
+      # The durability promise (README "Transaction and consistency contract"): an acknowledged write reaches S3
+      # within about 11 s. While S3 is down the window grows without limit and nothing refuses the writes, so
+      # this alert is the only signal (control-plane plan, decision "alert on oldest_dirty_age").
+      - alert: MansioUnpublishedWritesOld
+        expr: mansio_vactor_oldest_dirty_age_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has acknowledged writes that have not reached S3 for over a minute"
+          description: "A host loss now loses them. {{ $labels.instance }} has unpublished writes in mansio_vactor_dirty databases; check the S3 breaker (mansio_breaker_state{dep=\"s3\"}) and mansio_vactor_events_total{event=\"writeback_failure\"} (docs/capacity.md, runbook write_back)."

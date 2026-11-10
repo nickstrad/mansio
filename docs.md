@@ -261,7 +261,11 @@ shutdown. `POST /admin/backup?key=<tenant>:<app>` on the admin listener (`admin_
 the database back now and answers the manifest of the generation that holds it.
 
 **This is asynchronous write-back, not replication.** A mutation acknowledges the local SQLite commit; a host
-loss can lose acknowledged writes newer than the last write-back.
+loss can lose acknowledged writes newer than the last write-back: about 11 s of them with the defaults (the 10
+s setting, up to one 1 s tick, and the copy itself), and as much as the whole outage while S3 is unreachable,
+because writes keep being acknowledged while write-back fails. Watch `mansio_vactor_oldest_dirty_age_seconds`
+and `mansio_vactor_dirty` on `/metrics`; the shipped alert rules
+(`server/deploy/prometheus/backpressure.rules.yml`) fire when the oldest unpublished write is older than 60 s.
 
 `dbtool` works on the S3 copies. It takes `-endpoint`, `-bucket` and `-root` (the agent's prefix) and reads
 the keys from `DBTOOL_S3_ACCESS_KEY` and `DBTOOL_S3_SECRET_KEY`. Without a command it prints its usage:

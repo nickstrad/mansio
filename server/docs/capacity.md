@@ -420,7 +420,8 @@ rules (ch. 8 "Prometheus Alerts") and its two "alert on broken protection, not m
 | `MansioFailuresHigh` | 5xx answers, failed write-backs or failed activations are sustained | critical | the agent's log (`log_id`), the S3 breaker |
 | `MansioQueueAgeTooHigh` | p95 wait in `admission` or `mailbox` is over 1 s (half the default 2 s deadline) | critical | `admission` runbook |
 | `MansioSheddingButDependencySlow` | refusals are active and S3 p99 is still over 1 s | critical | lower `fetch`, trip the S3 breaker |
+| `MansioUnpublishedWritesOld` | the oldest acknowledged write not yet in S3 is older than 60 s (healthy: about 11 s) | critical | the `write_back` runbook |
 
 Shedding by itself does not page: a queue that refuses work while its dependency recovers is protection
 working. The pages are for protection that is not enough (the dependency is still slow, the wait is past the
-useful budget) or for work lost (drops, failures).
+useful budget) or for work lost or at risk (drops, failures, acknowledged writes not yet in S3).
