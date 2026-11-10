@@ -484,3 +484,109 @@ func TestOpsPathForwardedWithItsEnvelope(t *testing.T) {
 		}
 	}
 }
+
+// countedBody counts the bytes the edge read from a request body.
+type countedBody struct {
+	r    io.Reader
+	read atomic.Int64
+}
+
+func (b *countedBody) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	b.read.Add(int64(n))
+	return n, err
+}
+
+// doCounted sends one query whose 1 KiB body is counted, and returns the answer and the body bytes the edge read.
+func (f *fixture) doCounted(t testing.TB, token string) (result, int64) {
+	body := &countedBody{r: strings.NewReader(`{"db":"db-1","kind":"read","sql":"SELECT 1","pad":"` + strings.Repeat("x", 900) + `"}`)}
+	req := httptest.NewRequest(http.MethodPost, front.QueryPath, body)
+	req.RemoteAddr = "192.0.2.1:5555"
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	f.e.ServeHTTP(w, req)
+	var out map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("answer is not JSON: %q", w.Body.String())
+	}
+	return result{w.Code, w.Result().Header, out}, body.read.Load()
+}
+
+// B3's overload scenario: a burst against a saturated agent, an unreachable agent, and an edge at its own
+// in-flight cap. Before, every one of these refusals first read the request body (up to max_body each); now
+// each is decided before the body, so a refusal reads nothing, and the edge's body memory is bounded by
+// max_in_flight × max_body.
+func TestRefusalsCostNoBodyRead(t *testing.T) {
+	release := make(chan struct{})
+	slow := newFakeAgent(t, "a", func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.Write([]byte(`{"code":"ok"}`))
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := "http://" + ln.Addr().String()
+	ln.Close()
+	f := newFixture(t, StaticRoutes{"vm-a": slow.URL, "vm-dead": dead}, func(c *Config) {
+		c.AgentInFlight, c.MaxInFlight = 1, 3
+		c.Breaker = breaker.Config{MinCalls: 1, CoolDown: time.Minute}
+	})
+	now := time.Now()
+	ta, td := f.is.mint(t, "vm-a", "db-1", now, time.Minute), f.is.mint(t, "vm-dead", "db-1", now, time.Minute)
+
+	// The agent's one slot is taken: a burst is shed without reading a byte.
+	first := make(chan result)
+	go func() { r, _ := f.doCounted(t, ta); first <- r }()
+	for slow.calls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	for i := range 20 {
+		r, read := f.doCounted(t, ta)
+		if r.status != 503 || r.code() != "shed" || read != 0 {
+			t.Fatalf("burst %d against a saturated agent: %d %v, %d body bytes read (want shed, 0)", i, r.status, r.resp, read)
+		}
+	}
+
+	// An unreachable agent: the first call finds out (its body was read: the breaker was closed), every later
+	// one is refused by the open breaker with the cool-down as the hint and no body read.
+	if r, _ := f.doCounted(t, td); r.code() != "unavailable" {
+		t.Fatalf("first call to a dead agent: %d %v", r.status, r.resp)
+	}
+	for i := range 20 {
+		r, read := f.doCounted(t, td)
+		if ra, _ := strconv.Atoi(r.h.Get("Retry-After")); r.code() != "unavailable" || ra < 59 || read != 0 {
+			t.Fatalf("burst %d against an open breaker: %v Retry-After %q, %d body bytes read (want unavailable, >= 59, 0)",
+				i, r.resp, r.h.Get("Retry-After"), read)
+		}
+	}
+
+	// The edge's own cap (3): with three requests already in the edge, the next is shed by the cap itself,
+	// whatever its agent.
+	f.e.st.inFlight.Add(2) // two more beside the one in flight
+	r, read := f.doCounted(t, td)
+	f.e.st.inFlight.Add(-2)
+	if r.status != 503 || r.code() != "shed" || read != 0 || !strings.Contains(r.resp["message"].(string), "at the edge") {
+		t.Errorf("request over max_in_flight: %d %v, %d body bytes read", r.status, r.resp, read)
+	}
+	close(release)
+	if r := <-first; r.status != 200 {
+		t.Fatalf("the request in flight: %d %v", r.status, r.resp)
+	}
+
+	reg := metrics.NewRegistry()
+	f.e.Register(reg)
+	var b strings.Builder
+	reg.WriteText(&b)
+	for _, want := range []string{
+		`mansio_queue_capacity{queue="edge_in_flight"} 3`,
+		`mansio_queue_rejected_total{queue="edge_in_flight",reason="full"} 1`,
+		`mansio_queue_rejected_total{queue="edge_agent",reason="full"} 20`,
+		`mansio_edge_refusals_total{reason="breaker_open"} 20`,
+		`mansio_edge_refusals_total{reason="max_in_flight"} 1`,
+	} {
+		if !strings.Contains(b.String(), want+"\n") {
+			t.Errorf("metrics lack %q in:\n%s", want, b.String())
+		}
+	}
+}

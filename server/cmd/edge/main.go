@@ -121,7 +121,7 @@ func realMain(ctx context.Context, args []string, stderr io.Writer) (code int) {
 		Resolver:  resolver,
 		Gate:      edge.NewGate(keys, cfg.ClockSkew.Duration, cfg.MaxTicketTTL.Duration, cfg.TicketCache),
 		Limiter:   ratelimit.NewSourceLimiter(cfg.RateLimit.PerSecond, cfg.RateLimit.Burst, cfg.RateLimit.MaxSources),
-		Transport: tr, VerifySlots: cfg.VerifySlots, AgentInFlight: cfg.AgentInFlight, Breaker: cfg.AgentBreaker.config(),
+		Transport: tr, VerifySlots: cfg.VerifySlots, AgentInFlight: cfg.AgentInFlight, MaxInFlight: cfg.MaxInFlight, Breaker: cfg.AgentBreaker.config(),
 		OnBreaker:      func(vm string) func(breaker.Transition) { return logx.BreakerLog(log, "agent:"+vm) },
 		DefaultTimeout: cfg.DefaultTimeout.Duration, MaxTimeout: cfg.MaxTimeout.Duration, Grace: cfg.ReplyGrace.Duration,
 		BodyReadTimeout: cfg.BodyReadTimeout.Duration, MaxBody: cfg.MaxBody, Log: log,

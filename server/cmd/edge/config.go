@@ -57,10 +57,13 @@ type Config struct {
 	Registry *Registry `json:"registry"`
 	AgentTLS AgentTLS  `json:"agent_tls"`
 	// AgentInFlight bounds requests in flight per agent (0 = 4096); more are shed.
-	AgentInFlight int           `json:"agent_in_flight"`
-	AgentBreaker  BreakerConfig `json:"agent_breaker"`
-	DialTimeout   load.Duration `json:"dial_timeout"`  // connect to an agent; default 2 s
-	TLSHandshake  load.Duration `json:"tls_handshake"` // handshake with an agent; default 3 s
+	AgentInFlight int `json:"agent_in_flight"`
+	// MaxInFlight bounds requests in the edge at once across agents (0 = 2 × agent_in_flight); more are shed
+	// before their body is read. Memory ceiling for request bodies: max_in_flight × max_body.
+	MaxInFlight  int           `json:"max_in_flight"`
+	AgentBreaker BreakerConfig `json:"agent_breaker"`
+	DialTimeout  load.Duration `json:"dial_timeout"`  // connect to an agent; default 2 s
+	TLSHandshake load.Duration `json:"tls_handshake"` // handshake with an agent; default 3 s
 
 	DefaultTimeout    load.Duration `json:"default_timeout"` // as the agents' (default 2 s / 30 s)
 	MaxTimeout        load.Duration `json:"max_timeout"`
@@ -204,8 +207,8 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	if rl := c.RateLimit; rl.PerSecond <= 0 || rl.Burst < 1 || rl.MaxSources < 1 {
 		bad("rate_limit: verifies_per_second > 0, burst >= 1 and max_sources >= 1 required")
 	}
-	if c.TicketCache < 0 || c.VerifySlots < 0 || c.AgentInFlight < 0 || c.MaxBody <= 0 {
-		bad("ticket_cache, verify_slots and agent_in_flight must be >= 0 (0 = default), max_body > 0")
+	if c.TicketCache < 0 || c.VerifySlots < 0 || c.AgentInFlight < 0 || c.MaxInFlight < 0 || c.MaxBody <= 0 {
+		bad("ticket_cache, verify_slots, agent_in_flight and max_in_flight must be >= 0 (0 = default), max_body > 0")
 	}
 	if bc := c.AgentBreaker.config(); bc.Normalize() != nil {
 		bad("agent_breaker: invalid thresholds (window, min_calls >= 1, failure_rate in (0, 1], cool_down)")

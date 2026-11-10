@@ -46,6 +46,10 @@ type Config struct {
 	// AgentInFlight bounds requests in flight to one agent (default 4096; at least the agent's vm_in_flight +
 	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds.
 	AgentInFlight int
+	// MaxInFlight bounds requests in the edge at once, whatever their agent (default 2 × AgentInFlight); more
+	// are shed before their body is read. It is the edge's memory ceiling: MaxInFlight × MaxBody of request
+	// bodies (8 GiB with the defaults; size it to the machine).
+	MaxInFlight int
 	// Breaker is each agent's breaker (zero value: Release It §P). Only transport failures count: an agent
 	// that answers, whatever the code, is reachable (an agent's own S3 outage must not stop its warm traffic,
 	// Release It C5). OnBreaker, if set, gives each agent's breaker its OnChange (log transitions).
@@ -90,6 +94,7 @@ type counters struct {
 	hits, misses, invalid, limited, verifyBusy   atomic.Int64
 	inFlight, inFlightHigh                       atomic.Int64
 	transportErrs, unknownVM, bulkheadFull, open atomic.Int64
+	overCap                                      atomic.Int64 // shed at MaxInFlight
 }
 
 // New validates cfg and returns the edge. No I/O.
@@ -105,6 +110,9 @@ func New(cfg Config) (*Edge, error) {
 	}
 	if cfg.AgentInFlight <= 0 {
 		cfg.AgentInFlight = 4096
+	}
+	if cfg.MaxInFlight <= 0 {
+		cfg.MaxInFlight = 2 * cfg.AgentInFlight
 	}
 	if err := cfg.Breaker.Normalize(); err != nil {
 		return nil, errs.Wrap(module, err, "edge: invalid agent breaker config")
@@ -173,6 +181,9 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 		return answer{code: front.BadRequest, status: http.StatusMethodNotAllowed, msg: "use POST"}, false
 	case e.draining.Load():
 		return answer{code: front.Shed, msg: "edge draining; nothing ran"}, false
+	case e.st.inFlight.Load() > int64(e.cfg.MaxInFlight): // this request is already counted
+		e.st.overCap.Add(1)
+		return answer{code: front.Shed, msg: "too many requests in flight at the edge; nothing ran"}, false
 	}
 	timeout := e.cfg.DefaultTimeout
 	if v := r.Header.Get(front.TimeoutHeader); v != "" {
@@ -217,6 +228,20 @@ func (e *Edge) handle(w http.ResponseWriter, r *http.Request, rc *http.ResponseC
 		e.st.unknownVM.Add(1)
 		return answer{code: front.WrongOwner, msg: "the ticket's vm is not served by this edge; re-resolve"}, false
 	}
+	// Admission before expensive work: an agent that is saturated or unreachable is refused here, before the
+	// body is read, so a refusal costs no body under overload. Nothing is held while the client sends (a slow
+	// sender must not pin an agent's slot or a half-open breaker's one probe); forward takes the slot and the
+	// permit once the body is in, and may still refuse if either went in between.
+	if len(up.slots) == cap(up.slots) {
+		return e.bulkheadFull(), false
+	}
+	if up.b.State(start) == breaker.Open {
+		p, wait, ok := up.b.Allow(start)
+		if !ok {
+			return e.breakerOpen(wait), false
+		}
+		up.b.Done(p, start, breaker.Ignore) // reset or half-opened in between: forward asks again
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(e.cfg.MaxBody)))
 	if err != nil {
 		var tooBig *http.MaxBytesError
@@ -238,14 +263,12 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 	case up.slots <- struct{}{}:
 		defer func() { <-up.slots }()
 	default:
-		e.st.bulkheadFull.Add(1)
-		return answer{code: front.Shed, msg: "too many requests in flight to this agent; nothing ran"}, false
+		return e.bulkheadFull(), false
 	}
 	now := e.cfg.Clock.Now()
 	p, wait, ok := up.b.Allow(now)
 	if !ok {
-		e.st.open.Add(1)
-		return answer{code: front.Unavailable, hint: wait, msg: "agent unreachable (breaker open); nothing ran"}, false
+		return e.breakerOpen(wait), false
 	}
 	left := deadline.Sub(now)
 	if left <= 0 {
@@ -302,6 +325,16 @@ func (e *Edge) forward(w http.ResponseWriter, r *http.Request, rc *http.Response
 	io.CopyBuffer(w, res.Body, *buf) // an error means the client or the agent left mid-body; nothing more to say
 	copyBufs.Put(buf)
 	return answer{}, true
+}
+
+func (e *Edge) bulkheadFull() answer {
+	e.st.bulkheadFull.Add(1)
+	return answer{code: front.Shed, msg: "too many requests in flight to this agent; nothing ran"}
+}
+
+func (e *Edge) breakerOpen(wait time.Duration) answer {
+	e.st.open.Add(1)
+	return answer{code: front.Unavailable, hint: wait, msg: "agent unreachable (breaker open); nothing ran"}
 }
 
 // copyBufs are relay buffers: the h2 ResponseWriter has no ReadFrom, so io.Copy would allocate 32 KiB per answer.

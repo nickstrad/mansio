@@ -62,12 +62,12 @@ func (e *Edge) Register(reg *metrics.Registry) {
 		}
 	})
 	reg.Add("mansio_edge_refusals_total", "Requests the edge refused on the way to an agent: unknown_vm, bulkhead_full, breaker_open, "+
-		"transport_error.", metrics.Counter, func(m *metrics.Emit) {
+		"transport_error, max_in_flight.", metrics.Counter, func(m *metrics.Emit) {
 		for _, v := range []struct {
 			reason string
 			n      int64
 		}{{"unknown_vm", e.st.unknownVM.Load()}, {"bulkhead_full", e.st.bulkheadFull.Load()}, {"breaker_open", e.st.open.Load()},
-			{"transport_error", e.st.transportErrs.Load()}} {
+			{"transport_error", e.st.transportErrs.Load()}, {"max_in_flight", e.st.overCap.Load()}} {
 			m.Value(metrics.Labels{"reason", v.reason}, float64(v.n))
 		}
 	})
@@ -78,6 +78,14 @@ func (e *Edge) Register(reg *metrics.Registry) {
 	reg.Add("mansio_edge_agent_in_flight", "Requests in flight to each agent (its bulkhead in use).", metrics.Gauge, func(m *metrics.Emit) {
 		for _, vm := range vms() {
 			m.Value(metrics.Labels{"vm", vm}, float64(agents[vm]))
+		}
+	})
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		full := func(n int64) map[string]int64 { return map[string]int64{metrics.ReasonFull: n} }
+		return []metrics.QueueStat{
+			{Queue: "edge_in_flight", Capacity: e.cfg.MaxInFlight, Rejected: full(e.st.overCap.Load())},
+			{Queue: "edge_agent", Capacity: e.cfg.AgentInFlight, Rejected: full(e.st.bulkheadFull.Load())}, // per agent
+			{Queue: "edge_verify", Capacity: e.cfg.VerifySlots, Rejected: full(e.st.verifyBusy.Load())},
 		}
 	})
 	metrics.BreakersFunc(reg, func() map[string]*breaker.Breaker {
