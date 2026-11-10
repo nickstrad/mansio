@@ -8,8 +8,8 @@
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
 - Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Changes 1 and 2 done; changes 3 and 4, the explainer, the simplify pass
-  and the merge are next, in that order.
+  based on `origin/main` `8075b8d`). Changes 1 to 3 done; change 4, the explainer, the simplify pass and the
+  merge are next, in that order.
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -66,6 +66,31 @@
   - Local logic later: a guard is a plain IR assert (`Guard` in `sdk/recording.ts`), so a local speculative
     run states its read set in the same form. The trade taken: table granularity now; a range assert (spec
     §10) can be added as a narrower `Guard` without changing how guards travel.
+- Change 3, conflict answers carry the current state: **done** `5eeb650`.
+  - Protocol (`ir/spec/v1.md` §8.1): a `ConflictError`'s `fields` gain `seq` (the sequence of the state the
+    request ran against) and `current`: one entry for the failing operation and one for every later `assert`
+    that fails too (`{op, table, id, doc}`, or `{op, table, changed}` for a table precondition), all against
+    the state the failing operation saw. Capped at 65 536 bytes of canonical JSON; a cut list carries
+    `currentTruncated: true`. Server: `server/internal/docexec/witness.go`.
+  - SDK: `Recording.rebase(error, sentGuards)` turns the conflict and the run's read set into a `ReadSet`
+    (documents and unchanged-table select answers, valid at the conflict's `seq`); the client passes it to the
+    next run as `seed`, on a commit conflict and on a read conflict alike. What the next run uses of the seed
+    it asserts again. No `current`, or a truncated one: the next run reads everything again.
+  - Tests: "read path 3: …" (three tests; the first is the brief's "conflict re-run that does not re-read":
+    query, refused commit, commit, where it was query, commit, query, commit); execute vectors
+    `conflict
+    carries …` and `conflict on …` (4); Go `TestConflictCurrentIsBounded`.
+  - Verified: `deno task ci` exit 0 (333 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only the
+    baseline test.
+  - Deviations: (1) the survey said "check every assert rather than stopping at the first"; the server lists
+    the failing operation and every later assert that fails, not asserts placed after a write that ran
+    (nothing runs after the failure, so they are evaluated against the state the failing operation saw). The
+    SDK puts all asserts first, so for it this is every assert. (2) Beyond the survey: select answers from
+    tables the conflict did not name are kept too, and an identical guarded `find` repeated in one run is
+    answered from the run's own read set.
+  - Local logic later: `ReadSet` is plain data (documents, select answers, one sequence) and
+    `RecordingOptions.seed` takes one from anywhere, which is the shape a local store would hand a speculative
+    run; `rebase` is the pure step a local re-run or rebase would call with the server's verdict.
 - Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
   change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
 
