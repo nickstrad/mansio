@@ -5,7 +5,7 @@
   "vm": "vm-local",
   "keys_url": "http://127.0.0.1:7080/v1/keys",
   "keys_file": "../../results/agentd/ticket-keys.json",
-  "s3": {"endpoint": "localhost:8333", "bucket": "mansio", "prefix": "agentd/"},
+  "s3": {"endpoint": "localhost:8333", "bucket": "mansio-test", "prefix": "agentd/"},
   "secrets_file": "../../results/agentd/secrets.json",
   "cache_dir": "../../results/agentd/cache",
   "owner_dir": "../../results/agentd/owner",
