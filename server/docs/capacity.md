@@ -264,7 +264,7 @@ is refused otherwise).
 - Expected full behavior: resolve: `shed` 503 + `Retry-After` at once; schema read: `unavailable` 503 Work in it lives under: a load: `locator.timeout` 3s.
 - Primary dashboard: `mansio_queue_*{queue="resolve_load"}`, `controld_pg_pool_*`
 - Rollback or feature flag: `controld limit -queue resolve_load -n N` (`POST /v1/limits/resolve_load`)
-- First look: Postgres latency and the placement breaker; `controld_pg_pool_acquires_waited_total` must stay flat (the budget keeps callers below the pool)
+- First look: Postgres latency and the placement breaker; `controld_pg_pool_acquires_waited_total` should stop growing once the pool is warm (the budget keeps callers below it)
 
 #### controld: `resolve_create`
 

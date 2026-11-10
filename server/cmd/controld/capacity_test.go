@@ -29,7 +29,7 @@ func capacityRows() []capacity.Row {
 			Capacity: fmt.Sprintf("%d slots (`locator.load_concurrency`), no queue; callers of a load in flight share it", l.LoadConcurrency), Workers: "the slots",
 			Policy:   "resolve: `shed` 503 + `Retry-After` at once; schema read: `unavailable` 503",
 			Deadline: fmt.Sprintf("a load: `locator.timeout` %v", l.Timeout), Metric: q("resolve_load") + ", `controld_pg_pool_*`", Lever: limit("resolve_load"),
-			FirstLook: "Postgres latency and the placement breaker; `controld_pg_pool_acquires_waited_total` must stay flat (the budget keeps callers below the pool)"},
+			FirstLook: "Postgres latency and the placement breaker; `controld_pg_pool_acquires_waited_total` should stop growing once the pool is warm (the budget keeps callers below it)"},
 		{Queue: "resolve_create", Protects: "Postgres and an agent's lifecycle slots (create on first use)",
 			Capacity: fmt.Sprintf("%d slots (`locator.create_concurrency`), no queue", l.CreateConcurrency), Workers: "the slots",
 			Policy: "`shed` 503 + `Retry-After` at once; nothing created", Deadline: "the resolve's; a create it could not finish is recorded and resumed",

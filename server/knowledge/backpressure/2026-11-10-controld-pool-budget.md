@@ -26,5 +26,7 @@ admin API and admin calls spend most of their time waiting on agents, not on Pos
 instances keep N × (`max_conns` + 1 listener connection) under Postgres's `max_connections`.
 
 Metrics: `mansio_queue_capacity` / `mansio_queue_rejected_total` for `queue="resolve_load"` and
-`"resolve_create"`, and the `controld_pg_pool_*` families from B1 to see that the pool itself no longer queues
-(`controld_pg_pool_acquires_waited_total` should stay flat).
+`"resolve_create"`, and the `controld_pg_pool_*` families from B1 to see that the pool itself no longer queues.
+`controld_pg_pool_acquires_waited_total` is pgx's "empty acquire" count: an acquire that waited for a
+connection to be released or opened, so it grows a little while the pool warms up (2 after the platform smoke
+on 2026-11-10) and should then stop.

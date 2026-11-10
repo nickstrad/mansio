@@ -456,7 +456,7 @@ func poolMetrics(reg *metrics.Registry, pools map[string]*pg.Placement) {
 	}
 	each("controld_pg_pool_acquires_total", "Connections acquired from the pool.", metrics.Counter,
 		func(st *pgxpool.Stat) float64 { return float64(st.AcquireCount()) })
-	each("controld_pg_pool_acquires_waited_total", "Acquires that waited because every connection was in use.", metrics.Counter,
+	each("controld_pg_pool_acquires_waited_total", "Acquires that waited for a connection to be released or opened (it grows while the pool warms up; steady growth means callers queue in the pool).", metrics.Counter,
 		func(st *pgxpool.Stat) float64 { return float64(st.EmptyAcquireCount()) })
 	each("controld_pg_pool_acquires_canceled_total", "Acquires given up while waiting (the caller's deadline passed).", metrics.Counter,
 		func(st *pgxpool.Stat) float64 { return float64(st.CanceledAcquireCount()) })
