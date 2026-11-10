@@ -154,6 +154,7 @@ Deno.test("sdk: deleteGame's find sees nothing it deleted; a missing game fails 
   assert.deepEqual([...model.table("moves").keys()], ["m2"]);
   assert.deepEqual(model.log.at(-1)!.ops, [
     { op: "assert", table: "games", id: "g1", expect: { version: 2 } },
+    { op: "assert", table: "moves", expect: { unchangedSince: 0 } },
     { op: "delete", table: "moves", id: "m1" },
     { op: "delete", table: "games", id: "g1" },
   ]);

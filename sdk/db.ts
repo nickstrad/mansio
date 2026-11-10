@@ -33,7 +33,11 @@ export type Operation =
   | { kind: "insert"; table: string; value: unknown }
   | { kind: "patch"; table: string; id: string; value: unknown }
   | { kind: "delete"; table: string; id: string };
-export type Execute = (operation: Operation) => Effect.Effect<unknown, DbError>;
+/**
+ * `guarded` is for a select only: false when the caller opted out of guarding it (`Find.unguarded`). An
+ * executor without guards ignores it.
+ */
+export type Execute = (operation: Operation, guarded?: boolean) => Effect.Effect<unknown, DbError>;
 type ScalarKey<T> =
   & { [K in keyof T]: T[K] extends string | number | boolean | null ? K : never }[keyof T]
   & string;
@@ -45,21 +49,27 @@ export type Equality<T> = Partial<Pick<T, ScalarKey<T>>>;
  * four terminal methods return effects.
  */
 export class Find<T> {
-  constructor(private execute: Execute, readonly plan: SelectPlan) {}
+  constructor(private execute: Execute, readonly plan: SelectPlan, private guarded = true) {}
+  private with(plan: SelectPlan): Find<T> {
+    return new Find(this.execute, plan, this.guarded);
+  }
   where<K extends ScalarKey<T>>(field: K, value: T[K]): Find<T> {
-    return new Find(this.execute, {
-      ...this.plan,
-      filters: [...this.plan.filters, { field, op: "eq", value }],
-    });
+    return this.with({ ...this.plan, filters: [...this.plan.filters, { field, op: "eq", value }] });
   }
   gt<K extends NumericKey<T>>(field: K, value: number): Find<T> {
-    return new Find(this.execute, {
-      ...this.plan,
-      filters: [...this.plan.filters, { field, op: "gt", value }],
-    });
+    return this.with({ ...this.plan, filters: [...this.plan.filters, { field, op: "gt", value }] });
   }
   sort(field: ScalarKey<T>, direction: "asc" | "desc" = "asc"): Find<T> {
-    return new Find(this.execute, { ...this.plan, order: { field, direction } });
+    return this.with({ ...this.plan, order: { field, direction } });
+  }
+  /**
+   * Opts this select out of its guard. By default what a `find` answers is part of the run's read set: a
+   * mutation that decided on it ("no row matches, so insert one") commits only if the table has not
+   * changed since, and re-runs otherwise. Use `unguarded()` for a read that is only shown, not decided
+   * on, when the table is busy and the re-runs cost more than the protection is worth.
+   */
+  unguarded(): Find<T> {
+    return new Find(this.execute, this.plan, false);
   }
   /**
    * The limit rule is still enforced here, and still by raising: a bad limit is a programming
@@ -70,21 +80,21 @@ export class Find<T> {
     if (!Number.isInteger(limit) || limit < MIN_LIMIT || limit > MAX_LIMIT) {
       throw new Error(`Limit must be ${MIN_LIMIT}..${MAX_LIMIT}`);
     }
-    return new Find(this.execute, { ...this.plan, limit });
+    return this.with({ ...this.plan, limit });
   }
   collect(): Effect.Effect<T[], DbError> {
-    return Effect.map(this.execute(this.plan), (rows) => rows as T[]);
+    return Effect.map(this.execute(this.plan, this.guarded), (rows) => rows as T[]);
   }
   first(): Effect.Effect<T | null, DbError> {
     return Effect.map(this.limit(1).collect(), (rows) => rows[0] ?? null);
   }
   count(): Effect.Effect<number, DbError> {
     const plan: SelectPlan = { ...this.plan, order: undefined, aggregate: { kind: "count" } };
-    return Effect.map(this.execute(plan), (value) => value as number);
+    return Effect.map(this.execute(plan, this.guarded), (value) => value as number);
   }
   countBy<K extends ScalarKey<T>>(field: K): Effect.Effect<{ value: T[K]; count: number }[], DbError> {
     const plan: SelectPlan = { ...this.plan, order: undefined, aggregate: { kind: "countBy", field } };
-    return Effect.map(this.execute(plan), (rows) => rows as { value: T[K]; count: number }[]);
+    return Effect.map(this.execute(plan, this.guarded), (rows) => rows as { value: T[K]; count: number }[]);
   }
 }
 

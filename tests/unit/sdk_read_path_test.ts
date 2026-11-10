@@ -58,6 +58,38 @@ const functions = {
     args: { a: v.string() },
     handler: ({ db }, { a }) => db.get("accounts", a),
   }),
+  /** "No row has this name, so insert one": a decision on what a find did not see. */
+  claim: mutation({
+    args: { name: v.string() },
+    handler: ({ db }, { name }) =>
+      Effect.gen(function* () {
+        const taken = yield* db.find("names", { name }).first();
+        return taken
+          ? { id: taken._id, created: false }
+          : { id: yield* db.insert("names", { name }), created: true };
+      }),
+  }),
+  /** The same decision with the guard switched off. */
+  claimUnguarded: mutation({
+    args: { name: v.string() },
+    handler: ({ db }, { name }) =>
+      Effect.gen(function* () {
+        const taken = yield* db.find("names", { name }).unguarded().first();
+        return taken
+          ? { id: taken._id, created: false }
+          : { id: yield* db.insert("names", { name }), created: true };
+      }),
+  }),
+  /** Two finds, one after the other. */
+  census: query({
+    args: {},
+    handler: ({ db }) =>
+      Effect.gen(function* () {
+        const names = yield* db.find("names").count();
+        const accounts = yield* db.find("accounts").count();
+        return { names, accounts };
+      }),
+  }),
   transfer: mutation({
     args: { from: v.string(), to: v.string(), amount: v.integer() },
     handler: ({ db }, { from, to, amount }) =>
@@ -230,4 +262,77 @@ Deno.test("read path 1: reads too many for one request are sent in parts that mu
   assert.equal(out.length, 70);
   // Run 1: 64 reads, then 6 that answer a later sequence. Run 2: both parts at one sequence.
   assert.deepEqual(model.log.map((request) => request.ops.length), [64, 6, 64, 6]);
+});
+
+// ---------------------------------------------------------------------------
+// Change 2: guarded find
+// ---------------------------------------------------------------------------
+
+/** Another writer inserts `name` behind the client's back. */
+function insertBehind(model: Model, id: string, name: string) {
+  model.exec({
+    v: 1,
+    db: { tenant: "acme", app: "bank" },
+    kind: "mutation",
+    requestId: `behind-${id}`,
+    schema: "",
+    ops: [{ op: "insert", table: "names", id, value: { name } }],
+  });
+  model.log.length -= 1;
+}
+const named = (model: Model, name: string) =>
+  [...model.table("names").values()].filter((d) => d.name === name);
+
+Deno.test("read path 2: an insert decided on an empty find conflicts with a phantom instead of committing", async () => {
+  // The other writer's insert lands after this run's find and before its commit.
+  const { model, client } = setup((request) =>
+    request.kind === "mutation" && !named(model, "ada").length
+      ? { kind: "before", run: () => insertBehind(model, "other-1", "ada") }
+      : undefined
+  );
+  const out = await run(client.mutation("claim", { name: "ada" }));
+  // Run 1: find (nothing), commit refused at the table assert. Run 2: find (the other's row), nothing to write.
+  assert.deepEqual(out, { id: "other-1", created: false });
+  assert.deepEqual(kinds(model), ["query", "mutation", "query"]);
+  assert.deepEqual(model.log[1].ops, [
+    { op: "assert", table: "names", expect: { unchangedSince: 0 } },
+    { op: "insert", table: "names", id: "id-1", value: { name: "ada" } },
+  ]);
+  assert.equal(named(model, "ada").length, 1, "one row holds the name");
+});
+
+Deno.test("read path 2: without a concurrent writer the guarded insert commits in two round trips", async () => {
+  const { model, client } = setup();
+  assert.deepEqual(await run(client.mutation("claim", { name: "ada" })), { id: "id-1", created: true });
+  assert.deepEqual(kinds(model), ["query", "mutation"]);
+  assert.deepEqual(await run(client.mutation("claim", { name: "ada" })), { id: "id-1", created: false });
+});
+
+Deno.test("read path 2: unguarded() opts a find out, and the phantom then commits twice", async () => {
+  const { model, client } = setup((request) =>
+    request.kind === "mutation"
+      ? { kind: "before", run: () => insertBehind(model, "other-1", "ada") }
+      : undefined
+  );
+  assert.deepEqual(await run(client.mutation("claimUnguarded", { name: "ada" })), {
+    id: "id-1",
+    created: true,
+  });
+  assert.deepEqual(model.log[1].ops.map((op) => op.op), ["insert"]);
+  assert.equal(named(model, "ada").length, 2, "the write skew the guard exists to stop");
+});
+
+Deno.test("read path 2: finds join the run's snapshot: a later read asserts the tables read so far", async () => {
+  let done = false;
+  const { model, client } = setup((_request, n) =>
+    n === 1 && !done
+      ? { kind: "before", run: () => (done = true, insertBehind(model, "other-1", "ada")) }
+      : undefined
+  );
+  model.seed("accounts", [account("a1", 10)]);
+  assert.deepEqual(await run(client.query("census", {})), { names: 1, accounts: 1 });
+  // Run 1's second read asserts `names` unchanged since 0 and fails; run 2 reads both at sequence 1.
+  assert.deepEqual(model.log[1].ops[0], { op: "assert", table: "names", expect: { unchangedSince: 0 } });
+  assert.deepEqual(model.log[3].ops[0], { op: "assert", table: "names", expect: { unchangedSince: 1 } });
+  assert.equal(model.log.length, 4);
 });

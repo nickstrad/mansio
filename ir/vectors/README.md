@@ -21,11 +21,11 @@ by decision.
 
 | File                             | Vectors | Input → expected                                                                          |
 | -------------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `decode.json`                    | 104     | request bytes → accepted (+ canonical encoding) or error                                  |
+| `decode.json`                    | 111     | request bytes → accepted (+ canonical encoding) or error                                  |
 | `validation.json`                | 39      | table fields + body (insert = full, patch = partial) → validated body or error            |
 | `schema.json`                    | 21      | registered schema JSON → fingerprint text and `sha256:` fingerprint, or declaration error |
 | `compile.json`                   | 70      | schema + plan / write / DDL → SQLite SQL text and binds, or compile error (both layouts)  |
-| `execute.json`                   | 136     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
+| `execute.json`                   | 142     | schema + seed rows + requests (fixed clock, ids) → per-step result or error, final rows   |
 | `generated/compile-corpus.jsonl` | 2000    | fast-check schemas + plans → SQL or error, for differential testing                       |
 | `retry.json`                     | 27      | an answer (agent or controld resolve) → what a client library does by itself              |
 
@@ -34,7 +34,7 @@ others its source is Go: mansio-server's `front.Contract`; regenerate it and the
 `(cd server && go test ./internal/front -run TestContractFiles -update)`. The Go client runs it in
 `server/internal/client/contract_test.go`, the SDK in `tests/unit/sdk_retry_contract_test.ts`.
 
-`execute.json` holds 68 scenarios, each once per storage layout (`[columns]`, `[json]` in the name). The four
+`execute.json` holds 71 scenarios, each once per storage layout (`[columns]`, `[json]` in the name). The four
 `sdk: …` scenarios (IR-3) are SDK-generated: the requests are what `sdk/client.ts` sends for the sample app's
 handlers (`recordSdk` in the generator), on the app's own schema; their results and final rows are
 hand-written.

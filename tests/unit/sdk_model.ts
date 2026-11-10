@@ -2,7 +2,8 @@
  * A pure in-memory `/v1/ops` server for the SDK's tests (IR-3): enough of `ir/spec/v1.md` §5–§8 to run
  * what the recording executor sends — `get`, `select` (eq/gt filters, order with the `_id` tie-break,
  * nulls first ascending, `limit`, `count`, `countBy`), `insert` with a client id, `patch`, `delete`,
- * `assert` with `expect.version`/`exists`, request-id duplicates — atomically per request. No validation:
+ * `assert` with `expect.version`/`exists` or, without an id, `expect.unchangedSince`, the commit sequence,
+ * request-id duplicates — atomically per request. No validation:
  * the real executors own that (the vectors pin it). Written independently of `sdk/overlay.ts`, so the
  * overlay is checked against a second implementation of the select rules.
  *
@@ -61,7 +62,9 @@ export class Model {
   clock = 1000;
   /** The commit sequence (spec §6.5): mutations applied that changed a row. */
   seq = 0;
-  private changed = false;
+  /** Each table's last change, as a sequence (spec §5.5). */
+  changes = new Map<string, number>();
+  private touched = new Set<string>();
   /** Every request received, in order. */
   log: Request[] = [];
 
@@ -82,6 +85,7 @@ export class Model {
     );
     m.clock = this.clock;
     m.seq = this.seq;
+    m.changes = new Map(this.changes);
     return m;
   }
 
@@ -104,7 +108,8 @@ export class Model {
     }
     if (request.kind === "mutation") {
       this.tables = work.tables;
-      if (work.changed) this.seq++;
+      if (work.touched.size > 0) this.seq++;
+      for (const table of work.touched) this.changes.set(table, this.seq);
       this.applied.set(request.requestId!, result);
     }
     return { status: 200, body: { result, seq: this.seq } };
@@ -128,13 +133,25 @@ export class Model {
             actual: true,
           });
         }
-        this.changed = true;
+        this.touched.add(op.table);
         t.set(id, { ...op.value, _id: id, _creationTime: this.clock, _version: 1 } as Doc);
         return id;
       }
       case "patch":
       case "delete":
       case "assert": {
+        if (!("id" in op)) {
+          const changed = this.touched.has(op.table) ? this.seq + 1 : this.changes.get(op.table) ?? 0;
+          if (changed > op.expect.unchangedSince) {
+            throw new Failure(409, "ConflictError", i, {
+              table: op.table,
+              check: "unchanged",
+              expected: op.expect.unchangedSince,
+              actual: changed,
+            });
+          }
+          return null;
+        }
         const id = op.id as string;
         const doc = t.get(id) ?? null;
         const expect = op.expect;
@@ -160,12 +177,12 @@ export class Model {
         }
         if (op.op === "assert") return null;
         if (op.op === "delete") {
-          this.changed ||= doc !== null;
+          if (doc !== null) this.touched.add(op.table);
           t.delete(id);
           return { deleted: doc !== null };
         }
         if (!doc) throw new Failure(404, "NotFoundError", i, { table: op.table, id });
-        this.changed = true;
+        this.touched.add(op.table);
         t.set(id, { ...doc, ...op.value, _version: doc._version + 1 });
         return { _version: doc._version + 1 };
       }

@@ -19,9 +19,12 @@
  *   the widened select plus a `get` of each document the run patched or deleted).
  * - **Preconditions are derived from the reads.** Every document a handler `get` observed on the server
  *   becomes an `assert` at the front of the mutation: `{version: v}` if it existed, `{exists: false}` if
- *   it did not. A `find` is unguarded in v1 (a range assert is v1.1): neither its answer nor the documents
- *   it returns are asserted, so a decision that depends on what a `find` saw ("no row matches") is not
- *   protected. Use `get` for documents a decision depends on.
+ *   it did not. Every `find` becomes a table assert, `{unchangedSince: s}` with `s` the sequence its
+ *   answer was read at: no mutation has changed a row of that table since, so whatever the select
+ *   answered it still answers, and a decision that depends on it ("no row matches, so insert one") is
+ *   protected against phantoms. The guard is coarse on purpose (any change to the table fails it, a false
+ *   conflict that costs a re-run); `find(...).unguarded()` opts a display-only read out. The documents a
+ *   `find` returns are not asserted one by one: the table assert covers them.
  *
  * Asserts go first, before every write, so a conflict on op index `i < asserts` is always one of ours
  * (derived) and the client may re-run the handler; an app-raised `ConflictError` never reaches the
@@ -37,7 +40,14 @@
  */
 import { Effect, Request, RequestResolver } from "effect";
 import { type DbError, NotFoundError, RemoteError, RuleError } from "../core/errors.ts";
-import { type AssertOp, type GetOp, MAX_OPS, type Op, type SelectOp } from "../core/ir/types.ts";
+import {
+  type AssertOp,
+  type GetOp,
+  MAX_OPS,
+  type Op,
+  type SelectOp,
+  type TableAssertOp,
+} from "../core/ir/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
 import type { IdSource } from "./ids.ts";
@@ -61,7 +71,14 @@ export interface Answer {
  * This is the executor's only way out: it knows no transport, so the same executor can run against
  * anything that answers reads at a named sequence (a server, a test model, later a local store).
  */
-export type Reads = (ops: (AssertOp | ReadOp)[]) => Effect.Effect<Answer, RemoteError>;
+export type Reads = (ops: (Guard | ReadOp)[]) => Effect.Effect<Answer, RemoteError>;
+
+/**
+ * A derived precondition: a document at the version a `get` saw, or a table unchanged since the sequence
+ * a `find` was answered at. They are plain IR asserts, so anything that runs a handler (this client, later
+ * a local speculative run) states its read set the same way.
+ */
+export type Guard = AssertOp | TableAssertOp;
 
 /**
  * The defect that abandons a run whose reads no longer hold in one snapshot. `error` is the conflict to
@@ -71,8 +88,8 @@ export class Restart {
   constructor(readonly error: RemoteError) {}
 }
 
-/** One read waiting for its batch. */
-interface Fetch extends Request.Request<unknown> {
+/** One read waiting for its batch; it answers its result and the sequence it was read at. */
+interface Fetch extends Request.Request<readonly [result: unknown, seq: number]> {
   readonly _tag: "Fetch";
   readonly op: ReadOp;
 }
@@ -106,11 +123,15 @@ export class Recording<S extends Schema> implements WriteDB<S> {
    * `undefined` until the first answer.
    */
   snapshot: number | undefined;
+  /** The tables this run's guarded selects read, each with the sequence of its first answer. */
+  private readonly tables = new Map<string, number>();
   /** Reads requested together are one `fetch`. */
   private readonly batch = RequestResolver.makeBatched((requests: readonly Fetch[]) =>
     this.fetch(requests.map((request) => request.op)).pipe(
-      Effect.flatMap((results) =>
-        Effect.forEach(requests, (request, i) => Request.succeed(request, results[i]), { discard: true })
+      Effect.flatMap(({ results, seq }) =>
+        Effect.forEach(requests, (request, i) => Request.succeed(request, [results[i], seq] as const), {
+          discard: true,
+        })
       ),
       Effect.catchAllCause((cause) =>
         Effect.forEach(requests, (request) => Request.failCause(request, cause), { discard: true })
@@ -154,22 +175,22 @@ export class Recording<S extends Schema> implements WriteDB<S> {
   }
 
   /** One read, batched with the others requested at the same time. */
-  private read(op: ReadOp): Effect.Effect<unknown> {
+  private read(op: ReadOp): Effect.Effect<readonly [result: unknown, seq: number]> {
     return Effect.request(Fetch({ op }), this.batch).pipe(Effect.withRequestCaching(false));
   }
 
   /**
-   * Sends `ops` and answers their results, keeping the run on one snapshot (see the module comment).
-   * Dies with `Restart` when the run's earlier reads no longer hold.
+   * Sends `ops` and answers their results and the sequence they were read at, keeping the run on one
+   * snapshot (see the module comment). Dies with `Restart` when the run's earlier reads no longer hold.
    */
-  private fetch(ops: ReadOp[]): Effect.Effect<unknown[]> {
+  private fetch(ops: ReadOp[]): Effect.Effect<{ results: unknown[]; seq: number }> {
     return Effect.gen(this, function* () {
       const asserts = this.preconditions();
       const restart = (error: RemoteError) => Effect.die(new Restart(error));
       if (asserts.length + ops.length <= MAX_OPS) {
         const answer = yield* Effect.catchAll(this.reads([...asserts, ...ops]), restart);
         this.snapshot = answer.seq;
-        return answer.result.slice(asserts.length);
+        return { results: answer.result.slice(asserts.length), seq: answer.seq };
       }
       const results: unknown[] = [];
       for (let i = 0; i < ops.length; i += MAX_OPS) {
@@ -187,7 +208,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
         }
         results.push(...answer.result);
       }
-      return results;
+      return { results, seq: this.snapshot! };
     });
   }
 
@@ -195,7 +216,7 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     const entry = this.entry(table, id);
     return Effect.gen(this, function* () {
       if (!this.known(entry)) {
-        const fetched = (yield* this.read({ op: "get", table, id })) as Doc | null;
+        const [fetched] = (yield* this.read({ op: "get", table, id })) as [Doc | null, number];
         entry.base ??= fetched; // a read made at the same time may have answered first
       }
       // Guard what the server told this run, not what the run wrote itself.
@@ -212,8 +233,10 @@ export class Recording<S extends Schema> implements WriteDB<S> {
   }
 
   find<K extends keyof S & string>(table: K, where: Equality<Document<S, K>> = {}): Find<Document<S, K>> {
-    const execute: Execute = (operation: Operation) =>
-      operation.kind === "select" ? this.select(operation) : Effect.dieMessage("find executes selects only");
+    const execute: Execute = (operation: Operation, guarded = true) =>
+      operation.kind === "select"
+        ? this.select(operation, guarded)
+        : Effect.dieMessage("find executes selects only");
     return new Find(execute, {
       kind: "select",
       table,
@@ -222,8 +245,11 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     });
   }
 
-  /** A select, corrected for this run's writes to its table (read-your-writes; unguarded). */
-  private select(plan: SelectPlan): Effect.Effect<unknown, DbError> {
+  /**
+   * A select, corrected for this run's writes to its table (read-your-writes). Guarded: the table joins
+   * the read set at the sequence the server answered at.
+   */
+  private select(plan: SelectPlan, guarded: boolean): Effect.Effect<unknown, DbError> {
     const op: SelectOp = {
       op: "select",
       table: plan.table,
@@ -234,7 +260,14 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     };
     return Effect.gen(this, function* () {
       const touched = [...this.entries.values()].filter((e) => e.table === plan.table && e.writes.length > 0);
-      if (touched.length === 0) return yield* this.read(op);
+      const guard = (seq: number) => {
+        if (guarded && !this.tables.has(plan.table)) this.tables.set(plan.table, seq);
+      };
+      if (touched.length === 0) {
+        const [value, seq] = yield* this.read(op);
+        guard(seq);
+        return value;
+      }
       // Only patched or deleted documents can displace a server row; an insert's fresh id has none.
       const displaced = touched.filter((entry) => entry.writes[0].op !== "insert");
       if (1 + displaced.length > MAX_OPS) {
@@ -247,10 +280,11 @@ export class Recording<S extends Schema> implements WriteDB<S> {
       // One snapshot: the widened select and the displaced documents' current server state. A document
       // this run has not read yet takes that state as its base, so its local view is from the same snapshot.
       const requested = widenedLimit(op, displaced.length);
-      const [server, ...current] = yield* this.fetch([
+      const { results: [server, ...current], seq } = yield* this.fetch([
         { ...op, limit: requested },
         ...displaced.map(({ table, id }): GetOp => ({ op: "get", table, id })),
       ]);
+      guard(seq);
       displaced.forEach((entry, i) => entry.base ??= current[i] as Doc | null);
       const after = new Map<string, Doc | null>();
       for (const entry of touched) after.set(entry.id, yield* this.view(entry));
@@ -309,9 +343,9 @@ export class Recording<S extends Schema> implements WriteDB<S> {
     if (!this.writable) throw new TypeError("a query handler cannot write");
   }
 
-  /** The preconditions derived from this run's reads, in first-read order. */
-  preconditions(): AssertOp[] {
-    const out: AssertOp[] = [];
+  /** The preconditions derived from this run's reads: the documents in first-read order, then the tables. */
+  preconditions(): Guard[] {
+    const out: Guard[] = [];
     for (const entry of this.entries.values()) {
       if (!entry.guarded || entry.base === undefined) continue;
       out.push({
@@ -320,6 +354,9 @@ export class Recording<S extends Schema> implements WriteDB<S> {
         id: entry.id,
         expect: entry.base === null ? { exists: false } : { version: entry.base._version as number },
       });
+    }
+    for (const [table, unchangedSince] of this.tables) {
+      out.push({ op: "assert", table, expect: { unchangedSince } });
     }
     return out;
   }

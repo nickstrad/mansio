@@ -252,7 +252,7 @@ const SHAPES: Record<OpName, { allowed: readonly string[]; required: readonly st
   insert: { allowed: ["op", "table", "value", "id"], required: ["table", "value"] },
   patch: { allowed: ["op", "table", "id", "value", "expect"], required: ["table", "id", "value"] },
   delete: { allowed: ["op", "table", "id", "expect"], required: ["table", "id"] },
-  assert: { allowed: ["op", "table", "id", "expect"], required: ["table", "id", "expect"] },
+  assert: { allowed: ["op", "table", "id", "expect"], required: ["table", "expect"] },
 };
 
 function opOf(value: unknown, here: number, kind: Kind, ops: readonly Op[]): Result<Op> {
@@ -287,6 +287,16 @@ function opOf(value: unknown, here: number, kind: Kind, ops: readonly Op[]): Res
       case "patch":
       case "delete":
       case "assert": {
+        if (name === "assert" && !Object.hasOwn(o, "id")) {
+          // An assert without an id is about the table: its expect is exactly `{ unchangedSince }`.
+          const at = member(path, "expect");
+          const e = yield* object(o.expect, at, ["unchangedSince"], ["unchangedSince"]);
+          const since = e.unchangedSince;
+          if (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0) {
+            return yield* mismatch(member(at, "unchangedSince"), "safe integer >= 0", since);
+          }
+          return { op: name, table, expect: { unchangedSince: since } };
+        }
         const id = yield* idRef(o.id, member(path, "id"), here, ops);
         const value = name === "patch"
           ? yield* fieldValues(o.value, member(path, "value"), here, ops)

@@ -78,7 +78,13 @@ type Answer struct {
 //	post: req is not modified
 func Run(tx Tx, st State, req *ir.Request, ids det.IDGen) (Answer, error) {
 	r := &run{tx: tx, st: st, s: st.Schema.Schema, ids: ids, write: req.Kind == ir.Mutation,
-		now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops))}
+		now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops)), touched: map[string]bool{}}
+	for _, op := range req.Ops {
+		if _, ok := op.(*ir.AssertTable); ok {
+			r.guards, r.tables = true, map[string]int64{}
+			break
+		}
+	}
 	result := make([]any, 0, len(req.Ops))
 	for i, op := range req.Ops {
 		v, err := r.step(op)
@@ -115,7 +121,9 @@ type run struct {
 
 	seq      int64 // the commit sequence the request started from; valid when seqKnown
 	seqKnown bool
-	changed  bool // an operation changed a row
+	guards   bool             // the request holds a table assert
+	tables   map[string]int64 // with guards: each table's last change, as the request found it
+	touched  map[string]bool  // the tables this request changed a row of
 }
 
 func (r *run) step(op ir.Op) (any, error) {
@@ -140,6 +148,8 @@ func (r *run) step(op ir.Op) (any, error) {
 		return r.change(t, op.Table, op.ID, nil, op.Expect, "delete")
 	case *ir.Assert:
 		return r.change(t, op.Table, op.ID, nil, op.Expect, "assert")
+	case *ir.AssertTable:
+		return nil, r.assertTable(op)
 	}
 	return nil, protocol(ir.NewError(ir.TagDefect, "detail", "unknown operation "+op.Name()))
 }
@@ -213,7 +223,7 @@ func (r *run) insert(t *docschema.Table, op *ir.Insert) (any, error) {
 	if e != nil {
 		return nil, protocol(e)
 	}
-	if err := r.exec(sql); err != nil {
+	if err := r.exec(op.Table, sql); err != nil {
 		return nil, err
 	}
 	return id, nil
@@ -247,7 +257,7 @@ func (r *run) change(t *docschema.Table, table string, ref ir.IDRef, value *ir.O
 			if e != nil {
 				return nil, protocol(e)
 			}
-			if err := r.exec(sql); err != nil {
+			if err := r.exec(table, sql); err != nil {
 				return nil, err
 			}
 		}
@@ -267,18 +277,18 @@ func (r *run) change(t *docschema.Table, table string, ref ir.IDRef, value *ir.O
 	if e != nil {
 		return nil, protocol(e)
 	}
-	if err := r.exec(sql); err != nil {
+	if err := r.exec(table, sql); err != nil {
 		return nil, err
 	}
 	return ir.NewObject("_version", doc.Value("_version").(float64)+1), nil
 }
 
-// exec runs a document write.
-func (r *run) exec(sql doccompile.SQL) error {
+// exec runs a document write to table.
+func (r *run) exec(table string, sql doccompile.SQL) error {
 	if _, err := r.tx.Exec(sql.Text, doccompile.Args(sql.Values)...); err != nil {
 		return storage(err)
 	}
-	r.changed = true
+	r.touched[table] = true
 	return nil
 }
 

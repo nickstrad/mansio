@@ -28,12 +28,16 @@ import {
   toHttpStatus,
 } from "../errors.ts";
 
-/** Which `expect` member failed. `exists` also covers an insert whose client id is already taken. */
-export type PreconditionCheck = "exists" | "version" | "fields";
+/**
+ * Which `expect` member failed. `exists` also covers an insert whose client id is already taken;
+ * `unchanged` is a table assert (no `id`): `expected` is its `unchangedSince`, `actual` the sequence of
+ * the table's last change.
+ */
+export type PreconditionCheck = "exists" | "version" | "fields" | "unchanged";
 
 export class PreconditionConflict extends Data.TaggedError("ConflictError")<{
   readonly table: string;
-  readonly id: string;
+  readonly id?: string;
   readonly check: PreconditionCheck;
   readonly expected: unknown;
   readonly actual: unknown;

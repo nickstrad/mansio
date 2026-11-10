@@ -4,7 +4,8 @@
  *
  * 1. **Derived expects are exactly the reads.** The mutation's asserts are one per document the handler
  *    `get` from the server (not one it inserted), with the version it saw (or `exists: false`), all
- *    before the first write; the writes follow in the handler's order. A `find` adds none (v1). A run
+ *    before the first write; the writes follow in the handler's order. The `find`s add one table assert
+ *    between them, at the sequence the table was first read at. A run
  *    that wrote nothing sends no commit at all: its reads were one snapshot already.
  * 2. **Read-your-writes.** Every read inside the handler answers what the same read answers on the
  *    database with the handler's writes so far applied; after the commit, the database is that state.
@@ -121,7 +122,7 @@ Deno.test(
         const alive = new Set(seed.map((d) => d._id));
         const got = new Map<string, Doc | null>(); // first server state of every id the handler `get`s
         const inserted = new Set<string>();
-        let n = 0, wrote = false;
+        let n = 0, wrote = false, found = false;
         const handler = mutation({
           args: {},
           handler: ({ db }) =>
@@ -141,6 +142,7 @@ Deno.test(
                     break;
                   }
                   case "find":
+                    found = true;
                     assert.deepEqual(
                       yield* find(db, a.select),
                       evalSelect(shadow.table("items").values(), a.select),
@@ -204,9 +206,14 @@ Deno.test(
         assert.deepEqual(ops.slice(0, head.length), head, "asserts come first");
         const byId = (a: { id: unknown }, b: { id: unknown }) => String(a.id).localeCompare(String(b.id));
         assert.deepEqual(
-          [...head].sort(byId),
+          head.filter((op) => "id" in op).sort(byId),
           asserts.sort(byId),
           "one assert per document read, at its version",
+        );
+        assert.deepEqual(
+          head.filter((op) => !("id" in op)),
+          found ? [{ op: "assert", table: "items", expect: { unchangedSince: 0 } }] : [],
+          "one assert for the table the finds read, at the sequence it was read at",
         );
         assert.ok(
           ops.slice(head.length).every((op) => op.op !== "assert" && op.op !== "get" && op.op !== "select"),

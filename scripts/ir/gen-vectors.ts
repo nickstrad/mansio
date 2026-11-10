@@ -646,6 +646,48 @@ const DECODE: DecodeCase[] = [
     request: mutation([{ op: "assert", table: "notes", id: "n1" }]),
     expect: schemaErr("type-mismatch", "ops[0].expect", 0),
   },
+  {
+    name: "table assert",
+    why: "an assert without an id is about the table: its expect is exactly unchangedSince (v1.1)",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 0 } }]),
+    expect: ok,
+  },
+  {
+    name: "table assert in a query",
+    why: "a query may hold it, as any assert",
+    request: query([{ op: "assert", table: "notes", expect: { unchangedSince: 12 } }, sel()]),
+    expect: ok,
+  },
+  {
+    name: "table assert with a negative sequence",
+    why: "a commit sequence is a safe integer >= 0",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: -1 } }]),
+    expect: schemaErr("type-mismatch", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "table assert with a fractional sequence",
+    why: "a commit sequence is an integer",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 1.5 } }]),
+    expect: schemaErr("type-mismatch", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "table assert with a document precondition",
+    why: "without an id there is no document to check: unchangedSince stands alone",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 1, exists: true } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.exists", 0),
+  },
+  {
+    name: "document assert with unchangedSince",
+    why: "unchangedSince belongs to the assert without an id only",
+    request: mutation([{ op: "assert", table: "notes", id: "n1", expect: { unchangedSince: 1 } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "patch with unchangedSince",
+    why: "a write's expect is about its document",
+    request: mutation([{ op: "patch", table: "notes", id: "n1", value: {}, expect: { unchangedSince: 1 } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.unchangedSince", 0),
+  },
   // $ref
   {
     name: "$ref forward",
@@ -761,7 +803,7 @@ const DECODE: DecodeCase[] = [
   },
   {
     name: "unknown expect member",
-    why: "strict decode; range is reserved for v1.1",
+    why: "strict decode; range is reserved",
     request: mutation([{ op: "assert", table: "notes", id: "n1", expect: { range: 1 } }]),
     expect: schemaErr("unknown-field", "ops[0].expect.range", 0),
   },
@@ -1542,6 +1584,12 @@ const q = (ops: unknown[], over: J = {}): J => ({
 const res = (...result: unknown[]) => ({ result });
 /** A result with the commit sequence it must carry. */
 const at = (seq: number, ...result: unknown[]) => ({ result, seq });
+/** A table assert. */
+const guard = (table: string, unchangedSince: number) => ({
+  op: "assert",
+  table,
+  expect: { unchangedSince },
+});
 const getN = (id: unknown, table = "notes") => ({ op: "get", table, id });
 const ins = (value: J, id?: string, table = "notes") => ({
   op: "insert",
@@ -2320,6 +2368,75 @@ const SCENARIOS: Scenario[] = [
     ],
     final: { notes: [{ ...N1, _version: 2 }, N2, NEW] },
   },
+  // table asserts (spec §5.5)
+  {
+    name: "table assert: an unchanged table holds, a changed one fails",
+    why:
+      "a table's last change is the sequence of the last mutation that changed one of its rows; a miss changes nothing; the request's own earlier write counts as the sequence it will leave",
+    seed: SEED,
+    steps: [
+      { serverIds: ["l1"], request: m([ins({ name: "a" }, undefined, "lists")], "r1"), expect: at(1, "l1") },
+      { request: q([guard("notes", 0), s({ aggregate: { kind: "count" } })]), expect: at(1, null, 3) },
+      {
+        request: q([guard("lists", 0)]),
+        expect: conflict({ table: "lists", check: "unchanged", expected: 0, actual: 1 }, 0),
+      },
+      { request: q([guard("lists", 1)]), expect: at(1, null) },
+      {
+        request: m([{ op: "delete", table: "notes", id: "missing" }], "r2"),
+        expect: at(1, { deleted: false }),
+      },
+      {
+        request: m([guard("notes", 0), { op: "patch", table: "notes", id: "n1", value: {} }], "r3"),
+        expect: at(2, null, { _version: 2 }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }, guard("notes", 2)], "r4"),
+        expect: conflict({ table: "notes", check: "unchanged", expected: 2, actual: 3 }, 1),
+      },
+      {
+        request: q([guard("notes", 2), guard("lists", 2), guard("entries", 0)]),
+        expect: at(2, null, null, null),
+      },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, N3], lists: [srv("l1", { name: "a" })] },
+  },
+  {
+    name: "table assert: an insert decided on an empty select conflicts after a phantom",
+    why:
+      'the guard a client derives from a select: the select saw no entry at sequence 0, another writer inserted one, so the insert that depended on "none" does not commit',
+    steps: [
+      {
+        request: q([{
+          op: "select",
+          table: "entries",
+          filters: [{ field: "listId", op: "eq", value: "l1" }],
+          limit: 1,
+        }]),
+        expect: at(0, []),
+      },
+      {
+        serverIds: ["e1"],
+        request: m([ins({ listId: "l1", n: 1 }, undefined, "entries")], "other"),
+        expect: at(1, "e1"),
+      },
+      {
+        serverIds: [],
+        request: m([guard("entries", 0), ins({ listId: "l1", n: 1 }, undefined, "entries")], "mine"),
+        expect: conflict({ table: "entries", check: "unchanged", expected: 0, actual: 1 }, 0),
+      },
+    ],
+    final: {
+      entries: [srv("e1", { listId: "l1", n: 1 })],
+      requests: [{ request_id: "other", applied_ms: 1000, result: ["e1"] }],
+    },
+  },
+  {
+    name: "table assert on an unknown table",
+    why: "the table is looked up first",
+    seed: SEED,
+    ...single({ request: q([guard("nope", 0)]) }, compileErr({ reason: "unknown-collection" }, 0), UNCHANGED),
+  },
   {
     name: "query with asserts that hold",
     why: "a query may carry asserts: they are checked in the snapshot the reads come from, and answer null",
@@ -2521,7 +2638,7 @@ async function sdkScenarios(): Promise<Scenario[]> {
     {
       name: "sdk: deleteGame",
       why:
-        "deleteGame reads the game, then its moves in a query that asserts the game (one snapshot), then deletes them",
+        "deleteGame reads the game, then its moves in a query that asserts the game (one snapshot), then deletes them; the commit asserts the game and that the moves table is as the select saw it",
       schema: tttSchema,
       seed: {
         games: [G1],
@@ -2530,14 +2647,14 @@ async function sdkScenarios(): Promise<Scenario[]> {
       steps: steps(deleted, [
         res(G1),
         res(null, [moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
-        res(null, { deleted: true }, { deleted: true }, { deleted: true }),
+        res(null, null, { deleted: true }, { deleted: true }, { deleted: true }),
       ]),
       final: {
         moves: [moveDoc("m3", "g2", 1, 1)],
         requests: [{
           request_id: "sdk-r1",
           applied_ms: 1000,
-          result: [null, { deleted: true }, { deleted: true }, { deleted: true }],
+          result: [null, null, { deleted: true }, { deleted: true }, { deleted: true }],
         }],
       },
     },
