@@ -8,8 +8,8 @@
   do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
   5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
 - Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
-  based on `origin/main` `8075b8d`). Change 1 done; changes 2–4, the explainer, the simplify pass and the
-  merge are next, in that order.
+  based on `origin/main` `8075b8d`). Changes 1 and 2 done; changes 3 and 4, the explainer, the simplify pass
+  and the merge are next, in that order.
 - Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
   `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
   failure of the section below).
@@ -42,6 +42,30 @@
   - Local logic later: `Reads` is the executor's only way out and answers `{ result, seq }`, so the executor
     can run against anything that answers reads at a named sequence; `Recording.snapshot` exposes the run's
     snapshot identity; nothing here trades against local execution.
+- Change 2, guard `find`: **done** `2868127`.
+  - Protocol (`ir/spec/v1.md` §5.5): an `assert` without `id` is a table precondition,
+    `{"expect": {"unchangedSince": n}}`: no applied mutation after sequence `n` changed a row of the table. A
+    failed one is `ConflictError` with `check: "unchanged"` and no `id`. `_mansio_changes` keeps each table's
+    last change beside the database's sequence (one upsert per mutation that wrote).
+  - SDK: every `find` adds its table to the run's read set at the sequence it was answered at
+    (`Recording.preconditions()` now answers document asserts, then table asserts); the guard rides in later
+    reads (snapshot) and in the commit. `find(...).unguarded()` is the per-call opt-out.
+  - Tests: "read path 2: …" (four tests: the phantom insert that now conflicts and re-runs, the same without a
+    writer in two trips, `unguarded()` committing the skew, finds in the snapshot); decode vectors for the
+    table assert (7) and execute vectors `table assert: …` (3, one is the phantom at the protocol level); the
+    Go model fuzz generates table asserts; the SDK property test pins the derived table assert.
+  - Verified: `deno task ci` exit 0 (330 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails the
+    baseline `TestAdminFetchLimitAppliesToTheNextFetches`, plus timing flakes met while both suites ran at
+    once: `internal/ir` `TestIndexNamesDecodeFast` (passes alone, 3 of 3) and `internal/bench`
+    `TestCancelStopsSendingButFinishesTheFiles`, `TestCancelDoesNotWaitOutBackoffs`, `TestRunWritesEveryFile`
+    (about 1 run in 6 alone; the package imports nothing this branch changes; the first two are listed as
+    baseline flakes in the section below).
+  - Deviations: none from the survey's design (b). The survey's "default-on with a per-call opt-out" is
+    `unguarded()`. The guard's cost is the survey's: any change to the table is a conflict, also one the
+    select would not have seen.
+  - Local logic later: a guard is a plain IR assert (`Guard` in `sdk/recording.ts`), so a local speculative
+    run states its read set in the same form. The trade taken: table granularity now; a range assert (spec
+    §10) can be added as a narrower `Guard` without changing how guards travel.
 - Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
   change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
 
