@@ -3,6 +3,9 @@
  * tic-tac-toe schema at controld, creates a tenant and an API key through controld's tenancy admin API, then
  * does one SDK write (`createGame`) and one SDK read (`getGame`) on the locator route — resolve at controld,
  * every request through the edge with the ticket — and checks the document read back is the one written.
+ * Then it plays four moves and counts the `/v1/ops` requests each `makeMove` cost (the read path,
+ * `docs/programmatic-schema-platform-survey.md` §3.2): one when the client's cache holds the game, two when it
+ * does not, two when the cache is stale, and the game must end at the version four moves make.
  *
  * Input: PLATFORM_DIR/smoke.json ({api, edge, admin_token}); the dev CA through DENO_CERT. Exit 0 and one
  * `platform smoke OK` line on success; nonzero with the reason otherwise. Same calls as
@@ -56,14 +59,25 @@ async function main() {
   const apiKey = created.result.apiKey.plaintext as string;
   console.log(`smoke: tenant ${slug} (${tenant}) and an API key created`);
 
-  const client = createClient({
-    functions,
-    schema: s,
-    tenant,
-    app: APP,
-    timeoutMs: 20_000,
-    locator: { url: cfg.api, apiKey, create: true, edge: cfg.edge },
-  });
+  // Counts the /v1/ops requests the server decided (200, or 409 for a refused precondition); a request
+  // the platform turned away and the transport sent again is not a round trip of the handler.
+  let trips = 0;
+  const counting: typeof fetch = async (input, init) => {
+    const response = await fetch(input, init);
+    if (String(input).endsWith("/v1/ops") && (response.status === 200 || response.status === 409)) trips++;
+    return response;
+  };
+  const newClient = () =>
+    createClient({
+      functions,
+      schema: s,
+      tenant,
+      app: APP,
+      timeoutMs: 20_000,
+      fetch: counting,
+      locator: { url: cfg.api, apiKey, create: true, edge: cfg.edge },
+    });
+  const client = newClient();
   const xPlayer = `alice-${crypto.randomUUID().slice(0, 8)}`;
   const { gameId } = await Effect.runPromise(client.mutation("createGame", { xPlayer, oPlayer: "bob" }));
   console.log(`smoke: SDK write through the edge: createGame → ${gameId} (xPlayer ${xPlayer})`);
@@ -74,6 +88,43 @@ async function main() {
   console.log(
     `smoke: SDK read through the edge: getGame(${gameId}) → xPlayer ${game.xPlayer}, oPlayer ${game.oPlayer}`,
   );
+
+  const move = async (
+    who: ReturnType<typeof newClient>,
+    playerId: string,
+    cell: number,
+    expectedVersion: number,
+  ) => {
+    trips = 0;
+    const after = await Effect.runPromise(
+      who.mutation("makeMove", { gameId, playerId, cell, expectedVersion }),
+    );
+    if (after?._version !== expectedVersion + 1) {
+      throw new Error(
+        `makeMove(cell ${cell}) answered version ${after?._version}, want ${expectedVersion + 1}`,
+      );
+    }
+    return trips;
+  };
+  const other = newClient(); // a second caller, with its own (empty) cache
+  const counts = {
+    warm: [await move(client, xPlayer, 0, 1), await move(client, "bob", 1, 2)], // getGame cached the game
+    cold: await move(other, xPlayer, 2, 3),
+    stale: await move(client, "bob", 3, 4), // this client's cache still holds version 3
+  };
+  console.log(
+    `smoke: makeMove round trips through the edge: warm cache ${
+      counts.warm.join(" and ")
+    }, cold ${counts.cold}, ` +
+      `stale cache ${counts.stale}`,
+  );
+  if (counts.warm.some((n) => n !== 1) || counts.cold !== 2 || counts.stale !== 2) {
+    throw new Error(`makeMove round trips ${JSON.stringify(counts)}, want warm 1, cold 2, stale 2`);
+  }
+  const final = await Effect.runPromise(client.query("getGame", { gameId }));
+  if (final?._version !== 5 || final.board.filter((cell) => cell !== null).length !== 4) {
+    throw new Error(`after four moves the game is ${JSON.stringify(final)}`);
+  }
   console.log(
     `platform smoke OK: wrote and read back game ${gameId} (xPlayer ${xPlayer}) via ${cfg.edge} for ${tenant}:${APP}`,
   );
