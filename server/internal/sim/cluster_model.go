@@ -497,51 +497,72 @@ type bankIn struct {
 	amount         int64
 	vFrom, vTo     int64
 	newFrom, newTo int64
+	gotFrom, gotTo int64 // the versions the transfer answered; 0: it has no answer
 	accounts       []int
 	rid            string // a transfer's request id (its mark)
 }
 
 type bankOut struct{ balances, versions []int64 }
 
+// bankState is what the model knows of each account. A version only rises, by how much is the server's to say
+// (spec §6.3: one, or up to the incarnation's floor), so the model learns versions from the answers: exact
+// marks the accounts whose version it has seen; of the others it knows only that the version is above
+// versions[i] (a new account, or a transfer applied without an answer).
 type bankState struct {
-	known              [nAccts]bool
+	known, exact       [nAccts]bool
 	balances, versions [nAccts]int64
 }
 
+// account is a balance at a version; version 0 in an allowed set stands for any version.
 type account struct{ balance, version int64 }
 
+// holds reports whether account i may be at got: what the model knows of it, or after a crash (unknown) one of
+// allowed.
+func (s *bankState) holds(i int, got account, allowed map[account]bool) bool {
+	switch {
+	case !s.known[i]:
+		return allowed[got] || allowed[account{got.balance, 0}]
+	case s.balances[i] != got.balance:
+		return false
+	case s.exact[i]:
+		return s.versions[i] == got.version
+	}
+	return got.version > s.versions[i]
+}
+
+// bankModel starts from the new bank (known) or, after a crash, from one of allowed per account.
 func bankModel(known bool, allowed [nAccts]map[account]bool) linearize.Model[bankState, bankIn, bankOut] {
 	return linearize.Model[bankState, bankIn, bankOut]{
 		Init: func() bankState {
 			var s bankState
 			for i := range nAccts {
-				s.known[i], s.balances[i], s.versions[i] = known, balance0, 1
+				s.known[i], s.balances[i] = known, balance0
 			}
 			return s
 		},
 		Step: func(s bankState, in bankIn, out bankOut, _ bool) (bool, bankState) {
 			if in.transfer {
 				for _, a := range [2]struct {
-					i           int
-					v, old, bal int64
-				}{{in.from, in.vFrom, in.newFrom + in.amount, in.newFrom}, {in.to, in.vTo, in.newTo - in.amount, in.newTo}} {
-					if s.known[a.i] && s.versions[a.i] != a.v || !s.known[a.i] && !allowed[a.i][account{a.old, a.v}] {
+					i                int
+					v, old, bal, got int64
+				}{{in.from, in.vFrom, in.newFrom + in.amount, in.newFrom, in.gotFrom}, {in.to, in.vTo, in.newTo - in.amount, in.newTo, in.gotTo}} {
+					if !s.holds(a.i, account{a.old, a.v}, allowed[a.i]) || a.got != 0 && a.got <= a.v {
 						return false, s
 					}
-					s.known[a.i], s.balances[a.i], s.versions[a.i] = true, a.bal, a.v+1
+					s.known[a.i], s.balances[a.i], s.exact[a.i], s.versions[a.i] = true, a.bal, a.got != 0, max(a.got, a.v)
 				}
 				return true, s
 			}
 			for i, a := range in.accounts {
 				got := account{out.balances[i], out.versions[i]}
-				if s.known[a] && (s.balances[a] != got.balance || s.versions[a] != got.version) || !s.known[a] && !allowed[a][got] {
+				if !s.holds(a, got, allowed[a]) {
 					return false, s
 				}
-				s.known[a], s.balances[a], s.versions[a] = true, got.balance, got.version
+				s.known[a], s.balances[a], s.exact[a], s.versions[a] = true, got.balance, true, got.version
 			}
 			return true, s
 		},
-		Key: func(s bankState) string { return fmt.Sprint(s.known, s.balances, s.versions) },
+		Key: func(s bankState) string { return fmt.Sprint(s.known, s.exact, s.balances, s.versions) },
 	}
 }
 
@@ -560,8 +581,9 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 	if op.Input.transfer {
 		return
 	}
-	// Version reuse (informational): after a kill -9 rolls a database back, _version numbers are issued again
-	// for different contents, so an expect computed before the crash can pass against another document.
+	// Version reuse: a version names one content of a document for good (docexec.VersionFloor). Before the
+	// floor, a database rolled back by a kill -9 issued its lost versions again for other contents, and an
+	// expect computed before the crash passed against another document (swarm seed 2761).
 	if d.seenVersion == nil {
 		d.seenVersion = map[[2]int64]int64{}
 	}
@@ -569,8 +591,7 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 		k := [2]int64{int64(a), op.Output.versions[i]}
 		if b, ok := d.seenVersion[k]; ok && b != op.Output.balances[i] {
 			m.reused++
-			m.w.tr.add("check", "%s account %d version %d read with balance %d, earlier %d (version reused after a rollback)",
-				key, a, k[1], op.Output.balances[i], b)
+			m.violate(key, "version reuse: account %d read at version %d with balance %d, earlier with %d", a, k[1], op.Output.balances[i], b)
 		}
 		d.seenVersion[k] = op.Output.balances[i]
 	}
@@ -640,7 +661,7 @@ func (m *cmodel) linearizable(d *cdbModel) {
 	for seg, ops := range segments(d.bankOps, crashes, func(in bankIn) bool { return in.transfer }) {
 		var allowed [nAccts]map[account]bool
 		for i := range allowed {
-			allowed[i] = map[account]bool{{balance0, 1}: true}
+			allowed[i] = map[account]bool{{balance0, 0}: true}
 		}
 		if start, ok := startOf(d, seg); seg > 0 && ok {
 			// Each account's balance and version in the generation the owner restarted from: its last transfer there.
@@ -649,18 +670,18 @@ func (m *cmodel) linearizable(d *cdbModel) {
 				allowed[i] = map[account]bool{lastIn(d.bankOps, start, func(in bankIn) (string, account) {
 					switch i {
 					case in.from:
-						return in.rid, account{in.newFrom, in.vFrom + 1}
+						return in.rid, account{in.newFrom, in.gotFrom}
 					case in.to:
-						return in.rid, account{in.newTo, in.vTo + 1}
+						return in.rid, account{in.newTo, in.gotTo}
 					}
 					return "", account{}
-				}, account{balance0, 1}): true}
+				}, account{balance0, 0}): true}
 			}
 		} else if seg > 0 {
 			for _, o := range d.bankOps {
 				if in := o.Input; in.transfer && o.Call < crashes[seg-1] {
-					allowed[in.from][account{in.newFrom, in.vFrom + 1}] = true
-					allowed[in.to][account{in.newTo, in.vTo + 1}] = true
+					allowed[in.from][account{in.newFrom, in.gotFrom}] = true
+					allowed[in.to][account{in.newTo, in.gotTo}] = true
 				}
 			}
 		}

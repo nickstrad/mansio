@@ -153,7 +153,7 @@ func (o *Opener) Counts() (opened, closed int) {
 	return o.opened, o.closed
 }
 
-func (o *Opener) Open(path string) (vactor.DB, error) {
+func (o *Opener) Open(path string, _ uint64) (vactor.DB, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.FailOpen {

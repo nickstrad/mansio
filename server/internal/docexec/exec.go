@@ -222,6 +222,9 @@ func (r *run) insert(t *docschema.Table, op *ir.Insert) (any, error) {
 	if err := r.exec(op.Table, sql); err != nil {
 		return nil, err
 	}
+	if _, err := r.version(op.Table, id, 1); err != nil {
+		return nil, err
+	}
 	return id, nil
 }
 
@@ -276,7 +279,11 @@ func (r *run) change(t *docschema.Table, table string, ref ir.IDRef, value *ir.O
 	if err := r.exec(table, sql); err != nil {
 		return nil, err
 	}
-	return ir.NewObject("_version", doc.Value("_version").(float64)+1), nil
+	version, err := r.version(table, id, doc.Value("_version").(float64)+1)
+	if err != nil {
+		return nil, err
+	}
+	return ir.NewObject("_version", version), nil
 }
 
 // exec runs a document write to table.

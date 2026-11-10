@@ -954,7 +954,7 @@ func TestNonDurableOpenerIsRejectedInDurableMode(t *testing.T) {
 
 type plainOpener struct{}
 
-func (plainOpener) Open(string) (vactor.DB, error) { return plainDB{}, nil }
+func (plainOpener) Open(string, uint64) (vactor.DB, error) { return plainDB{}, nil }
 
 type plainDB struct{}
 

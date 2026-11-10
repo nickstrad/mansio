@@ -401,6 +401,16 @@ func (c *cclient) transfer(ctx context.Context) {
 	op := linearize.Op[bankIn, bankOut]{Call: call, Return: c.now(), Input: in}
 	switch {
 	case a.ok():
+		var got [2]struct {
+			Version int64 `json:"_version"`
+		}
+		for i := range got {
+			if len(a.result) != len(ops) || json.Unmarshal(a.result[i], &got[i]) != nil || got[i].Version == 0 {
+				c.w.model.violateNow(c.db.key, "transfer %s answered %s: want a new _version for each of its two patches", rid, a.result)
+				return
+			}
+		}
+		op.Input.gotFrom, op.Input.gotTo = got[0].Version, got[1].Version
 	case a.unknown || c.w.model.uncertain(c.db.key, rid):
 		op.Return = linearize.Unknown
 	default:

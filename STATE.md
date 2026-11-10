@@ -1,5 +1,54 @@
 # mansio — project state
 
+## 2026-11-10 — version fixes: `_version` after a rollback, EnsureBucket, per-checkout Compose project (Fable 5.2, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-version-fixes-brief.md`. Item A: MANSIO-REFACTORS item 3 (`_version`
+  reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
+  owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
+  simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
+- Status: **item A done; B and C in progress.** Branch `feat/version-fixes`, worktree
+  `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
+- Item A, the version floor: **done** (this commit). Reference:
+  `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
+  - The rule: a write sets `_version = max(v, floor)`, `floor = seal << 32` (`docexec.VersionFloor`), the seal
+    being the manifest's stamp count at activation (host → `Opener.Open(path, incarnation)` →
+    `actor.Tx.Incarnation()` → `docexec.State.Floor`). No store: no floor, versions as before. Durable mode:
+    versions start at 2^32.
+  - The note's `max(prev+1, seal<<32)` was evaluated against the code and adopted with one change it needed:
+    `Manifest.Seal` restarted with each generation, so two incarnations could share a seal; it now survives a
+    new generation (`Manifest.Succeeding`). Evidence on the saved vector (swarm seed 2761): before,
+    `conservation: a full bank read sums to 398, want 400`; with the floor on a restarting seal,
+    `version reuse:
+    account 0 read at version 4294967331 with balance 95, earlier with 78`; as landed, the
+    vector passes and moved to `server/internal/sim/testdata/cluster/` (`testdata/open` is empty).
+  - Tests: `docexec` `TestVersionIsNotReissuedAfterARollback` (a patch expecting a pre-rollback version is a
+    `ConflictError`; no lost version is issued again; fails under either mutant) and `TestVersionFloor`; the
+    cluster checker now treats a reused `(account, _version)` as a violation and the bank model takes versions
+    from the answers; SDK "read path 4: the cache takes the version the commit answered, not the last plus
+    one" (`Recording.committed(results)`: the SDK no longer counts a patched document's version itself).
+  - Verified: `deno task ci` exit 0 (341 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only
+    `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline) and `internal/eventlog`
+    `TestRetentionBoundsTheTree`, which fails the same way on an untouched `origin/main` checkout when run
+    late in the UTC day (20:42 UTC here; it passed in the earlier runs recorded below) and touches nothing
+    this branch changes; `go test -race` and `-tags noassert` on the touched packages (`docexec`, `vactor`,
+    `durable`, `actor`, `sim`, `front`, `owner`, `agentglue`, `cmd/dbtool`, `cmd/coldload`) ok;
+    `scripts/sim-swarm.sh 150 2700` (seeds 2700–2849): 150 passed; `work-scripts/bash/e2e-linux.sh`
+    `E2E PASS
+    seed=20261010 scenarios=8`; `make platform-up` exit 0
+    (`warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`, on versions that start at 2^32) and
+    `make platform-down` clean.
+  - Callers that pinned version numbers on a durable agent now require only that versions rise:
+    `tests/e2e/platform/scenarios/{documents,backup_restore}.ts`, `scripts/platform/smoke.ts`.
+  - Limits, accepted (in the note): 2^21 stamps per database, then writes fail closed;
+    `dbtool
+    rebuild-manifest` over an unreadable manifest, and `dbtool restore` + `import` into a key
+    without a manifest, restart the seal (an operator rollback the floor does not see).
+- **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
+  `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
+  host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
+  protocol change (sketch in the note's last section). The sim does not exercise table preconditions.
+- Resume: nothing is running. `make platform-down` in this worktree removes a platform left up.
+
 ## 2026-11-10 — read path: survey changes 1–4 and the colocated-runner explainer (Fable 5.2, Nick-directed)
 
 - Goal/spec: brief `/root/briefs/mansio-read-path-brief.md`; the spec is the survey's §3.2 changes 1–4

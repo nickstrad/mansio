@@ -42,7 +42,7 @@ func do(t *testing.T, h *vactor.Host, key, q string, args ...any) actor.Result {
 
 func TestOpenerNeverCreatesAMissingFile(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "none.db")
-	if _, err := (actordb.Opener{}).Open(p); err == nil {
+	if _, err := (actordb.Opener{}).Open(p, 0); err == nil {
 		t.Fatal("Open of a missing file succeeded")
 	}
 	if _, err := os.Stat(p); err == nil {

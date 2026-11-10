@@ -290,7 +290,7 @@ func TestGetRacingPassivateNeverServesDeletedFile(t *testing.T) {
 
 type panicOpener struct{ vactortest.Opener }
 
-func (p *panicOpener) Open(string) (vactor.DB, error) { panic("opener bug") }
+func (p *panicOpener) Open(string, uint64) (vactor.DB, error) { panic("opener bug") }
 
 // A panic inside the activation goroutine must reach the caller (so the top level can report a bug) and must
 // not leave a cached entry behind.

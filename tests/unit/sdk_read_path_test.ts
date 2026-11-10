@@ -463,6 +463,23 @@ Deno.test("read path 4: a warm-cache mutation is one round trip, and its commit 
   assert.deepEqual(kinds(other.model), ["mutation"]);
 });
 
+Deno.test("read path 4: the cache takes the version the commit answered, not the last plus one", async () => {
+  // A server restored after a crash sets versions from a floor (spec §6.3), so a patch can answer more than
+  // the read version plus one. The cache must hold what the server said, or every warm run would conflict.
+  const { model, client } = setup();
+  model.seed("accounts", [account("a1", 10), account("a2", 5)]);
+  model.floor = 2 ** 32;
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 })), true);
+  model.log.length = 0;
+  assert.equal(await run(client.mutation("transfer", { from: "a1", to: "a2", amount: 1 })), true);
+  assert.deepEqual(kinds(model), ["mutation"]);
+  assert.deepEqual(model.log[0].ops.slice(0, 2), [
+    { op: "assert", table: "accounts", id: "a1", expect: { version: 2 ** 32 } },
+    { op: "assert", table: "accounts", id: "a2", expect: { version: 2 ** 32 } },
+  ]);
+  assert.equal(model.table("accounts").get("a1")!._version, 2 ** 32 + 1);
+});
+
 Deno.test("read path 4: a stale-cache mutation cannot commit: it is refused, then re-run on the current state", async () => {
   const { model, client } = setup();
   model.seed("accounts", [account("a1", 10), account("a2", 5)]);

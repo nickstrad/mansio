@@ -49,7 +49,7 @@ func TestBuildTemplate(t *testing.T) {
 
 func TestActorOpenerNeverCreatesAMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.sqlite")
-	if _, err := (actorOpener{}).Open(path); err == nil {
+	if _, err := (actorOpener{}).Open(path, 0); err == nil {
 		t.Fatal("opened a missing file")
 	}
 	if _, err := os.Stat(path); err == nil {
@@ -62,7 +62,7 @@ func TestActorOpenerServesQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := (actorOpener{}).Open(path)
+	db, err := (actorOpener{}).Open(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

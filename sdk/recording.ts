@@ -46,10 +46,11 @@
  * server at all (the handler fails locally). Inserts carry the spec's implicit `exists: false` on their
  * client id; a collision there is also safe to re-run (new ids are drawn).
  *
- * Local documents: a patch increments `_version` as the server will; an insert's `_creationTime` is the
- * caller's clock, a provisional value (the server stamps its own at commit, spec §6.3), and its
- * `_version` is 1. A patch of a document the run knows is missing fails `NotFoundError` locally, exactly
- * where the serial execution would have.
+ * Local documents: an insert's `_version` is 1 and a patch adds one; an insert's `_creationTime` is the
+ * caller's clock. All three are provisional: the server stamps its own time at commit and may set a
+ * higher version (spec §6.3: the version floor), so what outlives the run (the cache) takes the version
+ * the commit answered. A patch of a document the run knows is missing fails `NotFoundError` locally,
+ * exactly where the serial execution would have.
  *
  * Handlers may run more than once (on a derived conflict), so they must have no effects beyond `db`.
  */
@@ -483,17 +484,27 @@ export class Recording<S extends Schema> implements WriteDB<S> {
 
   /**
    * Updates the cache after this run's commit applied: a document the run read and then wrote is now what
-   * the run computed (its base was asserted, so the result is exact); a deleted one is gone. Documents
-   * the run inserted or wrote without reading are not cached: their state is the server's to say.
+   * the run computed (its base was asserted, so the body is exact), at the version its last patch
+   * answered; a deleted one is gone. Documents the run inserted or wrote without reading are not cached:
+   * their state is the server's to say. `results` are the commit's, one per write in the run's order
+   * (after its asserts).
    */
-  committed() {
+  committed(results: readonly unknown[]) {
     if (!this.cache) return;
+    // The server sets the version (spec §6.3): the run's own count is only right without a floor.
+    const versions = new Map<string, unknown>();
+    this.ops.forEach((op, i) => {
+      if (op.op === "patch") {
+        versions.set(key(op.table, op.id as string), (results[i] as Doc | undefined)?._version);
+      }
+    });
     for (const entry of this.entries.values()) {
       if (entry.writes.length === 0) continue;
       const doc = entry.guarded && entry.base !== undefined && entry.writes[0].op !== "insert"
         ? Effect.runSync(Effect.orElseSucceed(this.view(entry), () => null))
         : null;
-      if (doc) this.cache.put(entry.table, doc);
+      const version = versions.get(key(entry.table, entry.id));
+      if (doc && typeof version === "number") this.cache.put(entry.table, { ...doc, _version: version });
       else this.cache.delete(entry.table, entry.id);
     }
   }

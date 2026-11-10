@@ -289,9 +289,10 @@ Still open:
   will be evaluated instead of full-file copies. Open issues:
   `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`. Correction: with the shipped default
   (`write_back_every` 10 s, 1 s tick) a kill -9 can lose about 11 s of acknowledged writes; the 170 ms below
-  is the Jepsen test config (200 ms). A rollback also reuses `_version` numbers (open sim vector
-  `server/internal/sim/testdata/open/version-reuse-after-rollback.json`).** Earlier text: acknowledged writes
-  lost to kill -9. A durable agent killed with kill -9 and restarted serves each database from its last
+  is the Jepsen test config (200 ms). A rollback also reused `_version` numbers (fixed 2026-11-10 by the
+  version floor, `server/knowledge/writeback/2026-11-10-version-floor.md`; the vector is now
+  `server/internal/sim/testdata/cluster/version-reuse-after-rollback.json`).** Earlier text: acknowledged
+  writes lost to kill -9. A durable agent killed with kill -9 and restarted serves each database from its last
   published generation, so writes acknowledged inside the write-back window are lost (the RPO;
   `server/knowledge/writeback`, DST-1's RPO rule). Measured in the IR-5a Jepsen-style run
   (`server/cmd/controld/jepsen_test.go`, write-back every 200 ms, about 400 register writes/s): about 170 ms

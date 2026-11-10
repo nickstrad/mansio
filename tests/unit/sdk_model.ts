@@ -60,6 +60,8 @@ export class Model {
   tables = new Map<string, Map<string, Doc>>();
   applied = new Map<string, unknown[]>();
   clock = 1000;
+  /** The version floor (spec §6.3): a write sets at least this version. 0, as on a never-restored database. */
+  floor = 0;
   /** The commit sequence (spec §6.5): mutations applied that changed a row. */
   seq = 0;
   /** Each table's last change, as a sequence (spec §5.5). */
@@ -84,6 +86,7 @@ export class Model {
       [...this.tables].map(([k, t]) => [k, new Map([...t].map(([id, d]) => [id, structuredClone(d)]))]),
     );
     m.clock = this.clock;
+    m.floor = this.floor;
     m.seq = this.seq;
     m.changes = new Map(this.changes);
     return m;
@@ -168,7 +171,10 @@ export class Model {
           });
         }
         this.touched.add(op.table);
-        t.set(id, { ...op.value, _id: id, _creationTime: this.clock, _version: 1 } as Doc);
+        t.set(
+          id,
+          { ...op.value, _id: id, _creationTime: this.clock, _version: Math.max(1, this.floor) } as Doc,
+        );
         return id;
       }
       case "patch":
@@ -217,8 +223,9 @@ export class Model {
         }
         if (!doc) throw new Failure(404, "NotFoundError", i, { table: op.table, id });
         this.touched.add(op.table);
-        t.set(id, { ...doc, ...op.value, _version: doc._version + 1 });
-        return { _version: doc._version + 1 };
+        const version = Math.max(doc._version + 1, this.floor);
+        t.set(id, { ...doc, ...op.value, _version: version });
+        return { _version: version };
       }
     }
   }

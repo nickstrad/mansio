@@ -100,7 +100,7 @@ func ShrinkCluster(cfg ClusterConfig, res ClusterResult, run func(ClusterConfig)
 // match wins).
 var failureClasses = []struct{ class, phrase string }{
 	{"split-brain", "two owners serve writes"}, {"epoch-order", "committed a write at epoch"},
-	{"conservation", "conservation:"}, {"not-linearizable", "not linearizable"},
+	{"conservation", "conservation:"}, {"version-reuse", "version reuse:"}, {"not-linearizable", "not linearizable"},
 	{"applied-twice", "applied twice"}, {"applied-though-failed", "is applied though"},
 	{"bad-duplicate", "answered duplicate"}, {"unknown-mark", "unknown mark"},
 	{"lost-at-handoff", "a hand-off loses nothing"}, {"lost-after-publish", "before a write-back or fence that published"},

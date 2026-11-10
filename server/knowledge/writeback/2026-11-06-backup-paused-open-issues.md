@@ -31,6 +31,9 @@ per-database full-file copies. These are the problems to deal with if we keep th
    - Replay with `MANSIO_SIM_OPEN=1 go test ./internal/sim -run TestClusterOpenFindings -v`.
    - Possible fix: a version floor per incarnation, e.g. `max(prev+1, seal<<32)`.
    - The bug cannot happen if no acknowledged write is ever rolled back (RPO 0).
+   - **Fixed 2026-11-10** (added by the version-fixes run): [the version floor](2026-11-10-version-floor.md).
+     The vector moved to `internal/sim/testdata/cluster/`. The commit sequence has the same flaw, still open
+     (same note).
 3. **Every backup copies the whole file.** A snapshot copies at about 0.8 GB/s, and each backup is a
    full PUT. A 1 GB database backed up every 30 s under steady writes is about 2.8 TB of uploads a day
    (`docs/books/object-storage/plan.md`). So a shorter window costs a lot on large databases, and
