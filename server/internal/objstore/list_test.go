@@ -77,7 +77,7 @@ func TestListPageDelimiter(t *testing.T) {
 // Delete sends batches of at most 1000 keys; missing keys are fine; DeletePrefix empties a prefix of more
 // than one page and leaves its neighbours alone.
 func TestDeleteBatchesAndDeletePrefix(t *testing.T) {
-	r := newRig(t, objstore.Config{})
+	r := newRig(t, objstore.Config{OpTimeout: 10 * time.Second}) // LIST obeys OpTimeout (B5); see TestEachPage…
 	var names []string
 	for i := range 2500 {
 		k := fmt.Sprintf("d/%05d", i)
