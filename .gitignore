@@ -91,6 +91,9 @@ temp/
 credentials
 secrets.*
 
+# `make platform-up` state (binaries, dev CA, keys, secrets, daemon data); `make platform-down` deletes it
+.platform/
+
 # ---------------------------------------------------------------------------
 # Test coverage
 # ---------------------------------------------------------------------------

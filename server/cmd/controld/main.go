@@ -6,6 +6,7 @@
 //
 //	controld -config controld.json [-addr-file path] [-dev]   serve (-dev: plain-HTTP S3 and listener allowed)
 //	controld <command> -addr URL -secrets file [-ca file] ...  one admin call (prints the JSON answer)
+//	controld keygen -dir DIR [-public FILE]                    seed an empty ticket key ring (keygen.go)
 //
 // The listener speaks HTTPS with a tls section (cert_file, key_file); without one it is refused unless -dev.
 //
@@ -41,6 +42,9 @@ func main() {
 }
 
 func realMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "keygen" {
+		return keygenMain(args[1:], stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "import-mansio" {
 		return importMain(ctx, args[1:], stdout, stderr)
 	}

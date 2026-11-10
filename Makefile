@@ -1,6 +1,8 @@
 # mansio local infrastructure: a SeaweedFS S3-compatible object store in Docker.
 #
 # Quickstart:   make up && make s3-init
+# Whole platform (controld, two agentd, the edge, with their own Postgres and SeaweedFS), proven by one SDK
+# write and read through the edge:   make platform-up   (and make platform-down to remove it)
 #
 # S3 endpoint (dev only):   http://localhost:8333
 # Test credentials (DEV ONLY, public, not secrets; defined in docker-compose.yml):
@@ -28,10 +30,10 @@ S3_REGION     := us-east-1
 
 UP_TIMEOUT_SECONDS := 60
 
-.PHONY: help up down restart ps logs clean s3-init db-shell
+.PHONY: help up down restart ps logs clean s3-init db-shell platform-up platform-down
 
 help: ## Show this help
-	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
 up: ## Start the stack and wait (max 60s) until every service is healthy
 	docker compose up -d
@@ -100,3 +102,11 @@ POSTGRES_DB   ?= mansio
 
 db-shell: ## Open an interactive psql shell in the postgres service
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
+
+# The multi-node dev platform: its own Compose project (mansio-platform; Postgres :15432, S3 :18333), so it
+# runs beside `make up`'s stack and never touches it. State lives in .platform/. See scripts/platform/up.sh.
+platform-up: ## Build and start controld, two agentd and the edge; prove it with an SDK write+read
+	scripts/platform/up.sh
+
+platform-down: ## Stop the platform and remove its containers, volumes and .platform/ state
+	scripts/platform/down.sh
