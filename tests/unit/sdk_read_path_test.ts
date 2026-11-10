@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { Effect } from "effect";
 import type { Op, Request } from "../../core/ir/types.ts";
+import { functions as app } from "../../app/functions.ts";
+import { schema as appSchema } from "../../app/schema.ts";
 import { RuleError } from "../../core/errors.ts";
 import { memoryCache } from "../../sdk/cache.ts";
 import { type ClientOptions, createClient } from "../../sdk/client.ts";
@@ -584,4 +586,45 @@ Deno.test("read path 4: the cache keeps the newer version, forgets deletes, and 
   assert.ok(cache.get("accounts", "a1") && cache.get("accounts", "a3"));
   cache.delete("accounts", "a1");
   assert.equal(cache.get("accounts", "a1"), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// The sample app's makeMove, in round trips
+// ---------------------------------------------------------------------------
+
+Deno.test("read path: makeMove is two round trips cold and one warm; a stale cache costs the refused commit", async () => {
+  const model = new Model();
+  let ids = 0;
+  const client = createClient({
+    functions: app,
+    schema: appSchema,
+    tenant: "acme",
+    app: "tic-tac-toe",
+    endpoint: "http://agent.test",
+    token: "t0",
+    fetch: modelFetch(model),
+    newId: () => `id-${++ids}`,
+    sleep: () => Effect.void,
+  });
+  const { gameId } = await run(client.mutation("createGame", { xPlayer: "ada", oPlayer: "bob" }));
+  const move = (playerId: string, cell: number, expectedVersion: number) =>
+    run(Effect.either(client.mutation("makeMove", { gameId, playerId, cell, expectedVersion })));
+  const trips = async (playerId: string, cell: number, expectedVersion: number) => {
+    model.log.length = 0;
+    const out = await move(playerId, cell, expectedVersion);
+    return [out._tag, ...kinds(model)];
+  };
+  // Cold (an inserted document is not cached: its _creationTime is the server's to say): get, commit.
+  assert.deepEqual(await trips("ada", 0, 1), ["Right", "query", "mutation"]);
+  // Warm: the commit left the game in the cache at the version it wrote.
+  assert.deepEqual(await trips("bob", 1, 2), ["Right", "mutation"]);
+  assert.deepEqual(await trips("ada", 2, 3), ["Right", "mutation"]);
+  // Another client moves; this one's cache is stale and its caller's expectedVersion is too. The handler's
+  // own check passes on the cached version, the commit is refused, and the re-run (on the document the
+  // refusal carried) raises the app's ConflictError: one trip, the refused commit, and no read.
+  const doc = model.table("games").get(gameId)!;
+  model.table("games").set(gameId, { ...doc, _version: doc._version + 1 });
+  assert.deepEqual(await trips("bob", 3, 4), ["Left", "mutation"]);
+  // With the right version the caller's retry is one trip again.
+  assert.deepEqual(await trips("bob", 3, 5), ["Right", "mutation"]);
 });
