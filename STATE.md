@@ -6,7 +6,9 @@
   reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
   owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
   simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
-- Status: **items A, B and C done; the simplify pass is next.** Branch `feat/version-fixes`, worktree
+- Status: **items A, B and C done, simplify pass done, verification at baseline; the merge to main is next.**
+  Commits: A `67d4deb`, B `e4a24cf`, C `4a6d2c0`, simplify `263b591`. No cross-family review ran: the brief
+  directed Fable to merge after the simplify pass. Branch `feat/version-fixes`, worktree
   `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
 - Item A, the version floor: **done** (this commit). Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
@@ -73,6 +75,27 @@
     and networks, `.platform/` gone, no platform port held.
   - Verified: `shellcheck -x scripts/platform/*.sh` clean; six `platform-up` / `platform-down` cycles on the
     new names, all exit 0.
+- Simplify pass: **done** `263b591` (behaviour unchanged). Removed the sim's `Stats.VersionReuse` and its
+  counter (dead once a reused version is a violation); `s3test`'s bucket HEAD/PUT answers are one status
+  table; `docexec`'s test `restart()` and `crash()` share `abandon()`. Reviewed and left: the incarnation's
+  path through `actor` (four signatures, no shorter road to `Tx`), `Manifest.Succeeding` (three callers).
+- Final verification on `263b591` (2026-11-10, this VM, `/tmp/vf-verify.sh`): `gofmt -l` empty;
+  `go vet
+  ./...`; `go test ./...`: only the two baseline failures below; `go test -race` and
+  `-tags noassert` on `internal/{docexec,vactor,durable,actor,sim,front,owner,agentglue,objstore}/...`,
+  `cmd/{dbtool,coldload,
+  agentd}`: only `TestAdminFetchLimitAppliesToTheNextFetches`; `deno task ci` exit 0
+  (341 unit, 61 property); `work-scripts/bash/e2e-linux.sh` `E2E PASS seed=20261010 scenarios=8`;
+  `shellcheck -x` clean; `make
+  platform-up` exit 0 (`warm cache 1 and 1, cold 2, stale cache 2`,
+  `platform smoke OK`), `make platform-down` exit 0.
+- Baseline failures, both reproduced on an untouched `origin/main` (`7dcb164`) checkout, neither touched here
+  (item 2 owns the green baseline):
+  - `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (known).
+  - `internal/eventlog` `TestRetentionBoundsTheTree` (**new to this list**, from backpressure B9): its fake
+    clock is fixed at 2026-11-10 09:00 local but the files it writes carry real modification times, so once
+    the real clock is past the fake one the files look newer than "now" and are never swept. It passed in this
+    morning's runs and fails from now on, on every checkout.
 - **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
   `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
   host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
