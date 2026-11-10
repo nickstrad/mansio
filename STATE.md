@@ -7,8 +7,8 @@
   (section 3: five waves). One commit per finding, then a simplify pass, then merge to main from
   `/root/Software/mansio-work/main-merge` (never the main checkout). Notes per finding:
   `server/knowledge/backpressure/`.
-- Status: **in progress — waves 1 to 4 done (B1 to B8, B11), wave 5 next (B10 (a), then B9's event-log
-  retention).**
+- Status: **in progress — every in-scope finding is implemented (waves 1 to 5). Next: `make platform-up`
+  smoke, the simplify pass, then the merge to main.**
 - Per finding (commit; overload scenario or main test):
   - B1 (wave 1): **done** `0277e36` (+ notes moved `77778e0`). Per-queue `mansio_queue_*` families, actor
     depth in durable mode, `mansio_vactor_dirty`, controld pgx pool stats. `TestOverloadIsVisiblePerQueue`.
@@ -37,7 +37,12 @@
     (`server/docs/capacity.md` generated from the config defaults,
     `server/deploy/prometheus/backpressure.rules.yml`, runbooks, levers: `agentctl limit`, `controld limit`,
     the edge's `admin_listen`).
-  - B10 (a), B9 event-log retention (wave 5): not started.
+  - B10 (a) (wave 5): **done** `9db6910`. The write-back window stated exactly in `README.md` and `docs.md`;
+    alert `MansioUnpublishedWritesOld`; `TestStoreOutageShowsAsGrowingDirtyAge`.
+  - B9, event-log retention (wave 5): **done** `4c50817`. `event_log.max_total_bytes` (4 GiB) and `max_age`
+    (45 days) enforced by the writer; records lost at close are counted. `TestRetentionBoundsTheTree`. Not
+    done and not gated (outside this brief's wave 5 scope): exporting the owner-slot count and rotating the
+    operational log.
   - B10 (b) `max_dirty_age` and B9's warm-set default: **skipped-gated** (Nick's paused LiteFS / write-back
     decision); not to be implemented in this run.
 - Baseline (clean worktree at `e9488c5`): failures that exist before any change and are not this branch's:
