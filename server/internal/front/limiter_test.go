@@ -3,6 +3,7 @@ package front
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
@@ -309,10 +310,59 @@ func FuzzLimiterModel(f *testing.F) {
 				t.Fatalf("step %d: %v", i, err)
 			}
 			for k, c := range mD {
-				if got := l.dbs[k]; (got == nil) != (*c == counts{}) || (got != nil && *got != *c) {
+				if got := l.dbs[k]; (got == nil) != (*c == counts{}) || (got != nil && got.counts != *c) {
 					t.Fatalf("step %d: db %v = %+v, model %+v", i, k, got, *c)
 				}
 			}
 		}
 	})
+}
+
+// lateness: the wait and finish estimates per level at its cap, the slowest deciding; nothing without a rate.
+func TestLimiterLateness(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	lim := AdmissionLimits{DBInFlight: 2, DBQueue: 100, TenantInFlight: 4, TenantQueue: 100, VMInFlight: 8, VMQueue: 100}
+	k := dbKey{"t", "d"}
+	// fill takes n slots for db and queues q more, then records perSec completions for it in the last whole second.
+	fill := func(l *limiter, db dbKey, n, q, perSec int) {
+		for range n + q {
+			l.acquire(db)
+		}
+		for range perSec {
+			l.done(db, now.Add(-time.Second))
+		}
+	}
+	for _, tc := range []struct {
+		name         string
+		setup        func(l *limiter)
+		vmRate       float64
+		wait, finish time.Duration
+		known        bool
+	}{
+		{"nothing held: runs now", func(l *limiter) {}, 100, 0, 0, false},
+		{"database below its cap", func(l *limiter) { fill(l, k, 1, 0, 10) }, 100, 0, 0, false},
+		{"database at its cap, no completion measured", func(l *limiter) { fill(l, k, 2, 3, 0) }, 100, 0, 0, false},
+		// 2 in flight, 3 queued, 10/s: the 4 ahead-and-self drain in 400 ms, the 2 in flight are 200 ms more.
+		{"database at its cap", func(l *limiter) { fill(l, k, 2, 3, 10) }, 100, 400 * time.Millisecond, 600 * time.Millisecond, true},
+		{"database at its cap, empty queue (on point)", func(l *limiter) { fill(l, k, 2, 0, 10) }, 100, 100 * time.Millisecond, 300 * time.Millisecond, true},
+		// Another database of the tenant fills the tenant (4): this one could run by its own cap, the tenant decides.
+		{"tenant at its cap", func(l *limiter) { fill(l, dbKey{"t", "x"}, 2, 0, 4); fill(l, dbKey{"t", "y"}, 2, 0, 4) }, 100,
+			125 * time.Millisecond, 625 * time.Millisecond, true},
+		// The VM is full with other tenants' work: its rate (16/s over 8 in flight) decides.
+		{"VM at its cap", func(l *limiter) {
+			for _, tn := range []string{"a", "b", "c", "e"} {
+				fill(l, dbKey{tn, "d"}, 2, 0, 0)
+			}
+		}, 16, 62500 * time.Microsecond, 562500 * time.Microsecond, true},
+	} {
+		l := newLimiter(lim)
+		tc.setup(l)
+		wait, finish, known := l.lateness(k, now, tc.vmRate)
+		if wait != tc.wait || finish != tc.finish || known != tc.known {
+			t.Errorf("%s: wait %v finish %v known %v; want %v %v %v", tc.name, wait, finish, known, tc.wait, tc.finish, tc.known)
+		}
+		if l.dbs[dbKey{"t", "unseen"}] != nil {
+			t.Errorf("%s: lateness created state", tc.name)
+		}
+	}
 }

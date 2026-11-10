@@ -16,6 +16,7 @@ type Admission struct {
 	now func() time.Time
 
 	// Guarded by mu: for Stats (Release It O1: in use, high water, times full) and the shed Retry-After.
+	wouldExpire     int64 // shed because the request was expected to finish after its deadline (not in shed)
 	shed            int64
 	inFlightHW, qHW int
 	drained         drainRate
@@ -32,13 +33,26 @@ func newAdmission(lim AdmissionLimits, clock det.Clock) *Admission {
 
 // Acquire takes a slot for (tenant, db), waiting in the queue until ctx ends if both are at their caps.
 //
+// A request that would have to queue is not queued if it can already be told it will expire there: when the
+// measured drain rates say it would finish after ctx's deadline (limiter.lateness), it is shed at once with
+// the expected wait as its retry hint, instead of holding a queue slot for its whole deadline and answering
+// expired. With no deadline, or no rate measured yet, it queues as before; the queue caps stay the hard bound.
+//
 //	post: err == nil ⇒ release != nil; call it exactly once
-//	post: errors.Is(err, ErrShed): the queues were full; errors.Is(err, ErrExpired): ctx ended while queued.
-//	      Either way nothing is held.
+//	post: errors.Is(err, ErrShed): the queues were full, or the request would have expired in them;
+//	      errors.Is(err, ErrExpired): ctx ended while queued. Either way nothing is held.
 func (a *Admission) Acquire(ctx context.Context, tenant, db string) (release func(), err error) {
 	k := dbKey{tenant, db}
 	now := a.now() // outside the lock: the request path takes it
+	deadline, bounded := ctx.Deadline()
 	a.mu.Lock()
+	if bounded {
+		if wait, finish, known := a.l.lateness(k, now, a.drained.perSec(now)); known && finish > deadline.Sub(now) {
+			a.wouldExpire++
+			a.mu.Unlock()
+			return nil, WithRetryAfter(ErrShed, wait) // Retry-After: when a slot is expected to be free
+		}
+	}
 	d, w := a.l.acquire(k)
 	if w != nil {
 		w.ch = make(chan struct{})
@@ -79,6 +93,7 @@ func (a *Admission) releaser(k dbKey) func() {
 		once.Do(func() {
 			now := a.now()
 			a.mu.Lock()
+			a.l.done(k, now)
 			granted := a.l.release(k)
 			a.drained.done(now)
 			a.inFlightHW = max(a.inFlightHW, a.l.vm.inFlight)
@@ -96,6 +111,7 @@ type AdmissionStats struct {
 	QueueCap                           int // the VM queue's cap (AdmissionLimits.VMQueue after defaults)
 	InFlightHighWater, QueuedHighWater int
 	Shed                               int64   // requests refused because a queue was full (times full)
+	WouldExpire                        int64   // requests refused because they would have expired in the queue
 	DrainPerSec                        float64 // completions in the last whole second (the shed Retry-After's rate)
 }
 
@@ -109,7 +125,7 @@ func (a *Admission) Stats() AdmissionStats {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AdmissionStats{Tenants: len(a.l.tenants), DBs: len(a.l.dbs), InFlight: a.l.vm.inFlight, Queued: a.l.vm.queued,
-		QueueCap: a.l.lim.VMQueue, InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed,
+		QueueCap: a.l.lim.VMQueue, InFlightHighWater: a.inFlightHW, QueuedHighWater: a.qHW, Shed: a.shed, WouldExpire: a.wouldExpire,
 		DrainPerSec: a.drained.perSec(a.now())}
 }
 

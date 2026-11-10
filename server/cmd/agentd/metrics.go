@@ -36,7 +36,8 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server, cfg *Config) {
 	metrics.Queues(reg, func() []metrics.QueueStat {
 		adm, q, mailbox := srv.Admission().Stats(), cfg.actorQueues, cfg.actorConfig().MailboxSize
 		qs := []metrics.QueueStat{
-			{Queue: "admission", Capacity: adm.QueueCap, Rejected: map[string]int64{metrics.ReasonFull: adm.Shed}, Wait: srv.Admission().Wait()},
+			{Queue: "admission", Capacity: adm.QueueCap, Wait: srv.Admission().Wait(),
+				Rejected: map[string]int64{metrics.ReasonFull: adm.Shed, "would_expire": adm.WouldExpire}},
 			{Queue: "mailbox", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.MailboxFull()}, Wait: q.MailboxWait()},
 			{Queue: "read", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
 		}

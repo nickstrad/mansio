@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
@@ -54,7 +55,13 @@ type counts struct{ inFlight, queued int }
 
 type tenantState struct {
 	counts
+	drained drainRate // completions of this tenant's requests (done)
 	waiters list.List // of *waiter, arrival order
+}
+
+type dbState struct {
+	counts
+	drained drainRate // completions of this database's requests (done)
 }
 
 // waiter is a queued request.
@@ -79,14 +86,14 @@ type limiter struct {
 	vm      counts
 	waiters list.List // of *waiter, VM-wide arrival order
 	tenants map[string]*tenantState
-	dbs     map[dbKey]*counts
+	dbs     map[dbKey]*dbState
 }
 
 func newLimiter(l AdmissionLimits) *limiter {
-	return &limiter{lim: l.WithDefaults(), tenants: map[string]*tenantState{}, dbs: map[dbKey]*counts{}}
+	return &limiter{lim: l.WithDefaults(), tenants: map[string]*tenantState{}, dbs: map[dbKey]*dbState{}}
 }
 
-func (l *limiter) state(k dbKey) (*tenantState, *counts) {
+func (l *limiter) state(k dbKey) (*tenantState, *dbState) {
 	t := l.tenants[k.tenant]
 	if t == nil {
 		t = &tenantState{}
@@ -94,13 +101,13 @@ func (l *limiter) state(k dbKey) (*tenantState, *counts) {
 	}
 	d := l.dbs[k]
 	if d == nil {
-		d = &counts{}
+		d = &dbState{}
 		l.dbs[k] = d
 	}
 	return t, d
 }
 
-func (l *limiter) runnable(t *tenantState, d *counts) bool {
+func (l *limiter) runnable(t *tenantState, d *dbState) bool {
 	return l.vm.inFlight < l.lim.VMInFlight && t.inFlight < l.lim.TenantInFlight && d.inFlight < l.lim.DBInFlight
 }
 
@@ -129,7 +136,7 @@ func (l *limiter) acquire(k dbKey) (decision, *waiter) {
 	return shed, nil
 }
 
-func (l *limiter) take(t *tenantState, d *counts) {
+func (l *limiter) take(t *tenantState, d *dbState) {
 	t.inFlight++
 	d.inFlight++
 	l.vm.inFlight++
@@ -189,6 +196,40 @@ func (l *limiter) release(k dbKey) []*waiter {
 	return granted
 }
 
+// done records at now that a request for k finished (call it before release): the rates lateness reads.
+//
+//	pre: a slot for k is held
+func (l *limiter) done(k dbKey, now time.Time) {
+	l.tenants[k.tenant].drained.done(now)
+	l.dbs[k].drained.done(now)
+}
+
+// lateness estimates, for a request for k arriving at now that would have to queue, how long it would wait
+// and when it would finish, from the measured completion rate of each level (database, tenant, VM) that is
+// at its in-flight cap: the requests queued ahead of it plus itself drain at that rate, and the ones in
+// flight ahead of all of them are one more cap's worth (Little's law: service time ≈ in flight / rate). The
+// slowest level decides. vmRate is the VM's completions per second.
+//
+//	post: !known ⇒ k could run now, or no level at its cap has a measured rate (nothing to estimate from)
+//	post: known ⇒ 0 < wait < finish
+func (l *limiter) lateness(k dbKey, now time.Time, vmRate float64) (wait, finish time.Duration, known bool) {
+	level := func(c counts, limit int, perSec float64) {
+		if c.inFlight < limit || perSec <= 0 {
+			return
+		}
+		w := queueDrain(c.queued, perSec)
+		wait, finish, known = max(wait, w), max(finish, w+time.Duration(float64(c.inFlight)/perSec*float64(time.Second))), true
+	}
+	if d := l.dbs[k]; d != nil {
+		level(d.counts, l.lim.DBInFlight, d.drained.perSec(now))
+	}
+	if t := l.tenants[k.tenant]; t != nil {
+		level(t.counts, l.lim.TenantInFlight, t.drained.perSec(now))
+	}
+	level(l.vm, l.lim.VMInFlight, vmRate)
+	return wait, finish, known
+}
+
 // cancel removes a waiter that gave up. It returns false if w was already granted (the caller then holds a
 // slot and must release it).
 func (l *limiter) cancel(w *waiter) bool {
@@ -210,7 +251,7 @@ func (l *limiter) cancel(w *waiter) bool {
 
 // gc deletes empty states.
 func (l *limiter) gc(k dbKey) {
-	if d := l.dbs[k]; d != nil && *d == (counts{}) {
+	if d := l.dbs[k]; d != nil && d.counts == (counts{}) {
 		delete(l.dbs, k)
 	}
 	if t := l.tenants[k.tenant]; t != nil && t.counts == (counts{}) {

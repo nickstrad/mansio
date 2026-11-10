@@ -5,6 +5,8 @@ Owner: the backpressure-fixes run (2026-11-10; state in the repo root `STATE.md`
 
 Notes, newest first:
 
+- [2026-11-10 admission would-expire](2026-11-10-admission-would-expire.md) (B7): a request that cannot finish
+  before its deadline is shed at admission instead of queued; before/after numbers.
 - [2026-11-10 /v1/ops pre-admission](2026-11-10-ops-pre-admission.md) (B6): verify slots for the credential path,
   per-database claim flights instead of a global mutex, drain before the body.
 - [2026-11-10 shutdown](2026-11-10-shutdown.md) (B5): `drain_delay` on the edge and controld, controld's forced
