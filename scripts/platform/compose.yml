@@ -1,0 +1,82 @@
+# The dev platform's own services (`make platform-up`, scripts/platform/up.sh). DEV ONLY: every credential here
+# is a public test value.
+#
+# A separate Compose project (`mansio-platform`) from the root docker-compose.yml (`make up`): its own
+# containers, its own volumes, and loopback-only ports that do not collide with the root stack's 5432/8333,
+# so the platform can run beside it and `make platform-down` (`down -v`) removes only what this file created.
+
+name: mansio-platform
+
+services:
+  postgres:
+    image: postgres:17 # same pin as the root stack
+    environment:
+      POSTGRES_USER: mansio
+      POSTGRES_PASSWORD: mansio
+      POSTGRES_DB: mansio
+    ports:
+      - "127.0.0.1:${PLATFORM_PG_PORT:-15432}:5432"
+    volumes:
+      - pg:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mansio -d mansio"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48 # same pin as the root stack
+    command:
+      - server
+      - -dir=/data
+      - -ip.bind=0.0.0.0
+      - -master.volumeSizeLimitMB=64
+      - -volume.max=50
+      - -s3
+      - -s3.config=/etc/seaweedfs/s3.json
+    ports:
+      - "127.0.0.1:${PLATFORM_S3_PORT:-18333}:8333" # S3 API only; the debug UIs stay inside the container
+    volumes:
+      - s3:/data
+    configs:
+      - source: s3-identity
+        target: /etc/seaweedfs/s3.json
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://localhost:9333/cluster/healthz && wget -q -O /dev/null http://localhost:8333/healthz
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 5s
+
+configs:
+  # The same dev identity as the root stack (mansiodevkey / mansiodevsecret).
+  s3-identity:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "mansio-dev",
+            "credentials": [
+              { "accessKey": "mansiodevkey", "secretKey": "mansiodevsecret" }
+            ],
+            "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+          }
+        ]
+      }
+
+volumes: # project-scoped (mansio-platform_pg, mansio-platform_s3): `down -v` removes them
+  pg:
+  s3:

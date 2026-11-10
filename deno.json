@@ -18,6 +18,7 @@
     "ci": "deno task fmt:check && deno task lint && deno task check && deno task test && deno task test:prop",
     "go:ci": "cd server && test -z \"$(gofmt -l .)\" && go vet ./... && go test -race ./... && go test -tags noassert ./...",
     "ci:all": "deno task ci && deno task go:ci",
+    "platform:smoke": "deno run --allow-net --allow-read --allow-env scripts/platform/smoke.ts",
     "sim:swarm": "server/scripts/sim-swarm.sh",
     "explain": "deno run scripts/explain.ts",
     "logs:ingest": "deno run -A scripts/logs.ts ingest",
