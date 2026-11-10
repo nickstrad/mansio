@@ -364,8 +364,11 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 		case stepReroute: // wrong_owner, fenced, ticket_invalid, no answer, the locator's moving
 			// The first reroute of a call is free and waits a short jittered delay (an agent going away must
 			// not turn every call in flight into an immediate re-resolve at the same instant); each later one
-			// backs off and takes a token of the retry budget, so a call cannot hammer controld for nothing.
-			if res.Reroutes >= c.cfg.MaxReroutes || res.Reroutes >= 1 && !c.budget.TryRetry() {
+			// backs off and, when an agent's answer or silence caused it, takes a token of the retry budget, so
+			// a call cannot hammer controld for nothing. The locator's "moving" is never charged: it is
+			// controld pacing the client with Retry-After through a planned move, when every caller of the
+			// database reroutes at once (charging it fails requests during routine moves: TestClientGate).
+			if res.Reroutes >= c.cfg.MaxReroutes || res.Reroutes >= 1 && a.Code != codeMoving && !c.budget.TryRetry() {
 				return fail(last)
 			}
 			res.Reroutes++

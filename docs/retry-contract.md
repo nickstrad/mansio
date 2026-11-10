@@ -11,6 +11,7 @@ this one table; both run it as test vectors ([`ir/vectors/retry.json`](../ir/vec
   backoff.
 - **reroute**: the route is dropped, the database is resolved again (or a new ticket fetched), then the same
   request is sent again. The first reroute of a call waits a short jittered delay; later ones back off.
+  `moving` is controld pacing clients through a planned move, so it is never charged to the retry budget.
 - **fail**: final. The caller gets the error and decides.
 
 A mutation is always sent again with the same request id, so it applies at most once.
@@ -30,7 +31,7 @@ A mutation is always sent again with the same request id, so it applies at most 
 | agent   | `internal`       | 500              | no            | fail        | not charged             | yes                         | report the log_id; a write may or may not have committed: the caller may retry with the same request_id                                                                    |
 | agent   | `transport`      | none (no answer) | no            | reroute     | charged after the first | yes                         | no answer (connect failure, reset, unreadable body): the VM may be gone; a write may have committed, so it is retried with the same request id                             |
 | resolve | `ok`             | 200              | no            | done        | not charged             | no                          | a route and a ticket                                                                                                                                                       |
-| resolve | `moving`         | 503              | yes           | reroute     | charged after the first | no                          | the database is moving or being created: resolve again after Retry-After                                                                                                   |
+| resolve | `moving`         | 503              | yes           | reroute     | not charged             | no                          | the database is moving or being created: resolve again after Retry-After (controld paces the client, so this reroute is not charged)                                       |
 | resolve | `shed`           | 503              | yes           | retry       | charged                 | no                          | controld refused the load (source rate limit, store reads or creates in flight); nothing ran                                                                               |
 | resolve | `unavailable`    | 503              | yes           | retry       | charged                 | no                          | Postgres or an agent cannot do it now, or too many calls in flight                                                                                                         |
 | resolve | `no_capacity`    | 503              | yes           | retry       | charged                 | no                          | no live vm under the placement caps right now                                                                                                                              |

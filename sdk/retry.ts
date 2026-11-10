@@ -17,6 +17,7 @@
  *   is already spent, and resubmitting it would add load when the server is slowest.
  * - **Reroutes.** The first reroute of a call is free and waits a short jittered delay; each later one
  *   backs off and takes a budget token, so an agent going away is not answered with a burst of re-resolves.
+ *   Controld's `moving` is never charged: it paces every caller of a database through a planned move.
  */
 
 export interface RetryPolicy {

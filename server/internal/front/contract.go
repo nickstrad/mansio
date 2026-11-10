@@ -19,7 +19,7 @@ const (
 const (
 	BudgetNone       = ""            // not charged
 	BudgetEvery      = "every"       // each one takes a token
-	BudgetAfterFirst = "after_first" // the first of a call is free, each later one takes a token
+	BudgetAfterFirst = "after_first" // a reroute after the call's first takes a token (the first is free)
 )
 
 // ContractRow is one answer and the client's part of the contract for it.
@@ -55,7 +55,7 @@ var DefaultContractPolicy = ContractPolicy{MaxAttempts: 3, MaxReroutes: 5, Backo
 // statuses; TestResolveAnswersMatchTheContract there holds it to this table).
 var resolveContract = []ContractRow{
 	{"resolve", "ok", 200, false, ActDone, BudgetNone, false, "a route and a ticket"},
-	{"resolve", "moving", 503, true, ActReroute, BudgetAfterFirst, false, "the database is moving or being created: resolve again after Retry-After"},
+	{"resolve", "moving", 503, true, ActReroute, BudgetNone, false, "the database is moving or being created: resolve again after Retry-After (controld paces the client, so this reroute is not charged)"},
 	{"resolve", "shed", 503, true, ActRetry, BudgetEvery, false, "controld refused the load (source rate limit, store reads or creates in flight); nothing ran"},
 	{"resolve", "unavailable", 503, true, ActRetry, BudgetEvery, false, "Postgres or an agent cannot do it now, or too many calls in flight"},
 	{"resolve", "no_capacity", 503, true, ActRetry, BudgetEvery, false, "no live vm under the placement caps right now"},

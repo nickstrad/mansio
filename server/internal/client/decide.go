@@ -29,7 +29,11 @@ type answer struct {
 }
 
 // codeTransport is the code of an attempt that got no answer: connect failure, reset, unreadable body.
-const codeTransport = "transport"
+// codeMoving is the locator's "the database is moving or being created; resolve again after Retry-After".
+const (
+	codeTransport = "transport"
+	codeMoving    = "moving"
+)
 
 // decide maps an answer from an agent to the next step. The contract is front.Contract (docs/retry-contract.md;
 // TestRetryContractVectors holds this file and the default policy to it):
@@ -72,14 +76,15 @@ func minEpochAfter(a answer, epoch uint64) uint64 {
 
 // resolveStep maps a locator answer (POST /v1/resolve, CP-5) to the next step (front.Contract's resolve rows):
 //
-//	moving                                   → reroute: resolve again after Retry-After (the first is free)
+//	moving                                   → reroute: resolve again after Retry-After (never charged to the
+//	                                           retry budget: controld is pacing a planned move)
 //	unavailable, shed, no_capacity, timeout,
 //	no answer                                → retry the resolve after Retry-After, under the policy and budget
 //	not_found, forbidden, unauthorized,
 //	suspended, bad_request, unknown          → fail
 func resolveStep(a answer) (step, outcome.Code) {
 	switch a.Code {
-	case "moving":
+	case codeMoving:
 		return stepReroute, outcome.Unavailable
 	case "unavailable", "shed", "no_capacity", "timeout", codeTransport:
 		return stepRetry, outcome.Unavailable

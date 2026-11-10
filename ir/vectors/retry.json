@@ -170,15 +170,15 @@
     },
     {
       "name": "resolve: moving",
-      "why": "the database is moving or being created: resolve again after Retry-After",
+      "why": "the database is moving or being created: resolve again after Retry-After (controld paces the client, so this reroute is not charged)",
       "from": "resolve",
       "code": "moving",
       "status": 503,
       "retryAfter": true,
       "action": "reroute",
-      "budget": "after_first",
+      "budget": "",
       "mayHaveApplied": false,
-      "meaning": "the database is moving or being created: resolve again after Retry-After"
+      "meaning": "the database is moving or being created: resolve again after Retry-After (controld paces the client, so this reroute is not charged)"
     },
     {
       "name": "resolve: shed",

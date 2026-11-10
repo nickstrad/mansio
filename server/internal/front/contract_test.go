@@ -94,6 +94,7 @@ this one table; both run it as test vectors ([`+"`ir/vectors/retry.json`"+`](../
   backoff.
 - **reroute**: the route is dropped, the database is resolved again (or a new ticket fetched), then the same
   request is sent again. The first reroute of a call waits a short jittered delay; later ones back off.
+  `+"`moving`"+` is controld pacing clients through a planned move, so it is never charged to the retry budget.
 - **fail**: final. The caller gets the error and decides.
 
 A mutation is always sent again with the same request id, so it applies at most once.
@@ -157,6 +158,9 @@ func TestContractRows(t *testing.T) {
 		}
 		seen[key] = true
 		wantBudget := map[ClientAction]string{ActDone: BudgetNone, ActFail: BudgetNone, ActRetry: BudgetEvery, ActReroute: BudgetAfterFirst}
+		if key == "resolve:moving" { // controld paces a planned move with Retry-After: not charged
+			wantBudget[ActReroute] = BudgetNone
+		}
 		if b, ok := wantBudget[r.Action]; !ok || b != r.Budget {
 			t.Errorf("%s: action %q with budget %q", key, r.Action, r.Budget)
 		}

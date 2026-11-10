@@ -13,7 +13,8 @@ What changed in behaviour:
 |---|---|---|
 | SDK on `expired` | retried (up to 3 attempts), resubmitting work whose deadline had passed | final: `Unavailable{code: "expired", mayHaveApplied}`; the Go client's default already did not retry it |
 | `Retry-After` cap | 60 s on the server and in the Go client, 30 s in the SDK | 60 s everywhere |
-| Reroutes (`wrong_owner`, `fenced`, `ticket_invalid`, no answer, resolve `moving`) | never charged to the retry budget; the first waited only the server hint (0 when there was no answer) | the first is free and waits a jittered delay of up to the backoff base (50 ms); each later one backs off and takes a budget token |
+| Reroutes after an agent's answer or silence (`wrong_owner`, `fenced`, `ticket_invalid`, no answer) | never charged to the retry budget; the first waited only the server hint (0 when there was no answer) | the first is free and waits a jittered delay of up to the backoff base (50 ms); each later one backs off and takes a budget token |
+| Reroute on resolve `moving` | not charged | still not charged (see below); it now also waits at least the jittered backoff |
 | resolve `no_capacity` (503 + `Retry-After`) | failed the call in both clients | retried like `unavailable` |
 
 Why the reroute change matters: every transport failure is a reroute, so an agent going away turned each call
@@ -25,3 +26,12 @@ Not changed: a bench profile may still opt in to retrying `expired`, `stmt_timeo
 `retry_on` (that is how frontbench models a badly behaved client); the contract and the vectors describe the
 default policy. `front.Spec`'s prose column still says what the caller may do itself (for `expired`: retry
 with a fresh deadline, same request id).
+
+Deviation from the plan, with its evidence. The plan said "charge reroutes after the first to the budget". Doing
+that for the locator's `moving` too made `TestClientGate` fail (gated: Postgres + SeaweedFS; frontbench in
+locator mode, 16 callers on 4 databases, a move every second): 4 of about 15 600 requests during moves ended
+`resolve:moving`. A planned move makes every caller of that database reroute two or three times at the same
+moment, and the 10-token bucket cannot absorb that burst. `moving` is controld itself pacing clients with
+`Retry-After`, not a failure, so it stays uncharged (the pre-B8 comment in `decide.go` said the same); the
+reroutes the plan was about (an agent that answered `wrong_owner` or `fenced`, or did not answer) are charged
+after the first. With that the gate passes (4 of 4 runs).

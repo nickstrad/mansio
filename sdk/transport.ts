@@ -248,8 +248,9 @@ export function makeTransport(options: TransportOptions): Send {
               ? yield* remoteErrorOf(last)
               : yield* unavailable(code, last.message, last.status || undefined);
           }
-          // The first reroute of a call is free; each later one takes a token of the retry budget.
-          if (reroutes >= maxReroutes || (reroutes >= 1 && !budget.tryRetry())) {
+          // The first reroute of a call is free; each later one takes a token of the retry budget, unless it
+          // is controld's "moving" (no target: the resolve itself said so), which paces a planned move.
+          if (reroutes >= maxReroutes || (reroutes >= 1 && target !== undefined && !budget.tryRetry())) {
             return yield* unavailable(code, last.message, last.status || undefined);
           }
           reroutes++;

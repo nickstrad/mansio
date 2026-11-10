@@ -59,7 +59,9 @@ Deno.test("retry contract: every vector's step, budget and may-have-applied", ()
     const step = v.from === "agent" ? decide(v.code) : resolveStep(v.code);
     assert.equal(step, v.action, v.name);
     // The transport charges every retry and every reroute after a call's first (sdk/transport.ts).
-    const charged = step === "retry" ? "every" : step === "reroute" ? "after_first" : "";
+    // The resolve's own "moving" is the one reroute never charged.
+    const moving = v.from === "resolve" && v.code === "moving";
+    const charged = step === "retry" ? "every" : step === "reroute" && !moving ? "after_first" : "";
     assert.equal(charged, v.budget, `${v.name}: budget`);
     // The SDK reports may-have-applied on Unavailable only: for the answers that are not a server-decided
     // failure (RemoteError). `internal` reaches the SDK as a 5xx RemoteError, which carries no such flag.

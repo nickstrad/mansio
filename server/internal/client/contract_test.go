@@ -56,8 +56,13 @@ func TestRetryContractVectors(t *testing.T) {
 		if st != want {
 			t.Errorf("%s %s: step %d, contract says %s", v.From, v.Code, st, v.Action)
 		}
-		// Budget: a retry always takes a token (the loop's stepRetry branch); a reroute after the first does.
-		if wantBudget := map[step]string{stepRetry: front.BudgetEvery, stepReroute: front.BudgetAfterFirst}[st]; wantBudget != v.Budget {
+		// Budget: a retry always takes a token (the loop's stepRetry branch); a reroute after the first does,
+		// unless it is the locator's moving.
+		wantBudget := map[step]string{stepRetry: front.BudgetEvery, stepReroute: front.BudgetAfterFirst}[st]
+		if a.Code == codeMoving {
+			wantBudget = front.BudgetNone
+		}
+		if wantBudget != v.Budget {
 			t.Errorf("%s %s: the loop charges %q, contract says %q", v.From, v.Code, wantBudget, v.Budget)
 		}
 	}
