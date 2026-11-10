@@ -36,13 +36,15 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server, cfg *Config) {
 	metrics.Queues(reg, func() []metrics.QueueStat {
 		adm, q, mailbox := srv.Admission().Stats(), cfg.actorQueues, cfg.actorConfig().MailboxSize
 		qs := []metrics.QueueStat{
-			{Queue: "admission", Capacity: adm.QueueCap, Wait: srv.Admission().Wait(),
+			{Queue: "admission", Capacity: adm.QueueCap, Depth: adm.Queued, Wait: srv.Admission().Wait(),
 				Rejected: map[string]int64{metrics.ReasonFull: adm.Shed, "would_expire": adm.WouldExpire}},
-			{Queue: "mailbox", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.MailboxFull()}, Wait: q.MailboxWait()},
-			{Queue: "read", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
+			// Their depth is per actor too: mansio_actor_queue_depth{stat="max"} is the deepest (mailbox + read).
+			{Queue: "mailbox", Capacity: mailbox, Depth: metrics.NoDepth, Rejected: map[string]int64{metrics.ReasonFull: q.MailboxFull()},
+				Wait: q.MailboxWait()},
+			{Queue: "read", Capacity: mailbox, Depth: metrics.NoDepth, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
 		}
-		if slots, shed := srv.OpsVerifyStats(); slots > 0 { // the credential path's pre-admission slots (B6)
-			qs = append(qs, metrics.QueueStat{Queue: "verify", Capacity: slots, Rejected: map[string]int64{metrics.ReasonFull: shed}})
+		if v := srv.OpsVerify(); v != nil { // the credential path's pre-admission slots (B6)
+			qs = append(qs, v.Stat("verify"))
 		}
 		return qs
 	})
@@ -185,7 +187,8 @@ func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor
 	reg.OnScrape(func() { st, tick = h.Stats(), lastTick() })
 	metrics.Queues(reg, func() []metrics.QueueStat {
 		st := h.Stats()
-		return []metrics.QueueStat{{Queue: "fetch", Capacity: h.Gauges().FetchQueueCap,
+		g := h.Gauges()
+		return []metrics.QueueStat{{Queue: "fetch", Capacity: g.FetchQueueCap, Depth: g.FetchQueued,
 			Rejected: map[string]int64{metrics.ReasonFull: st.FetchShed, "failure_backoff": st.TombstoneRefusals}}}
 	})
 	reg.Add("mansio_vactor_events_total", "Virtual-actor host counters since start.", metrics.Counter, func(e *metrics.Emit) {

@@ -15,14 +15,18 @@ const ReasonFull = "full"
 type QueueStat struct {
 	Queue    string
 	Capacity int               // the most that may wait (for a pool without a queue: the most that may run)
+	Depth    int               // waiting now (a pool without a queue: in use now); NoDepth: not measured
 	Rejected map[string]int64  // refusals since start by reason (ReasonFull, ...); a missing reason is not emitted
 	Wait     *LatencyHistogram // time from enqueue to pickup; nil: not measured
 }
 
+// NoDepth is QueueStat.Depth for a queue whose depth is not measured: no depth sample is emitted.
+const NoDepth = -1
+
 // Queues adds collect, which runs once per scrape, to the registry's per-queue backpressure families:
-// mansio_queue_capacity, mansio_queue_rejected_total{reason} and mansio_queue_wait_seconds, each labeled
-// queue=<QueueStat.Queue>. Components call it as they are wired; the first call registers the families. Depth
-// stays in each component's own gauges; capacity is what makes it a fraction.
+// mansio_queue_depth, mansio_queue_capacity (depth / capacity is the fraction the alerts read),
+// mansio_queue_rejected_total{reason} and mansio_queue_wait_seconds, each labeled queue=<QueueStat.Queue>.
+// Components call it as they are wired; the first call registers the families.
 //
 //	pre: across all calls on one registry, each queue name is returned at most once per scrape
 func Queues(reg *Registry, collect func() []QueueStat) {
@@ -43,6 +47,13 @@ func Queues(reg *Registry, collect func() []QueueStat) {
 			qs = append(qs, collect()...)
 		}
 		slices.SortFunc(qs, func(a, b QueueStat) int { return strings.Compare(a.Queue, b.Queue) })
+	})
+	reg.Add("mansio_queue_depth", "Work waiting in each bounded queue now (a slot pool: slots in use).", Gauge, func(e *Emit) {
+		for _, q := range qs {
+			if q.Depth >= 0 {
+				e.Value(Labels{"queue", q.Queue}, float64(q.Depth))
+			}
+		}
 	})
 	reg.Add("mansio_queue_capacity", "Capacity of each bounded queue or slot pool (compare with its depth or in-flight gauge).", Gauge,
 		func(e *Emit) {

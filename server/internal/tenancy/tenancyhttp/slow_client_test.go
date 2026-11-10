@@ -32,8 +32,8 @@ func stall(t *testing.T, addr string, n int, path, auth string) []net.Conn {
 // Before, each stalled body held a slot (the slot was taken, then the body read) and the next caller was
 // refused 503; now the body is read first, so the stalled senders hold no slot and real calls are served.
 func TestStalledBodiesHoldNoSlot(t *testing.T) {
-	var shed tenancyhttp.Shed
-	srv, _ := rig(t, tenancy.Sessions, func(c *tenancyhttp.Config) { c.Concurrency, c.SignInBurst, c.Shed = 2, 100, &shed })
+	var pools tenancyhttp.Pools
+	srv, _ := rig(t, tenancy.Sessions, func(c *tenancyhttp.Config) { c.Concurrency, c.SignInBurst, c.Pools = 2, 100, &pools })
 	addr := strings.TrimPrefix(srv.URL, "http://")
 	conns := append(stall(t, addr, 4, "/api/auth/sign-in/email", ""),
 		stall(t, addr, 4, "/admin/tenants", "Authorization: Bearer "+admin+"\r\n")...)
@@ -50,15 +50,15 @@ func TestStalledBodiesHoldNoSlot(t *testing.T) {
 	if up.status != 200 {
 		t.Fatalf("sign-up beside 4 stalled sign-in bodies (2 slots): %d %v", up.status, up.body)
 	}
-	if a, s := shed.Admin.Load(), shed.Auth.Load(); a != 0 || s != 0 {
+	if a, s := pools.Admin.Shed(), pools.Auth.Shed(); a != 0 || s != 0 {
 		t.Fatalf("refusals counted: admin %d, auth %d; want none", a, s)
 	}
 }
 
 // A full pool still refuses at once, and the refusal is counted (B1) against its own pool.
 func TestFullPoolRefusesAndCounts(t *testing.T) {
-	var shed tenancyhttp.Shed
-	srv, f := rig(t, tenancy.Sessions, func(c *tenancyhttp.Config) { c.Concurrency, c.Shed = 1, &shed })
+	var pools tenancyhttp.Pools
+	srv, f := rig(t, tenancy.Sessions, func(c *tenancyhttp.Config) { c.Concurrency, c.Pools = 1, &pools })
 	f.Hold = make(chan struct{}) // a slow store: the first call keeps the one admin slot
 	done := make(chan reply)
 	go func() { done <- call(t, srv, "GET", "/admin/tenants", admin, nil) }()
@@ -70,7 +70,7 @@ func TestFullPoolRefusesAndCounts(t *testing.T) {
 	if r := <-done; r.status != 200 {
 		t.Fatalf("the call holding the slot: %d %v", r.status, r.body)
 	}
-	if shed.Admin.Load() != 1 || shed.Auth.Load() != 0 {
-		t.Fatalf("refusals counted: admin %d, auth %d; want 1 and 0", shed.Admin.Load(), shed.Auth.Load())
+	if pools.Admin.Shed() != 1 || pools.Auth.Shed() != 0 {
+		t.Fatalf("refusals counted: admin %d, auth %d; want 1 and 0", pools.Admin.Shed(), pools.Auth.Shed())
 	}
 }

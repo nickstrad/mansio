@@ -15,6 +15,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
@@ -646,8 +647,9 @@ func TestCredentialsResolveApps(t *testing.T) {
 // cold keys are refused ErrBusy at once, callers joining a load in flight and cache hits are not affected,
 // and the slots free when the loads end.
 func TestLoadSlotsBoundStoreReads(t *testing.T) {
-	const slots, cold = 2, 10
-	f := newFixture(t, Config{LoadSlots: make(chan struct{}, slots)})
+	const loads, cold = 2, 10
+	pool := slots.New(loads)
+	f := newFixture(t, Config{LoadSlots: pool})
 	f.l.Reset() // a listener is connected: the cache is in use
 	for i := range cold {
 		f.st.set(fmt.Sprintf("acme:cold-%d", i), Placement{Intent: "active", Found: true, VM: "vm-a", Epoch: 1})
@@ -655,7 +657,7 @@ func TestLoadSlotsBoundStoreReads(t *testing.T) {
 	if _, err := f.resolve(t, "db", 0); err != nil { // warms the key and acme:db
 		t.Fatal(err)
 	}
-	if n := len(f.l.cfg.LoadSlots); n != 0 {
+	if n := pool.InUse(); n != 0 {
 		t.Fatalf("%d load slots held with nothing loading", n)
 	}
 
@@ -666,7 +668,7 @@ func TestLoadSlotsBoundStoreReads(t *testing.T) {
 		go func() { _, err := f.resolve(t, fmt.Sprintf("cold-%d", i), 0); errc <- err }()
 	}
 	var busy int
-	for range cold - slots { // the refused ones answer while the store is still blocked
+	for range cold - loads { // the refused ones answer while the store is still blocked
 		select {
 		case err := <-errc:
 			if !errors.Is(err, ErrBusy) {
@@ -674,17 +676,17 @@ func TestLoadSlotsBoundStoreReads(t *testing.T) {
 			}
 			busy++
 		case <-time.After(2 * time.Second):
-			t.Fatalf("only %d of %d cold resolves were refused while the store was blocked", busy, cold-slots)
+			t.Fatalf("only %d of %d cold resolves were refused while the store was blocked", busy, cold-loads)
 		}
 	}
 	if el := time.Since(start); el > time.Second {
 		t.Fatalf("refusals took %v; they must not wait for the store", el)
 	}
-	if st := f.l.Stats(); st.LoadShed != cold-slots || len(f.l.cfg.LoadSlots) != slots {
-		t.Fatalf("load shed %d (want %d), slots held %d (want %d)", st.LoadShed, cold-slots, len(f.l.cfg.LoadSlots), slots)
+	if pool.Shed() != cold-loads || pool.InUse() != loads {
+		t.Fatalf("load shed %d (want %d), slots held %d (want %d)", pool.Shed(), cold-loads, pool.InUse(), loads)
 	}
-	if replica, _ := f.st.counts(); replica != 1+slots {
-		t.Fatalf("%d store reads started, want the warm-up and %d", replica, slots)
+	if replica, _ := f.st.counts(); replica != 1+loads {
+		t.Fatalf("%d store reads started, want the warm-up and %d", replica, loads)
 	}
 	// Warm traffic is untouched while every load slot is taken.
 	if _, err := f.resolve(t, "db", 0); err != nil {
@@ -692,12 +694,12 @@ func TestLoadSlotsBoundStoreReads(t *testing.T) {
 	}
 
 	close(f.st.block)
-	for range slots {
+	for range loads {
 		if err := <-errc; err != nil {
 			t.Fatalf("a load that had a slot: %v", err)
 		}
 	}
-	waitFor(t, func() bool { return len(f.l.cfg.LoadSlots) == 0 })
+	waitFor(t, func() bool { return pool.InUse() == 0 })
 	f.st.mu.Lock()
 	f.st.block = nil
 	f.st.mu.Unlock()

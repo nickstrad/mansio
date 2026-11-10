@@ -6,13 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/front"
 	"github.com/nickstrad/mansio/server/internal/logx"
-	"github.com/nickstrad/mansio/server/internal/metrics"
+	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
 // jsonEndpoints is the shape the lifecycle (control.go) and admin (admin.go) endpoints share: an optional
@@ -24,20 +23,9 @@ type jsonEndpoints struct {
 	log        *slog.Logger
 	event      string // the log event prefix: LIFECYCLE, ADMIN
 	timeout    time.Duration
-	slots      *slots
+	slots      *slots.Pool                 // calls in flight; a full pool refuses
 	authorize  func(r *http.Request) error // nil: no identity check
 	logRefusal func(ce *controlError) bool
-}
-
-// slots is a pool of call slots that never queues: a call that finds none free is refused and counted.
-type slots struct {
-	sem  chan struct{}
-	shed atomic.Int64
-}
-
-// stat is the pool for metrics.Queues.
-func (s *slots) stat(queue string) metrics.QueueStat {
-	return metrics.QueueStat{Queue: queue, Capacity: cap(s.sem), Rejected: map[string]int64{metrics.ReasonFull: s.shed.Load()}}
 }
 
 // handle runs fn under the identity check, a slot and the deadline, and writes its answer.
@@ -49,14 +37,11 @@ func (e *jsonEndpoints) handle(fn func(ctx context.Context, r *http.Request) (an
 				return
 			}
 		}
-		select {
-		case e.slots.sem <- struct{}{}:
-			defer func() { <-e.slots.sem }()
-		default:
-			e.slots.shed.Add(1)
+		if !e.slots.TryAcquire() {
 			e.write(w, r, nil, &controlError{"unavailable", http.StatusServiceUnavailable, "too many calls in flight; retry"})
 			return
 		}
+		defer e.slots.Release()
 		timeout := e.timeout
 		if ms, err := strconv.Atoi(r.Header.Get(front.TimeoutHeader)); err == nil && ms > 0 {
 			timeout = min(timeout, time.Duration(ms)*time.Millisecond)

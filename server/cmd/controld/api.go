@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/control"
@@ -22,6 +21,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore"
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
@@ -183,12 +183,12 @@ func (d *daemon) handle(action string, fn func(ctx context.Context, r *http.Requ
 
 // handleAs is handle for the holder of any of tokens (named who in the refusal). An empty token never matches.
 func (d *daemon) handleAs(tokens []string, who, action string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
-	return d.handleIn(d.sem, &d.apiShed, d.cfg.APITimeout.Duration, tokens, who, action, fn)
+	return d.handleIn(d.api, d.cfg.APITimeout.Duration, tokens, who, action, fn)
 }
 
-// handleIn is handleAs in the bulkhead sem (refusals counted in shed) under timeout: data-path reads (schema
-// fetches) use the locator's, so they never queue behind admin moves (Release It B1).
-func (d *daemon) handleIn(sem chan struct{}, shed *atomic.Int64, timeout time.Duration, tokens []string, who, action string,
+// handleIn is handleAs in the bulkhead pool under timeout: data-path reads (schema fetches) use the locator's
+// load slots, so they never queue behind admin moves (Release It B1).
+func (d *daemon) handleIn(pool *slots.Pool, timeout time.Duration, tokens []string, who, action string,
 	fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -196,7 +196,7 @@ func (d *daemon) handleIn(sem chan struct{}, shed *atomic.Int64, timeout time.Du
 			d.write(w, r, nil, &apiError{"unauthorized", http.StatusUnauthorized, who + " token required", false})
 			return
 		}
-		d.call(w, r, sem, shed, timeout, func(ctx context.Context, r *http.Request) (any, error) {
+		d.call(w, r, pool, timeout, func(ctx context.Context, r *http.Request) (any, error) {
 			out, err := fn(ctx, r)
 			if err == nil && action != "" {
 				d.log.Info("control action", "event", "CONTROLD."+strings.ToUpper(strings.ReplaceAll(action, "-", "_")), "path", r.URL.Path)
@@ -206,23 +206,20 @@ func (d *daemon) handleIn(sem chan struct{}, shed *atomic.Int64, timeout time.Du
 	}
 }
 
-// call is every API call's pipeline after authentication: refused until startup is done, one slot of sem
-// (refused at once when full, counted in shed; never queued, Release It B1), fn under timeout (T1), the
-// answer written.
-func (d *daemon) call(w http.ResponseWriter, r *http.Request, sem chan struct{}, shed *atomic.Int64, timeout time.Duration,
+// call is every API call's pipeline after authentication: refused until startup is done, one slot of pool
+// (refused at once when full, and counted; never queued, Release It B1), fn under timeout (T1), the answer
+// written.
+func (d *daemon) call(w http.ResponseWriter, r *http.Request, pool *slots.Pool, timeout time.Duration,
 	fn func(ctx context.Context, r *http.Request) (any, error)) {
 	if !d.ready.Load() {
 		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "starting: the schema is not migrated yet", false})
 		return
 	}
-	select {
-	case sem <- struct{}{}:
-		defer func() { <-sem }()
-	default:
-		shed.Add(1)
+	if !pool.TryAcquire() {
 		d.write(w, r, nil, &apiError{"unavailable", http.StatusServiceUnavailable, "too many calls in flight; retry", false})
 		return
 	}
+	defer pool.Release()
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	out, err := fn(ctx, r)

@@ -25,6 +25,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
@@ -92,7 +93,7 @@ func schemaDaemon(t *testing.T, store schemaStore) (*httptest.Server, *daemon) {
 	cfg := defaults()
 	cfg.APITimeout = load.Duration{Duration: 5 * time.Second}
 	d := &daemon{cfg: &cfg, log: slog.New(slog.NewTextHandler(io.Discard, nil)), token: adminToken, control: controlToken,
-		sem: make(chan struct{}, 4), resolveSem: make(chan struct{}, 4), loadSem: make(chan struct{}, 4), createSem: make(chan struct{}, 2),
+		api: slots.New(4), resolves: slots.New(4), loads: slots.New(4), creates: slots.New(2),
 		schemas: store}
 	d.ready.Store(true)
 	h, err := d.routes(metrics.NewRegistry())
@@ -110,8 +111,8 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	srv, d := schemaDaemon(t, store)
 	fp := schemareg.Fingerprint([]byte(schemaText))
 	store.RegisterSchema(context.Background(), "tic-tac-toe", fp, []byte(schemaText))
-	for range cap(d.sem) {
-		d.sem <- struct{}{}
+	for range d.api.Limit() {
+		d.api.TryAcquire()
 	}
 	if code, out := do(t, srv, http.MethodGet, "/v1/apps/tic-tac-toe/schemas/"+fp, controlToken, nil); code != 200 {
 		t.Fatalf("GET with the admin bulkhead full: %d %v", code, out)
@@ -120,8 +121,8 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	if code, _ := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != 503 {
 		t.Fatalf("PUT with the admin bulkhead full: %d, want 503", code)
 	}
-	if d.apiShed.Load() != 1 || d.resolveShed.Load() != 0 { // B1: the refusal is counted against its own pool
-		t.Fatalf("refusals counted: api %d resolve %d, want 1 and 0", d.apiShed.Load(), d.resolveShed.Load())
+	if d.api.Shed() != 1 || d.resolves.Shed() != 0 || d.loads.Shed() != 0 { // B1: counted against its own pool
+		t.Fatalf("refusals counted: api %d resolve %d load %d, want 1, 0 and 0", d.api.Shed(), d.resolves.Shed(), d.loads.Shed())
 	}
 }
 
@@ -337,9 +338,9 @@ func TestCreateOnFirstUseIsBoundedByItsOwnSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.loc = locator.New(creatableStore{id, locator.StoredKey{Tenant: "acme", Principal: "app", Perms: ticket.Read | ticket.Write, Hash: hash}},
-		noSigner{}, locator.Config{LoadSlots: d.loadSem})
-	for range cap(d.createSem) {
-		d.createSem <- struct{}{}
+		noSigner{}, locator.Config{LoadSlots: d.loads})
+	for range d.creates.Limit() {
+		d.creates.TryAcquire()
 	}
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/resolve", strings.NewReader(`{"tenant":"acme","app":"tic-tac-toe","create":true}`))
 	req.Header.Set("Authorization", "Bearer "+key)
@@ -353,8 +354,8 @@ func TestCreateOnFirstUseIsBoundedByItsOwnSlots(t *testing.T) {
 	if res.StatusCode != 503 || out["code"] != "shed" || res.Header.Get("Retry-After") == "" {
 		t.Fatalf("creating resolve with the create slots taken: %d %v (Retry-After %q)", res.StatusCode, out, res.Header.Get("Retry-After"))
 	}
-	if d.createShed.Load() != 1 || store.appReads() != 0 {
-		t.Fatalf("create refusals %d (want 1), schema registry reads %d (want 0: refused before any work)", d.createShed.Load(), store.appReads())
+	if d.creates.Shed() != 1 || store.appReads() != 0 {
+		t.Fatalf("create refusals %d (want 1), schema registry reads %d (want 0: refused before any work)", d.creates.Shed(), store.appReads())
 	}
 }
 

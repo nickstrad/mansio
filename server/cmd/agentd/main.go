@@ -257,7 +257,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 	lifecycleMetrics(reg, be.pending, ready, time.Now())
 	be.metrics(reg)
 	if cfg.Tenancy != nil {
-		metrics.Queues(reg, func() []metrics.QueueStat { return ten.shed.Queues(0) })
+		metrics.Queues(reg, ten.pools.Queues)
 	}
 	eventLogMetrics(reg, events)
 	mux := http.NewServeMux()

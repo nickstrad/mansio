@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
@@ -14,6 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/docexec/docactor"
 	"github.com/nickstrad/mansio/server/internal/ir"
 	"github.com/nickstrad/mansio/server/internal/panicx"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
@@ -87,10 +87,8 @@ type ops struct {
 	schemas  SchemaSource
 	ids      det.IDGen
 	cache    *docexec.Schemas
-	// verify is the credential path's pre-admission slots (OpsConfig.VerifySlots); verifyShed counts the
-	// requests that found none free.
-	verify     chan struct{}
-	verifyShed atomic.Int64
+	// verify is the credential path's pre-admission slots (OpsConfig.VerifySlots).
+	verify *slots.Pool
 }
 
 // EnableOps turns on /v1/ops (without it the route is an unknown path).
@@ -106,16 +104,16 @@ func (s *Server) EnableOps(cfg OpsConfig) {
 		cfg.VerifySlots = 64
 	}
 	s.ops = &ops{creds: cfg.Credentials, epoch: cfg.CredentialEpoch, place: cfg.CredentialPlace, observer: cfg.Observer, schemas: cfg.Schemas, ids: cfg.IDs,
-		cache: docexec.NewSchemas(cfg.SchemaCache), verify: make(chan struct{}, cfg.VerifySlots)}
+		cache: docexec.NewSchemas(cfg.SchemaCache), verify: slots.New(cfg.VerifySlots)}
 }
 
-// OpsVerifyStats are the credential path's pre-admission slots: how many there are and how many requests found
-// none free (0, 0 before EnableOps).
-func (s *Server) OpsVerifyStats() (slots int, shed int64) {
+// OpsVerify is the credential path's pre-admission slots, for metrics and the runtime limit; nil before
+// EnableOps.
+func (s *Server) OpsVerify() *slots.Pool {
 	if s.ops == nil {
-		return 0, 0
+		return nil
 	}
-	return cap(s.ops.verify), s.ops.verifyShed.Load()
+	return s.ops.verify
 }
 
 // OpsEnabled reports whether EnableOps was called.
@@ -258,13 +256,10 @@ func (s *Server) verifyOps(ctx context.Context, in Input, req *ir.Request, kind 
 	}
 	// The steps below may each call a remote store (the tenancy store, the schema registry, the placement
 	// authority) and run before admission: bound how many requests are inside them, and refuse the rest at once.
-	select {
-	case s.ops.verify <- struct{}{}:
-		defer func() { <-s.ops.verify }()
-	default:
-		s.ops.verifyShed.Add(1)
+	if !s.ops.verify.TryAcquire() {
 		return ticket.Claims{}, fmt.Errorf("%w: too many credential checks in flight; nothing ran", ErrShed)
 	}
+	defer s.ops.verify.Release()
 	tenant, sub, err := s.ops.creds.Authenticate(ctx, token, req.DB.App)
 	if err != nil {
 		return ticket.Claims{}, err

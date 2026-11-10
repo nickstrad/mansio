@@ -21,13 +21,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/metrics"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
@@ -40,24 +40,20 @@ type Config struct {
 	// burst 10.
 	SignInRate, SignInBurst float64
 	Log                     *slog.Logger // required
-	Shed                    *Shed        // counts refusals for lack of a slot; nil: not counted
+	// Pools, if set, receives the two slot pools Mount creates (for metrics).
+	Pools *Pools
 }
 
-// DefaultConcurrency is Config.Concurrency's default.
-const DefaultConcurrency = 16
+// Pools are the routes' slot pools: admin calls, and sign-in/up calls, each Config.Concurrency slots, so
+// neither starves the other. A call that finds none free is refused at once and counted.
+type Pools struct{ Admin, Auth *slots.Pool }
 
-// Shed counts the calls refused because every slot of their pool was taken.
-type Shed struct{ Admin, Auth atomic.Int64 }
-
-// Queues is the two slot pools for metrics.Queues; concurrency is Config.Concurrency (0: the default).
-func (s *Shed) Queues(concurrency int) []metrics.QueueStat {
-	if concurrency == 0 {
-		concurrency = DefaultConcurrency
+// Queues is the two pools for metrics.Queues (nothing before Mount).
+func (p *Pools) Queues() []metrics.QueueStat {
+	if p.Admin == nil {
+		return nil
 	}
-	return []metrics.QueueStat{
-		{Queue: "tenancy_admin", Capacity: concurrency, Rejected: map[string]int64{metrics.ReasonFull: s.Admin.Load()}},
-		{Queue: "tenancy_auth", Capacity: concurrency, Rejected: map[string]int64{metrics.ReasonFull: s.Auth.Load()}},
-	}
+	return []metrics.QueueStat{p.Admin.Stat("tenancy_admin"), p.Auth.Stat("tenancy_auth")}
 }
 
 // maxBody caps every request body (Release It B6).
@@ -67,11 +63,10 @@ const maxBody = 4 << 10
 const writeGrace = 2 * time.Second
 
 type routes struct {
-	svc      *tenancy.Service
-	cfg      Config
-	adminSem chan struct{} // admin calls; sign-in/up have their own slots (authSem), so neither starves the other
-	authSem  chan struct{}
-	limiter  *ratelimit.SourceLimiter
+	svc     *tenancy.Service
+	cfg     Config
+	pools   Pools
+	limiter *ratelimit.SourceLimiter
 }
 
 // Mount registers "/admin/" and, in session mode, "/api/auth/" on mux. Without a store (off mode) the admin
@@ -81,10 +76,7 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 		cfg.Timeout = 10 * time.Second
 	}
 	if cfg.Concurrency == 0 {
-		cfg.Concurrency = DefaultConcurrency
-	}
-	if cfg.Shed == nil {
-		cfg.Shed = &Shed{}
+		cfg.Concurrency = 16
 	}
 	if cfg.SignInRate == 0 {
 		cfg.SignInRate, cfg.SignInBurst = 1, 10
@@ -95,8 +87,11 @@ func Mount(mux *http.ServeMux, svc *tenancy.Service, cfg Config) error {
 	case cfg.Log == nil || cfg.Timeout < 0 || cfg.Concurrency < 1 || cfg.SignInRate < 0 || cfg.SignInBurst < 1:
 		return errs.Wrap("tenancy", tenancy.ErrInvalid, "tenancyhttp: log required; timeout >= 0, concurrency >= 1, sign-in burst >= 1")
 	}
-	rt := &routes{svc: svc, cfg: cfg, adminSem: make(chan struct{}, cfg.Concurrency), authSem: make(chan struct{}, cfg.Concurrency),
+	rt := &routes{svc: svc, cfg: cfg, pools: Pools{Admin: slots.New(cfg.Concurrency), Auth: slots.New(cfg.Concurrency)},
 		limiter: ratelimit.NewSourceLimiter(cfg.SignInRate, cfg.SignInBurst, 100_000)}
+	if cfg.Pools != nil {
+		*cfg.Pools = rt.pools
+	}
 	admin := http.NewServeMux()
 	if svc.Mode() != tenancy.Off {
 		rt.adminRoutes(admin)
@@ -241,16 +236,6 @@ func (rt *routes) prepare(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// enter takes a slot of sem, or reports false (all taken: refuse, never queue).
-func enter(sem chan struct{}) bool {
-	select {
-	case sem <- struct{}{}:
-		return true
-	default:
-		return false
-	}
-}
-
 // admin wraps an admin handler: slot, deadline, the {"result"} / {"error"} answer. notFound is the tag of
 // ErrNotFound.
 func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
@@ -259,13 +244,12 @@ func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Re
 			adminError(w, http.StatusBadRequest, "SchemaError", "the body could not be read in time")
 			return
 		}
-		if !enter(rt.adminSem) {
-			rt.cfg.Shed.Admin.Add(1)
+		if !rt.pools.Admin.TryAcquire() {
 			w.Header().Set("Retry-After", "1")
 			adminError(w, http.StatusServiceUnavailable, "shed", "too many admin calls at once; retry")
 			return
 		}
-		defer func() { <-rt.adminSem }()
+		defer rt.pools.Admin.Release()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		out, err := fn(ctx, r)
@@ -369,13 +353,12 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 			authError(w, http.StatusBadRequest, "VALIDATION_ERROR", "The body could not be read in time.")
 			return
 		}
-		if !enter(rt.authSem) {
-			rt.cfg.Shed.Auth.Add(1)
+		if !rt.pools.Auth.TryAcquire() {
 			w.Header().Set("Retry-After", "1")
 			authError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "Too many requests at once; retry.")
 			return
 		}
-		defer func() { <-rt.authSem }()
+		defer rt.pools.Auth.Release()
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		var b authBody

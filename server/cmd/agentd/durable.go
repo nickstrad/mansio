@@ -20,6 +20,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/placement/file"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/schemareg"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 	"github.com/nickstrad/mansio/server/internal/vactor"
 	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
@@ -47,7 +48,7 @@ type durableAgent struct {
 	events  *ownerEvents
 	probe   s3Probe
 	// lifecycle is the lifecycle endpoints' slot pool (lifecycle_concurrency; a full one sheds).
-	lifecycle slots
+	lifecycle *slots.Pool
 	// claims is the credential path's claim-or-create (tenancy.go); nil without a tenancy section.
 	claims *claimingPlace
 
@@ -80,7 +81,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	raw := objstore.NewDurable(st, s.Prefix)
 	d := &durableAgent{cfg: cfg, log: log, s3: st, s3b: b, raw: raw, store: durable.WithBreaker(raw, b, s3Transient, nil),
 		canary: canary, ticks: &tickLog{log: log}, events: &ownerEvents{log: log},
-		lifecycle: slots{sem: make(chan struct{}, cfg.LifecycleConcurrency)}}
+		lifecycle: slots.New(cfg.LifecycleConcurrency)}
 	m := cfg.Maintenance
 	d.host, err = vactor.NewHost(nil, actordb.Opener{Cfg: cfg.actorConfig()}, vactor.Options{
 		CacheDir: cfg.CacheDir, Store: d.store, GenCacheBytes: cfg.GenCacheBytes,
@@ -269,10 +270,9 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 		return append(depths, d.canary.QueueDepths()...)
 	})
 	metrics.Queues(reg, func() []metrics.QueueStat {
-		qs := []metrics.QueueStat{d.lifecycle.stat("lifecycle")}
+		qs := []metrics.QueueStat{d.lifecycle.Stat("lifecycle")}
 		if d.claims != nil {
-			qs = append(qs, metrics.QueueStat{Queue: "credential_place", Capacity: cap(d.claims.sem),
-				Rejected: map[string]int64{metrics.ReasonFull: d.claims.shed.Load()}})
+			qs = append(qs, d.claims.flights.Stat("credential_place"))
 		}
 		return qs
 	})

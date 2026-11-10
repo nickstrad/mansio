@@ -249,15 +249,15 @@ func TestClaimStormIsBoundedAndObeysDeadlines(t *testing.T) {
 		return c
 	}
 	a, b := call(ctx, "t1:a"), call(ctx, "t2:b")
-	waitUntil(t, func() bool { return len(p.sem) == 2 })
+	waitUntil(t, func() bool { return p.flights.InUse() == 2 })
 
 	// A third database: refused at once, nothing started for it.
 	t0 := time.Now()
 	if _, _, err := p.place(ctx, "t3:c"); !errors.Is(err, front.ErrShed) || time.Since(t0) > 100*time.Millisecond {
 		t.Fatalf("a claim beyond lifecycle_concurrency: %v after %v, want shed at once", err, time.Since(t0))
 	}
-	if _, ok := pl.Row("t3:c"); ok || p.shed.Load() != 1 {
-		t.Fatalf("the shed claim wrote a placement row or was not counted (shed %d)", p.shed.Load())
+	if _, ok := pl.Row("t3:c"); ok || p.flights.Shed() != 1 {
+		t.Fatalf("the shed claim wrote a placement row or was not counted (shed %d)", p.flights.Shed())
 	}
 	// More requests for a database already being claimed join its flight: none is shed, none starts another.
 	joined := []chan placed{call(ctx, "t1:a"), call(ctx, "t1:a"), call(ctx, "t1:a")}
@@ -273,8 +273,8 @@ func TestClaimStormIsBoundedAndObeysDeadlines(t *testing.T) {
 			t.Fatalf("a request that waited for its database's flight: %+v", r)
 		}
 	}
-	if p.shed.Load() != 1 || len(p.sem) != 0 {
-		t.Fatalf("after the storm: shed %d (want 1), flights in flight %d (want 0)", p.shed.Load(), len(p.sem))
+	if p.flights.Shed() != 1 || p.flights.InUse() != 0 {
+		t.Fatalf("after the storm: shed %d (want 1), flights in flight %d (want 0)", p.flights.Shed(), p.flights.InUse())
 	}
 	// Warm now: no authority call, so the store's delay is not paid.
 	t0 = time.Now()

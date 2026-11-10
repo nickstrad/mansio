@@ -14,6 +14,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
@@ -38,9 +39,9 @@ type Config struct {
 	// LoadSlots, if set, bounds store reads in flight (placement and key loads; each takes a slot for as long
 	// as it runs): its capacity is sized below the store's connection pool, so a cold cache or a slow store
 	// answers ErrBusy at once instead of queueing callers inside the pool. Cache hits and callers joining a
-	// load in flight take none. The caller may share the channel with its other reads of the same pool. nil:
-	// no bound.
-	LoadSlots chan struct{}
+	// load in flight take none. The caller may share the pool with its other reads of the same store, and may
+	// change its limit while serving. nil: no bound.
+	LoadSlots *slots.Pool
 	Clock     det.Clock // cache ages, ticket expiry and load deadlines; default det.System()
 }
 
@@ -106,7 +107,6 @@ type Route struct {
 type Stats struct {
 	Hits, Misses, Coalesced int64 // placement reads: from the cache, started a load, joined a load
 	RateLimited             int64 // resolves refused by the Limiter (an uncached key id from a source out of tokens)
-	LoadShed                int64 // store reads not started because LoadSlots was full (ErrBusy)
 	Notifications, Resets   int64 // Invalidate calls; Reset calls (listener connects)
 	Entries                 int   // placements cached now (tombstones included)
 	Trusted                 bool  // the cache is in use (a listener is connected)
@@ -440,22 +440,10 @@ type flight[T any] struct {
 
 func (f *flight[T]) ok() bool { return f.err == nil && f.panic == nil }
 
-// loadSlot takes a slot of LoadSlots for a load about to start, or counts the refusal and reports false.
+// loadSlot takes a slot of LoadSlots for a load about to start (the pool counts a refusal).
 //
-//	pre: l.mu held
 //	post: true ⇒ the caller starts a load (start releases the slot when it ends)
-func (l *Locator) loadSlot() bool {
-	if l.cfg.LoadSlots == nil {
-		return true
-	}
-	select {
-	case l.cfg.LoadSlots <- struct{}{}:
-		return true
-	default:
-		l.stats.LoadShed++
-		return false
-	}
-}
+func (l *Locator) loadSlot() bool { return l.cfg.LoadSlots == nil || l.cfg.LoadSlots.TryAcquire() }
 
 // start runs load in its own goroutine under LoadTimeout, so a caller that gives up does not cancel it for
 // the others and it cannot run longer than that. finish runs under l.mu before the waiters wake. A panic in
@@ -471,7 +459,7 @@ func start[T any](l *Locator, load func(ctx context.Context) (T, error), finish 
 			finish(f)
 			l.mu.Unlock()
 			if l.cfg.LoadSlots != nil {
-				<-l.cfg.LoadSlots
+				l.cfg.LoadSlots.Release()
 			}
 			close(f.done)
 		}()

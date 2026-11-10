@@ -104,7 +104,7 @@ func (d *daemon) schemaRoutes(mux *http.ServeMux) {
 	}))
 	// The agents' read is on the data path (a database's first request per schema): the locator's bulkhead and
 	// deadline, not the admin API's.
-	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleIn(d.loadSem, &d.schemaShed, d.cfg.Locator.Timeout.Duration,
+	mux.HandleFunc("GET /v1/apps/{app}/schemas/{fingerprint}", d.handleIn(d.loads, d.cfg.Locator.Timeout.Duration,
 		[]string{d.token, d.control}, "admin or control", "",
 		func(ctx context.Context, r *http.Request) (any, error) {
 			app, fp := r.PathValue("app"), r.PathValue("fingerprint")
@@ -164,13 +164,11 @@ func (d *daemon) resolveApp(ctx context.Context, req locator.Request) (locator.R
 	if !req.Create || !errors.Is(err, locator.ErrCreatable) {
 		return rt, err
 	}
-	select { // its own small bulkhead: a first-use storm must not fill the resolve slots or an agent's lifecycle ones
-	case d.createSem <- struct{}{}:
-		defer func() { <-d.createSem }()
-	default:
-		d.createShed.Add(1)
+	// Its own small bulkhead: a first-use storm must not fill the resolve slots or an agent's lifecycle ones.
+	if !d.creates.TryAcquire() {
 		return locator.Route{}, &apiError{"shed", http.StatusServiceUnavailable, "too many databases being created on first use; nothing created, retry after Retry-After", true}
 	}
+	defer d.creates.Release()
 	if err := d.checkRegistered(ctx, req.Name); err != nil {
 		return locator.Route{}, err
 	}

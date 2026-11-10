@@ -27,6 +27,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/retry"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 )
@@ -133,8 +134,8 @@ type tenancyPart struct {
 	mount      func(mux *http.ServeMux) error
 	ready      func(context.Context) error
 	background []func(context.Context)
-	breaker    *breaker.Breaker // the tenancy store's (nil in off mode)
-	shed       tenancyhttp.Shed // the admin and sign-in slot pools' refusals
+	breaker    *breaker.Breaker  // the tenancy store's (nil in off mode)
+	pools      tenancyhttp.Pools // the admin and sign-in slot pools (set when the routes are mounted)
 	close      func()
 }
 
@@ -182,7 +183,7 @@ func newTenancy(cfg *Config, log *slog.Logger, schemas front.SchemaSource) (*ten
 	}
 	part.creds = credentials{svc}
 	part.mount = func(mux *http.ServeMux) error {
-		return tenancyhttp.Mount(mux, svc, tenancyhttp.Config{AdminToken: sec.AdminToken, Log: log, Shed: &part.shed})
+		return tenancyhttp.Mount(mux, svc, tenancyhttp.Config{AdminToken: sec.AdminToken, Log: log, Pools: &part.pools})
 	}
 	return part, nil
 }
@@ -324,18 +325,17 @@ func (a creatingAdmitter) Admit(db string, epoch uint64) (func(), error) {
 // claim create (ACTIVE(self, 1, 0)), within max_dbs and max_dbs_per_tenant (the keys this agent's table knows).
 //
 // Warm requests never lock. A database that needs a claim gets one flight, shared by every request for it;
-// at most cap(sem) flights run at once (lifecycle_concurrency: the same work as the lifecycle claim), and a
+// at most flights.Limit() run at once (lifecycle_concurrency: the same work as the lifecycle claim), and a
 // request for another database beyond that is shed at once. A flight runs under lifecycle_timeout on its own
 // goroutine, so a caller that gives up neither cancels it for the others nor waits past its own deadline.
 // Creates are serialized among themselves (the caps count this agent's keys), claims of existing rows are not.
 type claimingPlace struct {
-	d    *durableAgent
-	sem  chan struct{} // flights in flight
-	shed atomic.Int64  // requests refused because sem was full
+	d       *durableAgent
+	flights *slots.Pool // flights running; a request that would start one beyond the limit is shed
 
 	mu      sync.Mutex
-	flights map[string]*placeFlight // by database
-	creates chan struct{}           // 1 slot: one create (count, CAS, claim) at a time
+	byDB    map[string]*placeFlight
+	creates chan struct{} // 1 slot: one create (count, CAS, claim) at a time
 }
 
 // placeFlight is one database's claim (and create), shared by the requests that wait for it.
@@ -346,7 +346,7 @@ type placeFlight struct {
 }
 
 func newClaimingPlace(d *durableAgent) *claimingPlace {
-	return &claimingPlace{d: d, sem: make(chan struct{}, d.cfg.LifecycleConcurrency), flights: map[string]*placeFlight{},
+	return &claimingPlace{d: d, flights: slots.New(d.cfg.LifecycleConcurrency), byDB: map[string]*placeFlight{},
 		creates: make(chan struct{}, 1)}
 }
 
@@ -355,17 +355,14 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 		return uint64(l.Epoch), uint64(l.Gen), nil
 	}
 	p.mu.Lock()
-	f := p.flights[db]
+	f := p.byDB[db]
 	if f == nil {
-		select {
-		case p.sem <- struct{}{}:
-		default:
+		if !p.flights.TryAcquire() {
 			p.mu.Unlock()
-			p.shed.Add(1)
 			return 0, 0, fmt.Errorf("%w: too many databases being claimed or created; nothing started for %s", front.ErrShed, db)
 		}
 		f = &placeFlight{done: make(chan struct{})}
-		p.flights[db] = f
+		p.byDB[db] = f
 		go p.run(db, f)
 	}
 	p.mu.Unlock()
@@ -379,7 +376,7 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 
 // run is db's flight: claim it (creating it first if it has no row), then wake the waiters.
 //
-//	pre: a slot of p.sem is held and f is p.flights[db]; run releases both
+//	pre: a slot of p.flights is held and f is p.byDB[db]; run releases both
 func (p *claimingPlace) run(db string, f *placeFlight) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.d.cfg.LifecycleTimeout.Duration)
 	defer func() {
@@ -388,9 +385,9 @@ func (p *claimingPlace) run(db string, f *placeFlight) {
 			f.err = pn
 		}
 		p.mu.Lock()
-		delete(p.flights, db)
+		delete(p.byDB, db)
 		p.mu.Unlock()
-		<-p.sem
+		p.flights.Release()
 		close(f.done)
 	}()
 	f.epoch, f.gen, f.err = p.claim(ctx, db)

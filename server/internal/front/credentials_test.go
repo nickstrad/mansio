@@ -204,8 +204,8 @@ func TestOpsCredentialChecksAreBounded(t *testing.T) {
 			t.Fatal("requests beyond the verify slots were not refused while the store was stuck")
 		}
 	}
-	if n, shed := r.s.OpsVerifyStats(); n != slots || shed != burst-slots {
-		t.Fatalf("verify slots %d, shed %d; want %d and %d", n, shed, slots, burst-slots)
+	if v := r.s.OpsVerify(); v.Limit() != slots || v.Shed() != burst-slots || v.InUse() != slots {
+		t.Fatalf("verify slots %d, in use %d, shed %d; want %d, %d and %d", v.Limit(), v.InUse(), v.Shed(), slots, slots, burst-slots)
 	}
 	if got := r.s.InFlight(); got != slots {
 		t.Fatalf("%d requests in flight with the store stuck, want the %d holding a verify slot", got, slots)

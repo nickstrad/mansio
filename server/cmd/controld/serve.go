@@ -32,6 +32,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/parallel"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/ratelimit"
+	"github.com/nickstrad/mansio/server/internal/slots"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 	"github.com/nickstrad/mansio/server/internal/ticket"
@@ -47,11 +48,13 @@ type daemon struct {
 	agents map[string]*agenthttp.Client
 	token  string // the API's admin token
 	edge   string // the edges' token for GET /v1/agents; "" = off
-	sem    chan struct{}
-	// apiShed counts admin-API calls refused because api_concurrency were in flight.
-	apiShed atomic.Int64
-	// tenancyShed counts the tenant admin and sign-in calls refused for lack of a slot (tenancy.go).
-	tenancyShed tenancyhttp.Shed
+	// The slot pools; a full one refuses at once. api: the admin API (api_concurrency). resolves: every resolve
+	// (locator.concurrency). loads: the Postgres reads the data path starts (locator.load_concurrency), shared
+	// by the locator's loads and the agents' schema reads. creates: creates on first use
+	// (locator.create_concurrency). limits.go changes loads and creates at run time.
+	api, resolves, loads, creates *slots.Pool
+	// tenancyPools are the tenant admin and sign-in slot pools (tenancy.go).
+	tenancyPools tenancyhttp.Pools
 
 	ready      atomic.Bool // schema migrated and agents registered
 	stopping   atomic.Bool // shutdown began: /readyz fails while the API still answers for drain_delay
@@ -60,19 +63,10 @@ type daemon struct {
 	resumeFail atomic.Int64 // keys that failed in the last pass
 
 	// The locator and issuer (CP-5, locator.go).
-	replica     *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
-	loc         *locator.Locator
-	signer      *ticket.Signer
-	keys        *keyDir
-	resolveSem  chan struct{}
-	resolveShed atomic.Int64
-	// loadSem bounds the Postgres reads the data path starts (locator.load_concurrency): the locator's loads
-	// and the agents' schema reads share it. schemaShed counts the schema reads it refused; the locator counts
-	// its own (Stats.LoadShed). createSem bounds creates on first use (locator.create_concurrency).
-	loadSem    chan struct{}
-	schemaShed atomic.Int64
-	createSem  chan struct{}
-	createShed atomic.Int64
+	replica *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
+	loc     *locator.Locator
+	signer  *ticket.Signer
+	keys    *keyDir
 
 	// Multi-node tenancy (tenancy.go): nil without a "tenancy" section.
 	tenancy *tenancy.Service
@@ -147,8 +141,8 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d := &daemon{cfg: cfg, log: log, pg: p, replica: p, agents: map[string]*agenthttp.Client{}, token: sec.AdminToken, edge: sec.EdgeToken,
 		schemas: p, control: sec.ControlToken, checkSchema: canonicalSchema,
-		sem: make(chan struct{}, cfg.APIConcurrency), resolveSem: make(chan struct{}, cfg.Locator.Concurrency),
-		loadSem: make(chan struct{}, cfg.Locator.LoadConcurrency), createSem: make(chan struct{}, cfg.Locator.CreateConcurrency), signer: &ticket.Signer{}}
+		api: slots.New(cfg.APIConcurrency), resolves: slots.New(cfg.Locator.Concurrency),
+		loads: slots.New(cfg.Locator.LoadConcurrency), creates: slots.New(cfg.Locator.CreateConcurrency), signer: &ticket.Signer{}}
 	if sec.PGReplicaDSN != "" {
 		if d.replica, err = pg.Open(pg.Config{DSN: sec.PGReplicaDSN, AppName: "controld/replica", Schema: cfg.PG.Schema, MaxConns: cfg.PG.MaxConns,
 			Breaker: breaker.Config{OnChange: logx.BreakerLog(log, "placement-replica")}}); err != nil {
@@ -173,7 +167,7 @@ func newDaemon(cfg *Config, log *slog.Logger, sec *Secrets) (*daemon, error) {
 	}
 	d.loc = locator.New(locStore{primary: p, replica: d.replica}, d.signer, locator.Config{TicketTTL: lc.TicketTTL.Duration,
 		CacheTTL: lc.CacheTTL.Duration, CacheMax: lc.CacheMax, AuthTTL: lc.AuthTTL.Duration, LoadTimeout: lc.Timeout.Duration,
-		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds, LoadSlots: d.loadSem,
+		MovingRetry: lc.MovingRetry.Duration, ClaimRetry: lc.ClaimRetry.Duration, Credentials: creds, LoadSlots: d.loads,
 		Limiter: ratelimit.NewSourceLimiter(lc.RateLimit.PerSecond, lc.RateLimit.Burst, lc.RateLimit.MaxSources)})
 	httpc := agenthttp.DefaultHTTP()
 	for _, a := range cfg.Agents {
@@ -405,15 +399,11 @@ func (d *daemon) register(reg *metrics.Registry) {
 	metrics.Breakers(reg, deps)
 	d.registerLocator(reg)
 	metrics.Queues(reg, func() []metrics.QueueStat {
-		return []metrics.QueueStat{
-			{Queue: "controld_api", Capacity: cap(d.sem), Rejected: map[string]int64{metrics.ReasonFull: d.apiShed.Load()}},
-			{Queue: "resolve", Capacity: cap(d.resolveSem), Rejected: map[string]int64{metrics.ReasonFull: d.resolveShed.Load()}},
-			{Queue: "resolve_load", Capacity: cap(d.loadSem), Rejected: map[string]int64{metrics.ReasonFull: d.loc.Stats().LoadShed + d.schemaShed.Load()}},
-			{Queue: "resolve_create", Capacity: cap(d.createSem), Rejected: map[string]int64{metrics.ReasonFull: d.createShed.Load()}},
-		}
+		return []metrics.QueueStat{d.api.Stat("controld_api"), d.resolves.Stat("resolve"), d.loads.Stat("resolve_load"),
+			d.creates.Stat("resolve_create")}
 	})
 	if d.tenancy != nil {
-		metrics.Queues(reg, func() []metrics.QueueStat { return d.tenancyShed.Queues(0) })
+		metrics.Queues(reg, d.tenancyPools.Queues)
 	}
 	pools := map[string]*pg.Placement{"placement": d.pg}
 	if d.replica != d.pg {
