@@ -11,6 +11,7 @@
 package tenancyhttp
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -61,6 +62,9 @@ func (s *Shed) Queues(concurrency int) []metrics.QueueStat {
 
 // maxBody caps every request body (Release It B6).
 const maxBody = 4 << 10
+
+// writeGrace is how long past a call's Timeout its answer may take to write.
+const writeGrace = 2 * time.Second
 
 type routes struct {
 	svc      *tenancy.Service
@@ -215,12 +219,26 @@ func toIssued(k tenancy.IssuedKey) map[string]any {
 
 // decode reads a JSON object body (at most maxBody, unknown fields refused) into v.
 func decode(r *http.Request, v any) error {
-	dec := json.NewDecoder(io.LimitReader(r.Body, maxBody))
+	dec := json.NewDecoder(r.Body) // bounded and already in memory: prepare read it
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return errs.Wrap("tenancy", tenancy.ErrInvalid, "the body must be a JSON object with only the documented fields")
 	}
 	return nil
+}
+
+// prepare runs before a call takes a slot, so a client that sends slowly holds none: it reads the whole body
+// (at most maxBody; the rest is ignored) into memory, under whatever read deadline the listener set, and
+// allows the answer to be written for the call's Timeout plus writeGrace. It reports false if the body could
+// not be read; the caller answers 400.
+func (rt *routes) prepare(w http.ResponseWriter, r *http.Request) bool {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	if err != nil {
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(rt.cfg.Timeout + writeGrace)) // error: a test recorder
+	return true
 }
 
 // enter takes a slot of sem, or reports false (all taken: refuse, never queue).
@@ -237,6 +255,10 @@ func enter(sem chan struct{}) bool {
 // ErrNotFound.
 func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !rt.prepare(w, r) {
+			adminError(w, http.StatusBadRequest, "SchemaError", "the body could not be read in time")
+			return
+		}
 		if !enter(rt.adminSem) {
 			rt.cfg.Shed.Admin.Add(1)
 			w.Header().Set("Retry-After", "1")
@@ -343,6 +365,10 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 			authError(w, http.StatusTooManyRequests, "TOO_MANY_REQUESTS", "Too many requests. Please try again later.")
 			return
 		}
+		if !rt.prepare(w, r) {
+			authError(w, http.StatusBadRequest, "VALIDATION_ERROR", "The body could not be read in time.")
+			return
+		}
 		if !enter(rt.authSem) {
 			rt.cfg.Shed.Auth.Add(1)
 			w.Header().Set("Retry-After", "1")
@@ -353,7 +379,7 @@ func (rt *routes) call(fn func(ctx context.Context, b authBody) (any, error)) ht
 		ctx, cancel := context.WithTimeout(r.Context(), rt.cfg.Timeout)
 		defer cancel()
 		var b authBody
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&b); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 			authError(w, http.StatusBadRequest, "VALIDATION_ERROR", "The body must be a JSON object.")
 			return
 		}

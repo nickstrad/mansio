@@ -339,7 +339,7 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 	protos.SetHTTP1(slices.Contains(cfg.Protocols, "h1") || a.tls != nil)
 	protos.SetUnencryptedHTTP2(slices.Contains(cfg.Protocols, "h2c") && a.tls == nil)
 	protos.SetHTTP2(a.tls != nil)
-	var handler http.Handler = front.NewHandler(srv, log)
+	handler := front.NewRoutes(srv, log)
 	if cfg.HealthListen == "" || a.queryRoutes != nil {
 		mux := http.NewServeMux()
 		if cfg.HealthListen == "" {
@@ -356,6 +356,9 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		mux.Handle("/", handler)
 		handler = mux
 	}
+	// One deadline wrapper around every route on this listener, the tenancy and lifecycle ones included: the
+	// server below has no read or write timeout of its own.
+	handler = srv.Deadlines(handler)
 	hs := &http.Server{Handler: handler, Protocols: protos, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration,
 		IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	servers := []*http.Server{hs}

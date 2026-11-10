@@ -13,8 +13,9 @@ import (
 )
 
 // Fake is an in-memory tenancy.Store. Set Fail to make every call return it (e.g. tenancy.ErrUnavailable);
-// Calls counts calls.
+// Calls counts calls. Set Hold (before any call) to make every call wait until it is closed: a slow store.
 type Fake struct {
+	Hold     chan struct{}
 	mu       sync.Mutex
 	Fail     error
 	Calls    int
@@ -51,6 +52,9 @@ func (f *Fake) AddLegacyKey(id, tenant string, hash [32]byte) {
 }
 
 func (f *Fake) enter() (func(), error) {
+	if f.Hold != nil {
+		<-f.Hold
+	}
 	f.mu.Lock()
 	f.Calls++
 	if f.Fail != nil {

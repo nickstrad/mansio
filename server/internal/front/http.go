@@ -33,12 +33,16 @@ const (
 // requests per second, and each line beyond this rate is only counted (in the next line's "suppressed").
 const UnavailableLogPerSecond = 1
 
-// NewHandler is the HTTP adapter: POST /v1/query runs the pipeline, POST /v1/ops the document protocol (when
-// EnableOps was called before), GET /healthz answers without touching
+// NewHandler is the HTTP adapter: NewRoutes under the server's read and write deadlines (Deadlines).
+func NewHandler(s *Server, log *slog.Logger) http.Handler { return s.Deadlines(NewRoutes(s, log)) }
+
+// NewRoutes is the adapter's routes without the per-request deadlines, for a listener that serves other routes
+// beside them and puts Deadlines around them all: POST /v1/query runs the pipeline, POST /v1/ops the document
+// protocol (when EnableOps was called before), GET /healthz answers without touching
 // admission or actors (so it never queues behind queries). log receives one ERROR line per internal error (with a
 // log ID that is also in the response), sampled WARN lines (event FRONT.UNAVAILABLE) for unavailable answers,
 // and debug lines for other failures.
-func NewHandler(s *Server, log *slog.Logger) http.Handler {
+func NewRoutes(s *Server, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	h := &httpHandler{s: s, log: log, unavailable: sampler{perSec: UnavailableLogPerSecond}}
 	mux.HandleFunc(QueryPath, h.query)
@@ -49,9 +53,16 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.write(w, r, s.answer(Request{}, nil, &BadRequestError{Msg: "unknown path", Status: http.StatusNotFound}))
 	})
-	// Every request gets read and write deadlines first, whatever its path: http.Server has no ReadTimeout or
-	// WriteTimeout because h2c streams share one connection (net/http clears them after each request). query
-	// sets its write deadline itself once it knows the request's own deadline.
+	return mux
+}
+
+// Deadlines gives every request of next read and write deadlines first, whatever its path: the query
+// listener's http.Server has no ReadTimeout or WriteTimeout because h2c streams share one connection (net/http
+// clears them after each request). The body must arrive within BodyReadTimeout, so no route can be held open
+// by a slow sender; the answer must be written within WriteGrace, except that query and ops set their write
+// deadline themselves once they know the request's own deadline, and so may any other handler that works for
+// longer (a later SetWriteDeadline replaces this one).
+func (s *Server) Deadlines(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		rc := http.NewResponseController(w)
@@ -59,7 +70,7 @@ func NewHandler(s *Server, log *slog.Logger) http.Handler {
 		if r.URL.Path != QueryPath && r.URL.Path != OpsPath {
 			rc.SetWriteDeadline(now.Add(s.cfg.WriteGrace))
 		}
-		mux.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
 }
 
