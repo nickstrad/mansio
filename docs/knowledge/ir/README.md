@@ -11,6 +11,8 @@ Mac; `work-scripts/bash/e2e-linux.sh deno|go` runs the e2e suite against either 
 
 ## Entries (newest first)
 
+- [2026-11-10 read path](2026-11-10-read-path.md): one snapshot per run, guarded finds, conflict answers with
+  the current state, version-checked cached reads; IR revision 1.1 (`seq`, table asserts); the traps.
 - [2026-11-06 IR-5a multi-node](2026-11-06-ir-5a-multinode.md): controld authenticates legacy keys and
   sessions at resolve, create caps, the edge on `/v1/ops`, durable single-node tenancy, e2e `scale_out`, and
   the Jepsen-style run (kill -9 loses the write-back window by design: checked per crash-free segment).

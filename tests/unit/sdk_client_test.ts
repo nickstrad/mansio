@@ -154,6 +154,7 @@ Deno.test("sdk: deleteGame's find sees nothing it deleted; a missing game fails 
   assert.deepEqual([...model.table("moves").keys()], ["m2"]);
   assert.deepEqual(model.log.at(-1)!.ops, [
     { op: "assert", table: "games", id: "g1", expect: { version: 2 } },
+    { op: "assert", table: "moves", expect: { unchangedSince: 0 } },
     { op: "delete", table: "moves", id: "m1" },
     { op: "delete", table: "games", id: "g1" },
   ]);
@@ -196,7 +197,7 @@ Deno.test("sdk: an app-raised ConflictError goes to the caller, unretried; argum
   assert.equal(model.log.length, 1, "none of these reached the server");
 });
 
-Deno.test("sdk: a derived conflict re-runs the handler on fresh reads under a new request id", async () => {
+Deno.test("sdk: a derived conflict re-runs the handler on the state the conflict carried", async () => {
   let bumped = false;
   const { model, client, sleeps } = setup((request) => {
     if (request.kind !== "mutation" || bumped) return undefined;
@@ -220,7 +221,11 @@ Deno.test("sdk: a derived conflict re-runs the handler on fresh reads under a ne
   const mutations = model.log.filter((r) => r.kind === "mutation" && r.requestId !== "other");
   assert.equal(mutations.length, 1, "the second run failed in the handler, before any commit");
   assert.equal(sleeps.length, 1, "one jittered pause between the runs");
-  assert.deepEqual(model.log.filter((r) => r.kind === "query").length, 2, "the re-run read again");
+  assert.deepEqual(
+    model.log.filter((r) => r.kind === "query").length,
+    1,
+    "the re-run took the game from the conflict instead of reading it again",
+  );
 });
 
 Deno.test("sdk: derived conflicts retry until they converge, each run under a new request id", async () => {

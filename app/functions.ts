@@ -30,7 +30,8 @@ export const functions = {
     args: { gameId: v.string(), playerId: v.string(), cell: v.integer(), expectedVersion: v.integer() },
     handler: ({ db }, { gameId, playerId, cell, expectedVersion }) =>
       Effect.gen(function* () {
-        // Although this is a read, it uses SQLite because we're inside a mutation.
+        // Answered from the client's cache when it holds the game, else by one query. Either way the
+        // version read here is asserted by the commit.
         const game = yield* db.get("games", gameId);
         if (!game) return yield* new NotFoundError({ table: "games", id: gameId });
         if (game._version !== expectedVersion) {
@@ -44,7 +45,7 @@ export const functions = {
         const next = yield* applyMove(game, playerId, cell);
         yield* db.patch("games", gameId, next.game);
         yield* db.insert("moves", next.move);
-        // Board update + move insertion + this read all share one SQLite transaction.
+        // Answered locally: the game as this run's patch leaves it. The patch and the insert commit together.
         return yield* db.get("games", gameId);
       }),
   }),

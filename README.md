@@ -87,17 +87,22 @@ await Effect.runPromise(
 Names, argument and result types are inferred from the functions object. `createPromiseClient` takes the same
 options and returns promises. With a `tenancy` section on agentd, the credential decides the tenant.
 
-How a mutation runs: reads go out at once as query requests; writes are buffered (inserts get client-side
-UUIDv7 ids; later reads in the same handler see the buffered writes); when the handler returns, one atomic
-mutation request carries the writes plus **preconditions derived from the reads** (`get` → the version it saw,
-or `exists: false`; a `find` is not guarded in v1). If another writer changed something the handler read, the
-server answers `ConflictError` on a derived precondition and the client **re-runs the handler** (bounded, with
-jitter). So **handlers must have no side effects beyond `db`**: they may run more than once. One commit holds
-at most 64 operations (derived asserts + writes), else the call fails locally with `RuleError`. App-raised
-errors (`makeMove`'s own `ConflictError` on a stale `expectedVersion`, a `RuleError`) fail the handler locally
-and reach the caller as `RemoteError` with the status and tag the server would have used; transport trouble
-that outlasts the retry policy and budget is `Unavailable`. Every call carries one `X-Trace-Id` on all its
-requests. Details: `sdk/client.ts`, `sdk/recording.ts`, `sdk/transport.ts`.
+How a handler runs: reads asked for together (`db.getMany`, `Effect.all([...], { batching: true })`) are one
+query request, and every later read request carries the preconditions of what the run has read so far, so all
+the reads of one run hold in **one snapshot**. In a mutation, writes are buffered (inserts get client-side
+UUIDv7 ids; later reads in the same handler see the buffered writes), and a `get` is answered from the
+client's document cache when it holds the document. When the handler returns, one atomic mutation request
+carries the writes plus **preconditions derived from the reads**: `get` → the version it saw, or
+`exists: false`; `find` → its table unchanged since the read (`find(...).unguarded()` opts out). A cached read
+is asserted the same way, so a warm mutation is one round trip. If another writer changed something the
+handler read, the server answers `ConflictError` on a derived precondition, with the current state, and the
+client **re-runs the handler** on that state (bounded, with jitter) without reading it again. So **handlers
+must have no side effects beyond `db`**: they may run more than once. One commit holds at most 64 operations
+(derived asserts + writes), else the call fails locally with `RuleError`. App-raised errors (`makeMove`'s own
+`ConflictError` on a stale `expectedVersion`, a `RuleError`) fail the handler locally and reach the caller as
+`RemoteError` with the status and tag the server would have used; transport trouble that outlasts the retry
+policy and budget is `Unavailable`. Every call carries one `X-Trace-Id` on all its requests. Details:
+`sdk/client.ts`, `sdk/recording.ts`, `sdk/transport.ts`.
 
 ## Query language and semantics
 

@@ -31,5 +31,6 @@ dedupe, but no TypeScript.
 - Callers are trusted (app backends holding an API key or session). Server-enforced rules for untrusted
   callers are out of scope (plan §8).
 - Handlers must be free of side effects beyond `db`: they can run more than once.
-- `find` reads inside a handler are unguarded in v1 (no range precondition); v1.1 reserves one.
+- `find` reads inside a handler are unguarded in v1 (no range precondition); v1.1 reserves one. (Since IR
+  revision 1.1, 2026-11-10, a `find` is guarded by a table precondition: `ir/spec/v1.md` §5.5.)
 - The request is a deterministic, idempotent log entry, which keeps local-first sync possible later.

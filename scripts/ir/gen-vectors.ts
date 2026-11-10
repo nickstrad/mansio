@@ -496,9 +496,14 @@ const DECODE: DecodeCase[] = [
   },
   {
     name: "query containing assert",
-    why: "assert is a mutation op",
-    request: query([{ op: "assert", table: "notes", id: "n1", expect: { exists: true } }]),
-    expect: schemaErr("type-mismatch", "ops[0].op", 0),
+    why:
+      "an assert is a precondition on the query's snapshot (v1.1): it writes nothing, so a query may hold it",
+    request: query([{ op: "assert", table: "notes", id: "n1", expect: { exists: true } }, {
+      op: "get",
+      table: "notes",
+      id: "n1",
+    }]),
+    expect: ok,
   },
   {
     name: "unknown op member",
@@ -641,6 +646,48 @@ const DECODE: DecodeCase[] = [
     request: mutation([{ op: "assert", table: "notes", id: "n1" }]),
     expect: schemaErr("type-mismatch", "ops[0].expect", 0),
   },
+  {
+    name: "table assert",
+    why: "an assert without an id is about the table: its expect is exactly unchangedSince (v1.1)",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 0 } }]),
+    expect: ok,
+  },
+  {
+    name: "table assert in a query",
+    why: "a query may hold it, as any assert",
+    request: query([{ op: "assert", table: "notes", expect: { unchangedSince: 12 } }, sel()]),
+    expect: ok,
+  },
+  {
+    name: "table assert with a negative sequence",
+    why: "a commit sequence is a safe integer >= 0",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: -1 } }]),
+    expect: schemaErr("type-mismatch", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "table assert with a fractional sequence",
+    why: "a commit sequence is an integer",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 1.5 } }]),
+    expect: schemaErr("type-mismatch", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "table assert with a document precondition",
+    why: "without an id there is no document to check: unchangedSince stands alone",
+    request: mutation([{ op: "assert", table: "notes", expect: { unchangedSince: 1, exists: true } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.exists", 0),
+  },
+  {
+    name: "document assert with unchangedSince",
+    why: "unchangedSince belongs to the assert without an id only",
+    request: mutation([{ op: "assert", table: "notes", id: "n1", expect: { unchangedSince: 1 } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.unchangedSince", 0),
+  },
+  {
+    name: "patch with unchangedSince",
+    why: "a write's expect is about its document",
+    request: mutation([{ op: "patch", table: "notes", id: "n1", value: {}, expect: { unchangedSince: 1 } }]),
+    expect: schemaErr("unknown-field", "ops[0].expect.unchangedSince", 0),
+  },
   // $ref
   {
     name: "$ref forward",
@@ -756,7 +803,7 @@ const DECODE: DecodeCase[] = [
   },
   {
     name: "unknown expect member",
-    why: "strict decode; range is reserved for v1.1",
+    why: "strict decode; range is reserved",
     request: mutation([{ op: "assert", table: "notes", id: "n1", expect: { range: 1 } }]),
     expect: schemaErr("unknown-field", "ops[0].expect.range", 0),
   },
@@ -1535,6 +1582,14 @@ const q = (ops: unknown[], over: J = {}): J => ({
   ...over,
 });
 const res = (...result: unknown[]) => ({ result });
+/** A result with the commit sequence it must carry. */
+const at = (seq: number, ...result: unknown[]) => ({ result, seq });
+/** A table assert. */
+const guard = (table: string, unchangedSince: number) => ({
+  op: "assert",
+  table,
+  expect: { unchangedSince },
+});
 const getN = (id: unknown, table = "notes") => ({ op: "get", table, id });
 const ins = (value: J, id?: string, table = "notes") => ({
   op: "insert",
@@ -2279,6 +2334,245 @@ const SCENARIOS: Scenario[] = [
     ),
     final: UNCHANGED,
   },
+  // the commit sequence (spec §6.5)
+  {
+    name: "seq counts the mutations that changed a row",
+    why:
+      "seq starts at 0; a query answers the snapshot's; a mutation the one it left; asserts, misses, failures and duplicates do not count",
+    seed: SEED,
+    steps: [
+      { request: q([getN("n1")]), expect: at(0, N1) },
+      { serverIds: ["s1"], request: m([ins(BODY)], "r1"), expect: at(1, "s1") },
+      {
+        request: m([{ op: "assert", table: "notes", id: "n1", expect: { version: 1 } }], "r2"),
+        expect: at(1, null),
+      },
+      {
+        request: m([{ op: "delete", table: "notes", id: "missing" }], "r3"),
+        expect: at(1, { deleted: false }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }, {
+          op: "delete",
+          table: "notes",
+          id: "n3",
+        }], "r4"),
+        expect: at(2, { _version: 2 }, { deleted: true }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {}, expect: { version: 1 } }], "r5"),
+        expect: conflict({ check: "version", expected: 1, actual: 2 }, 0),
+      },
+      { serverIds: [], request: m([ins(BODY)], "r1"), expect: { result: ["s1"], duplicate: true } },
+      { request: q([s({ aggregate: { kind: "count" } })]), expect: at(2, 3) },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, NEW] },
+  },
+  // table asserts (spec §5.5)
+  {
+    name: "table assert: an unchanged table holds, a changed one fails",
+    why:
+      "a table's last change is the sequence of the last mutation that changed one of its rows; a miss changes nothing; the request's own earlier write counts as the sequence it will leave",
+    seed: SEED,
+    steps: [
+      { serverIds: ["l1"], request: m([ins({ name: "a" }, undefined, "lists")], "r1"), expect: at(1, "l1") },
+      { request: q([guard("notes", 0), s({ aggregate: { kind: "count" } })]), expect: at(1, null, 3) },
+      {
+        request: q([guard("lists", 0)]),
+        expect: conflict({ table: "lists", check: "unchanged", expected: 0, actual: 1 }, 0),
+      },
+      { request: q([guard("lists", 1)]), expect: at(1, null) },
+      {
+        request: m([{ op: "delete", table: "notes", id: "missing" }], "r2"),
+        expect: at(1, { deleted: false }),
+      },
+      {
+        request: m([guard("notes", 0), { op: "patch", table: "notes", id: "n1", value: {} }], "r3"),
+        expect: at(2, null, { _version: 2 }),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }, guard("notes", 2)], "r4"),
+        expect: conflict({ table: "notes", check: "unchanged", expected: 2, actual: 3 }, 1),
+      },
+      {
+        request: q([guard("notes", 2), guard("lists", 2), guard("entries", 0)]),
+        expect: at(2, null, null, null),
+      },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, N3], lists: [srv("l1", { name: "a" })] },
+  },
+  {
+    name: "table assert: an insert decided on an empty select conflicts after a phantom",
+    why:
+      'the guard a client derives from a select: the select saw no entry at sequence 0, another writer inserted one, so the insert that depended on "none" does not commit',
+    steps: [
+      {
+        request: q([{
+          op: "select",
+          table: "entries",
+          filters: [{ field: "listId", op: "eq", value: "l1" }],
+          limit: 1,
+        }]),
+        expect: at(0, []),
+      },
+      {
+        serverIds: ["e1"],
+        request: m([ins({ listId: "l1", n: 1 }, undefined, "entries")], "other"),
+        expect: at(1, "e1"),
+      },
+      {
+        serverIds: [],
+        request: m([guard("entries", 0), ins({ listId: "l1", n: 1 }, undefined, "entries")], "mine"),
+        expect: conflict({ table: "entries", check: "unchanged", expected: 0, actual: 1 }, 0),
+      },
+    ],
+    final: {
+      entries: [srv("e1", { listId: "l1", n: 1 })],
+      requests: [{ request_id: "other", applied_ms: 1000, result: ["e1"] }],
+    },
+  },
+  {
+    name: "table assert on an unknown table",
+    why: "the table is looked up first",
+    seed: SEED,
+    ...single({ request: q([guard("nope", 0)]) }, compileErr({ reason: "unknown-collection" }, 0), UNCHANGED),
+  },
+  // what a conflict carries (spec §8.1)
+  {
+    name: "conflict carries seq and the state behind every failing assert",
+    why:
+      "the failing assert's document, and each later assert that fails too: holding asserts, writes and reads are not listed, a missing document is null",
+    seed: SEED,
+    ...single(
+      {
+        request: m([
+          { op: "assert", table: "notes", id: "n2", expect: { version: 3 } },
+          { op: "assert", table: "notes", id: "n1", expect: { version: 5 } },
+          { op: "assert", table: "notes", id: "n3", expect: { exists: true } },
+          { op: "assert", table: "notes", id: "n3", expect: { exists: false } },
+          { op: "assert", table: "notes", id: "zz", expect: { version: 1 } },
+          { op: "patch", table: "notes", id: "n2", value: {}, expect: { version: 9 } },
+          getN("n1"),
+        ]),
+      },
+      conflict({
+        table: "notes",
+        id: "n1",
+        check: "version",
+        expected: 5,
+        actual: 1,
+        seq: 0,
+        current: [
+          { op: 1, table: "notes", id: "n1", doc: N1 },
+          { op: 3, table: "notes", id: "n3", doc: N3 },
+          { op: 4, table: "notes", id: "zz", doc: null },
+        ],
+      }, 1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "conflict carries a changed table's last change",
+    why: "a failing table assert is listed with the sequence of the table's last change, first or later",
+    seed: SEED,
+    steps: [
+      { serverIds: ["l1"], request: m([ins({ name: "a" }, undefined, "lists")], "r1"), expect: at(1, "l1") },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }], "r2"),
+        expect: at(2, { _version: 2 }),
+      },
+      {
+        request: q([guard("lists", 0), guard("entries", 0), guard("notes", 1), {
+          op: "assert",
+          table: "notes",
+          id: "n1",
+          expect: { version: 1 },
+        }]),
+        expect: conflict({
+          table: "lists",
+          check: "unchanged",
+          expected: 0,
+          actual: 1,
+          seq: 2,
+          current: [
+            { op: 0, table: "lists", changed: 1 },
+            { op: 2, table: "notes", changed: 2 },
+            { op: 3, table: "notes", id: "n1", doc: { ...N1, _version: 2 } },
+          ],
+        }, 0),
+      },
+    ],
+    final: { notes: [{ ...N1, _version: 2 }, N2, N3], lists: [srv("l1", { name: "a" })] },
+  },
+  {
+    name: "conflict on a write's expect carries its document",
+    why:
+      "a patch or delete whose expect fails is listed like an assert; the state is the one that operation saw",
+    seed: SEED,
+    ...single(
+      {
+        request: m([
+          { op: "patch", table: "notes", id: "n1", value: { title: "new" } },
+          { op: "delete", table: "notes", id: "n1", expect: { version: 1 } },
+          { op: "assert", table: "notes", id: "n1", expect: { fields: { title: "alpha" } } },
+        ]),
+      },
+      conflict({
+        check: "version",
+        expected: 1,
+        actual: 2,
+        seq: 0,
+        current: [
+          { op: 1, table: "notes", id: "n1", doc: { ...N1, _version: 2, title: "new" } },
+          { op: 2, table: "notes", id: "n1", doc: { ...N1, _version: 2, title: "new" } },
+        ],
+      }, 1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "conflict on a taken client id carries the document that holds it",
+    why: "the insert's implicit exists:false is a precondition like any other",
+    seed: SEED,
+    steps: [
+      { request: m([ins(BODY, U1)], "r1"), expect: at(1, U1) },
+      {
+        request: m([ins(BODY, U1)], "r2"),
+        expect: conflict({
+          check: "exists",
+          seq: 1,
+          current: [{ op: 0, table: "notes", id: U1, doc: srv(U1, BODY) }],
+        }, 0),
+      },
+    ],
+    final: { notes: [srv(U1, BODY), N1, N2, N3] },
+  },
+  {
+    name: "query with asserts that hold",
+    why: "a query may carry asserts: they are checked in the snapshot the reads come from, and answer null",
+    seed: SEED,
+    ...single(
+      {
+        request: q([
+          { op: "assert", table: "notes", id: "n2", expect: { version: 3 } },
+          { op: "assert", table: "notes", id: "nope", expect: { exists: false } },
+          getN("n1"),
+        ]),
+      },
+      at(0, null, null, N1),
+      UNCHANGED,
+    ),
+  },
+  {
+    name: "query with an assert that fails",
+    why: "a failed assert in a query is ConflictError at its op: the reads after it are not answered",
+    seed: SEED,
+    ...single(
+      { request: q([{ op: "assert", table: "notes", id: "n2", expect: { version: 2 } }, getN("n1")]) },
+      conflict({ table: "notes", id: "n2", check: "version", expected: 2, actual: 3 }, 0),
+      UNCHANGED,
+    ),
+  },
 ];
 
 /**
@@ -2330,6 +2624,7 @@ async function recordSdk(
   const answer = (request: IrRequest): unknown[] =>
     request.ops.map((op) => {
       const rows = seed[op.table] ?? [];
+      if (op.op === "assert") return null;
       if (op.op === "get") return rows.find((d) => d._id === op.id) ?? null;
       const select = op as SelectOp;
       return rows
@@ -2346,7 +2641,7 @@ async function recordSdk(
     transport: (request) =>
       Effect.sync(() => {
         sent.push({ ...request, schema: FP });
-        return { result: request.kind === "query" ? answer(request) : [] };
+        return { result: request.kind === "query" ? answer(request) : [], seq: 0 };
       }),
     newId: () => ids[next++],
     newRequestId: () => `sdk-r${sent.filter((r) => r.kind === "mutation").length + 1}`,
@@ -2452,7 +2747,8 @@ async function sdkScenarios(): Promise<Scenario[]> {
     },
     {
       name: "sdk: deleteGame",
-      why: "deleteGame reads the game (asserted) and its moves (a select: unguarded), then deletes them",
+      why:
+        "deleteGame reads the game, then its moves in a query that asserts the game (one snapshot), then deletes them; the commit asserts the game and that the moves table is as the select saw it",
       schema: tttSchema,
       seed: {
         games: [G1],
@@ -2460,15 +2756,15 @@ async function sdkScenarios(): Promise<Scenario[]> {
       },
       steps: steps(deleted, [
         res(G1),
-        res([moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
-        res(null, { deleted: true }, { deleted: true }, { deleted: true }),
+        res(null, [moveDoc("m1", "g1", 4, 1), moveDoc("m2", "g1", 0, 2)]),
+        res(null, null, { deleted: true }, { deleted: true }, { deleted: true }),
       ]),
       final: {
         moves: [moveDoc("m3", "g2", 1, 1)],
         requests: [{
           request_id: "sdk-r1",
           applied_ms: 1000,
-          result: [null, { deleted: true }, { deleted: true }, { deleted: true }],
+          result: [null, null, { deleted: true }, { deleted: true }, { deleted: true }],
         }],
       },
     },

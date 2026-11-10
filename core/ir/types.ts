@@ -47,12 +47,18 @@ export type PatchOp = {
 };
 export type DeleteOp = { op: "delete"; table: string; id: IdRef; expect?: Expect };
 export type AssertOp = { op: "assert"; table: string; id: IdRef; expect: Expect };
+/**
+ * An assert without an id: no applied mutation has changed a row of `table` since the commit sequence
+ * `unchangedSince` (spec §5.5). It is how a select is guarded: whatever the select answered at that
+ * sequence, it still answers.
+ */
+export type TableAssertOp = { op: "assert"; table: string; expect: { unchangedSince: number } };
 
-export type Op = SelectOp | GetOp | InsertOp | PatchOp | DeleteOp | AssertOp;
+export type Op = SelectOp | GetOp | InsertOp | PatchOp | DeleteOp | AssertOp | TableAssertOp;
 export type OpName = Op["op"];
 
-/** The operations a `query` may contain. */
-export const READ_OPS: readonly OpName[] = ["select", "get"];
+/** The operations a `query` may contain: the reads, and `assert` (a precondition on the same snapshot). */
+export const QUERY_OPS: readonly OpName[] = ["select", "get", "assert"];
 
 export type Kind = "query" | "mutation";
 
@@ -67,5 +73,8 @@ export type Request = {
   ops: Op[];
 };
 
-/** A successful response body. `duplicate` appears only when it is `true`. */
-export type Response = { result: unknown[]; duplicate?: true };
+/**
+ * A successful response body. `seq` is the database's commit sequence (spec §6.5): of the snapshot a query
+ * read, or after a mutation. `duplicate` appears only when it is `true`, and then there is no `seq`.
+ */
+export type Response = { result: unknown[]; seq?: number; duplicate?: true };

@@ -4,7 +4,9 @@
  *
  * 1. **Derived expects are exactly the reads.** The mutation's asserts are one per document the handler
  *    `get` from the server (not one it inserted), with the version it saw (or `exists: false`), all
- *    before the first write; the writes follow in the handler's order. A `find` adds none (v1).
+ *    before the first write; the writes follow in the handler's order. The `find`s add one table assert
+ *    between them, at the sequence the table was first read at. A run
+ *    that wrote nothing sends no commit at all: its reads were one snapshot already.
  * 2. **Read-your-writes.** Every read inside the handler answers what the same read answers on the
  *    database with the handler's writes so far applied; after the commit, the database is that state.
  * 3. **Retries converge.** Concurrent read-modify-write handlers under injected faults (shed, aborted,
@@ -120,7 +122,7 @@ Deno.test(
         const alive = new Set(seed.map((d) => d._id));
         const got = new Map<string, Doc | null>(); // first server state of every id the handler `get`s
         const inserted = new Set<string>();
-        let n = 0;
+        let n = 0, wrote = false, found = false;
         const handler = mutation({
           args: {},
           handler: ({ db }) =>
@@ -140,12 +142,14 @@ Deno.test(
                     break;
                   }
                   case "find":
+                    found = true;
                     assert.deepEqual(
                       yield* find(db, a.select),
                       evalSelect(shadow.table("items").values(), a.select),
                     );
                     break;
                   case "insert": {
+                    wrote = true;
                     const id = yield* db.insert("items", a.body);
                     inserted.add(id);
                     alive.add(id);
@@ -157,6 +161,7 @@ Deno.test(
                       break;
                     }
                     const id = live[a.pick % live.length];
+                    wrote = true;
                     yield* db.patch("items", id, a.body);
                     const doc = shadow.table("items").get(id)!;
                     shadow.table("items").set(id, { ...doc, ...a.body, _version: doc._version + 1 });
@@ -165,6 +170,7 @@ Deno.test(
                   case "delete": {
                     if (live.length === 0) break;
                     const id = live[a.pick % live.length];
+                    wrote = true;
                     yield* db.delete("items", id);
                     alive.delete(id);
                     shadow.table("items").delete(id);
@@ -193,18 +199,21 @@ Deno.test(
           id,
           expect: doc === null ? { exists: false } : { version: doc._version },
         }));
-        if (commit.length === 0) {
-          assert.deepEqual(asserts, []);
-          return;
-        }
+        assert.equal(commit.length, wrote ? 1 : 0, "a commit exactly when the run wrote");
+        if (!wrote) return;
         const ops = commit[0].ops;
         const head = ops.filter((op) => op.op === "assert");
         assert.deepEqual(ops.slice(0, head.length), head, "asserts come first");
         const byId = (a: { id: unknown }, b: { id: unknown }) => String(a.id).localeCompare(String(b.id));
         assert.deepEqual(
-          [...head].sort(byId),
+          head.filter((op) => "id" in op).sort(byId),
           asserts.sort(byId),
           "one assert per document read, at its version",
+        );
+        assert.deepEqual(
+          head.filter((op) => !("id" in op)),
+          found ? [{ op: "assert", table: "items", expect: { unchangedSince: 0 } }] : [],
+          "one assert for the table the finds read, at the sequence it was read at",
         );
         assert.ok(
           ops.slice(head.length).every((op) => op.op !== "assert" && op.op !== "get" && op.op !== "select"),

@@ -32,6 +32,8 @@ One folder per part of the system, one dated entry per thread that explained it.
 - [ir/](ir/README.md): the IR protocol (`/v1/ops`), its spec and vectors; the Go server runs every execute
   vector (the TS reference executor was deleted in IR-6,
   [ADR 0013](../adr/0013-go-server-replaces-deno-platform.md)).
+  - [2026-11-10 read path](ir/2026-11-10-read-path.md): how a run reads and commits after survey changes 1–4
+    (one snapshot, guarded finds, conflict state, cached reads), IR revision 1.1, and the traps.
   - [2026-11-06 IR-4a tenancy and auth](ir/2026-11-06-ir-4a-tenancy-auth.md): agentd's auth port, admin and
     sign-in API, Better Auth scrypt, `controld import-mansio`.
   - [2026-11-05 IR-3 SDK](ir/2026-11-05-ir-3-sdk.md): handlers run in the SDK, derived preconditions and

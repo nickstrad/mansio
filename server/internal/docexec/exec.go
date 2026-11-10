@@ -58,17 +58,27 @@ func storage(cause error) error { return &Failure{Err: ir.NewError(ir.TagStorage
 // row, countBy at most limit groups), so more rows would be a compiler bug, answered as a storage failure.
 const maxRows = doccompile.MaxLimit
 
-// Run executes req's operations in order on tx against schema s and returns one result per operation (spec §5,
-// §6). Run does not check the fingerprint (Check) or the request id (the actor), and does not commit: the
-// caller runs it inside one transaction or savepoint and rolls everything back on any error.
+// Answer is a request's successful outcome.
+type Answer struct {
+	// Result holds one result per operation.
+	Result []any
+	// Seq is the database's commit sequence (spec §6.5): of the snapshot a query read, or after a mutation.
+	Seq int64
+}
+
+// Run executes req's operations in order on tx against the database Check described and returns one result per
+// operation and the commit sequence (spec §5, §6). Run does not check the fingerprint (Check) or the request id
+// (the actor), and does not commit: the caller runs it inside one transaction or savepoint and rolls everything
+// back on any error.
 //
-//	pre: req was decoded by ir.DecodeValue (every $ref names an earlier insert; a query holds reads only), and
-//	     s is the database's schema
-//	post: err == nil ⇒ len(result) == len(req.Ops)
+//	pre: req was decoded by ir.DecodeValue (every $ref names an earlier insert; a query holds no writes), and
+//	     st is Check's answer for this database in this transaction
+//	post: err == nil ⇒ len(Result) == len(req.Ops)
 //	post: err != nil ⇒ err is a *Failure; when it belongs to operation i its Err has op i
 //	post: req is not modified
-func Run(tx Tx, s *docschema.Schema, req *ir.Request, ids det.IDGen) ([]any, error) {
-	r := &run{tx: tx, s: s, ids: ids, now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops))}
+func Run(tx Tx, st State, req *ir.Request, ids det.IDGen) (Answer, error) {
+	r := &run{tx: tx, st: st, s: st.Schema.Schema, ids: ids, write: req.Kind == ir.Mutation,
+		now: float64(tx.Now().UnixMilli()), refs: make([]string, 0, len(req.Ops)), tables: map[string]int64{}, touched: map[string]bool{}}
 	result := make([]any, 0, len(req.Ops))
 	for i, op := range req.Ops {
 		v, err := r.step(op)
@@ -76,8 +86,11 @@ func Run(tx Tx, s *docschema.Schema, req *ir.Request, ids det.IDGen) ([]any, err
 			var f *Failure
 			if errors.As(err, &f) {
 				f.Err.WithOp(i)
+				if f.Cause == nil && f.Err.Tag == ir.TagConflict {
+					r.witness(req.Ops, i, f.Err)
+				}
 			}
-			return nil, err
+			return Answer{}, err
 		}
 		id := ""
 		if _, ok := op.(*ir.Insert); ok {
@@ -86,16 +99,27 @@ func Run(tx Tx, s *docschema.Schema, req *ir.Request, ids det.IDGen) ([]any, err
 		r.refs = append(r.refs, id)
 		result = append(result, v)
 	}
-	return result, nil
+	seq, err := r.commitSequence()
+	if err != nil {
+		return Answer{}, err
+	}
+	return Answer{Result: result, Seq: seq}, nil
 }
 
 // run is one request's execution state.
 type run struct {
-	tx   Tx
-	s    *docschema.Schema
-	ids  det.IDGen
-	now  float64  // _creationTime of every insert (ms)
-	refs []string // refs[i] is insert i's _id ("" for other operations)
+	tx    Tx
+	st    State
+	s     *docschema.Schema
+	ids   det.IDGen
+	write bool     // a mutation
+	now   float64  // _creationTime of every insert (ms)
+	refs  []string // refs[i] is insert i's _id ("" for other operations)
+
+	seq      int64 // the commit sequence the request started from; valid when seqKnown
+	seqKnown bool
+	tables   map[string]int64 // once seqKnown: each table's last change, as the request found it
+	touched  map[string]bool  // the tables this request changed a row of
 }
 
 func (r *run) step(op ir.Op) (any, error) {
@@ -120,6 +144,8 @@ func (r *run) step(op ir.Op) (any, error) {
 		return r.change(t, op.Table, op.ID, nil, op.Expect, "delete")
 	case *ir.Assert:
 		return r.change(t, op.Table, op.ID, nil, op.Expect, "assert")
+	case *ir.AssertTable:
+		return nil, r.assertTable(op)
 	}
 	return nil, protocol(ir.NewError(ir.TagDefect, "detail", "unknown operation "+op.Name()))
 }
@@ -193,7 +219,7 @@ func (r *run) insert(t *docschema.Table, op *ir.Insert) (any, error) {
 	if e != nil {
 		return nil, protocol(e)
 	}
-	if err := r.exec(sql); err != nil {
+	if err := r.exec(op.Table, sql); err != nil {
 		return nil, err
 	}
 	return id, nil
@@ -227,7 +253,7 @@ func (r *run) change(t *docschema.Table, table string, ref ir.IDRef, value *ir.O
 			if e != nil {
 				return nil, protocol(e)
 			}
-			if err := r.exec(sql); err != nil {
+			if err := r.exec(table, sql); err != nil {
 				return nil, err
 			}
 		}
@@ -247,16 +273,18 @@ func (r *run) change(t *docschema.Table, table string, ref ir.IDRef, value *ir.O
 	if e != nil {
 		return nil, protocol(e)
 	}
-	if err := r.exec(sql); err != nil {
+	if err := r.exec(table, sql); err != nil {
 		return nil, err
 	}
 	return ir.NewObject("_version", doc.Value("_version").(float64)+1), nil
 }
 
-func (r *run) exec(sql doccompile.SQL) error {
+// exec runs a document write to table.
+func (r *run) exec(table string, sql doccompile.SQL) error {
 	if _, err := r.tx.Exec(sql.Text, doccompile.Args(sql.Values)...); err != nil {
 		return storage(err)
 	}
+	r.touched[table] = true
 	return nil
 }
 

@@ -2,7 +2,8 @@
  * A pure in-memory `/v1/ops` server for the SDK's tests (IR-3): enough of `ir/spec/v1.md` §5–§8 to run
  * what the recording executor sends — `get`, `select` (eq/gt filters, order with the `_id` tie-break,
  * nulls first ascending, `limit`, `count`, `countBy`), `insert` with a client id, `patch`, `delete`,
- * `assert` with `expect.version`/`exists`, request-id duplicates — atomically per request. No validation:
+ * `assert` with `expect.version`/`exists` or, without an id, `expect.unchangedSince`, the commit sequence,
+ * request-id duplicates — atomically per request. No validation:
  * the real executors own that (the vectors pin it). Written independently of `sdk/overlay.ts`, so the
  * overlay is checked against a second implementation of the select rules.
  *
@@ -59,6 +60,11 @@ export class Model {
   tables = new Map<string, Map<string, Doc>>();
   applied = new Map<string, unknown[]>();
   clock = 1000;
+  /** The commit sequence (spec §6.5): mutations applied that changed a row. */
+  seq = 0;
+  /** Each table's last change, as a sequence (spec §5.5). */
+  changes = new Map<string, number>();
+  private touched = new Set<string>();
   /** Every request received, in order. */
   log: Request[] = [];
 
@@ -78,6 +84,8 @@ export class Model {
       [...this.tables].map(([k, t]) => [k, new Map([...t].map(([id, d]) => [id, structuredClone(d)]))]),
     );
     m.clock = this.clock;
+    m.seq = this.seq;
+    m.changes = new Map(this.changes);
     return m;
   }
 
@@ -93,16 +101,52 @@ export class Model {
       request.ops.forEach((op, i) => result.push(work.step(op, i)));
     } catch (e) {
       if (!(e instanceof Failure)) throw e;
+      const fields = e.tag === "ConflictError"
+        ? { ...e.fields, ...work.witness(request.ops, e.op) }
+        : e.fields;
       return {
         status: e.status,
-        body: { error: { tag: e.tag, message: e.tag, op: e.op, fields: e.fields } },
+        body: { error: { tag: e.tag, message: e.tag, op: e.op, fields } },
       };
     }
     if (request.kind === "mutation") {
       this.tables = work.tables;
+      if (work.touched.size > 0) this.seq++;
+      for (const table of work.touched) this.changes.set(table, this.seq);
       this.applied.set(request.requestId!, result);
     }
-    return { status: 200, body: { result } };
+    return { status: 200, body: { result, seq: this.seq } };
+  }
+
+  /**
+   * A conflict's `seq` and `current` (spec §8.1): the state behind the failing operation's precondition and
+   * behind every later assert that fails too, in the state the failing operation saw. No size cap.
+   */
+  private witness(ops: Op[], at: number): { seq: number; current: unknown[] } {
+    const current: unknown[] = [];
+    ops.forEach((op, i) => {
+      if (i < at || (i > at && op.op !== "assert")) return;
+      if (i > at) {
+        try {
+          this.step(op, i);
+          return; // it holds
+        } catch (e) {
+          if (!(e instanceof Failure)) throw e;
+        }
+      }
+      if (op.op === "assert" && !("id" in op)) {
+        current.push({ op: i, table: op.table, changed: this.changedAt(op.table) });
+      } else {
+        const id = (op as { id: string }).id;
+        current.push({ op: i, table: op.table, id, doc: this.table(op.table).get(id) ?? null });
+      }
+    });
+    return { seq: this.seq, current };
+  }
+
+  /** `table`'s last change as the request running on this copy sees it: its own writes count as the next. */
+  private changedAt(table: string): number {
+    return this.touched.has(table) ? this.seq + 1 : this.changes.get(table) ?? 0;
   }
 
   private step(op: Op, i: number): unknown {
@@ -123,12 +167,25 @@ export class Model {
             actual: true,
           });
         }
+        this.touched.add(op.table);
         t.set(id, { ...op.value, _id: id, _creationTime: this.clock, _version: 1 } as Doc);
         return id;
       }
       case "patch":
       case "delete":
       case "assert": {
+        if (!("id" in op)) {
+          const changed = this.changedAt(op.table);
+          if (changed > op.expect.unchangedSince) {
+            throw new Failure(409, "ConflictError", i, {
+              table: op.table,
+              check: "unchanged",
+              expected: op.expect.unchangedSince,
+              actual: changed,
+            });
+          }
+          return null;
+        }
         const id = op.id as string;
         const doc = t.get(id) ?? null;
         const expect = op.expect;
@@ -154,10 +211,12 @@ export class Model {
         }
         if (op.op === "assert") return null;
         if (op.op === "delete") {
+          if (doc !== null) this.touched.add(op.table);
           t.delete(id);
           return { deleted: doc !== null };
         }
         if (!doc) throw new Failure(404, "NotFoundError", i, { table: op.table, id });
+        this.touched.add(op.table);
         t.set(id, { ...doc, ...op.value, _version: doc._version + 1 });
         return { _version: doc._version + 1 };
       }

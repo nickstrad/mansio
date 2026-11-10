@@ -164,7 +164,7 @@ func (d *db) runGroup(script []step) []outcome {
 			d.t.Fatalf("request %d: unexpected %v", i, res.Err)
 		default:
 			v, _ := ir.Parse(string(res.Body))
-			out[i] = outcome{result: v, duplicate: res.Duplicate}
+			out[i] = outcome{result: v, duplicate: res.Duplicate, seq: seqOf(res)}
 		}
 	}
 	return out
@@ -199,6 +199,9 @@ func compareOutcome(t *testing.T, st step, real outcome, want modelOutcome) {
 	default:
 		if got, w := ir.Canonical(real.result), ir.Canonical(want.result); got != w || real.duplicate != want.duplicate {
 			t.Fatalf("%s:\n real %s dup=%v\nmodel %s dup=%v", name, got, real.duplicate, w, want.duplicate)
+		}
+		if !real.duplicate && real.seq != want.seq {
+			t.Fatalf("%s: seq %d, model %d", name, real.seq, want.seq)
 		}
 	}
 }
@@ -364,6 +367,9 @@ func (g *gen) expect(patch bool, inserts []int) string {
 }
 
 func (g *gen) op(kind string, inserts []int) string {
+	if g.byte()%9 == 0 { // a table assert, in a query or a mutation (spec §5.5)
+		return `{"op":"assert","table":"` + g.table() + `","expect":{"unchangedSince":` + strconv.FormatInt(max(0, g.m.seq-1+int64(g.byte()%3)), 10) + `}}`
+	}
 	which := int(g.byte())
 	if kind == "query" {
 		which %= 2
@@ -417,8 +423,12 @@ func (g *gen) selectOp(table string, inserts []int) string {
 
 // model is the pure reference: per table, documents by id; the applied request ids and their stored results.
 type model struct {
-	fp      string // the database's fingerprint
-	stmts   int    // statements issued by the request running now
+	fp      string           // the database's fingerprint
+	stmts   int              // statements issued by the request running now
+	touched map[string]bool  // the tables the request running now changed a row of
+	seqRead bool             // the request running now has read the sequence (its first table assert does)
+	seq     int64            // the commit sequence (spec §6.5)
+	changes map[string]int64 // each table's last change (spec §5.5)
 	tables  map[string]map[string]map[string]any
 	applied map[string]appliedReq
 	seen    []string // every id ever answered by an insert (deleted ones stay: they make misses)
@@ -431,6 +441,7 @@ type appliedReq struct {
 
 type modelOutcome struct {
 	result    any
+	seq       int64
 	duplicate bool
 	err       *ir.Error
 }
@@ -438,13 +449,15 @@ type modelOutcome struct {
 var modelFields = map[string][]string{"notes": {"title", "n", "tag"}, "lists": {"name"}}
 
 func newModel(fp string) *model {
-	return &model{fp: fp, tables: map[string]map[string]map[string]any{"notes": {}, "lists": {}}, applied: map[string]appliedReq{}}
+	return &model{fp: fp, tables: map[string]map[string]map[string]any{"notes": {}, "lists": {}}, applied: map[string]appliedReq{},
+		changes: map[string]int64{}}
 }
 
 // apply runs st on the model (on a copy, kept only if the request succeeds) and returns its outcome. The model
-// counts the statements docexec issues (one per select, get and load; one per write), so it knows where an
-// injected failure lands: at statement failAt, if the request gets that far, it fails as a StorageError of the
-// operation issuing it, and changes nothing.
+// counts the statements docexec issues (one per select, get and load; one per write; after the last operation
+// one to read the commit sequence and, if a row changed, one to record the next), so it knows where an injected
+// failure lands: at statement failAt, if the request gets that far, it fails as a StorageError of the operation
+// issuing it (of no operation for the sequence statements), and changes nothing.
 func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 	req := st.req
 	if req.Schema != m.fp {
@@ -467,15 +480,29 @@ func (m *model) apply(st step, now int64, seqBase int) modelOutcome {
 	if e != nil {
 		return modelOutcome{err: e}
 	}
+	tail := work.stmts
+	if !work.seqRead {
+		tail++
+	}
+	if len(work.touched) > 0 {
+		tail++
+		work.seq++
+		for table := range work.touched {
+			work.changes[table] = work.seq
+		}
+	}
+	if st.failAt > work.stmts && st.failAt <= tail {
+		return modelOutcome{err: ir.NewError(ir.TagStorage)}
+	}
 	if req.Kind == ir.Mutation {
-		m.tables, m.seen = work.tables, work.seen
+		m.tables, m.seen, m.seq, m.changes = work.tables, work.seen, work.seq, work.changes
 		m.applied[req.RequestID] = appliedReq{ms: now, body: ir.Canonical(result)}
 	}
-	return modelOutcome{result: result}
+	return modelOutcome{result: result, seq: work.seq}
 }
 
 func (m *model) clone() *model {
-	c := &model{fp: m.fp, tables: map[string]map[string]map[string]any{}, applied: maps.Clone(m.applied), seen: slices.Clone(m.seen)}
+	c := &model{fp: m.fp, seq: m.seq, changes: maps.Clone(m.changes), tables: map[string]map[string]map[string]any{}, applied: maps.Clone(m.applied), seen: slices.Clone(m.seen)}
 	for name, docs := range m.tables {
 		c.tables[name] = map[string]map[string]any{}
 		for id, doc := range docs {
@@ -492,7 +519,7 @@ func (m *model) clone() *model {
 // run executes req's operations; upTo[i] is how many statements had been issued once operation i ended (or
 // failed).
 func (m *model) run(req *ir.Request, now int64, seqBase int) (result []any, err *ir.Error, upTo []int) {
-	m.stmts = 0
+	m.stmts, m.touched, m.seqRead = 0, map[string]bool{}, false
 	refs := make([]string, len(req.Ops))
 	draws := 0
 	for i, op := range req.Ops {
@@ -539,6 +566,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 			id = draw()
 		}
 		m.stmts++
+		m.touched[op.Table] = true
 		body["_id"], body["_creationTime"], body["_version"] = id, float64(now), 1.0
 		docs[id] = body
 		m.seen = append(m.seen, id)
@@ -558,6 +586,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 			return nil, ir.NewError(ir.TagNotFound, "table", op.Table, "id", id)
 		}
 		m.stmts++
+		m.touched[op.Table] = true
 		for k, v := range patch {
 			doc[k] = v
 		}
@@ -572,9 +601,23 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 		}
 		if doc != nil {
 			m.stmts++
+			m.touched[op.Table] = true
 			delete(docs, id)
 		}
 		return ir.NewObject("deleted", doc != nil), nil
+	case *ir.AssertTable:
+		if !m.seqRead {
+			m.stmts++
+			m.seqRead = true
+		}
+		changed := m.changes[op.Table]
+		if m.touched[op.Table] {
+			changed = m.seq + 1
+		}
+		if changed > op.Since {
+			return nil, ir.NewError(ir.TagConflict, "table", op.Table, "check", "unchanged", "expected", float64(op.Since), "actual", float64(changed))
+		}
+		return nil, nil
 	case *ir.Assert:
 		id := ir.ResolveID(op.ID, refs)
 		m.stmts++

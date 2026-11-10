@@ -146,20 +146,20 @@ func TestStatementFailureLeavesNoTrace(t *testing.T) {
 	}
 	before := ir.Canonical(req.JSON())
 	boom := errors.New("boom")
-	for at := 1; at <= 5; at++ { // insert, select, load, update: 4 statements; 5 runs clean
+	for at := 1; at <= 7; at++ { // insert, select, load, update, then the sequence's read and write: 6 statements; 7 runs clean
 		call := &docactor.Call{Req: req, Schemas: d.cache, IDs: &listIDs{ids: []string{"s1"}},
 			Wrap: func(tx docexec.Tx) docexec.Tx { return &failingTx{Tx: tx, at: at, err: boom} }}
 		res := d.do(call.Request())
 		var f *docexec.Failure
 		switch {
-		case at == 5:
+		case at == 7:
 			if res.Err != nil || string(res.Body) != `["s1",[{"_creationTime":0,"_id":"s1","_version":1,"n":1,"title":"a"}],{"_version":2}]` {
 				t.Fatalf("clean run: %v %s", res.Err, res.Body)
 			}
-		case !errors.As(res.Err, &f) || !errors.Is(res.Err, boom) || f.Err.Tag != ir.TagStorage || !f.Err.HasOp:
+		case !errors.As(res.Err, &f) || !errors.Is(res.Err, boom) || f.Err.Tag != ir.TagStorage || f.Err.HasOp != (at <= 4):
 			t.Fatalf("statement %d: %v", at, res.Err)
 		default:
-			if wantOp := map[int]int{1: 0, 2: 1, 3: 2, 4: 2}[at]; f.Err.Op != wantOp {
+			if wantOp := map[int]int{1: 0, 2: 1, 3: 2, 4: 2}[at]; f.Err.Op != wantOp { // the sequence belongs to no operation
 				t.Errorf("statement %d: op %d, want %d", at, f.Err.Op, wantOp)
 			}
 			if rows := d.dump()["notes"].([]any); len(rows) != 0 {
@@ -172,5 +172,58 @@ func TestStatementFailureLeavesNoTrace(t *testing.T) {
 		if after := ir.Canonical(req.JSON()); after != before {
 			t.Fatalf("the request changed:\n%s\n%s", before, after)
 		}
+	}
+}
+
+// A database file from before the commit sequence has no _mansio_changes table: a query answers sequence 0
+// without reading it, and the first mutation creates it and counts from there (spec §6.5).
+func TestSequenceOnAFileWithoutTheTable(t *testing.T) {
+	s := mustDecode(t, notes)
+	d := openDB(t, s, actor.Config{})
+	if res := d.do(&actor.Request{Write: true, SQL: `DROP TABLE "_mansio_changes"`}); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	query := body("query", "", s.Fingerprint, `[{"op":"select","table":"notes","filters":[],"limit":5,"aggregate":{"kind":"count"}}]`)
+	if got := d.exec(query, &listIDs{}, nil); got.err != nil || got.seq != 0 {
+		t.Fatalf("query before any mutation: %+v", got)
+	}
+	insert := `[{"op":"insert","table":"notes","value":{"title":"a","n":1}}]`
+	for i, id := range []string{"s1", "s2"} {
+		got := d.exec(body("mutation", "r"+id, s.Fingerprint, insert), &listIDs{ids: []string{id}}, nil)
+		if got.err != nil || got.seq != int64(i+1) {
+			t.Fatalf("mutation %d: %+v", i+1, got)
+		}
+	}
+	if got := d.exec(query, &listIDs{}, nil); got.err != nil || got.seq != 2 || !ir.Equal(got.result, []any{2.0}) {
+		t.Fatalf("query after two mutations: %+v", got)
+	}
+}
+
+// A conflict's current state is bounded (spec §8.1): entries past MaxCurrentBytes are left out, and
+// currentTruncated tells the client that a precondition missing from the list may fail too.
+func TestConflictCurrentIsBounded(t *testing.T) {
+	s := mustDecode(t, notes)
+	d := openDB(t, s, actor.Config{})
+	big := strings.Repeat("x", 30_000)
+	for _, id := range []string{"s1", "s2", "s3"} {
+		ops := `[{"op":"insert","table":"notes","value":{"title":"` + big + `","n":1}}]`
+		if got := d.exec(body("mutation", "r"+id, s.Fingerprint, ops), &listIDs{ids: []string{id}}, nil); got.err != nil {
+			t.Fatalf("insert %s: %s", id, got.err.Message()[:80])
+		}
+	}
+	stale := func(ids ...string) []byte {
+		var ops []string
+		for _, id := range ids {
+			ops = append(ops, `{"op":"assert","table":"notes","id":"`+id+`","expect":{"version":9}}`)
+		}
+		return body("query", "", s.Fingerprint, "["+strings.Join(ops, ",")+"]")
+	}
+	got := d.exec(stale("s1", "s2"), &listIDs{}, nil)
+	if got.err == nil || got.err.Tag != ir.TagConflict || len(got.err.Field("current").([]any)) != 2 || got.err.Field("currentTruncated") != (ir.Undefined{}) {
+		t.Fatalf("two documents fit: %v", got.err.Fields.Keys())
+	}
+	got = d.exec(stale("s1", "s2", "s3"), &listIDs{}, nil)
+	if got.err == nil || got.err.Field("seq") != 3.0 || len(got.err.Field("current").([]any)) != 2 || got.err.Field("currentTruncated") != true {
+		t.Fatalf("the third does not: %v", got.err.Fields.Keys())
 	}
 }

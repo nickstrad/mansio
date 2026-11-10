@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/nickstrad/mansio/server/internal/actor"
@@ -20,7 +21,7 @@ import (
 // The document protocol (IR, ir/spec/v1.md): POST /v1/ops carries decoded-and-validated document operations
 // instead of SQL. It shares the pipeline's ticket check, ownership, admission, deadlines and executor with
 // /v1/query; what differs is the body (ir.DecodeBody), the work (a docexec closure on the actor) and the
-// answer: {"result": […]} or the spec's {"error": {tag, message, op?, fields?}}, written with ir's encoder.
+// answer: {"result": […], "seq": n} or the spec's {"error": {tag, message, op?, fields?}}, written with ir's encoder.
 //
 // Error mapping (spec §8):
 //
@@ -348,6 +349,8 @@ func opsAnswer(req *ir.Request, claims *ticket.Claims, reply Reply, err error) O
 		body = append(append(body, `{"result":`...), reply.Body...)
 		if reply.Duplicate {
 			body = append(body, `,"duplicate":true`...)
+		} else if answer, ok := reply.Value.(docexec.Answer); ok { // a duplicate did not run: it has no sequence
+			body = strconv.AppendInt(append(body, `,"seq":`...), answer.Seq, 10)
 		}
 		out.Status, out.Code, out.Body = 200, OK, append(body, '}')
 		return out

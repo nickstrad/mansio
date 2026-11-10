@@ -702,18 +702,11 @@
     },
     {
       "name": "query containing assert",
-      "why": "assert is a mutation op",
-      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true}}]}",
+      "why": "an assert is a precondition on the query's snapshot (v1.1): it writes nothing, so a query may hold it",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"exists\":true}},{\"op\":\"get\",\"table\":\"notes\",\"id\":\"n1\"}]}",
       "expect": {
-        "error": {
-          "tag": "SchemaError",
-          "status": 400,
-          "op": 0,
-          "fields": {
-            "reason": "type-mismatch",
-            "path": "ops[0].op"
-          }
-        }
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"expect\":{\"exists\":true},\"id\":\"n1\",\"op\":\"assert\",\"table\":\"notes\"},{\"id\":\"n1\",\"op\":\"get\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
       }
     },
     {
@@ -1053,6 +1046,104 @@
       }
     },
     {
+      "name": "table assert",
+      "why": "an assert without an id is about the table: its expect is exactly unchangedSince (v1.1)",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"expect\":{\"unchangedSince\":0}}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"mutation\",\"ops\":[{\"expect\":{\"unchangedSince\":0},\"op\":\"assert\",\"table\":\"notes\"}],\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "table assert in a query",
+      "why": "a query may hold it, as any assert",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"query\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"expect\":{\"unchangedSince\":12}},{\"op\":\"select\",\"table\":\"notes\",\"filters\":[],\"limit\":10}]}",
+      "expect": {
+        "ok": true,
+        "canonical": "{\"db\":{\"app\":\"notes\",\"tenant\":\"acme\"},\"kind\":\"query\",\"ops\":[{\"expect\":{\"unchangedSince\":12},\"op\":\"assert\",\"table\":\"notes\"},{\"filters\":[],\"limit\":10,\"op\":\"select\",\"table\":\"notes\"}],\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"v\":1}"
+      }
+    },
+    {
+      "name": "table assert with a negative sequence",
+      "why": "a commit sequence is a safe integer >= 0",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"expect\":{\"unchangedSince\":-1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.unchangedSince"
+          }
+        }
+      }
+    },
+    {
+      "name": "table assert with a fractional sequence",
+      "why": "a commit sequence is an integer",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"expect\":{\"unchangedSince\":1.5}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "type-mismatch",
+            "path": "ops[0].expect.unchangedSince"
+          }
+        }
+      }
+    },
+    {
+      "name": "table assert with a document precondition",
+      "why": "without an id there is no document to check: unchangedSince stands alone",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"expect\":{\"unchangedSince\":1,\"exists\":true}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].expect.exists"
+          }
+        }
+      }
+    },
+    {
+      "name": "document assert with unchangedSince",
+      "why": "unchangedSince belongs to the assert without an id only",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"unchangedSince\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].expect.unchangedSince"
+          }
+        }
+      }
+    },
+    {
+      "name": "patch with unchangedSince",
+      "why": "a write's expect is about its document",
+      "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"patch\",\"table\":\"notes\",\"id\":\"n1\",\"value\":{},\"expect\":{\"unchangedSince\":1}}]}",
+      "expect": {
+        "error": {
+          "tag": "SchemaError",
+          "status": 400,
+          "op": 0,
+          "fields": {
+            "reason": "unknown-field",
+            "path": "ops[0].expect.unchangedSince"
+          }
+        }
+      }
+    },
+    {
       "name": "$ref forward",
       "why": "references only point backwards",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"get\",\"table\":\"notes\",\"id\":{\"$ref\":1}},{\"op\":\"insert\",\"table\":\"notes\",\"value\":{\"title\":\"new\",\"score\":0.5,\"rank\":7,\"done\":true,\"tag\":\"b\",\"tags\":[\"p\",\"q\"],\"grid\":[4,5,6],\"owner\":null}}]}",
@@ -1287,7 +1378,7 @@
     },
     {
       "name": "unknown expect member",
-      "why": "strict decode; range is reserved for v1.1",
+      "why": "strict decode; range is reserved",
       "raw": "{\"v\":1,\"db\":{\"tenant\":\"acme\",\"app\":\"notes\"},\"kind\":\"mutation\",\"requestId\":\"r-1\",\"schema\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"ops\":[{\"op\":\"assert\",\"table\":\"notes\",\"id\":\"n1\",\"expect\":{\"range\":1}}]}",
       "expect": {
         "error": {

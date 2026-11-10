@@ -31,7 +31,7 @@ var shapes = map[string]struct{ allowed, required []string }{
 	"insert": {[]string{"op", "table", "value", "id"}, []string{"table", "value"}},
 	"patch":  {[]string{"op", "table", "id", "value", "expect"}, []string{"table", "id", "value"}},
 	"delete": {[]string{"op", "table", "id", "expect"}, []string{"table", "id"}},
-	"assert": {[]string{"op", "table", "id", "expect"}, []string{"table", "id", "expect"}},
+	"assert": {[]string{"op", "table", "id", "expect"}, []string{"table", "expect"}},
 }
 
 func mismatch(path, expected string, actual any) *Error {
@@ -294,8 +294,8 @@ func (d *decoder) op(value any, kind Kind) (Op, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	if kind == Query && name != "select" && name != "get" {
-		return nil, mismatch(Member(path, "op"), "select | get in a query", name)
+	if kind == Query && name != "select" && name != "get" && name != "assert" {
+		return nil, mismatch(Member(path, "op"), "select | get | assert in a query", name)
 	}
 	shape := shapes[name]
 	o, err := object(head, path, shape.allowed, shape.required)
@@ -331,6 +331,9 @@ func (d *decoder) op(value any, kind Kind) (Op, *Error) {
 		}
 		return ins, nil
 	}
+	if _, ok := o.Get("id"); !ok && name == "assert" {
+		return d.assertTable(o, table, path)
+	}
 	id, err := d.idRef(o.Value("id"), Member(path, "id"))
 	if err != nil {
 		return nil, err
@@ -354,6 +357,20 @@ func (d *decoder) op(value any, kind Kind) (Op, *Error) {
 		return &Delete{Table: table, ID: id, Expect: expect}, nil
 	}
 	return &Assert{Table: table, ID: id, Expect: expect}, nil
+}
+
+// assertTable decodes an assert without an id: its expect is exactly {"unchangedSince": n} (spec §5.5).
+func (d *decoder) assertTable(o *Object, table, path string) (Op, *Error) {
+	at := Member(path, "expect")
+	e, err := object(o.Value("expect"), at, []string{"unchangedSince"}, []string{"unchangedSince"})
+	if err != nil {
+		return nil, err
+	}
+	since := e.Value("unchangedSince")
+	if !IsSafeInteger(since) || since.(float64) < 0 {
+		return nil, mismatch(Member(at, "unchangedSince"), "safe integer >= 0", since)
+	}
+	return &AssertTable{Table: table, Since: int64(since.(float64))}, nil
 }
 
 // withOp sets the error's op from its path when the path is inside ops[i].

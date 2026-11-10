@@ -120,12 +120,19 @@ use the same schema and return the same document shape. The schema value you giv
 database's layout (`withStorage(schema, "json")` for `tic-tac-toe-json`). A request whose schema fingerprint
 differs from the database's fails with `SchemaDriftError` (409). There is no automatic migration.
 
-A **query** handler's reads each go to the server as a query request and see one consistent snapshot. A
-**mutation** handler's reads go out at once, its writes are buffered, and on return one atomic mutation
-request carries the writes plus a precondition for every document the handler read with `get`. If another
-writer changed one of those documents, the server answers `ConflictError` and the client re-runs the handler
-on fresh reads. **Handlers may run more than once: keep them free of side effects beyond `db`.** See the
-README's [transaction contract](README.md#transaction-and-consistency-contract).
+All the reads of one handler run hold in **one snapshot**. Reads asked for together (`db.getMany`, or
+`Effect.all([...], { batching: true })`) are one query request; a read that depends on an earlier answer is
+its own round trip, and carries the preconditions of what the run has read so far, so the server checks them
+in the snapshot it reads from. A **mutation** handler's writes are buffered, and on return one atomic mutation
+request carries them plus a precondition for everything the handler read: the version of every document it got
+with `get`, and "this table has not changed since" for every `find` (so "no row matches, so insert one" is
+safe; `find(...).unguarded()` opts a display-only read out). If another writer changed any of it, the server
+answers `ConflictError` with the current state, and the client re-runs the handler on that state without
+reading it again. A mutation's `get` is answered from the client's document cache when the cache holds the
+document; its version is asserted like any other read, so a warm mutation is one round trip and a stale cache
+costs one more, never a wrong commit (`cache: false` on the client turns the cache off). **Handlers may run
+more than once: keep them free of side effects beyond `db`.** See the README's
+[transaction contract](README.md#transaction-and-consistency-contract).
 
 ## SDK walkthrough
 

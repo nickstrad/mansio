@@ -1,5 +1,168 @@
 # mansio — project state
 
+## 2026-11-10 — read path: survey changes 1–4 and the colocated-runner explainer (Fable 5.2, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-read-path-brief.md`; the spec is the survey's §3.2 changes 1–4
+  (`docs/programmatic-schema-platform-survey.md` on branch `docs/programmatic-schema-survey`, worktree
+  `/root/Software/mansio-work/schema-survey`), framed by its §3.1 and §3.4. Nick approved "keep placement B,
+  do changes 1 to 4" on 2026-11-09. One commit per change, then `docs/colocated-runner-explainer.md` (changes
+  5–7, no code), a simplify pass, and a merge to main from `/root/Software/mansio-work/main-merge`.
+- Status: **in progress** on `feat/read-path-1234` (worktree `/root/Software/mansio-work/read-path-1234`,
+  based on `origin/main` `8075b8d`). Changes 1 to 4, the explainer and the simplify pass are done and
+  verified; the merge to main is next.
+- Baseline before any change (this VM, `8075b8d`): `deno task ci` exit 0 (320 unit, 61 property);
+  `go test ./...` fails only `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (the known baseline
+  failure of the section below).
+- Change 1, batch reads and one snapshot per run: **done** `906bbdc`.
+  - Protocol (IR revision 1.1, `ir/spec/v1.md` §6.5 and §12): every successful answer carries `seq`, the
+    database's commit sequence (one per applied mutation that changed a row; stored in `_mansio_changes`, the
+    row with the empty table name; created by `docexec.Init`, and by the first mutation on an older file); a
+    query may hold `assert` ops, checked in the snapshot its reads come from.
+  - SDK (`sdk/recording.ts`, `sdk/client.ts`): reads asked for together are one request (`db.getMany`, or
+    `Effect.all([...], { batching: true })`); every read request after a run's first carries the asserts of
+    what the run has read so far, so after each answer the whole read set holds in one snapshot
+    (`Recording.snapshot`); a failed assert abandons the run (`Restart`) and the client re-runs the handler,
+    for queries as for mutations; reads too many to share a request with the asserts go bare and must answer
+    one sequence. A mutation that wrote nothing sends no commit.
+  - Tests: `tests/unit/sdk_read_path_test.ts` ("read path 1: …", six tests, including a transfer landing
+    between two reads of one run); execute vectors `seq counts the mutations that changed a row`,
+    `query with
+    asserts that hold`, `query with an assert that fails`; Go
+    `TestSequenceOnAFileWithoutTheTable`; the Go model fuzz (`internal/docexec/model_fuzz_test.go`) now
+    predicts `seq` and the two sequence statements.
+  - Verified: `deno task ci` exit 0 (326 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only the
+    baseline test.
+  - Deviations from the survey: (1) the survey proposed that the SDK compare sequences and re-run when two
+    reads straddled a commit. Built instead: the later request carries the earlier reads' asserts, so a commit
+    that did not touch what the run read costs nothing, and only a real change re-runs. Sequence comparison
+    remains as the fallback when the asserts do not fit in the request. This needed `assert` in a query, which
+    the survey did not list. (2) Effect's request batching batches only under `batching: true`; reads that are
+    merely concurrent stay separate requests. (3) Not in the survey: a read-only mutation no longer sends an
+    asserts-only commit, because its reads are one snapshot already.
+  - Local logic later: `Reads` is the executor's only way out and answers `{ result, seq }`, so the executor
+    can run against anything that answers reads at a named sequence; `Recording.snapshot` exposes the run's
+    snapshot identity; nothing here trades against local execution.
+- Change 2, guard `find`: **done** `2868127`.
+  - Protocol (`ir/spec/v1.md` §5.5): an `assert` without `id` is a table precondition,
+    `{"expect": {"unchangedSince": n}}`: no applied mutation after sequence `n` changed a row of the table. A
+    failed one is `ConflictError` with `check: "unchanged"` and no `id`. `_mansio_changes` keeps each table's
+    last change beside the database's sequence (one upsert per mutation that wrote).
+  - SDK: every `find` adds its table to the run's read set at the sequence it was answered at
+    (`Recording.preconditions()` now answers document asserts, then table asserts); the guard rides in later
+    reads (snapshot) and in the commit. `find(...).unguarded()` is the per-call opt-out.
+  - Tests: "read path 2: …" (four tests: the phantom insert that now conflicts and re-runs, the same without a
+    writer in two trips, `unguarded()` committing the skew, finds in the snapshot); decode vectors for the
+    table assert (7) and execute vectors `table assert: …` (3, one is the phantom at the protocol level); the
+    Go model fuzz generates table asserts; the SDK property test pins the derived table assert.
+  - Verified: `deno task ci` exit 0 (330 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails the
+    baseline `TestAdminFetchLimitAppliesToTheNextFetches`, plus timing flakes met while both suites ran at
+    once: `internal/ir` `TestIndexNamesDecodeFast` (passes alone, 3 of 3) and `internal/bench`
+    `TestCancelStopsSendingButFinishesTheFiles`, `TestCancelDoesNotWaitOutBackoffs`, `TestRunWritesEveryFile`
+    (about 1 run in 6 alone; the package imports nothing this branch changes; the first two are listed as
+    baseline flakes in the section below).
+  - Deviations: none from the survey's design (b). The survey's "default-on with a per-call opt-out" is
+    `unguarded()`. The guard's cost is the survey's: any change to the table is a conflict, also one the
+    select would not have seen.
+  - Local logic later: a guard is a plain IR assert (`Guard` in `sdk/recording.ts`), so a local speculative
+    run states its read set in the same form. The trade taken: table granularity now; a range assert (spec
+    §10) can be added as a narrower `Guard` without changing how guards travel.
+- Change 3, conflict answers carry the current state: **done** `5eeb650`.
+  - Protocol (`ir/spec/v1.md` §8.1): a `ConflictError`'s `fields` gain `seq` (the sequence of the state the
+    request ran against) and `current`: one entry for the failing operation and one for every later `assert`
+    that fails too (`{op, table, id, doc}`, or `{op, table, changed}` for a table precondition), all against
+    the state the failing operation saw. Capped at 65 536 bytes of canonical JSON; a cut list carries
+    `currentTruncated: true`. Server: `server/internal/docexec/witness.go`.
+  - SDK: `Recording.rebase(error, sentGuards)` turns the conflict and the run's read set into a `ReadSet`
+    (documents and unchanged-table select answers, valid at the conflict's `seq`); the client passes it to the
+    next run as `seed`, on a commit conflict and on a read conflict alike. What the next run uses of the seed
+    it asserts again. No `current`, or a truncated one: the next run reads everything again.
+  - Tests: "read path 3: …" (three tests; the first is the brief's "conflict re-run that does not re-read":
+    query, refused commit, commit, where it was query, commit, query, commit); execute vectors
+    `conflict
+    carries …` and `conflict on …` (4); Go `TestConflictCurrentIsBounded`.
+  - Verified: `deno task ci` exit 0 (333 unit, 61 property); `gofmt`, `go vet`; `go test ./...` fails only the
+    baseline test.
+  - Deviations: (1) the survey said "check every assert rather than stopping at the first"; the server lists
+    the failing operation and every later assert that fails, not asserts placed after a write that ran
+    (nothing runs after the failure, so they are evaluated against the state the failing operation saw). The
+    SDK puts all asserts first, so for it this is every assert. (2) Beyond the survey: select answers from
+    tables the conflict did not name are kept too, and an identical guarded `find` repeated in one run is
+    answered from the run's own read set.
+  - Local logic later: `ReadSet` is plain data (documents, select answers, one sequence) and
+    `RecordingOptions.seed` takes one from anywhere, which is the shape a local store would hand a speculative
+    run; `rebase` is the pure step a local re-run or rebase would call with the server's verdict.
+- Change 4, version-checked cached reads: **done** `5e77f02` (+ tests `655b266`, platform smoke `62a8422`).
+  - SDK only. `sdk/cache.ts`: `ReadCache` (`get`/`put`/`delete`) and `memoryCache(maxDocuments = 1024)`, an
+    LRU that keeps the newer `_version` and hands out copies. `ClientOptions.cache` (default: one
+    `memoryCache()` per client; `false` turns it off; any `ReadCache` may be passed).
+  - A mutation handler's `get` is answered from the cache when it holds the document; the entry is
+    `unverified` until a request has carried its assert (the run's next read, or its commit). A run that ends
+    without a commit (it failed locally, or wrote nothing) and still has unverified reads sends one query of
+    its asserts first (`Recording.verify`); a failed one re-runs the handler on the current document. So no
+    answer and no failure reaches the caller on an unchecked cached read: the survey's red line.
+  - Filled by: every `get` and select answer (queries too), a conflict's `current`, and the client's own
+    commits (a document read then written is cached as computed; a deleted one is dropped). Not cached: a
+    `find`'s answer, a document the run inserted (its `_creationTime` is the server's to say) or wrote without
+    reading. A commit that failed or may have applied drops what it wrote from the cache. A conflict that does
+    not say which documents are stale drops them all. Query handlers do not read the cache.
+  - Tests: "read path 4: …" (six tests; the brief's "stale-cache mutation that cannot commit" is the second)
+    and "read path: makeMove is two round trips cold and one warm; …" on the sample app.
+  - Verified: `deno task ci` exit 0 (340 unit, 61 property); `work-scripts/bash/e2e-linux.sh`
+    `E2E PASS seed=20261010 scenarios=8`; `make platform-up` exit 0 with the smoke now playing four moves
+    through the edge (`makeMove round trips through the edge: warm cache 1 and 1, cold 2, stale cache 2`,
+    `platform smoke OK`), `make platform-down` exit 0 and nothing left.
+  - Round trips for `makeMove` (the survey's representative mutation; one `get`, one commit). Before
+    (`8075b8d`, from its tests): 2, and 4 when the commit conflicts (the reads again, then the commit). After:
+    2 cold, **1 warm**, and a conflict or a stale cache costs **one** more (the refused request carries the
+    document). Measured on the real platform by the smoke, and pinned by the unit tests above.
+  - Deviations: (1) the survey's "queries do not use the cache unless the call opts in to staleness": the
+    opt-in is not built; queries never read the cache. (2) The cache is on by default; the survey did not say.
+    It cannot produce a wrong answer, and the one-trip mutation is the point of the change. (3) The first
+    mutation after `createGame` is still two trips, because an inserted document is not cached.
+  - Local logic later: `ReadCache` is the seam a local store would implement (documents with versions);
+    `unverified` + `verify` is the rule a speculative run needs (compute on local data, let the server check).
+    The trade taken: the cache holds documents only, not select answers, so a `find` is always a round trip;
+    caching selects safely needs the table's sequence to be known locally, which is what a synced local store
+    would bring.
+- Explainer: **done** `98bd9bf`, `docs/colocated-runner-explainer.md` (changes 5, 6 and 7; no code). Its
+  local-logic verdict: feasible as an evolution; nothing in changes 1–4, the runner or in-agentd execution
+  forecloses it; the full version needs a local store and a change feed, neither needed yet.
+- Candidate that could ride along later (named by the explainer, **not built**, for Nick): a mutation's answer
+  carrying the request's clock reading (the one reading of spec §6.3). The client would then know the
+  documents its commit inserted exactly, so inserts become cacheable (the first `makeMove` after `createGame`
+  drops from two round trips to one) and a local store could apply its own commits without reading them back.
+- After the changes: `64b422e` (not a simplification, so its own commit): an oversized commit (`ir-op-limit`)
+  and an unserializable answer were reported before the run's cached reads had been asserted; they now go
+  through the same check as a handler's own failure.
+- Simplify pass: **done** `0b533bb` (no behaviour change). The Go executor reads `_mansio_changes` with one
+  statement for every request (the second statement shape, the pre-scan for table asserts and its flag are
+  gone); the recording executor builds restarts and its own conflicts through two helpers and computes a
+  select's key once; the test model computes a table's last change in one place. The client's run loop was
+  collapsed to one outcome path in `64b422e`. Reviewed and left alone: `witness.go`, the decoders,
+  `sdk/cache.ts`. Docs brought in line: `SKIM.md` excerpts `799dc37`; knowledge entry
+  `docs/knowledge/ir/2026-11-10-read-path.md` `a326e64`.
+- Final verification (this VM, 2026-11-10, branch head after the simplify pass; logs `/tmp/rp/s-*.log`):
+  - `deno task ci` exit 0: fmt, lint, check, 340 unit tests, 61 property tests.
+  - Go: `gofmt -l .` clean, `go vet ./...` ok. `go test -race ./...` fails only tests that fail or flake on
+    the untouched baseline: `cmd/agentd` `TestAdminFetchLimitAppliesToTheNextFetches` (every run) and
+    `TestDrainTimeoutIsReported`, `internal/ir` `TestIndexNamesDecodeFast` (all three listed in the section
+    below), `cmd/sqlbench` `TestInterruptMidRunFinishesFiles` (2 of 6 on `8075b8d` in the merge worktree, 1 of
+    4 here; the package imports nothing this branch changes), and once `cmd/frontbench`
+    `TestKeygenSeedAndRunEveryMode` ("0 req" in a timed run while the whole suite ran; 14 of 14 alone here, 6
+    of 6 on the baseline). `go test -tags noassert ./...` fails only
+    `TestAdminFetchLimitAppliesToTheNextFetches`.
+  - `work-scripts/bash/e2e-linux.sh`: `E2E PASS seed=20261010 scenarios=8`.
+  - `make platform-up` exit 0:
+    `smoke: makeMove round trips through the edge: warm cache 1 and 1, cold 2, stale
+    cache 2`,
+    `platform smoke OK`; `make platform-down` exit 0, `.platform/` gone.
+  - Not run: the gated Go suites that need `MANSIO_PG_URL` / `COLDLOAD_S3` (no code they cover changed).
+- Not done, for Nick: no cross-family review ran on this branch; the brief directed Fable to merge after the
+  simplify pass. Open candidates: the clock reading in mutation answers (above); a query-side opt-in to cached
+  reads (survey change 4's "unless the call opts in to staleness").
+- Resume: `git log --oneline origin/main..feat/read-path-1234` shows what is committed; continue with the next
+  change not marked done above. Nothing runs in the background. Scratch logs: `/tmp/rp/`.
+
 ## 2026-11-10 — backpressure fixes B1–B11 (Fable 5.2 build + simplify + merge, Nick-directed)
 
 - Goal/spec: brief `/root/briefs/mansio-backpressure-fixes-brief.md`; findings and order in

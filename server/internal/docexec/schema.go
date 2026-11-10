@@ -14,7 +14,7 @@ import (
 const (
 	schemaTableDDL = `CREATE TABLE IF NOT EXISTS "_platform_schema" (id INTEGER PRIMARY KEY CHECK (id = 1), definition TEXT NOT NULL) STRICT`
 	schemaInsert   = `INSERT INTO "_platform_schema" VALUES (1, ?)`
-	schemaSelect   = `SELECT definition FROM "_platform_schema" WHERE id = 1`
+	schemaSelect   = `SELECT definition, ` + changesExist + ` FROM "_platform_schema" WHERE id = 1`
 	schemaExists   = `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = '_platform_schema'`
 )
 
@@ -109,25 +109,32 @@ func CanonicalText(text string) error {
 	return nil
 }
 
+// State is what Check learned about a database: its schema, and whether it has the commit-sequence table yet
+// (seq.go).
+type State struct {
+	*Schema
+	changes bool
+}
+
 // Check is the fingerprint check (spec §6.1 step 3): it reads the database's schema record and answers the
 // decoded schema when its fingerprint is fingerprint. It only reads.
 //
-//	post: err == nil ⇒ s.Fingerprint == fingerprint
+//	post: err == nil ⇒ st.Fingerprint == fingerprint
 //	post: errors.Is(err, ErrUninitialized): the database has no schema record
 //	post: a *Failure with SchemaDriftError: the fingerprints differ
 //	post: a *Failure with DecodeError: the stored text is not a valid schema (a damaged file: a server fault)
 //	post: a *Failure with StorageError: a statement failed
-func Check(tx Tx, cache *Schemas, fingerprint string) (*Schema, error) {
-	text, ok, err := stored(tx, false)
+func Check(tx Tx, cache *Schemas, fingerprint string) (State, error) {
+	text, changes, ok, err := stored(tx, false)
 	switch {
 	case err != nil:
-		return nil, err
+		return State{}, err
 	case !ok:
-		return nil, ErrUninitialized
+		return State{}, ErrUninitialized
 	}
 	s, e := cache.Get(text)
 	if e != nil {
-		return nil, protocol(ir.NewError(ir.TagDecode, "reason", "stored-schema", "detail", e.Message()))
+		return State{}, protocol(ir.NewError(ir.TagDecode, "reason", "stored-schema", "detail", e.Message()))
 	}
 	// The stored text is the fingerprint text when this package or platform/sqlite.ts wrote it; a file whose
 	// text is in another form keeps the fingerprint of its own bytes.
@@ -136,15 +143,15 @@ func Check(tx Tx, cache *Schemas, fingerprint string) (*Schema, error) {
 		actual = docschema.Fingerprint(text)
 	}
 	if actual != fingerprint {
-		return nil, protocol(drift(actual, fingerprint))
+		return State{}, protocol(drift(actual, fingerprint))
 	}
-	return s, nil
+	return State{Schema: s, changes: changes}, nil
 }
 
-// stored is the database's schema text, if it has one. probe asks the catalog first: a write closure must
+// stored is the database's schema text, if it has one, and whether the commit-sequence table exists. probe asks the catalog first: a write closure must
 // not run a failing statement (the first statement error poisons its Tx), while a read can try the record
 // and ask the catalog only when that fails (one statement on the hot path).
-func stored(tx Tx, probe bool) (string, bool, error) {
+func stored(tx Tx, probe bool) (text string, changes, ok bool, err error) {
 	exists := func() (bool, error) {
 		rows, err := tx.Query(schemaExists, 1)
 		if err != nil {
@@ -154,35 +161,35 @@ func stored(tx Tx, probe bool) (string, bool, error) {
 	}
 	if probe {
 		if ok, err := exists(); err != nil || !ok {
-			return "", false, err
+			return "", false, false, err
 		}
 	}
 	rows, err := tx.Query(schemaSelect, 1)
 	if err != nil {
 		// Most likely no such table (a new database): ask the catalog rather than read the error's text.
 		if ok, cerr := exists(); cerr != nil || ok || probe {
-			return "", false, storage(err)
+			return "", false, false, storage(err)
 		}
-		return "", false, nil
+		return "", false, false, nil
 	}
 	if len(rows.Values) == 0 {
-		return "", false, nil
+		return "", false, false, nil
 	}
-	text, ok := rows.Values[0][0].(string)
+	text, ok = rows.Values[0][0].(string)
 	if !ok {
-		return "", false, protocol(ir.NewError(ir.TagDecode, "reason", "stored-schema", "detail", "definition is not text"))
+		return "", false, false, protocol(ir.NewError(ir.TagDecode, "reason", "stored-schema", "detail", "definition is not text"))
 	}
-	return text, true, nil
+	return text, rows.Values[0][1] != int64(0), true, nil
 }
 
 // Init creates a new database's tables from s and records s as its schema (platform/ir/executor.ts
-// openIrDatabase): the DDL, then _platform_schema with the fingerprint text. A database that already has a
+// openIrDatabase): the DDL, the commit-sequence table (seq.go), then _platform_schema with the fingerprint text. A database that already has a
 // schema record is left alone: Init succeeds if it is s, and answers SchemaDriftError otherwise. Run it as a
 // write closure (it is one transaction's worth of statements).
 //
 //	post: err == nil ⇒ the database's schema record is s.Text
 func Init(tx Tx, s *Schema) error {
-	text, ok, err := stored(tx, true)
+	text, _, ok, err := stored(tx, true)
 	switch {
 	case err != nil:
 		return err
@@ -195,7 +202,7 @@ func Init(tx Tx, s *Schema) error {
 	if e != nil {
 		return protocol(e)
 	}
-	for _, stmt := range append([]string{schemaTableDDL}, ddl...) {
+	for _, stmt := range append([]string{schemaTableDDL, changesTableDDL}, ddl...) {
 		if _, err := tx.Exec(stmt); err != nil {
 			return storage(err)
 		}

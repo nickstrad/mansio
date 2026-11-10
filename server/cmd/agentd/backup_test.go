@@ -103,7 +103,7 @@ func TestDurableOpsWithSchemasDir(t *testing.T) {
 	}
 	b := r.start(t)
 	waitReady(t, b.life)
-	if code, body := post(b, read); code != http.StatusOK || body != `{"result":[1]}`+"\n" {
+	if code, body := post(b, read); code != http.StatusOK || body != `{"result":[1],"seq":1}`+"\n" {
 		t.Fatalf("cold read: %d %q", code, body)
 	}
 }

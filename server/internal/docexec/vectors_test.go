@@ -251,8 +251,15 @@ func toRows(rows actor.Rows) []doccompile.Row {
 // outcome is one request's answer: the result and duplicate flag, or the wire error.
 type outcome struct {
 	result    any
+	seq       int64 // meaningless on a duplicate
 	duplicate bool
 	err       *ir.Error
+}
+
+// seqOf is the commit sequence a request that ran answered with.
+func seqOf(res actor.Result) int64 {
+	answer, _ := res.Value.(docexec.Answer)
+	return answer.Seq
 }
 
 // exec runs one request body through decode, Check (initializing nothing: vector databases are initialized at
@@ -276,7 +283,7 @@ func (d *db) exec(body []byte, ids *listIDs, wrap func(docexec.Tx) docexec.Tx) o
 	if pe != nil {
 		d.t.Fatalf("result body %q: %v", res.Body, pe)
 	}
-	return outcome{result: v, duplicate: res.Duplicate}
+	return outcome{result: v, duplicate: res.Duplicate, seq: seqOf(res)}
 }
 
 // assertWireError is the README's comparison: tag, status and op exactly; fields as a subset.
@@ -349,6 +356,9 @@ func TestExecuteVectors(t *testing.T) {
 					}
 					if want := expect.Value("duplicate") == true; got.duplicate != want {
 						t.Errorf("step %d: duplicate %v, want %v", i, got.duplicate, want)
+					}
+					if want, ok := expect.Get("seq"); ok && want != float64(got.seq) {
+						t.Errorf("step %d: seq %d, want %v", i, got.seq, want)
 					}
 				}
 				if len(ids.ids) != 0 || ids.over != 0 {

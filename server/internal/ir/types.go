@@ -29,7 +29,7 @@ type Request struct {
 // DB names the database.
 type DB struct{ Tenant, App string }
 
-// Op is one operation: *Select, *Get, *Insert, *Patch, *Delete or *Assert.
+// Op is one operation: *Select, *Get, *Insert, *Patch, *Delete, *Assert or *AssertTable.
 type Op interface {
 	// Name is the wire op name.
 	Name() string
@@ -110,6 +110,20 @@ type Assert struct {
 	Table  string
 	ID     IDRef
 	Expect *Expect
+}
+
+// AssertTable is an assert without an id: the precondition that no applied mutation has changed a row of Table
+// since the commit sequence Since (spec §5.5). It writes nothing.
+type AssertTable struct {
+	Table string
+	Since int64
+}
+
+func (*AssertTable) Name() string        { return "assert" }
+func (o *AssertTable) TableName() string { return o.Table }
+
+func (o *AssertTable) json() *Object {
+	return NewObject("op", "assert", "table", o.Table, "expect", NewObject("unchangedSince", float64(o.Since)))
 }
 
 func (*Select) Name() string { return "select" }
