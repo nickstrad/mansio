@@ -5,6 +5,8 @@ Owner: the backpressure-fixes run (2026-11-10; state in the repo root `STATE.md`
 
 Notes, newest first:
 
+- [2026-11-10 /v1/ops pre-admission](2026-11-10-ops-pre-admission.md) (B6): verify slots for the credential path,
+  per-database claim flights instead of a global mutex, drain before the body.
 - [2026-11-10 shutdown](2026-11-10-shutdown.md) (B5): `drain_delay` on the edge and controld, controld's forced
   close, the snapshot and LIST contexts.
 - [2026-11-10 controld pool budget](2026-11-10-controld-pool-budget.md) (B4): a narrow gate for store loads and

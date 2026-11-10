@@ -197,6 +197,10 @@ func (h *httpHandler) ops(w http.ResponseWriter, r *http.Request) {
 		}
 		in.Timeout = time.Duration(ms) * time.Millisecond
 	}
+	if h.s.Draining() { // refused before the body is read; HandleOps answers and counts the shed
+		h.writeOps(w, r, h.s.HandleOps(r.Context(), in))
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, ir.MaxBodyBytes+1))
 	if ow, ok := w.(*observedWriter); ok {
 		ow.ev.BytesIn = len(body)

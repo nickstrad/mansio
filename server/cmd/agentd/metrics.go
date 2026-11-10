@@ -35,11 +35,15 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server, cfg *Config) {
 	// The request path's queues, outermost first. mailbox and read are per database: capacity is one actor's.
 	metrics.Queues(reg, func() []metrics.QueueStat {
 		adm, q, mailbox := srv.Admission().Stats(), cfg.actorQueues, cfg.actorConfig().MailboxSize
-		return []metrics.QueueStat{
+		qs := []metrics.QueueStat{
 			{Queue: "admission", Capacity: adm.QueueCap, Rejected: map[string]int64{metrics.ReasonFull: adm.Shed}, Wait: srv.Admission().Wait()},
 			{Queue: "mailbox", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.MailboxFull()}, Wait: q.MailboxWait()},
 			{Queue: "read", Capacity: mailbox, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
 		}
+		if slots, shed := srv.OpsVerifyStats(); slots > 0 { // the credential path's pre-admission slots (B6)
+			qs = append(qs, metrics.QueueStat{Queue: "verify", Capacity: slots, Rejected: map[string]int64{metrics.ReasonFull: shed}})
+		}
+		return qs
 	})
 	reg.Add("mansio_requests_total", "Answers per integration point by outcome class and wire code.", metrics.Counter, func(e *metrics.Emit) {
 		for i, c := range front.Codes {

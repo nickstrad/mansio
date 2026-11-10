@@ -238,7 +238,7 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		}
 	}
 	ops := front.OpsConfig{Schemas: be.schemas, SchemaCache: cfg.SchemaCache, Credentials: ten.creds, CredentialEpoch: cfg.DefaultEpoch,
-		CredentialPlace: be.credentialPlace}
+		CredentialPlace: be.credentialPlace, VerifySlots: cfg.VerifySlots}
 	if events != nil {
 		ops.Observer = opsObserver(events, cfg.EventLog.TraceSQL)
 	}

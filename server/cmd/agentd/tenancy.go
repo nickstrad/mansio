@@ -24,6 +24,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/load"
 	"github.com/nickstrad/mansio/server/internal/logx"
 	"github.com/nickstrad/mansio/server/internal/owner"
+	"github.com/nickstrad/mansio/server/internal/panicx"
 	"github.com/nickstrad/mansio/server/internal/placement/pg"
 	"github.com/nickstrad/mansio/server/internal/retry"
 	"github.com/nickstrad/mansio/server/internal/tenancy"
@@ -321,10 +322,32 @@ func (a creatingAdmitter) Admit(db string, epoch uint64) (func(), error) {
 // plane: its placement row names this vm, e.g. after dbtool import -placement-dir, or after a restart's
 // reconcile left it unclaimed); with create_dbs, one that has no placement row is created first, as control.go's
 // claim create (ACTIVE(self, 1, 0)), within max_dbs and max_dbs_per_tenant (the keys this agent's table knows).
-// Claims and creates are serialized (rare, and each is a few authority calls); warm requests never lock.
+//
+// Warm requests never lock. A database that needs a claim gets one flight, shared by every request for it;
+// at most cap(sem) flights run at once (lifecycle_concurrency: the same work as the lifecycle claim), and a
+// request for another database beyond that is shed at once. A flight runs under lifecycle_timeout on its own
+// goroutine, so a caller that gives up neither cancels it for the others nor waits past its own deadline.
+// Creates are serialized among themselves (the caps count this agent's keys), claims of existing rows are not.
 type claimingPlace struct {
-	d  *durableAgent
-	mu sync.Mutex
+	d    *durableAgent
+	sem  chan struct{} // flights in flight
+	shed atomic.Int64  // requests refused because sem was full
+
+	mu      sync.Mutex
+	flights map[string]*placeFlight // by database
+	creates chan struct{}           // 1 slot: one create (count, CAS, claim) at a time
+}
+
+// placeFlight is one database's claim (and create), shared by the requests that wait for it.
+type placeFlight struct {
+	done       chan struct{}
+	epoch, gen uint64
+	err        error
+}
+
+func newClaimingPlace(d *durableAgent) *claimingPlace {
+	return &claimingPlace{d: d, sem: make(chan struct{}, d.cfg.LifecycleConcurrency), flights: map[string]*placeFlight{},
+		creates: make(chan struct{}, 1)}
 }
 
 func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, error) {
@@ -332,8 +355,49 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 		return uint64(l.Epoch), uint64(l.Gen), nil
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if l := p.d.tab.State(db); l.State == owner.Active {
+	f := p.flights[db]
+	if f == nil {
+		select {
+		case p.sem <- struct{}{}:
+		default:
+			p.mu.Unlock()
+			p.shed.Add(1)
+			return 0, 0, fmt.Errorf("%w: too many databases being claimed or created; nothing started for %s", front.ErrShed, db)
+		}
+		f = &placeFlight{done: make(chan struct{})}
+		p.flights[db] = f
+		go p.run(db, f)
+	}
+	p.mu.Unlock()
+	select {
+	case <-f.done:
+		return f.epoch, f.gen, f.err
+	case <-ctx.Done():
+		return 0, 0, ctx.Err()
+	}
+}
+
+// run is db's flight: claim it (creating it first if it has no row), then wake the waiters.
+//
+//	pre: a slot of p.sem is held and f is p.flights[db]; run releases both
+func (p *claimingPlace) run(db string, f *placeFlight) {
+	ctx, cancel := context.WithTimeout(context.Background(), p.d.cfg.LifecycleTimeout.Duration)
+	defer func() {
+		cancel()
+		if pn := panicx.From(recover()); pn != nil { // a bug: every waiter answers internal, none hangs
+			f.err = pn
+		}
+		p.mu.Lock()
+		delete(p.flights, db)
+		p.mu.Unlock()
+		<-p.sem
+		close(f.done)
+	}()
+	f.epoch, f.gen, f.err = p.claim(ctx, db)
+}
+
+func (p *claimingPlace) claim(ctx context.Context, db string) (uint64, uint64, error) {
+	if l := p.d.tab.State(db); l.State == owner.Active { // claimed between the caller's check and this flight
 		return uint64(l.Epoch), uint64(l.Gen), nil
 	}
 	_, err := p.d.place.Get(ctx, db)
@@ -341,6 +405,14 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 	case errors.Is(err, owner.ErrNotFound) && !p.d.cfg.CreateDBs:
 		return 0, 0, fmt.Errorf("%w: %s has no placement row and create_dbs is off", front.ErrUnknownDB, db)
 	case errors.Is(err, owner.ErrNotFound):
+		// The caps count the keys the table knows, and a key enters it at its claim: hold the create slot
+		// until then.
+		select {
+		case p.creates <- struct{}{}:
+			defer func() { <-p.creates }()
+		case <-ctx.Done():
+			return 0, 0, agentglue.AsUnavailable(ctx.Err())
+		}
 		if err := p.create(ctx, db); err != nil {
 			return 0, 0, err
 		}
@@ -362,7 +434,7 @@ func (p *claimingPlace) place(ctx context.Context, db string) (uint64, uint64, e
 // create writes db's placement row ACTIVE(self, 1, 0) within the caps. The caps count the keys this agent's
 // owner table knows: single node only (placement_dir), where every database is this agent's.
 //
-//	pre: p.mu held
+//	pre: the create slot (p.creates) is held
 func (p *claimingPlace) create(ctx context.Context, db string) error {
 	cfg := p.d.cfg
 	keys := p.d.tab.Keys()

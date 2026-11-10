@@ -48,6 +48,8 @@ type durableAgent struct {
 	probe   s3Probe
 	// lifecycle is the lifecycle endpoints' slot pool (lifecycle_concurrency; a full one sheds).
 	lifecycle slots
+	// claims is the credential path's claim-or-create (tenancy.go); nil without a tenancy section.
+	claims *claimingPlace
 
 	firstRound atomic.Bool // the first reconcile round finished (some keys may still be retrying)
 }
@@ -138,7 +140,8 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 		backup:     d.backup,
 	}
 	if cfg.Tenancy != nil {
-		be.credentialPlace = (&claimingPlace{d: d}).place
+		d.claims = newClaimingPlace(d)
+		be.credentialPlace = d.claims.place
 	}
 	return be, nil
 }
@@ -265,7 +268,14 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 		}
 		return append(depths, d.canary.QueueDepths()...)
 	})
-	metrics.Queues(reg, func() []metrics.QueueStat { return []metrics.QueueStat{d.lifecycle.stat("lifecycle")} })
+	metrics.Queues(reg, func() []metrics.QueueStat {
+		qs := []metrics.QueueStat{d.lifecycle.stat("lifecycle")}
+		if d.claims != nil {
+			qs = append(qs, metrics.QueueStat{Queue: "credential_place", Capacity: cap(d.claims.sem),
+				Rejected: map[string]int64{metrics.ReasonFull: d.claims.shed.Load()}})
+		}
+		return qs
+	})
 	if d.schemas != nil {
 		schemaMetrics(reg, d.schemas)
 	}

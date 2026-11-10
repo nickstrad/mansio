@@ -91,10 +91,13 @@ type Config struct {
 	SchemasDir     string        `json:"schemas_dir"`
 	SchemasTimeout load.Duration `json:"schemas_timeout"` // one fetch; default 3 s
 	SchemaCache    int           `json:"schema_cache"`    // schemas cached (by app and fingerprint); default 1024
-	KeysTimeout    load.Duration `json:"keys_timeout"`    // one fetch; default 3 s
-	ClockSkew      load.Duration `json:"clock_skew"`
-	MaxTicketTTL   load.Duration `json:"max_ticket_ttl"`
-	TicketCache    int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
+	// VerifySlots bounds /v1/ops credential requests inside their pre-admission checks at once (the tenancy
+	// store, the schema registry, a claim or create); more are shed at once. 0 = 64.
+	VerifySlots  int           `json:"verify_slots"`
+	KeysTimeout  load.Duration `json:"keys_timeout"` // one fetch; default 3 s
+	ClockSkew    load.Duration `json:"clock_skew"`
+	MaxTicketTTL load.Duration `json:"max_ticket_ttl"`
+	TicketCache  int           `json:"ticket_cache"` // verified tickets remembered; 0 = off
 
 	// Static mode's admitter: every served database is owned at default_epoch unless epochs overrides it.
 	DefaultEpoch uint64            `json:"default_epoch"`
@@ -337,6 +340,9 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	}
 	if c.DrainTimeout.Duration > c.ShutdownBudget.Duration {
 		bad("drain_timeout %v is over shutdown_budget %v (the drain is part of the shutdown)", c.DrainTimeout, c.ShutdownBudget)
+	}
+	if c.VerifySlots < 0 {
+		bad("verify_slots must be >= 0 (0 = 64)")
 	}
 	if c.Limits.MaxBody <= 0 || c.Limits.MaxSQL <= 0 || c.Limits.MaxArgs <= 0 || c.Limits.MaxRows <= 0 {
 		bad("limits must all be > 0")

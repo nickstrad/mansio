@@ -15,3 +15,9 @@ breaker read 0 body bytes; before, each read its whole body).
   `max_in_flight` to the machine.
 - Metrics: `mansio_edge_refusals_total{reason="max_in_flight"}` and the `edge_*` queues in
   [the per-queue families](2026-11-10-queue-metrics.md).
+
+Precision on "reads nothing": the edge's handler reads and buffers none of the body. Over HTTP/1.1 Go's
+`net/http` then discards up to 256 KiB of an unread request body before it writes the reply (larger bodies
+close the connection instead); that streams to nowhere, takes no slot and no edge memory, and for a client
+that already sent its body it is immediate. A sender that stalls waits for its own answer until
+`body_read_timeout`. HTTP/2 has no such step. The same holds for agentd's draining refusal on `/v1/ops` (B6).
