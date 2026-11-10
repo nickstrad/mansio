@@ -919,3 +919,17 @@ Branch `feat/version-fixes`. Note: `knowledge/writeback/2026-11-10-version-floor
   versions from the answers.
 - **Open finding (needs a decision):** the commit sequence (`seq`, `unchangedSince`) repeats after a rollback
   the same way (the note's last section).
+
+## 2026-11-10 — version-fixes: `objstore.EnsureBucket` is idempotent
+
+- **objstore (behaviour change):** `Store.EnsureBucket` succeeds when its create is answered
+  `BucketAlreadyOwnedByYou` (another process of the same account created the bucket between the HEAD and the
+  PUT: two agentd starting together). Before, the loser logged `S3.BUCKET_CHECK_FAILED` and counted an
+  `op="bucket"` error, though the bucket was there. `BucketAlreadyExists` (another account's name) and a
+  refused HEAD still fail. SeaweedFS 4.48 answers 409 `BucketAlreadyOwnedByYou` (measured on the platform's
+  own store).
+- **s3test:** `Server.SetBucket(bucket, BucketState)` (`BucketOwned` default, `BucketMissing`,
+  `BucketCreatedSinceHead`, `BucketTakenSinceHead`, `BucketForeign`); a PUT of an existing bucket now answers
+  409 `BucketAlreadyOwnedByYou` instead of 200. Tests: `objstore` `TestEnsureBucket`,
+  `TestEnsureBucketFromTwoStartersAtOnce`.
+- `scripts/platform/up.sh` no longer creates the bucket before the agents start: they do.

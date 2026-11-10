@@ -162,7 +162,12 @@ func wrap(err error, format string, args ...any) *errs.Error {
 	return e
 }
 
-// EnsureBucket creates the bucket if it does not exist.
+// EnsureBucket creates the bucket if it does not exist. It is idempotent, also against another process of
+// the same account creating the bucket at the same moment (two agents starting together): the store's
+// "BucketAlreadyOwnedByYou" to our create means the bucket exists and is ours, which is what was asked for. A
+// name another account holds ("BucketAlreadyExists", or a HEAD that is refused) is still an error.
+//
+//	post: err == nil ⇒ the bucket exists and belongs to this account
 func (s *Store) EnsureBucket(ctx context.Context) error {
 	var ok bool
 	err := s.retryIdempotent(ctx, OpBucket, s.bucket, s.cfg.OpTimeout, func(a *attempt) error {
@@ -177,7 +182,11 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 		return nil
 	}
 	err = s.sendOnce(ctx, OpBucket, s.bucket, s.cfg.OpTimeout, func(a *attempt) error {
-		return s.c.MakeBucket(a.ctx, s.bucket, minio.MakeBucketOptions{})
+		err := s.c.MakeBucket(a.ctx, s.bucket, minio.MakeBucketOptions{})
+		if minio.ToErrorResponse(err).Code == "BucketAlreadyOwnedByYou" {
+			return nil // created since our check, by us: not a failure, for the caller or the metrics
+		}
+		return err
 	})
 	if err != nil {
 		return wrap(err, "cannot create bucket %s; safe to retry", s.bucket)

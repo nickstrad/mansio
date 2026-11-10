@@ -6,7 +6,7 @@
   reuse after a rollback). Item B: recorded platform-up follow-up 2 (`objstore.EnsureBucket` and "already
   owned by you"). Item C: recorded follow-up 1 (the fixed Compose project name). One commit per item, then a
   simplify pass, then a merge to main from `/root/Software/mansio-work/main-merge`.
-- Status: **item A done; B and C in progress.** Branch `feat/version-fixes`, worktree
+- Status: **items A and B done; C in progress.** Branch `feat/version-fixes`, worktree
   `/root/Software/mansio-work/version-fixes`, on top of `7dcb164`.
 - Item A, the version floor: **done** (this commit). Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md`; spec `ir/spec/v1.md` §6.3 and §13 (revision 1.2).
@@ -43,6 +43,19 @@
     `dbtool
     rebuild-manifest` over an unreadable manifest, and `dbtool restore` + `import` into a key
     without a manifest, restart the seal (an operator rollback the floor does not see).
+- Item B, `EnsureBucket` is idempotent: **done** (this commit). `objstore.Store.EnsureBucket` treats the
+  store's `BucketAlreadyOwnedByYou` to its create as success (the bucket is there and ours); another account's
+  name (`BucketAlreadyExists`, or a refused HEAD) still fails.
+  - Tests: `objstore` `TestEnsureBucket` (five bucket states on the in-process S3, `s3test.SetBucket`) and
+    `TestEnsureBucketFromTwoStartersAtOnce`; both fail without the fix.
+  - The `up.sh` workaround (creating the bucket with `weed shell` before the agents start) is **removed**: it
+    is unnecessary now, and without it `make platform-up` exercises the path production takes. Four
+    `platform-up` / `platform-down` cycles without it: all exit 0, `platform smoke OK`, no
+    `S3.BUCKET_CHECK_FAILED`; on each agent `mansio_s3_requests_total{op="bucket",kind="ok"} 2` and every
+    error kind 0 (both agents sent the create; the platform's SeaweedFS answers a second create 409
+    `BucketAlreadyOwnedByYou`, probed directly).
+  - Verified: `gofmt`, `go vet`; `go test ./internal/objstore/...` and `-race` on `objstore`, `vactor`,
+    `cmd/agentd` ok.
 - **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
   `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
   host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
