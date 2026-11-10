@@ -1,5 +1,63 @@
 # mansio — project state
 
+## 2026-11-10 — `make platform-up` / `make platform-down` (Opus build)
+
+- Goal/spec: MANSIO-REFACTORS item 1
+  (`/root/Software/book-notes-work/backpressure-plan/books/backpressure-in-microservices/MANSIO-REFACTORS.md`),
+  brief `/root/briefs/mansio-platform-up-brief.md`: one command builds the daemons, generates a dev CA, ticket
+  keys and secrets, starts Postgres, the object store, controld, two agentd and the edge, registers a schema,
+  creates a tenant and key, and runs one SDK write and read through the edge; `platform-down` removes it.
+- Status: **built and verified on `feat/platform-up`; awaiting cross-family review.** No merge, no push.
+- Built: `9fb5592` `controld keygen -dir DIR [-public FILE]` (keygen home: **controld**, the ticket issuer; it
+  seeds an empty `ticket_keys.dir` in the exact format controld serves from — a fresh ring signs with its only
+  key at once — and optionally writes the public key set a static agentd/edge takes as `keys_file`; refuses a
+  ring that already holds keys; test `cmd/controld/keygen_test.go`). `c5a4790` sample configs
+  (`agentd/durable-local.json`, `agentd/durable-pg.json`, `controld/local.json`) now use bucket `mansio-test`,
+  the one `make s3-init` creates. `5688317` `make platform-up` / `make platform-down` →
+  `scripts/platform/{up.sh,down.sh,lib.sh,compose.yml,smoke.ts}`, `deno task platform:smoke`, `.platform/`
+  gitignored. Assembled from `server/scripts/soak/run.sh` (TLS from a throwaway CA, config shapes, process
+  handling) and `tests/e2e/platform/cluster.ts` (api-key tenancy, schema registry, SDK locator client).
+- How it works: own Compose project `mansio-platform` (Postgres `127.0.0.1:15432`, SeaweedFS S3
+  `127.0.0.1:18333`, project-scoped volumes), so it runs beside the root `make up` stack (5432/8333) and never
+  collides with it. Daemons on loopback HTTPS from the dev CA: controld 27080, vm-a 27070-2, vm-b 27073-5,
+  edge 27443/27444; durable agents on bucket `mansio-test` prefix `platform/`, Postgres placement schema
+  `control`. State (binaries, CA, keys, secrets, configs, caches, logs, pid files) in `.platform/`; daemons
+  are `setsid`-detached and outlive `make`. Proof: `smoke.ts` (Deno, `DENO_CERT` = the dev CA) registers
+  `tic-tac-toe`, creates a tenant + API key via `/admin/tenants`, `createGame` then `getGame` through the
+  locator route and the edge, and fails unless the document read back has the written id and players; then
+  up.sh prints the edge's own `mansio_edge_agent_answers_total{status="2xx"}` count.
+- Repeat behaviour: `make platform-up` while up rebuilds/restarts nothing and re-runs the smoke proof (new
+  tenant each time). Leftover `.platform/` with any daemon not running: refuses and asks for
+  `make platform-down`. Any failure after the start: prints daemon log tails and runs down.sh, so a failed up
+  leaves nothing behind (exercised: the first run failed on an edge config error and tore down cleanly).
+  `platform-down` is idempotent; it deletes `.platform/` only if it carries the `.mansio-platform` marker and
+  kills only pids whose `/proc/<pid>/exe` is in `.platform/bin/`.
+- Verified (2026-11-10, this VM): `make platform-up` from clean → exit 0, ~21 s,
+  `platform smoke OK: wrote and read back game 01a1c334-da95-… (xPlayer alice-52cf15fe) via https://127.0.0.1:27443`,
+  edge relayed 2 2xx answers; second `make platform-up` while up → exit 0, ~1 s, new tenant, read back
+  `alice-e841f476`, edge count 4; `make platform-down` → exit 0, `.platform/` gone, 0 `mansio-platform`
+  containers/volumes, other containers (`tsdb-postgres-1`, `tsdb-seaweedfs-1`) and volumes (`pg-data`,
+  `seaweedfs-data`, …) unchanged (diffed before/after); up → down → up → down repeated twice, all exit 0;
+  stale-state refusal checked by killing the edge. Checks: `gofmt -l` clean, `go vet ./cmd/controld/`,
+  `go test -race ./cmd/controld/` and `-tags noassert` ok; `deno task fmt:check`, `lint`, `check` exit 0;
+  `deno task test` 317 passed / 0 failed; `shellcheck -x scripts/platform/*.sh` clean. Full
+  `go test -race ./...` and `deno task ci` property tests were not re-run (only `cmd/controld` and sample JSON
+  configs changed in Go; the earlier section records their pre-existing failures).
+- Deviations: (1) the platform does not reuse the root `docker-compose.yml` stack: platform-down must remove
+  what it created without touching a developer's `make up` data, and on this VM 5432/8333 are already held by
+  another stack — so it has its own project and ports. (2) controld and the agents still run with `-dev`, only
+  to allow plain-HTTP S3 to the loopback SeaweedFS; every mansio listener is HTTPS. (3) The agents and edge
+  fetch keys from controld's `/v1/keys`; the `-public` key-set file is written
+  (`.platform/ticket-keys.public.json`) but not consumed by this topology. (4) `frontbench keygen` is left in
+  place (the bench uses its issuer file format).
+- Next: cross-family review of `feat/platform-up` (base `394fce7`, head = this commit); then item 2 wires
+  `make platform-up` / `make platform-down` as the CI end-to-end job (needs go, docker compose v2, openssl,
+  curl, jq, deno 2.9.5 on the runner).
+- Resume: worktree `/root/Software/mansio-work/platform-up`, branch `feat/platform-up`. Nothing is running
+  (`ls .platform` absent, `docker ps | grep mansio-platform` empty); if a platform is found up,
+  `make
+  platform-down` removes it. Logs of a live platform: `.platform/<controld|vm-a|vm-b|edge>/*.log`.
+
 ## 2026-11-07 — Go-platform C4 dataset (Astra build, Opus final pass)
 
 - Goal/spec: Nick's “Make c4 diagrams for mansio with Astra and have opus do final pass”; bundle
