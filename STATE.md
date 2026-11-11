@@ -7,9 +7,10 @@
   `assert {unchangedSince}` after a rollback; Nick's go covers the protocol change). Items 2 and 3: the two
   baseline-red Go tests. One commit per item, a simplify pass, then a merge to main from
   `/root/Software/mansio-work/main-merge`.
-- Status: **in progress**: the three items are committed on `feat/bug-fixes`; the full verification, the
-  simplify pass and the merge are next.
-- Item 1, the sequence floor: **done** (the commit that adds this section). Reference:
+- Status: **verified on the branch head `c6d8e8d`, merge next**. Commits: item 2 `3f374c1`, item 3 `0687ffe`,
+  item 1 `00dabc8`, simplify `c6d8e8d`. No cross-family review ran: the brief directed Fable to merge after
+  the simplify pass.
+- Item 1, the sequence floor: **done** `00dabc8`. Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md` (its last section is the fix record); spec
   `ir/spec/v1.md` §5.5, §6.5, §14 (revision 1.3).
   - The rule (the note's sketch, adopted as it stood; `server/internal/docexec/seq.go`): a mutation that
@@ -47,10 +48,21 @@
   it sets and the queries answered 504 `expired` and 503 `unavailable`. `Dribble` now paces against the clock
   (each round sends the bytes that are due); `TestDribbleSendsAtTheRate` also pins the high rate (16 KiB in
   about a second). The agentd test is unchanged and passed 6 of 6 runs.
-- Simplify pass: not started.
-- Verification: per item so far (the lines above); the full run (`go test ./...`, `go vet`, `gofmt`,
-  `deno task ci`, e2e, platform smoke) is next.
-- Next: full verification on the branch head, the simplify pass, re-verification, the merge (brief, "Merge").
+- Simplify pass: **done** `c6d8e8d` (behaviour unchanged). The cluster checker has one reuse check for both
+  `(account, _version)` and `(account, seq)` (`seenWith`); the sim's guarded transfer builds its patches once
+  instead of building and deleting `expect`; `Dribble` lost two dead `max()`; the docexec test reads the
+  sequence with `db.seq()`. Reviewed and left: `run.unchangedSince` (two callers, the assert and the
+  conflict's `current`), `run.next` (two callers). After it, the sim still catches the fix taken out (seeds
+  2849 and 2841: `sequence reuse`) and passes with it.
+- Verification on `c6d8e8d` (2026-11-11, this VM), **all green, no baseline failure left**: `gofmt -l .`
+  empty; `go vet ./...` ok; `go test -count=1 ./...` exit 0 (63 packages ok, also on `00dabc8` before the
+  simplify pass); `deno task ci` exit 0 (341 unit, 61 property); `work-scripts/bash/e2e-linux.sh`
+  `E2E PASS
+  seed=20261010 scenarios=8`; `make platform-up` exit 0
+  (`warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`), `make platform-down` exit 0. Not run:
+  `go test -race ./...` and `-tags noassert` (the brief's bar is `go test ./...`).
+- Next: the merge (brief, "Merge"): `git merge --no-ff feat/bug-fixes` in
+  `/root/Software/mansio-work/main-merge`, `go test ./...` and the platform smoke on the merged tree, push.
 - Resume: branch `feat/bug-fixes`, worktree `/root/Software/mansio-work/bug-fixes`. Nothing runs in the
   background and no platform is up (`docker ps | grep mansio-platform` is empty). `server/results/sim-swarm/`
   holds the two swarm outputs (ignored by git).
