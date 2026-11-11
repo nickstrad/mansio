@@ -7,9 +7,16 @@
   `assert {unchangedSince}` after a rollback; Nick's go covers the protocol change). Items 2 and 3: the two
   baseline-red Go tests. One commit per item, a simplify pass, then a merge to main from
   `/root/Software/mansio-work/main-merge`.
-- Status: **verified on the branch head `c6d8e8d`, merge next**. Commits: item 2 `3f374c1`, item 3 `0687ffe`,
-  item 1 `00dabc8`, simplify `c6d8e8d`. No cross-family review ran: the brief directed Fable to merge after
-  the simplify pass.
+- Status: **merged to main and pushed: merge `f140dea`** (`git merge --no-ff feat/bug-fixes` on top of
+  `a31efc8`, pushed 2026-11-11). Commits: item 2 `3f374c1`, item 3 `0687ffe`, item 1 `00dabc8`, simplify
+  `c6d8e8d`. All three items are done and `go test ./...` is green: no baseline failure is left. No
+  cross-family review ran: the brief directed Fable to merge after the simplify pass.
+- How it was merged: as the version-fixes merge was, in `/root/Software/mansio-work/main-merge` on a detached
+  HEAD at `origin/main`, pushed with `git push origin HEAD:main`. **The local `main` ref and Twin's checkout
+  (`/root/Software/mansio`) are behind**: run `git pull --ff-only` there to catch up.
+- Verified on the merged tree (identical to the verified branch head `1e43c5c`): `go test -count=1 ./...` exit
+  0 (63 packages ok); `make platform-up` exit 0 (`warm cache 1 and 1, cold 2, stale cache 2`,
+  `platform smoke OK`); `make platform-down` exit 0.
 - Item 1, the sequence floor: **done** `00dabc8`. Reference:
   `server/knowledge/writeback/2026-11-10-version-floor.md` (its last section is the fix record); spec
   `ir/spec/v1.md` §5.5, §6.5, §14 (revision 1.3).
@@ -61,11 +68,12 @@
   seed=20261010 scenarios=8`; `make platform-up` exit 0
   (`warm cache 1 and 1, cold 2, stale cache 2`, `platform smoke OK`), `make platform-down` exit 0. Not run:
   `go test -race ./...` and `-tags noassert` (the brief's bar is `go test ./...`).
-- Next: the merge (brief, "Merge"): `git merge --no-ff feat/bug-fixes` in
-  `/root/Software/mansio-work/main-merge`, `go test ./...` and the platform smoke on the merged tree, push.
-- Resume: branch `feat/bug-fixes`, worktree `/root/Software/mansio-work/bug-fixes`. Nothing runs in the
-  background and no platform is up (`docker ps | grep mansio-platform` is empty). `server/results/sim-swarm/`
-  holds the two swarm outputs (ignored by git).
+- Next: nothing is open from this brief. Follow-ups, none blocking: `go test -race ./...` and `-tags noassert`
+  were not run here; a restart costs each guarded select one conflict (the note's "Rejected" paragraph says
+  why the cheaper rule was not taken).
+- Resume: nothing is running and no platform is up (`docker ps | grep mansio-platform` is empty). The branch
+  `feat/bug-fixes` and its worktree `/root/Software/mansio-work/bug-fixes` are merged and can be removed
+  (`git worktree remove`; `server/results/sim-swarm/` there holds the two swarm outputs, ignored by git).
 
 ## 2026-11-10 — version fixes: `_version` after a rollback, EnsureBucket, per-checkout Compose project (Fable 5.2, Nick-directed)
 
