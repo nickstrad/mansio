@@ -386,10 +386,10 @@ func (s *Server) serveObject(w http.ResponseWriter, r *http.Request, o object, f
 		every := time.Second / time.Duration(f.Rate)
 		start := time.Now()
 		for sent := 0; sent < len(data); {
-			due := min(len(data), int(time.Since(start)/every)+1)
-			w.Write(data[sent:max(due, sent)])
+			due := min(len(data), int(time.Since(start)/every)+1) // never behind sent: the clock is monotonic
+			w.Write(data[sent:due])
 			fl.Flush()
-			sent = max(due, sent)
+			sent = due
 			if !s.wait(r, max(time.Until(start.Add(time.Duration(sent)*every)), time.Millisecond)) {
 				return
 			}

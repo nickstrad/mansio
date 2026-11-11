@@ -21,6 +21,16 @@ func (d *db) write(rid, ops string, ids ...string) int64 {
 	return got.seq
 }
 
+// seq is the database's commit sequence, as a query answers it.
+func (d *db) seq() int64 {
+	d.t.Helper()
+	got := d.exec(body("query", "", d.schema.Fingerprint, `[{"op":"get","table":"notes","id":"none"}]`), &listIDs{}, nil)
+	if got.err != nil {
+		d.t.Fatal(got.err.Message())
+	}
+	return got.seq
+}
+
 // guard asks, in a query, whether table is unchanged since seq (spec §5.5): the answer's sequence, or the
 // conflict.
 func (d *db) guard(table string, since int64) (int64, *ir.Error) {
@@ -54,11 +64,7 @@ func TestSequenceIsNotReissuedAfterARollback(t *testing.T) {
 	issued := map[int64]string{} // sequence → the mutation that left it
 	for round := range 3 {
 		d.publish()
-		kept, err := d.guard("notes", 0)
-		if err == nil {
-			t.Fatalf("round %d: notes unchanged since 0 holds after an insert", round)
-		}
-		kept = int64(err.Field("seq").(float64))
+		kept := d.seq()
 
 		// Lost: a note and a list. The client's find answers at the sequence these leave.
 		d.write(fmt.Sprintf("ln%d", round), note, fmt.Sprintf("lost%d", round))

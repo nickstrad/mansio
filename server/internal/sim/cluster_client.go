@@ -396,19 +396,23 @@ func (c *cclient) transfer(ctx context.Context) {
 		newFrom: seen.balances[0] - amount, newTo: seen.balances[1] + amount}
 	rid := c.rid()
 	in.rid = rid
+	// Guarded, the SDK's way for a find (spec §5.5): no expect on the documents, the table unchanged since the
+	// read's sequence instead. The model judges the transfer by the versions read all the same, so a guard
+	// that holds against other accounts than the read saw is a history that does not linearize.
+	guarded := c.n%guardedEvery == 0
 	patch := func(account int, balance, version int64) map[string]any {
-		return map[string]any{"op": "patch", "table": "accounts", "id": acctID(account), "value": map[string]any{"balance": balance}, "expect": map[string]any{"version": version}}
+		op := map[string]any{"op": "patch", "table": "accounts", "id": acctID(account), "value": map[string]any{"balance": balance}}
+		if !guarded {
+			op["expect"] = map[string]any{"version": version}
+		}
+		return op
 	}
-	ops := []map[string]any{patch(from, in.newFrom, in.vFrom), patch(to, in.newTo, in.vTo), logOp(rid)}
-	if c.n%guardedEvery == 0 {
-		// The SDK's guard for a find (spec §5.5): no expect on the documents, the table unchanged since the
-		// read's sequence instead. The model judges the transfer by the versions read all the same, so a
-		// guard that holds against other accounts than the read saw is a history that does not linearize.
-		delete(ops[0], "expect")
-		delete(ops[1], "expect")
-		ops = append([]map[string]any{{"op": "assert", "table": "accounts", "expect": map[string]any{"unchangedSince": seen.seq}}}, ops...)
+	var ops []map[string]any
+	if guarded {
+		ops = append(ops, map[string]any{"op": "assert", "table": "accounts", "expect": map[string]any{"unchangedSince": seen.seq}})
 	}
-	first := len(ops) - 3 // the patches' place in the answer
+	first := len(ops) // the patches' place in the answer
+	ops = append(ops, patch(from, in.newFrom, in.vFrom), patch(to, in.newTo, in.vTo), logOp(rid))
 	call := c.now()
 	octx, cancel := c.opCtx(ctx)
 	a := c.send(octx, true, rid, ops)
