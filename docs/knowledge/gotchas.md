@@ -363,3 +363,13 @@ clock as well (`os.Chtimes`).
 Fixed 2026-11-11 (bug-fixes run): the test was the wrong side. It stamped only the open file, once per five
 records; now every record is followed by `os.Chtimes` of its file to the fake clock, so each closed file a
 sweep sees carries a fake time, and the result is the same with the fake clock before or after the real one.
+
+## A test fake that sleeps per byte does not keep a high rate
+
+`server/internal/objstore/s3test`'s `Dribble` fault used to write one byte, flush, and sleep `1s / Rate`. At
+50 B/s that is exact; at 16 KiB/s a byte has 61 µs, and a timer plus a flush cost about ten times that: the
+body arrived at 1.5 KiB/s on vm-1 (16 384 bytes in 10.6 s, measured 2026-11-11). `cmd/agentd`
+`TestAdminFetchLimitAppliesToTheNextFetches` wanted fetches slow enough to overlap and got fetches slower than
+its 5 s S3 deadline: 504 `expired`, red on every run on this VM, while the product was right. `Dribble` now
+paces against the clock (each round sends the bytes that are due). When a fake takes a rate, pace it by
+elapsed time and pin the rate with an upper bound in the fake's own test, not only a lower one.
