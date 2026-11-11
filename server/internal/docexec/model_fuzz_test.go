@@ -614,7 +614,7 @@ func (m *model) step(op ir.Op, refs []string, now int64, draw func() string) (an
 		if m.touched[op.Table] {
 			changed = m.seq + 1
 		}
-		if changed > op.Since {
+		if changed > op.Since || op.Since > m.seq {
 			return nil, ir.NewError(ir.TagConflict, "table", op.Table, "check", "unchanged", "expected", float64(op.Since), "actual", float64(changed))
 		}
 		return nil, nil

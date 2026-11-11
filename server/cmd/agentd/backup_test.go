@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -92,7 +94,9 @@ func TestDurableOpsWithSchemasDir(t *testing.T) {
 
 	a := r.start(t)
 	a.claim(t, "acme:ttt")
-	if code, body := post(a, insert); code != http.StatusOK {
+	// The insert's sequence: on a durable agent the first one is the incarnation's floor (spec §6.5), not 1.
+	var inserted struct{ Seq int64 }
+	if code, body := post(a, insert); code != http.StatusOK || json.Unmarshal([]byte(body), &inserted) != nil || inserted.Seq < 1 {
 		t.Fatalf("insert: %d %s", code, body)
 	}
 	if out := a.mustAdmin(t, "/admin/backup?key=acme:ttt"); out["generation"].(float64) < 1 {
@@ -103,7 +107,7 @@ func TestDurableOpsWithSchemasDir(t *testing.T) {
 	}
 	b := r.start(t)
 	waitReady(t, b.life)
-	if code, body := post(b, read); code != http.StatusOK || body != `{"result":[1],"seq":1}`+"\n" {
+	if code, body := post(b, read); code != http.StatusOK || body != fmt.Sprintf(`{"result":[1],"seq":%d}`+"\n", inserted.Seq) {
 		t.Fatalf("cold read: %d %q", code, body)
 	}
 }

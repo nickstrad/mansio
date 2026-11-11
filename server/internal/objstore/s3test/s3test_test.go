@@ -157,6 +157,17 @@ func TestDribbleSendsAtTheRate(t *testing.T) {
 	if d := time.Since(t0); d < 80*time.Millisecond { // 5 bytes at 50 B/s ≈ 100ms
 		t.Fatalf("5 bytes at 50 B/s took %v", d)
 	}
+	// A high rate is kept too: a sleep per byte made this 1.5 KiB/s (10.6 s for these 16 KiB), which turned
+	// the slow fetches of cmd/agentd's TestAdminFetchLimitAppliesToTheNextFetches into timeouts.
+	s.Put("bkt", "big", make([]byte, 16<<10))
+	s.Inject(s3test.Fault{Mode: s3test.Dribble, Rate: 16 << 10})
+	t0 = time.Now()
+	if _, b, err := do(t, http.DefaultClient, "GET", base+"big", nil, nil); err != nil || len(b) != 16<<10 {
+		t.Fatalf("%d bytes %v", len(b), err)
+	}
+	if d := time.Since(t0); d < 900*time.Millisecond || d > 3*time.Second {
+		t.Fatalf("16 KiB at 16 KiB/s took %v, want about a second", d)
+	}
 }
 
 func TestApplyThenDropReplyAppliesTheWrite(t *testing.T) {

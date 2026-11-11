@@ -182,7 +182,8 @@ export class Model {
       case "assert": {
         if (!("id" in op)) {
           const changed = this.changedAt(op.table);
-          if (changed > op.expect.unchangedSince) {
+          // Changed since, or a sequence this database has not reached (spec §5.5, revision 1.3).
+          if (changed > op.expect.unchangedSince || op.expect.unchangedSince > this.seq) {
             throw new Failure(409, "ConflictError", i, {
               table: op.table,
               check: "unchanged",

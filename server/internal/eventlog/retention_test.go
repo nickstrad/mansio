@@ -74,13 +74,22 @@ func TestRetentionBoundsTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	exists := func(p string) bool { _, err := os.Stat(p); return err == nil }
+	// emit writes n records, one at a time. The file system stamps a written file with the wall clock, which
+	// the sweep would compare with the fake one: a file from "after now" is never old enough to delete, so
+	// the test passed or failed by the time of day it ran at. So every record is followed by setting its
+	// file's time to the fake clock's. A roll comes before a record's write, so at every sweep each closed
+	// file carries the fake time of its last record, and the only file with a wall-clock time is the one
+	// just opened, which the sweep never deletes.
 	var sent int64
 	emit := func(n int) {
 		for range n {
 			l.Emit(Event{Level: Info, TraceID: "t", Payload: Lifecycle{Phase: "startup", Detail: fmt.Sprintf("%0200d", 0)}})
-		}
-		for sent += int64(n); l.Stats().Written < sent; { // written: flushed, so any roll and sweep are done
-			time.Sleep(time.Millisecond)
+			for sent++; l.Stats().Written < sent; { // written: flushed, so any roll and sweep are done
+				time.Sleep(time.Millisecond)
+			}
+			if err := os.Chtimes(l.path, clock, clock); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	emit(1) // the first file opens: the sweep deletes by age
@@ -92,7 +101,6 @@ func TestRetentionBoundsTheTree(t *testing.T) {
 	for range 20 {
 		emit(5)
 		clock = clock.Add(12 * time.Minute)
-		os.Chtimes(l.path, clock, clock) // the fake clock does not move file times
 	}
 	if err := l.Close(context.Background()); err != nil {
 		t.Fatal(err)

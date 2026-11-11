@@ -380,11 +380,17 @@ func (s *Server) serveObject(w http.ResponseWriter, r *http.Request, o object, f
 		fl.Flush()
 		dropConnection(w)
 	case Dribble:
+		// Paced against the clock: byte i is due at i/Rate, and each round sends what is due. A sleep per
+		// byte cannot keep a high rate (a timer and a flush cost far more than the 61 µs a byte has at
+		// 16 KiB/s: measured 1.5 KiB/s), and a fetch meant to be slow then misses its deadline instead.
 		every := time.Second / time.Duration(f.Rate)
-		for i := range data {
-			w.Write(data[i : i+1])
+		start := time.Now()
+		for sent := 0; sent < len(data); {
+			due := min(len(data), int(time.Since(start)/every)+1) // never behind sent: the clock is monotonic
+			w.Write(data[sent:due])
 			fl.Flush()
-			if !s.wait(r, every) {
+			sent = due
+			if !s.wait(r, max(time.Until(start.Add(time.Duration(sent)*every)), time.Millisecond)) {
 				return
 			}
 		}

@@ -2432,6 +2432,48 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "table assert: a sequence the database has not reached",
+    why:
+      "a sequence above the database's own was answered by a state the server lost (a rollback): the assert fails though the table's last change is lower, in a query and a mutation, first or later; the database's own sequence holds",
+    seed: SEED,
+    steps: [
+      {
+        request: q([guard("notes", 1)]),
+        expect: conflict({
+          table: "notes",
+          check: "unchanged",
+          expected: 1,
+          actual: 0,
+          seq: 0,
+          current: [{ op: 0, table: "notes", changed: 0 }],
+        }, 0),
+      },
+      { serverIds: ["l1"], request: m([ins({ name: "a" }, undefined, "lists")], "r1"), expect: at(1, "l1") },
+      { request: q([guard("notes", 1), guard("lists", 1)]), expect: at(1, null, null) },
+      {
+        serverIds: [],
+        request: m([guard("lists", 0), guard("notes", 2), guard("lists", 7), ins(BODY)], "r2"),
+        expect: conflict({
+          table: "lists",
+          check: "unchanged",
+          expected: 0,
+          actual: 1,
+          seq: 1,
+          current: [
+            { op: 0, table: "lists", changed: 1 },
+            { op: 1, table: "notes", changed: 0 },
+            { op: 2, table: "lists", changed: 1 },
+          ],
+        }, 0),
+      },
+      {
+        request: m([{ op: "patch", table: "notes", id: "n1", value: {} }, guard("lists", 2)], "r3"),
+        expect: conflict({ table: "lists", check: "unchanged", expected: 2, actual: 1 }, 1),
+      },
+    ],
+    final: { ...UNCHANGED, lists: [srv("l1", { name: "a" })] },
+  },
+  {
     name: "table assert on an unknown table",
     why: "the table is looked up first",
     seed: SEED,

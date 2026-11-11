@@ -55,7 +55,7 @@ func (r *run) witness(ops []ir.Op, at int, e *ir.Error) {
 		}
 		switch op := ops[i].(type) {
 		case *ir.AssertTable:
-			if changed := r.changedAt(op.Table, seq); changed > op.Since {
+			if changed, holds := r.unchangedSince(op, seq); !holds {
 				add(ir.NewObject("op", float64(i), "table", op.Table, "changed", float64(changed)))
 			}
 		case *ir.Assert:

@@ -48,8 +48,8 @@ export type PatchOp = {
 export type DeleteOp = { op: "delete"; table: string; id: IdRef; expect?: Expect };
 export type AssertOp = { op: "assert"; table: string; id: IdRef; expect: Expect };
 /**
- * An assert without an id: no applied mutation has changed a row of `table` since the commit sequence
- * `unchangedSince` (spec §5.5). It is how a select is guarded: whatever the select answered at that
+ * An assert without an id: the database has reached the commit sequence `unchangedSince`, and no applied
+ * mutation has changed a row of `table` since (spec §5.5). It is how a select is guarded: whatever the select answered at that
  * sequence, it still answers.
  */
 export type TableAssertOp = { op: "assert"; table: string; expect: { unchangedSince: number } };

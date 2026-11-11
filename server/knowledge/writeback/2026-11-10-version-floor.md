@@ -90,16 +90,73 @@ Inside a run the local `_version` is still the run's own count: provisional, lik
 - `tests/unit/sdk_read_path_test.ts`: "read path 4: the cache takes the version the commit answered, not the
   last plus one".
 
-## Open: the commit sequence has the same flaw (found here, not fixed)
+## The commit sequence had the same flaw: fixed 2026-11-11 (bug-fixes run, spec revision 1.3)
 
-`seq` (spec §6.5, revision 1.1) also counts on from the restored value. Probed on the durable test host: an
-insert answers `seq` 2 and is lost in a kill -9; after the restart another insert answers `seq` 2; a client
-that ran a `find` before the crash sends `assert {unchangedSince: 2}` and it passes, though the table holds
-other documents than the ones it saw. Same class as the `_version` bug (a precondition passes against other
-state), for guarded selects and for a run's snapshot identity. The sim does not exercise table preconditions,
-so no seed shows it.
+Found by the version-fixes run and left open for Nick's decision; Nick's go on 2026-11-10 covered the protocol
+change. Fixed on branch `feat/bug-fixes` by the bug-fixes run (Fable 5.2).
 
-A fix needs more than the floor: a table untouched since the restore keeps its old, low sequence, so the
-assert must also refuse a sequence the database never reached. Sketch: `seq = max(seq+1, floor)`; the first
-mutation of an incarnation marks every table changed at the floor; `unchangedSince: n` with `n` above the
-database's sequence is a conflict. That is a protocol change (spec §5.5, vectors). Owner: Nick to decide.
+**The flaw.** `seq` (spec §6.5, revision 1.1) counted on from the restored value. A client that ran a `find`
+before a kill -9 held the sequence of a lost state; after the restart its `assert {unchangedSince}` held
+against a table with other documents than the ones it saw. Same class as the `_version` bug (a precondition
+passes against other state), for guarded selects and for a run's snapshot identity.
+
+**The probe**, now `internal/docexec/seq_test.go` `TestSequenceIsNotReissuedAfterARollback` (durable host over
+the fake store; publish, a lost note and a lost list, the guard a client derives, kill -9, owner-style stamp,
+restore; three rounds, published between the crashes), 2026-11-11, this VM:
+
+| Code | The test |
+|---|---|
+| before | `round 0, before a new write: notes unchanged since the lost sequence 3: <nil>, want a conflict`; with that check skipped: `round 0: the restored database issued sequence 2 (lost: 3, which was a lost note)` |
+| after | passes: the guard at the lost sequence is a `ConflictError` (`check: "unchanged"`) before any new write, after a new note, and on `lists` (not written since the restore); the new note answers 2^32 in round 0, above every lost sequence |
+
+**The rule** (the sketch of the first version of this note, adopted as it stood; code and the long comment:
+`internal/docexec/seq.go`):
+
+1. A mutation that changes a row leaves `max(seq + 1, floor)`, the floor being the one `_version` takes
+   (`State.Floor`, `seal << 32`). What a restored database answers is above every sequence an earlier
+   incarnation answered.
+2. The first such mutation of an incarnation (it finds the sequence below the floor) marks **every** table
+   changed at the floor. A table not written since the restore keeps the last change the file has, at most the
+   restored sequence, and a guard from the lost range (restored sequence, floor) would hold against it.
+3. `unchangedSince: n` with `n` above the database's sequence is a conflict (`actual` is the table's last
+   change, so it can be below `expected`; the error's `seq` shows why). This covers the time between the
+   restore and rule 2's mutation, and it is the one rule a database without a floor shows too.
+
+Each rule is needed: the test fails with any one of the three taken out (1: a lost sequence is answered again;
+2: `lists unchanged since the lost sequence` holds after a new note; 3: the same before a new write).
+
+Rejected: remembering the lost range (restored sequence, floor) in the file instead of marking every table, so
+that a guard from before a restart that lost nothing would still hold. The file is what rolls back: a second
+restore of the same generation would need the ranges of every earlier incarnation, which are not in it. The
+mark costs one conflict per guarded select per restart (the client reads again), and one upsert of a row per
+table per incarnation.
+
+**Limits**: the version floor's, above (no floor without a store; a host that restores without a stamp; 2^21
+stamps, after which a mutation that changes a row fails with `StorageError`, a delete too:
+`TestSequenceFloor`; `dbtool rebuild-manifest` over an unreadable manifest; `dbtool restore` + `import`).
+Durable mode: sequences start at 2^32 (one caller pinned `"seq":1` on a durable agent:
+`cmd/agentd/backup_test.go`, which now carries the sequence its insert answered).
+
+**Protocol**: `ir/spec/v1.md` §5.5, §6.5, §8.1 and §14 (revision 1.3). Vectors: `execute.json` "table assert:
+a sequence the database has not reached" (rule 3, both layouts; vectors run with floor 0, so rules 1 and 2 are
+Go tests, as the version floor's are). `decode.json` is unchanged: no request changes shape. The SDK needs no
+change (a conflict's `seq` and `current` already rebase its read set, and a table listed in `current` is read
+again); its test model (`tests/unit/sdk_model.ts`) has rule 3.
+
+**The sim now exercises table preconditions** (`internal/sim/cluster_client.go`, `cluster_model.go`): every
+third operation of a client, when it is a transfer, guards its read with `assert {unchangedSince}` on
+`accounts` instead of the two `expect.version` (by count, not by a draw, so seeds draw what they drew
+before). The bank model judges a transfer by the versions read either way, so a guard that holds against
+other accounts does not linearize. And a read's `(account, seq)` seen with two versions is a violation
+(class `sequence reuse`). Measured 2026-11-11, this VM,
+`SIM_SHRINK=0 scripts/sim-swarm.sh 150 2700` (seeds 2700–2849):
+
+| `seq.go` | Cluster seeds |
+|---|---|
+| the three rules taken out (the code before the fix) | 94 passed, 56 failed: `sequence reuse` in all 56 (e.g. `account 2 read at sequence 31 with version 4294967299, earlier with 4294967301`), and in two of them the damage itself: `conservation: a full bank read sums to …` and `not linearizable` |
+| as landed | 150 passed, 0 failed |
+
+The saved vectors in `testdata/cluster` replay the changed workload (a third of their transfers are guarded
+now) and pass. No vector was saved for the sequence: the docexec test is the regression, and every swarm seed
+now checks the class.
+

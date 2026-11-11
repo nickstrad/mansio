@@ -110,8 +110,8 @@ func CanonicalText(text string) error {
 }
 
 // State is what Check learned about a database: its schema, and whether it has the commit-sequence table yet
-// (seq.go). Floor is the caller's to set before Run: the lowest _version this incarnation of the database
-// issues (VersionFloor; 0: none).
+// (seq.go). Floor is the caller's to set before Run: the lowest _version, and the lowest commit sequence, this
+// incarnation of the database issues (VersionFloor; 0: none).
 type State struct {
 	*Schema
 	Floor   float64

@@ -68,6 +68,7 @@ type cdbModel struct {
 	epochOwner    map[uint64]string
 	lastEpoch     uint64
 	seenVersion   map[[2]int64]int64 // (account, _version) → the balance a read saw
+	seenSeq       map[[2]int64]int64 // (account, commit sequence) → the _version a read saw
 }
 
 type cmodel struct {
@@ -501,7 +502,10 @@ type bankIn struct {
 	rid            string // a transfer's request id (its mark)
 }
 
-type bankOut struct{ balances, versions []int64 }
+type bankOut struct {
+	balances, versions []int64
+	seq                int64 // the commit sequence the read answered
+}
 
 // bankState is what the model knows of each account. A version only rises, by how much is the server's to say
 // (spec §6.3: one, or up to the incarnation's floor), so the model learns versions from the answers: exact
@@ -583,16 +587,30 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 	// Version reuse: a version names one content of a document for good (docexec.VersionFloor). Before the
 	// floor, a database rolled back by a kill -9 issued its lost versions again for other contents, and an
 	// expect computed before the crash passed against another document (swarm seed 2761).
-	if d.seenVersion == nil {
-		d.seenVersion = map[[2]int64]int64{}
-	}
+	//
+	// Sequence reuse is the same flaw one level up: two answers with one sequence saw the same documents (spec
+	// §6.5), or a table assert taken on a lost state holds against the restored one.
 	for i, a := range op.Input.accounts {
-		k := [2]int64{int64(a), op.Output.versions[i]}
-		if b, ok := d.seenVersion[k]; ok && b != op.Output.balances[i] {
-			m.violate(key, "version reuse: account %d read at version %d with balance %d, earlier with %d", a, k[1], op.Output.balances[i], b)
+		balance, version := op.Output.balances[i], op.Output.versions[i]
+		if b, reused := seenWith(&d.seenVersion, a, version, balance); reused {
+			m.violate(key, "version reuse: account %d read at version %d with balance %d, earlier with %d", a, version, balance, b)
 		}
-		d.seenVersion[k] = op.Output.balances[i]
+		if v, reused := seenWith(&d.seenSeq, a, op.Output.seq, version); reused {
+			m.violate(key, "sequence reuse: account %d read at sequence %d with version %d, earlier with %d", a, op.Output.seq, version, v)
+		}
 	}
+}
+
+// seenWith records that a read saw account at mark (a _version or a commit sequence) with value, and reports
+// the other value an earlier read saw it with there, if any.
+func seenWith(seen *map[[2]int64]int64, account int, mark, value int64) (earlier int64, reused bool) {
+	if *seen == nil {
+		*seen = map[[2]int64]int64{}
+	}
+	k := [2]int64{int64(account), mark}
+	earlier, ok := (*seen)[k]
+	(*seen)[k] = value
+	return earlier, ok && earlier != value
 }
 
 // sortOps orders a history by call, return and input, so its order does not depend on which goroutine
