@@ -31,7 +31,7 @@ import {
 /**
  * Which `expect` member failed. `exists` also covers an insert whose client id is already taken;
  * `unchanged` is a table assert (no `id`): `expected` is its `unchangedSince`, `actual` the sequence of
- * the table's last change.
+ * the table's last change (below `expected` when the database has not reached that sequence, spec §5.5).
  */
 export type PreconditionCheck = "exists" | "version" | "fields" | "unchanged";
 

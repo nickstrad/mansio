@@ -20,7 +20,8 @@ import (
 // The workload: each database holds registers, bank accounts and a log. Every mutation also inserts one log
 // document {rid: its request id} with a server-drawn id, so a database file shows which mutations it holds
 // and how often (a mutation applied twice leaves two). Clients run register writes and reads, bank transfers
-// (read two accounts, then patch both with expect on the versions read) and full bank reads, through the
+// (read two accounts, then patch both with expect on the versions read or, every third operation, behind a
+// table assert on the sequence of the read: guardedEvery) and full bank reads, through the
 // edge, with routes and tickets from the locator, retrying like the SDK (internal/client's rules, the
 // Jepsen run's send): the same request id on every attempt.
 
@@ -86,6 +87,7 @@ func newClient(w *cworld, db *cdb, i int) *cclient {
 // canswer is a mutation's or query's final outcome as the client sees it.
 type canswer struct {
 	result  []json.RawMessage
+	seq     int64  // the commit sequence an ok answer carried (spec §6.5); 0 on a duplicate
 	tag     string // "" when ok
 	unknown bool   // a mutation that may have applied (some attempt had no answer, or an ambiguous one)
 }
@@ -187,6 +189,7 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 		var out struct {
 			Result    []json.RawMessage `json:"result"`
 			Duplicate bool              `json:"duplicate"`
+			Seq       int64             `json:"seq"`
 			Error     *struct {
 				Tag    string         `json:"tag"`
 				Fields map[string]any `json:"fields"`
@@ -203,7 +206,7 @@ func (c *cclient) send(ctx context.Context, mutation bool, rid string, ops []map
 			w.tr.add(c.name, "%s try %d -> ok%s at %s e%d", what, attempt, flag(out.Duplicate, " dup"), rt.vm, rt.epoch)
 			w.answered("ok")
 			judge(okTag(out.Duplicate))
-			return canswer{result: out.Result}
+			return canswer{result: out.Result, seq: out.Seq}
 		}
 		tag := out.Error.Tag
 		amb, _ := out.Error.Fields["ambiguous"].(bool)
@@ -345,7 +348,7 @@ func (c *cclient) readAccounts(ctx context.Context, accounts []int) (bankOut, bo
 	if !a.ok() || len(a.result) != len(accounts) {
 		return bankOut{}, false
 	}
-	var out bankOut
+	out := bankOut{seq: a.seq}
 	for _, raw := range a.result {
 		var doc struct {
 			Balance int64
@@ -377,6 +380,10 @@ func (c *cclient) readAll(ctx context.Context) {
 	}
 }
 
+// guardedEvery: a client's every guardedEvery-th operation, when it is a transfer, guards its read with a table
+// assert instead of the two versions. By count, not by a draw, so the seeds draw what they drew before.
+const guardedEvery = 3
+
 func (c *cclient) transfer(ctx context.Context) {
 	from := c.r.IntN(nAccts)
 	to := (from + 1 + c.r.IntN(nAccts-1)) % nAccts
@@ -389,11 +396,19 @@ func (c *cclient) transfer(ctx context.Context) {
 		newFrom: seen.balances[0] - amount, newTo: seen.balances[1] + amount}
 	rid := c.rid()
 	in.rid = rid
-	ops := []map[string]any{
-		{"op": "patch", "table": "accounts", "id": acctID(from), "value": map[string]any{"balance": in.newFrom}, "expect": map[string]any{"version": in.vFrom}},
-		{"op": "patch", "table": "accounts", "id": acctID(to), "value": map[string]any{"balance": in.newTo}, "expect": map[string]any{"version": in.vTo}},
-		logOp(rid),
+	patch := func(account int, balance, version int64) map[string]any {
+		return map[string]any{"op": "patch", "table": "accounts", "id": acctID(account), "value": map[string]any{"balance": balance}, "expect": map[string]any{"version": version}}
 	}
+	ops := []map[string]any{patch(from, in.newFrom, in.vFrom), patch(to, in.newTo, in.vTo), logOp(rid)}
+	if c.n%guardedEvery == 0 {
+		// The SDK's guard for a find (spec §5.5): no expect on the documents, the table unchanged since the
+		// read's sequence instead. The model judges the transfer by the versions read all the same, so a
+		// guard that holds against other accounts than the read saw is a history that does not linearize.
+		delete(ops[0], "expect")
+		delete(ops[1], "expect")
+		ops = append([]map[string]any{{"op": "assert", "table": "accounts", "expect": map[string]any{"unchangedSince": seen.seq}}}, ops...)
+	}
+	first := len(ops) - 3 // the patches' place in the answer
 	call := c.now()
 	octx, cancel := c.opCtx(ctx)
 	a := c.send(octx, true, rid, ops)
@@ -405,7 +420,7 @@ func (c *cclient) transfer(ctx context.Context) {
 			Version int64 `json:"_version"`
 		}
 		for i := range got {
-			if len(a.result) != len(ops) || json.Unmarshal(a.result[i], &got[i]) != nil || got[i].Version == 0 {
+			if len(a.result) != len(ops) || json.Unmarshal(a.result[first+i], &got[i]) != nil || got[i].Version == 0 {
 				c.w.model.violateNow(c.db.key, "transfer %s answered %s: want a new _version for each of its two patches", rid, a.result)
 				return
 			}

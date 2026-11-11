@@ -1,5 +1,60 @@
 # mansio — project state
 
+## 2026-11-11 — bug fixes: the commit sequence after a rollback, and the two red Go tests (Fable 5.2, Nick-directed)
+
+- Goal/spec: brief `/root/briefs/mansio-bug-fixes-brief.md` (Nick, 2026-11-10: "Have fable fix legit bugs and
+  commit all this to main"). Item 1: the open finding of the version-fixes section below (`seq` and
+  `assert {unchangedSince}` after a rollback; Nick's go covers the protocol change). Items 2 and 3: the two
+  baseline-red Go tests. One commit per item, a simplify pass, then a merge to main from
+  `/root/Software/mansio-work/main-merge`.
+- Status: **in progress**: the three items are committed on `feat/bug-fixes`; the full verification, the
+  simplify pass and the merge are next.
+- Item 1, the sequence floor: **done** (the commit that adds this section). Reference:
+  `server/knowledge/writeback/2026-11-10-version-floor.md` (its last section is the fix record); spec
+  `ir/spec/v1.md` §5.5, §6.5, §14 (revision 1.3).
+  - The rule (the note's sketch, adopted as it stood; `server/internal/docexec/seq.go`): a mutation that
+    changes a row leaves `max(seq + 1, floor)`, the floor `_version` takes; the first such mutation of an
+    incarnation marks every table changed at the floor; `unchangedSince: n` with `n` above the database's
+    sequence is a `ConflictError` (`check: "unchanged"`). Durable mode: sequences start at 2^32.
+  - Probe, `docexec` `TestSequenceIsNotReissuedAfterARollback`: before,
+    `notes unchanged since the lost
+    sequence 3: <nil>, want a conflict` and (that check skipped)
+    `the restored database issued sequence 2 (lost: 3)`; after, it passes, and fails again with any one of the
+    three rules removed. `TestSequenceFloor` pins the arithmetic and the exhausted case.
+  - Vectors: `execute.json` +2 ("table assert: a sequence the database has not reached", both layouts);
+    `decode.json` unchanged (no request changes shape). SDK unchanged; its test model has the new rule.
+  - The sim exercises table preconditions now: every third client operation, when a transfer, is guarded by
+    `assert {unchangedSince}` on `accounts`; `(account, seq)` read with two versions is a violation.
+    `SIM_SHRINK=0 scripts/sim-swarm.sh 150 2700`: with the fix taken out, 56 of 150 seeds fail
+    (`sequence
+    reuse` in all, `conservation` and `not linearizable` in two); as landed, 150 passed.
+  - One caller pinned `"seq":1` on a durable agent: `cmd/agentd/backup_test.go`
+    (`TestDurableOpsWithSchemasDir`), which now carries the sequence its insert answered.
+- Item 2, `TestRetentionBoundsTheTree`: **done** `3f374c1`. **The test was the wrong side** (the sweeper is
+  right to compare file times with its clock). The test's clock is fake but the files it wrote carried
+  wall-clock times: it stamped only the open file, once per five records, so files that rolled inside a batch
+  looked newer than the fake "now" and were never swept. Now each record is followed by setting its file's
+  time to the fake clock, so every closed file a sweep sees carries a fake time. Evidence: unfixed, it fails
+  today and with the fake clock at 2020-01-05 (`the tree holds 35424 bytes`); fixed, it gives the same numbers
+  with the fake clock at 2020-01-05, 2026-11-10 and 2027-11-10
+  (`retention deleted 31 files (42228 bytes); 9504
+  bytes left under a 10 000 limit`). No assertion changed.
+- Item 3, `TestAdminFetchLimitAppliesToTheNextFetches`: **done** `0687ffe`. **The test's fake was the wrong
+  side; the product is right** (the limit applies: with the fake fixed, the unchanged test sees 1 fetch in
+  flight and 2 queued at limit 1, 3 in flight at limit 3). Cause: `s3test`'s `Dribble` fault slept once per
+  byte, and a timer plus a flush per byte cannot keep a high rate: asked for 16 KiB/s it delivered 1.5 KiB/s
+  on this VM (probe: 16 384 bytes in 10.6 s). The test's "slow" fetches therefore ran into the 5 s S3 deadline
+  it sets and the queries answered 504 `expired` and 503 `unavailable`. `Dribble` now paces against the clock
+  (each round sends the bytes that are due); `TestDribbleSendsAtTheRate` also pins the high rate (16 KiB in
+  about a second). The agentd test is unchanged and passed 6 of 6 runs.
+- Simplify pass: not started.
+- Verification: per item so far (the lines above); the full run (`go test ./...`, `go vet`, `gofmt`,
+  `deno task ci`, e2e, platform smoke) is next.
+- Next: full verification on the branch head, the simplify pass, re-verification, the merge (brief, "Merge").
+- Resume: branch `feat/bug-fixes`, worktree `/root/Software/mansio-work/bug-fixes`. Nothing runs in the
+  background and no platform is up (`docker ps | grep mansio-platform` is empty). `server/results/sim-swarm/`
+  holds the two swarm outputs (ignored by git).
+
 ## 2026-11-10 — version fixes: `_version` after a rollback, EnsureBucket, per-checkout Compose project (Fable 5.2, Nick-directed)
 
 - Goal/spec: brief `/root/briefs/mansio-version-fixes-brief.md`. Item A: MANSIO-REFACTORS item 3 (`_version`
@@ -104,12 +159,8 @@
     clock is fixed at 2026-11-10 09:00 local but the files it writes carry real modification times, so once
     the real clock is past the fake one the files look newer than "now" and are never swept. It passed in this
     morning's runs and fails from now on, on every checkout.
-- **Open finding (new, needs Nick's decision; not fixed here):** the commit sequence of revision 1.1 (`seq`,
-  `assert {unchangedSince}`) repeats after a rollback exactly as `_version` did: probed on the durable test
-  host, a guard taken before a kill -9 passes afterwards against a table with other documents. A fix is a
-  protocol change (sketch in the note's last section). The sim does not exercise table preconditions.
-- Next: Nick decides the open finding below (the commit sequence after a rollback). Item 2 (the green
-  baseline) now has two red Go tests to own, listed below.
+- The open finding of this run (the commit sequence after a rollback) and both baseline failures above are
+  fixed by the bug-fixes run (the section at the top).
 - Resume: nothing is running and no platform is up (`docker ps | grep mansio-platform` is empty). The branch
   `feat/version-fixes` and its worktree `/root/Software/mansio-work/version-fixes` are merged and can be
   removed (`git worktree remove`).

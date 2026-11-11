@@ -68,6 +68,7 @@ type cdbModel struct {
 	epochOwner    map[uint64]string
 	lastEpoch     uint64
 	seenVersion   map[[2]int64]int64 // (account, _version) → the balance a read saw
+	seenSeq       map[[2]int64]int64 // (account, commit sequence) → the _version a read saw
 }
 
 type cmodel struct {
@@ -501,7 +502,10 @@ type bankIn struct {
 	rid            string // a transfer's request id (its mark)
 }
 
-type bankOut struct{ balances, versions []int64 }
+type bankOut struct {
+	balances, versions []int64
+	seq                int64 // the commit sequence the read answered
+}
 
 // bankState is what the model knows of each account. A version only rises, by how much is the server's to say
 // (spec §6.3: one, or up to the incarnation's floor), so the model learns versions from the answers: exact
@@ -592,6 +596,18 @@ func (m *cmodel) bankOp(key string, op linearize.Op[bankIn, bankOut]) {
 			m.violate(key, "version reuse: account %d read at version %d with balance %d, earlier with %d", a, k[1], op.Output.balances[i], b)
 		}
 		d.seenVersion[k] = op.Output.balances[i]
+	}
+	// Sequence reuse, the same flaw one level up: two answers with one sequence saw the same documents (spec
+	// §6.5), or a table assert taken on a lost state holds against the restored one.
+	if d.seenSeq == nil {
+		d.seenSeq = map[[2]int64]int64{}
+	}
+	for i, a := range op.Input.accounts {
+		k := [2]int64{int64(a), op.Output.seq}
+		if v, ok := d.seenSeq[k]; ok && v != op.Output.versions[i] {
+			m.violate(key, "sequence reuse: account %d read at sequence %d with version %d, earlier with %d", a, k[1], op.Output.versions[i], v)
+		}
+		d.seenSeq[k] = op.Output.versions[i]
 	}
 }
 

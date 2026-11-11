@@ -18517,6 +18517,485 @@
       ]
     },
     {
+      "name": "table assert: a sequence the database has not reached [columns]",
+      "why": "a sequence above the database's own was answered by a state the server lost (a rollback): the assert fails though the table's last change is lower, in a query and a mutation, first or later; the database's own sequence holds",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "columns",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "notes",
+                "check": "unchanged",
+                "expected": 1,
+                "actual": 0,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "notes",
+                    "changed": 0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [
+            "l1"
+          ],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "lists",
+                "value": {
+                  "name": "a"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "l1"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              null
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 2
+                }
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 7
+                }
+              },
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 0,
+                "actual": 1,
+                "seq": 1,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "lists",
+                    "changed": 1
+                  },
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "changed": 0
+                  },
+                  {
+                    "op": 2,
+                    "table": "lists",
+                    "changed": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r3",
+            "schema": "sha256:72707455119e0803dbf0fe52c45ef0735b3b9765f2932c95d39e79a73b3a4ccb",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {}
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 2
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 2,
+                "actual": 1
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ],
+        "lists": [
+          {
+            "_id": "l1",
+            "_creationTime": 1000,
+            "_version": 1,
+            "name": "a"
+          }
+        ]
+      }
+    },
+    {
       "name": "table assert on an unknown table [columns]",
       "why": "the table is looked up first",
       "schema": {
@@ -40512,6 +40991,485 @@
           "result_hex": "025b226531225d"
         }
       ]
+    },
+    {
+      "name": "table assert: a sequence the database has not reached [json]",
+      "why": "a sequence above the database's own was answered by a state the server lost (a rollback): the assert fails though the table's last change is lower, in a query and a mutation, first or later; the database's own sequence holds",
+      "schema": {
+        "notes": {
+          "fields": {
+            "title": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "score": {
+              "node": {
+                "kind": "number"
+              }
+            },
+            "rank": {
+              "node": {
+                "kind": "integer"
+              }
+            },
+            "done": {
+              "node": {
+                "kind": "boolean"
+              }
+            },
+            "tag": {
+              "node": {
+                "kind": "enum",
+                "values": [
+                  "a",
+                  "b"
+                ],
+                "nullable": true
+              }
+            },
+            "tags": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "string"
+                }
+              }
+            },
+            "grid": {
+              "node": {
+                "kind": "array",
+                "item": {
+                  "kind": "integer"
+                },
+                "length": 3
+              }
+            },
+            "owner": {
+              "node": {
+                "kind": "string",
+                "nullable": true
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_rank",
+              "fields": [
+                "rank"
+              ]
+            }
+          ]
+        },
+        "lists": {
+          "fields": {
+            "name": {
+              "node": {
+                "kind": "string"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": []
+        },
+        "entries": {
+          "fields": {
+            "listId": {
+              "node": {
+                "kind": "string"
+              }
+            },
+            "n": {
+              "node": {
+                "kind": "integer"
+              }
+            }
+          },
+          "storage": "json",
+          "indexes": [
+            {
+              "name": "by_list",
+              "fields": [
+                "listId",
+                "n"
+              ]
+            }
+          ]
+        }
+      },
+      "fingerprint": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+      "seed": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "notes",
+                "check": "unchanged",
+                "expected": 1,
+                "actual": 0,
+                "seq": 0,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "notes",
+                    "changed": 0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [
+            "l1"
+          ],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r1",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "insert",
+                "table": "lists",
+                "value": {
+                  "name": "a"
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              "l1"
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "query",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 1
+                }
+              }
+            ]
+          },
+          "expect": {
+            "result": [
+              null,
+              null
+            ],
+            "seq": 1
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r2",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 0
+                }
+              },
+              {
+                "op": "assert",
+                "table": "notes",
+                "expect": {
+                  "unchangedSince": 2
+                }
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 7
+                }
+              },
+              {
+                "op": "insert",
+                "table": "notes",
+                "value": {
+                  "title": "new",
+                  "score": 0.5,
+                  "rank": 7,
+                  "done": true,
+                  "tag": "b",
+                  "tags": [
+                    "p",
+                    "q"
+                  ],
+                  "grid": [
+                    4,
+                    5,
+                    6
+                  ],
+                  "owner": null
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 0,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 0,
+                "actual": 1,
+                "seq": 1,
+                "current": [
+                  {
+                    "op": 0,
+                    "table": "lists",
+                    "changed": 1
+                  },
+                  {
+                    "op": 1,
+                    "table": "notes",
+                    "changed": 0
+                  },
+                  {
+                    "op": 2,
+                    "table": "lists",
+                    "changed": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "clock": 1000,
+          "serverIds": [],
+          "request": {
+            "v": 1,
+            "db": {
+              "tenant": "acme",
+              "app": "notes"
+            },
+            "kind": "mutation",
+            "requestId": "r3",
+            "schema": "sha256:3d25b626c80e777728be3353584293d1e67789434ec6e01931e355029fc88c41",
+            "ops": [
+              {
+                "op": "patch",
+                "table": "notes",
+                "id": "n1",
+                "value": {}
+              },
+              {
+                "op": "assert",
+                "table": "lists",
+                "expect": {
+                  "unchangedSince": 2
+                }
+              }
+            ]
+          },
+          "expect": {
+            "error": {
+              "tag": "ConflictError",
+              "status": 409,
+              "op": 1,
+              "fields": {
+                "table": "lists",
+                "check": "unchanged",
+                "expected": 2,
+                "actual": 1
+              }
+            }
+          }
+        }
+      ],
+      "final": {
+        "notes": [
+          {
+            "_id": "n1",
+            "_creationTime": 100,
+            "_version": 1,
+            "title": "alpha",
+            "score": 1.5,
+            "rank": 1,
+            "done": false,
+            "tag": "a",
+            "tags": [
+              "x"
+            ],
+            "grid": [
+              1,
+              2,
+              3
+            ],
+            "owner": null
+          },
+          {
+            "_id": "n2",
+            "_creationTime": 200,
+            "_version": 3,
+            "title": "beta",
+            "score": 2.5,
+            "rank": 2,
+            "done": true,
+            "tag": null,
+            "tags": [],
+            "grid": [
+              0,
+              0,
+              0
+            ],
+            "owner": "bob"
+          },
+          {
+            "_id": "n3",
+            "_creationTime": 300,
+            "_version": 1,
+            "title": "gamma",
+            "score": -1,
+            "rank": 2,
+            "done": false,
+            "tag": "b",
+            "tags": [
+              "y",
+              "z"
+            ],
+            "grid": [
+              9,
+              9,
+              9
+            ],
+            "owner": "amy"
+          }
+        ],
+        "lists": [
+          {
+            "_id": "l1",
+            "_creationTime": 1000,
+            "_version": 1,
+            "name": "a"
+          }
+        ]
+      }
     },
     {
       "name": "table assert on an unknown table [json]",

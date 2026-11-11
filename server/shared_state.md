@@ -917,8 +917,8 @@ Branch `feat/version-fixes`. Note: `knowledge/writeback/2026-11-10-version-floor
   (`vactor` does, `durabletest.Store.Seed` does, `dbtool rebuild-manifest` does over a readable manifest).
 - **sim:** a reused `(account, _version)` is a violation (class `version-reuse`); the bank model takes
   versions from the answers.
-- **Open finding (needs a decision):** the commit sequence (`seq`, `unchangedSince`) repeats after a rollback
-  the same way (the note's last section).
+- The commit sequence (`seq`, `unchangedSince`) repeated after a rollback the same way: fixed 2026-11-11,
+  the section "bug-fixes: the sequence floor" below.
 
 ## 2026-11-10 — version-fixes: `objstore.EnsureBucket` is idempotent
 
@@ -933,3 +933,18 @@ Branch `feat/version-fixes`. Note: `knowledge/writeback/2026-11-10-version-floor
   409 `BucketAlreadyOwnedByYou` instead of 200. Tests: `objstore` `TestEnsureBucket`,
   `TestEnsureBucketFromTwoStartersAtOnce`.
 - `scripts/platform/up.sh` no longer creates the bucket before the agents start: they do.
+
+## 2026-11-11 — bug-fixes: the sequence floor (`seq`, `assert {unchangedSince}` after a rollback)
+
+- **docexec (behaviour change, spec §5.5 / §6.5 / revision 1.3):** a mutation that changes a row leaves
+  `max(seq + 1, floor)` (`State.Floor`, the version floor); the first one of an incarnation writes a
+  `_mansio_changes` row for every table at the floor; an `assert` with `unchangedSince` above the database's
+  sequence is a `ConflictError` (`check: "unchanged"`, `actual` the table's last change, so possibly below
+  `expected`). In durable mode sequences start at 2^32, not 1: do not pin `"seq":1` on a durable agent, and do
+  not assert `prev + 1` across a restart.
+- **sim:** every third client operation, when a transfer, guards its read with a table assert on `accounts`
+  instead of `expect.version`; a read's `(account, seq)` seen with two versions is a violation (`sequence
+  reuse`). `canswer.seq`, `bankOut.seq`.
+- **s3test (test fake):** `Dribble` paces against the clock and keeps a high `Rate` (it delivered a tenth of
+  16 KiB/s before). A test that relied on a dribble being slower than its rate would now be faster.
+- Reference: `knowledge/writeback/2026-11-10-version-floor.md` (last section).
