@@ -359,3 +359,7 @@ red Go test, run the same test on an untouched `origin/main` worktree
 (`git worktree add --detach /tmp/base
 origin/main`). When writing such a test, set file times from the fake
 clock as well (`os.Chtimes`).
+
+Fixed 2026-11-11 (bug-fixes run): the test was the wrong side. It stamped only the open file, once per five
+records; now every record is followed by `os.Chtimes` of its file to the fake clock, so each closed file a
+sweep sees carries a fake time, and the result is the same with the fake clock before or after the real one.
