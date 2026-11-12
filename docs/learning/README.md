@@ -13,8 +13,9 @@ Suggested order if you want all three: customer, then developer, then operator. 
 what the platform promises, the developer path how it keeps the promise, and the operator path how to run it
 and what to do when it cannot.
 
-All three use the same practice setup: `make platform-up` (the whole platform on loopback; Linux only) or one
-agentd started by hand from `docs/guide.md`, and the diagrams at <https://nickstrad.github.io/mansio/>.
+All three use the same practice setup: `make platform-up` (the whole platform on loopback; macOS or Linux,
+needs Docker) or one agentd started by hand from `docs/guide.md`, and the diagrams at
+<https://nickstrad.github.io/mansio/>.
 
 [typescript-tour.md](typescript-tour.md) is a short tour of the TypeScript side with excerpts from the source;
 the developer path reads it at step 6. Its excerpts are copied by hand, so check them against the source if

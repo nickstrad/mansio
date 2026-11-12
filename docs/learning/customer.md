@@ -18,8 +18,8 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
    This tic-tac-toe app is a complete example of what you will write. Notice there is no SQL, no connection
    and no transaction code anywhere in it.
 
-3. On Linux, run `make platform-up` and read what it prints; leave it running. (On macOS skip to step 5: the
-   script needs GNU tools and stops with `realpath: illegal option -- m`.)
+3. Run `make platform-up` and read what it prints; leave it running. (It needs Docker, Go, `jq` and
+   `openssl`.)
 
    It starts a full local platform and proves it with one write and one read through the SDK. This is the
    quickest way to have something real to call. `make platform-down` removes it when you are done.

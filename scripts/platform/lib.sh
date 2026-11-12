@@ -1,12 +1,41 @@
 # shellcheck shell=bash disable=SC2034 # its variables are used by the scripts that source it
 # Shared by scripts/platform/up.sh and down.sh (sourced; expects $root). Not executable on its own.
 
+# Portable helpers: these scripts run on Linux and macOS (bash 3.2, no GNU coreutils needed).
+
+# abspath PATH: PATH made absolute with symbolic links in its existing part resolved; PATH need not exist
+# (what GNU `realpath -m` does, which macOS does not have).
+abspath() {
+  local p=$1 rest=""
+  case "$p" in /*) ;; *) p="$PWD/$p" ;; esac
+  while [ ! -d "$p" ]; do rest="/$(basename "$p")$rest"; p="$(dirname "$p")"; done
+  p="$(cd "$p" && pwd -P)"
+  printf '%s%s\n' "${p%/}" "$rest"
+}
+
+sha256() { # stdin → hex digest
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1
+}
+
+# new_session CMD ARGS...: exec CMD in its own session, so the terminal's signals and `make` returning do not
+# reach it. `setsid` where it exists (Linux); perl's POSIX::setsid elsewhere (macOS ships perl, not setsid).
+new_session() {
+  if command -v setsid >/dev/null 2>&1; then exec setsid "$@"; fi
+  exec perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or die "exec $ARGV[0]: $!\n"' -- "$@"
+}
+
+# exe_of PID: the path of the program PID runs, or nothing.
+exe_of() {
+  if [ -e "/proc/$1/exe" ]; then readlink "/proc/$1/exe" 2>/dev/null
+  else ps -o command= -p "$1" 2>/dev/null | awk '{print $1}'; fi
+}
+
 state="${PLATFORM_DIR:-$root/.platform}" # everything platform-up generates; down.sh deletes it
-state="$(realpath -m -- "$state")" # absolute (the scripts cd before they use it) and one spelling per directory
+state="$(abspath "$state")" # absolute (the scripts cd before they use it) and one spelling per directory
 # The Compose project, one per state directory (so per checkout): mansio-platform-<8 hex of the path's sha256>.
 # `make platform-down` in one checkout then removes its own containers and volumes, never those of a platform
 # started from another checkout. The same name is the marker file up.sh leaves in $state.
-project="mansio-platform-$(printf '%s' "$state" | sha256sum | cut -c1-8)"
+project="mansio-platform-$(printf '%s' "$state" | sha256 | cut -c1-8)"
 marker="$state/.$project"
 pg_port="${PLATFORM_PG_PORT:-15432}"
 s3_port="${PLATFORM_S3_PORT:-18333}"
@@ -33,7 +62,7 @@ port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 # pid in $state/NAME.pid, stderr in NAME/stderr.log (the daemon's JSON log is NAME/<daemon>.log).
 start() {
   local name=$1 dir="$state/$1"; shift
-  (cd "$dir" && exec setsid "$@") < /dev/null > /dev/null 2>> "$dir/stderr.log" &
+  (cd "$dir" && new_session "$@") < /dev/null > /dev/null 2>> "$dir/stderr.log" &
   echo $! > "$state/$name.pid"
 }
 
@@ -41,7 +70,7 @@ start() {
 live_pid() {
   local pid exe
   pid="$(cat "$state/$1.pid" 2>/dev/null)" || return 1
-  exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || return 1
+  exe="$(exe_of "$pid")"
   case "$exe" in "$state/bin/"*) echo "$pid" ;; *) return 1 ;; esac
 }
 
@@ -54,7 +83,8 @@ wait_ready() { # NAME URL [curl args]: 60 s, failing early if the process exits
   local name=$1 url=$2; shift 2
   for _ in $(seq 300); do
     curl -sf -o /dev/null "$@" "$url" && return 0
-    live_pid "$name" >/dev/null || die "$name exited before it was ready"
+    # Liveness only: just after start the pid may still be the session wrapper, before it execs the daemon.
+    kill -0 "$(cat "$state/$name.pid" 2>/dev/null)" 2>/dev/null || die "$name exited before it was ready"
     sleep 0.2
   done
   die "$name not ready after 60 s ($url)"

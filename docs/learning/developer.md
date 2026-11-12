@@ -19,8 +19,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    These diagrams are the map for the rest of the guide: caller + SDK, controld, the edge, agentd, SQLite
    files, Postgres placement, S3. Keep the tab open and find each thing you study on it.
 
-3. On Linux, run `make platform-up`, read what it prints, then `make platform-down`. (The script needs GNU
-   tools; on macOS it stops with `realpath: illegal option -- m`, so use a Linux machine or VM.)
+3. Run `make platform-up`, read what it prints, then `make platform-down`. (It needs Docker, Go, `jq` and
+   `openssl`.)
 
    This builds and starts the real multi-node shape (controld, two agentd, the edge, Postgres, SeaweedFS) and
    proves it with one SDK write and read through the edge. Seeing it start is the fastest proof that the

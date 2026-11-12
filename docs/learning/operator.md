@@ -5,9 +5,8 @@ load, and recovers from failures. You need to read configs and a little Go for r
 internals. Work through this top to bottom. Each step is something to run, read or try, followed by why it
 matters. Paths are from the repo root. Setup for every command: `export PATH="$HOME/.deno/bin:$PATH"`.
 
-`make platform-up` needs Linux: `scripts/platform/lib.sh` uses GNU `realpath -m`, `sha256sum`, `setsid` and
-`/proc`, and on macOS it stops at once with `realpath: illegal option -- m`. Run it on a Linux machine or VM.
-Every drill from Phase 3 on uses that cluster.
+`make platform-up` runs on macOS and Linux and needs Docker, Go, `jq` and `openssl`. Every drill from Phase 3
+on uses that cluster.
 
 ## Phase 1: Know the processes
 
