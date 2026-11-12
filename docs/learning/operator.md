@@ -59,7 +59,7 @@ Every drill from Phase 3 on uses that cluster.
    Tickets are how agents trust a request without calling controld: controld signs them and agents verify them
    offline with the public keys. Losing or mixing key rings is a full outage, so know where they live.
 
-9. Read `server/docs/notes/front/controld.md`.
+9. Read `server/docs/notes/front/controld.md` and `server/docs/postgres.md`.
 
    It describes what controld owns: the VM registry, database placement, the locator, and the lifecycle flows
    with what to do when each one stops halfway. It is the control plane's operating manual.
@@ -128,7 +128,8 @@ Every drill from Phase 3 on uses that cluster.
     The S3 work is built but paused pending a decision on LiteFS. This note lists what is and is not
     guaranteed today, so you know which gaps are known and which would be new bugs.
 
-18. Read `server/docs/notes/writeback/storage-runbook.md`, then run `dbtool` without a command for its usage.
+18. Read `server/docs/object-storage.md` (how the copies are laid out and kept safe) and
+    `server/docs/notes/writeback/storage-runbook.md`, then run `dbtool` without a command for its usage.
 
     This is the storage runbook: `inspect`, `verify`, `orphans`, `gc`, `rebuild-manifest`, `restore` and
     `import`. `restore` never overwrites a file, and `verify` checks size, checksum and SQLite integrity.

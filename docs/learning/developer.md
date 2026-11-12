@@ -72,7 +72,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 3: The wire (the IR protocol)
 
-12. Read `ir/spec/v1.md` sections 1 to 6.
+12. Read `ir/README.md`, then `ir/spec/v1.md` sections 1 to 6.
 
     The IR is the only thing that crosses between TypeScript and Go, so it is the true interface of the
     platform. Sections 5 (operations) and 6 (execution order, atomicity) are the core.
@@ -95,7 +95,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 4: The data plane (Go, one agentd)
 
-16. Read `server/cmd/agentd/main.go` and the `Config` type in `server/cmd/agentd/config.go`.
+16. Read `server/README.md` (the commands and the packages along the request path), then
+    `server/cmd/agentd/main.go` and the `Config` type in `server/cmd/agentd/config.go`.
 
     `main.go` is the wiring: it shows which packages make up agentd and in what order they start. The config
     comments are the best reference for what each knob does.
@@ -141,7 +142,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     This is "resolve once, then go direct": the locator answers where a database lives and signs a ticket, and
     the SDK caches it. It is why controld is not on the path of every query.
 
-25. Read `server/internal/placement/pg/doc.go` and `server/internal/owner/state.go`.
+25. Read `server/docs/postgres.md`, then `server/internal/placement/pg/doc.go` and
+    `server/internal/owner/state.go`.
 
     Postgres holds who owns each database and at which epoch; the agent holds its local view of the same.
     Epochs and fencing are how two agents never both serve one database.
@@ -164,8 +166,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     It says plainly what the S3 write-back does and does not guarantee, and why the work is paused. This is
     the most important "known limits" document in the repo.
 
-29. Read "Backups and restore" in `docs/guide.md`, then skim `server/internal/vactor/writeback.go` and
-    `server/internal/durable/durable.go`.
+29. Read "Backups and restore" in `docs/guide.md` and `server/docs/object-storage.md`, then skim
+    `server/internal/vactor/writeback.go` and `server/internal/durable/durable.go`.
 
     Durable mode stores each database as immutable generations in S3 with a manifest. The key fact to keep:
     the acknowledgement is the local commit, so a crash can lose the last seconds of writes.
@@ -220,11 +222,11 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     The request log is for after the fact; `/metrics` is the live view. Matching each `queue` label to a row
     of `server/docs/capacity.md` ties the overload reading from steps 34 and 35 to numbers you can watch.
 
-38. Read `docs/adr/README.md`, then ADRs 0009, 0010 and 0013.
+38. Read `docs/adr/README.md`, then ADRs 0009, 0010, 0013 and 0014.
 
-    These three record the decisions that produced the current shape: the IR as the wire, the compiler port
-    with a TypeScript oracle, and the Go server replacing the Deno platform. They explain leftovers you will
-    see in older docs.
+    These four record the decisions that produced the current shape: the IR as the wire, the compiler port
+    with a TypeScript oracle, the Go server replacing the Deno platform, and the request log without an
+    offline analysis tool. They explain leftovers you will see in older docs.
 
 39. Skim `docs/notes/README.md`, `docs/notes/gotchas.md` and `server/docs/notes/README.md`.
 
@@ -270,8 +272,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     protocol change takes, and the order to copy.
 
 46. Make a small real change with that shape: for example add a `resignGame` test to
-    `tests/e2e/platform/scenarios/`, or a new worked query to `docs/observability.md`, and pass
-    `deno task ci:all`.
+    `tests/e2e/platform/scenarios/`, or a new worked query to `docs/observability.md`, and pass both gates
+    (`scripts/dev/deno-linux.sh 'deno task ci'` and `deno task go:ci`).
 
     A change that passes the gates proves you can extend the platform, not only read it. Start with something
     that needs no protocol change.

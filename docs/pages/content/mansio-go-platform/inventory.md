@@ -56,6 +56,7 @@ bundles omit it.
 | `src-retention`     | [server/internal/eventlog/retention.go](https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/eventlog/retention.go)                                         | Event-log retention in the writer                         |
 | `src-queues`        | [server/internal/metrics/queue.go](https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/metrics/queue.go)                                                   | Per-queue metric families                                 |
 | `src-capacity`      | [server/docs/capacity.md](https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/docs/capacity.md)                                                                     | Capacity table, alerts and levers                         |
+| `src-mansioctl`     | [server/cmd/mansioctl/main.go](https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/mansioctl/main.go)                                                           | The platform admin CLI                                    |
 
 ## Conversion notes and deliberate exclusions
 
@@ -117,7 +118,7 @@ bundles omit it.
 | Element id       | Kind / parent              | Evidence source ids                                                  |
 | ---------------- | -------------------------- | -------------------------------------------------------------------- |
 | `developer`      | person / root              | `src-recording`, `src-transport`                                     |
-| `operator`       | person / root              | `src-controld`, `src-adr`, `src-request-log`                         |
+| `operator`       | person / root              | `src-controld`, `src-adr`, `src-request-log`, `src-mansioctl`        |
 | `platform`       | softwareSystem / root      | `src-adr`, `src-control`                                             |
 | `application`    | softwareSystem / root      | `src-recording`                                                      |
 | `caller-process` | container / application    | `src-recording`                                                      |

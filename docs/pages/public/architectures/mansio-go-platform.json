@@ -23,14 +23,15 @@
         "id": "operator",
         "kind": "person",
         "name": "Platform operator",
-        "description": "Runs lifecycle commands, including move, attest-dead and restore; reads or ships the request log and scrapes metrics.",
+        "description": "Administers the platform with mansioctl (tenants, databases, moves, attest-dead and restore, one agent's controls) and dbtool (the S3 copies); reads or ships the request log and scrapes metrics.",
         "status": "existing",
         "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-controld",
           "src-adr",
-          "src-request-log"
+          "src-request-log",
+          "src-mansioctl"
         ]
       },
       {
@@ -561,7 +562,8 @@
         "sourceIds": [
           "src-controld",
           "src-adr",
-          "src-request-log"
+          "src-request-log",
+          "src-mansioctl"
         ]
       },
       {
@@ -746,7 +748,8 @@
         "docIds": [],
         "sourceIds": [
           "src-controld",
-          "src-control"
+          "src-control",
+          "src-mansioctl"
         ]
       },
       {
@@ -1052,7 +1055,8 @@
         "docIds": [],
         "sourceIds": [
           "src-controld",
-          "src-control"
+          "src-control",
+          "src-mansioctl"
         ]
       },
       {
@@ -2992,9 +2996,9 @@
     {
       "id": "doc-control-plane",
       "title": "controld: locator, signer and epoch authority",
-      "plain": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+      "plain": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The operator drives it with mansioctl, the one admin CLI (databases, vms, keys, limits, tenants). The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
       "ste": {
-        "text": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+        "text": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The operator drives it with mansioctl, the one admin CLI (databases, vms, keys, limits, tenants). The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3010,7 +3014,8 @@
         "src-placement",
         "src-recording",
         "src-transport",
-        "src-locator-gates"
+        "src-locator-gates",
+        "src-mansioctl"
       ]
     },
     {
@@ -3737,6 +3742,14 @@
       "path": "server/docs/capacity.md",
       "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
       "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/docs/capacity.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-mansioctl",
+      "title": "The platform admin CLI",
+      "path": "server/cmd/mansioctl/main.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/mansioctl/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     }
   ],
