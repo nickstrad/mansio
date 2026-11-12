@@ -1,13 +1,13 @@
-# Skim the Effect document database
+# A tour of the TypeScript side
 
 These excerpts are copied from the source. Omitted sections are described in prose, not rewritten as alternate
 implementations. The server is the Go code in `server/`; this tour covers the TypeScript side: the app, the
-SDK, the pure compiler and the offline event-log CLI. See [README.md](README.md) for the layout and
+SDK, the pure compiler and the offline event-log CLI. See [README.md](../../README.md) for the layout and
 verification.
 
 ## Application schema and handler
 
-Source: [app/schema.ts](app/schema.ts).
+Source: [app/schema.ts](../../app/schema.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -37,7 +37,7 @@ export const schema = defineSchema({
 The schema remains TypeScript data. Mutations compose document operations as effects; the following member
 belongs to the exported functions object, not a separate Promise-based handler.
 
-Source: [app/functions.ts](app/functions.ts).
+Source: [app/functions.ts](../../app/functions.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -61,7 +61,7 @@ Source: [app/functions.ts](app/functions.ts).
 
 ## Document operations describe effects
 
-Source: [sdk/db.ts](sdk/db.ts).
+Source: [sdk/db.ts](../../sdk/db.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -75,7 +75,7 @@ export type Execute = (operation: Operation) => Effect.Effect<unknown, DbError>;
 
 ## A terminal read returns a typed Effect
 
-Source: [sdk/db.ts](sdk/db.ts).
+Source: [sdk/db.ts](../../sdk/db.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -89,7 +89,7 @@ first(): Effect.Effect<T | null, DbError> {
 
 ## Pure compilation reports typed errors
 
-Source: [core/compile/select.ts](core/compile/select.ts).
+Source: [core/compile/select.ts](../../core/compile/select.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -108,7 +108,7 @@ The compiler returns SQL text with bound values. It is the oracle for the Go ser
 
 ## A handler run is recorded, then committed once
 
-Source: [sdk/recording.ts](sdk/recording.ts).
+Source: [sdk/recording.ts](../../sdk/recording.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -145,7 +145,7 @@ has not changed since; they go at the front of the mutation, so a conflict on an
 always one the client derived. A mutation's `get` may be answered from the client's cache (`sdk/cache.ts`);
 the cached version is asserted the same way.
 
-Source: [sdk/client.ts](sdk/client.ts) (inside the loop that runs a handler until a run stands).
+Source: [sdk/client.ts](../../sdk/client.ts) (inside the loop that runs a handler until a run stands).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -201,7 +201,7 @@ reading again. `send` (`sdk/transport.ts`) owns transport retries, reroutes and 
 
 ## The event-log CLI is a layer chain
 
-Source: [eventlog/root.ts](eventlog/root.ts).
+Source: [eventlog/root.ts](../../eventlog/root.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -217,7 +217,7 @@ layer construction. Service tags are declared in `eventlog/services.ts`.
 
 ## Native handles register finalizers immediately
 
-Source: [eventlog/ingest.ts](eventlog/ingest.ts).
+Source: [eventlog/ingest.ts](../../eventlog/ingest.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts

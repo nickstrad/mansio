@@ -15,3 +15,7 @@ and what to do when it cannot.
 
 All three use the same practice setup: `make platform-up` (the whole platform on loopback; Linux only) or one
 agentd started by hand from `docs.md`, and the diagrams at <https://nickstrad.github.io/mansio/>.
+
+[typescript-tour.md](typescript-tour.md) is a short tour of the TypeScript side with excerpts from the source;
+the developer path reads it at step 6. Its excerpts are copied by hand, so check them against the source if
+they look off.

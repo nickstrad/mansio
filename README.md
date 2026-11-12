@@ -6,11 +6,9 @@ the TypeScript SDK. The SDK turns their database work into requests of a small, 
 SQLite SQL and runs them with one goroutine per database. The event log the server writes is ingested into
 DuckDB by an offline TypeScript CLI for named analysis.
 
-Until IR-6 the server was a Deno/TypeScript platform (SQLite through FFI, a DuckDB reader process, Better
-Auth). It has been removed; the Go server in [`server/`](server/) replaces it
-([ADR 0013](docs/adr/0013-go-server-replaces-deno-platform.md)).
-
-Step-by-step setup: [docs.md](docs.md). A tour of the Effect code: [SKIM.md](SKIM.md).
+Step-by-step setup: [docs.md](docs.md). A tour of the Effect code:
+[docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
+[docs/learning/](docs/learning/README.md).
 
 ## Repository layout
 

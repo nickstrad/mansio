@@ -38,7 +38,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    This tic-tac-toe app is what a user of the platform writes: typed tables and handlers, no SQL. Every later
    layer exists to make these three files work.
 
-6. Read `SKIM.md` top to bottom.
+6. Read [`typescript-tour.md`](typescript-tour.md) (in this folder) top to bottom.
 
    It is a guided tour of the Effect code with excerpts, written for exactly this purpose. It introduces the
    "a handler run is recorded, then committed once" idea that the SDK is built around.

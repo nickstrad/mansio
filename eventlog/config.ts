@@ -29,7 +29,7 @@ const EVENT_LEVELS = ["debug", "info", "warn", "error"] as const;
 
 /**
  * Boolean decoder: "true"/"false" are primary, but "1"/"0" and "yes"/"no" are accepted
- * too — `TRACE_SQL=1` is the long-standing documented spelling (README/SKIM), so rejecting
+ * too — `TRACE_SQL=1` is the long-standing documented spelling (README), so rejecting
  * it would contradict the docs. Empty string never reaches here (`readOption` treats it
  * as unset).
  */
