@@ -449,25 +449,22 @@ func TestGate(t *testing.T) {
 	}
 	time.Sleep(time.Second) // write_back_every 200 ms: the rows are published
 	c.agents["vm-b"].kill()
-	var out bytes.Buffer
-	if code := realMain(context.Background(), []string{"restore", "-addr", c.api, "-secrets", c.secrets, "-vm", "vm-b"}, &out, os.Stderr); code != exitError ||
-		!strings.Contains(out.String(), "conflict") {
-		t.Fatalf("restore before attestation: exit %d %s", code, out.String())
+	// The calls mansioctl's vms restore and vms attest-dead make.
+	var refused struct{ Code string }
+	if status := c.call(http.MethodPost, "/v1/vms/vm-b/restore", nil, &refused); status/100 == 2 || refused.Code != "conflict" {
+		t.Fatalf("restore before attestation: %d %+v", status, refused)
 	}
-	out.Reset()
-	if code := realMain(context.Background(), []string{"attest-dead", "-addr", c.api, "-secrets", c.secrets, "-vm", "vm-b", "-by", "gate-operator"}, &out, os.Stderr); code != exitOK {
-		t.Fatalf("attest-dead: exit %d %s", code, out.String())
+	if status := c.call(http.MethodPost, "/v1/vms/vm-b/attest-dead", map[string]string{"by": "gate-operator"}, nil); status != http.StatusOK {
+		t.Fatalf("attest-dead: %d", status)
 	}
-	out.Reset()
 	t2 := time.Now()
-	if code := realMain(context.Background(), []string{"restore", "-addr", c.api, "-secrets", c.secrets, "-vm", "vm-b"}, &out, os.Stderr); code != exitOK {
-		t.Fatalf("restore: exit %d %s", code, out.String())
-	}
 	var rep struct {
 		Moved  map[string]string `json:"moved"`
 		Failed map[string]string `json:"failed"`
 	}
-	json.Unmarshal(out.Bytes(), &rep)
+	if status := c.call(http.MethodPost, "/v1/vms/vm-b/restore", nil, &rep); status != http.StatusOK {
+		t.Fatalf("restore: %d", status)
+	}
 	if len(rep.Moved) != len(onB) || len(rep.Failed) != 0 {
 		t.Fatalf("restore moved %d of %d, failed %v", len(rep.Moved), len(onB), rep.Failed)
 	}

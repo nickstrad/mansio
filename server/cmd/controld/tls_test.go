@@ -15,6 +15,7 @@ import (
 
 	"github.com/nickstrad/mansio/server/internal/edge/edgetest"
 	"github.com/nickstrad/mansio/server/internal/keyfetch"
+	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
 // startTLSControld runs controld on a loopback listener with cfgExtra in its config and args before -config.
@@ -82,14 +83,20 @@ func TestListenerTLS(t *testing.T) {
 	if res, err := http.Get("http://" + addr + "/v1/keys"); err == nil && res.StatusCode == http.StatusOK {
 		t.Fatal("plain HTTP served on the TLS listener")
 	}
-	// The CLI with -ca (the admin call itself answers unavailable: Postgres is unreachable here).
-	var out, errOut bytes.Buffer
-	if code := realMain(context.Background(), []string{"vms", "-addr", "https://" + addr, "-secrets", filepath.Join(dir, "secrets.json"),
-		"-ca", caFile, "-timeout", "5s"}, &out, &errOut); code != exitError || !strings.Contains(out.String(), `"unavailable"`) {
-		t.Fatalf("cli over TLS: exit %d, %s %s", code, out.String(), errOut.String())
+	// An admin call with the CA, as mansioctl -ca makes it (it answers unavailable: Postgres is unreachable here).
+	hc, err := tlsx.HTTPClient(caFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if code := realMain(context.Background(), []string{"vms", "-addr", "https://" + addr, "-secrets", filepath.Join(dir, "secrets.json"),
-		"-timeout", "5s"}, &out, &errOut); code != exitError || !strings.Contains(errOut.String(), "no answer") {
-		t.Fatalf("cli without -ca: exit %d, %s", code, errOut.String())
+	req, _ := http.NewRequest(http.MethodGet, "https://"+addr+"/v1/vms", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	res, err := hc.Do(req)
+	if err != nil {
+		t.Fatalf("admin call over TLS: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode/100 == 2 || !strings.Contains(string(body), `"unavailable"`) {
+		t.Fatalf("admin call over TLS: %d %s", res.StatusCode, body)
 	}
 }

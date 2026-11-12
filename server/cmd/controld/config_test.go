@@ -157,8 +157,13 @@ func TestClassify(t *testing.T) {
 
 func TestCommandUsage(t *testing.T) {
 	var out, errw strings.Builder
-	if code := realMain(t.Context(), []string{"move", "-secrets", "s"}, &out, &errw); code != exitUsage || !strings.Contains(errw.String(), "-db KEY") {
-		t.Fatalf("move without -db: %d %q", code, errw.String())
+	// The admin calls moved to mansioctl: each old command names its replacement and exits 2.
+	for old, now := range movedCommands {
+		errw.Reset()
+		if code := realMain(t.Context(), []string{old, "-secrets", "s"}, &out, &errw); code != exitUsage || !strings.Contains(errw.String(), "mansioctl") ||
+			!strings.Contains(errw.String(), now) {
+			t.Fatalf("%s: %d %q", old, code, errw.String())
+		}
 	}
 	if code := realMain(t.Context(), []string{}, &out, &errw); code != exitUsage {
 		t.Fatalf("no config: %d", code)
