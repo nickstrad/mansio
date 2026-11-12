@@ -1,6 +1,6 @@
 # 2026-11-05 — S3 compatibility suite (TestS3Compat) on single-node SeaweedFS 4.47
 
-Object-storage guide §7 / plan OS-03. Written by the p1-s3 books agent (branch `books/p1-s3`); the writeback
+The checks: [object-storage.md, what a backend must support](../../object-storage.md#what-a-backend-must-support) (plan OS-03). Written by the p1-s3 books agent (branch `books/p1-s3`); the writeback
 owner may fold it into this folder's README.
 
 - **Rig:** the `coldload-seaweedfs` container from `deploy/seaweedfs/docker-compose.yml`

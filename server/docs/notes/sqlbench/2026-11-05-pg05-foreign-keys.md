@@ -2,7 +2,7 @@
 
 Change: the actor opens every connection with `foreign_keys(1)`; generated tables and the coldload template are
 `STRICT`; the workload deletes only from leaf tables and draws `parent_id` from the parent's seed rows (NULL when
-it has none); the `keep_dbs` fingerprint is `v3`. See `docs/books/art-of-postgresql/plan.md` PG-05.
+it has none); the `keep_dbs` fingerprint is `v3`. The rule: [coding-style §7](../../coding-style.md#7-sql).
 
 Run: `configs/smoke.json`, the two binaries back to back (machine shared with other agents).
 

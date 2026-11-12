@@ -35,8 +35,7 @@ per-database full-file copies. These are the problems to deal with if we keep th
      The vector moved to `internal/sim/testdata/cluster/`. The commit sequence has the same flaw, still open
      (same note).
 3. **Every backup copies the whole file.** A snapshot copies at about 0.8 GB/s, and each backup is a
-   full PUT. A 1 GB database backed up every 30 s under steady writes is about 2.8 TB of uploads a day
-   (`docs/books/object-storage/plan.md`). So a shorter window costs a lot on large databases, and
+   full PUT. A 1 GB database backed up every 30 s under steady writes is about 2.8 TB of uploads a day. So a shorter window costs a lot on large databases, and
    "acknowledge only after the backup is published" cannot work with full copies.
 4. **Not built: incremental (WAL) shipping.** It is designed only, in
    [wal-shipping](2026-11-05-wal-shipping.md) and its [amendments](2026-11-05-wal-shipping-amendments.md).

@@ -1,7 +1,7 @@
 # 2026-11-05 — WAL shipping: amendments before any code (object-storage plan OS-13)
 
 By the p4-gc agent. Docs only. Amends [the WAL-shipping design note](2026-11-05-wal-shipping.md); where they
-disagree, this note wins. Rules cited are from [the object-storage guide](../../books/object-storage/guide.md).
+disagree, this note wins. The rules it applies are in [object-storage.md](../../object-storage.md).
 
 ## 1. Segment names carry the epoch (K4, I2, GC6)
 

@@ -1,7 +1,7 @@
 # PG-01: savepoint per write — compare-actor before/after (2026-11-05)
 
 Change: `actor.writeBatch` wraps each write in `SAVEPOINT w` / `RELEASE w` (`ROLLBACK TO w` on error) and
-stops the batch when a write ended the transaction (see `docs/books/art-of-postgresql/plan.md` PG-01).
+stops the batch when a write ended the transaction (the rule: [coding-style §7](../../coding-style.md#7-sql)).
 
 Run: `configs/compare-actor.json` (2048 workers, keep_dbs), the two binaries back to back on the same machine.
 **The machine was shared with other agents (load average ~30 at the end), so phase 2 is noise-dominated.**

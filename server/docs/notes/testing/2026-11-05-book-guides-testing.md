@@ -1,6 +1,7 @@
 # 2026-11-05 — testing additions from the book guides (coordinator)
 
-The book guides in `docs/books/` (summarized in `docs/coding-style.md` §8) add these to the checklist in
+The integration-point, object-storage and SQL rules ([coding-style.md](../../coding-style.md) §5, §7, §8,
+[object-storage.md](../../object-storage.md), [postgres.md](../../postgres.md)) add these to the checklist in
 [README.md](README.md). Everything else there still applies.
 
 **Failures below the interface** (Release It H4; RI-13)

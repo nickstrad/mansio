@@ -1,31 +1,30 @@
 # Coding style for mansio-server
 
-Status: adopted · 2026-11-05 · Read this before planning or writing code. It is the short version. Each section
-links to the full guide, which wins on detail.
+Status: adopted · 2026-11-05 · Read this before planning or writing code. It is the short version. Where a
+section links to a fuller doc, that doc wins on detail.
 
-| Source | Full guide | Covers |
-|---|---|---|
-| House Go style (Aniche ch. 4, Cox-Buday ch. 4–5) | `~/AI/writeups/go-coding-style.md` | layout, domain vs integration, contracts, errors, logging, concurrency |
-| *Effective Software Testing* (Aniche) | [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go-testing.md` | test levels, fakes, contract suites, model fuzzing |
-| *Concurrency in Go* (Cox-Buday) | [docs/notes/concurrency-in-go/README.md](notes/concurrency-in-go/README.md) | Result pattern, panic forwarding, error propagation |
-| *Release It!* (Nygard) | [books/release-it/guide.md](books/release-it/guide.md) | timeouts, retries, bulkheads, breakers, health, fault harness |
-| *The Art of PostgreSQL* (Fontaine) | [books/art-of-postgresql/guide.md](books/art-of-postgresql/guide.md) | SQL for SQLite, DuckDB, Postgres |
-| *Object Storage as Infrastructure* | [books/object-storage/guide.md](books/object-storage/guide.md) | S3 key layout, conditional writes, integrity, GC |
-
-All books: [books/README.md](books/README.md). Refactor plans per book: `docs/books/<book>/plan.md`.
+| Topic              | Full doc                                                                               | Covers                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| House Go style     | `~/AI/writeups/go-coding-style.md`                                                     | layout, domain vs integration, contracts, errors, logging, concurrency   |
+| Testing            | [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go-testing.md` | test levels, fakes, contract suites, model fuzzing                       |
+| Concurrency        | [docs/notes/concurrency-in-go/README.md](notes/concurrency-in-go/README.md)            | Result pattern, panic forwarding, error propagation                      |
+| Integration points | §5 below                                                                               | timeouts, retries, bulkheads, breakers, health, per-dependency defaults  |
+| Object storage     | [object-storage.md](object-storage.md)                                                 | key layout, conditional writes, ambiguity, integrity, GC, backend checks |
+| Postgres           | [postgres.md](postgres.md)                                                             | migrations, schema conventions, CAS queries, pool settings and budgets   |
 
 ## 1. Structure: domain vs integration
 
 - **Domain packages decide; they do no I/O and do not log.** No `net/http`, `os`, `database/sql`, minio, or
   `slog` in them. They reach the world through small interfaces they define (ports).
 - **Decisions are pure functions.** `plan(have, want) → moves`, `durable.CheckPublish(prev, next)`,
-  `durable.PlanGC(...)`, `bench/plan.go`. A thin layer around them does the I/O. Test the pure part with tables.
-- **Adapters are thin.** `objstore` (S3), the Postgres placement adapter, `cmd/*` adapters: translate, validate,
-  wrap errors, log. No business rules.
+  `durable.PlanGC(...)`, `bench/plan.go`. A thin layer around them does the I/O. Test the pure part with
+  tables.
+- **Adapters are thin.** `objstore` (S3), the Postgres placement adapter, `cmd/*` adapters: translate,
+  validate, wrap errors, log. No business rules.
 - **Wire only in `cmd/`.** `main` calls `realMain(ctx, args, stdout, stderr) int`. Exit 0 ok, 1 expected error
   with log ID, 2 usage, 70 bug, 130 interrupted.
 - **Generated SQL lives in pure packages** that return text + args (`internal/schema`, `internal/workload`).
-  Standalone SQL lives in `.sql` files, embedded with `//go:embed` (SQL G-1).
+  Standalone SQL lives in `.sql` files, embedded with `//go:embed`.
 - No package-level mutable state; no `utils`/`models` packages; a `doc.go` names each package's role and error
   module.
 
@@ -33,7 +32,8 @@ Full: `go-coding-style.md` §1–2.
 
 ## 2. Validation vs contracts
 
-- **Validate once at the edge** (config loaders, handlers, adapters) and return errors. **Never assert on input.**
+- **Validate once at the edge** (config loaders, handlers, adapters) and return errors. **Never assert on
+  input.**
 - **Contracts are for our own bugs**: `assert.That` (`internal/assert`) panics. Write them in doc comments:
   `pre:`, `post:`, `Invariant:`. Run `invariant()` after mutations, never on reads; guard O(n) checks with
   `if assert.Enabled`.
@@ -45,16 +45,19 @@ Full: `go-coding-style.md` §3, `docs/notes/testing/README.md` §2.
 
 ## 3. Errors and logging
 
-- **Wrap once at the package boundary**: `errs.Wrap(module, err, "what failed; what changed; whether retry is safe")`.
-  `Error()` is `message: cause`; never `%v` the cause into your message.
-- **Sentinels with `errors.Is`, typed errors with `errors.As`.** Never branch on message text. Classify storage
-  errors with `objstore.Classify` (Transient / Precondition / NotFound / Permanent / Canceled).
-- **Three error classes, never mixed** (Release It F2): dependency unavailable → `503 + Retry-After`, WARN,
-  sampled; bug → `internal` + log ID, ERROR; bad input → `400`. An S3 or Postgres outage is never `internal`.
-- **Log once, at the top or in the adapter**: `logx` JSON, UTC, log ID, whole chain, origin stack. Do not log and
-  return. One stable message code per operational event (`S3.BREAKER_OPEN`, `OWNER.SUPERSEDED`).
+- **Wrap once at the package boundary**:
+  `errs.Wrap(module, err, "what failed; what changed; whether retry is safe")`. `Error()` is `message: cause`;
+  never `%v` the cause into your message.
+- **Sentinels with `errors.Is`, typed errors with `errors.As`.** Never branch on message text. Classify
+  storage errors with `objstore.Classify` (Transient / Precondition / NotFound / Permanent / Canceled).
+- **Three error classes, never mixed**: dependency unavailable → `unavailable` (503 + `Retry-After`), WARN,
+  sampled; bug → `internal` + log ID, ERROR; bad input → `400`. An S3 or Postgres outage is never `internal`:
+  that would page on-call with thousands of "bugs", and clients would not back off, because a 500 carries no
+  `Retry-After`.
+- **Log once, at the top or in the adapter**: `logx` JSON, UTC, log ID, whole chain, origin stack. Do not log
+  and return. One stable message code per operational event (`S3.BREAKER_OPEN`, `OWNER.SUPERSEDED`).
 
-Full: `go-coding-style.md` §4–5, `concurrency-in-go/README.md`, Release It §F, §O.
+Full: `go-coding-style.md` §4–5, `concurrency-in-go/README.md`, §5 below.
 
 ## 4. Concurrency
 
@@ -68,89 +71,220 @@ Full: `go-coding-style.md` §4–5, `concurrency-in-go/README.md`, Release It §
   take a `det.Clock` (also for ctx deadlines: `det.WithTimeout`), `det.Rand` and `det.IDGen`, defaulting to
   `det.System()` / `det.SystemRand()` / `det.SystemIDs`; `go test ./internal/det` enforces it (DST-0).
 
-Full: `go-coding-style.md` §6, `concurrency-in-go/README.md`, Release It T5, B5.
+Full: `go-coding-style.md` §6, `concurrency-in-go/README.md`.
 
 ## 5. Integration points: timeouts, retries, backpressure
 
-Every call that leaves the process (S3, Postgres, HTTP, local fsync) and every queue follows these. Full:
-[release-it/guide.md](books/release-it/guide.md).
+Every call that leaves the process (S3, Postgres, HTTP in or out, the issuer key set, the schema registry,
+local fsync) and every queue follows these rules. Integration points are where failures start, and a missing
+timeout is how they spread: a dependency's hang becomes ours, and a slow answer is worse than a refusal.
 
-- **T: every remote call has a deadline**, derived per call from a root ctx. Never pass `context.Background()`,
-  `h.ctx` or a ticker ctx straight to I/O. Bound bodies by time and size (stall timeout). Inner deadlines are
-  shorter than outer ones; never retry past the caller's deadline. Pool and semaphore acquires take the ctx.
-- **R: one retry layer per call chain.** Library retries off (`minio.Options{MaxRetries: 1}`). Inside `objstore`,
-  only idempotent requests (GET, HEAD, LIST, DELETE) retry, with jittered exponential backoff (100 ms ×2, 5 s cap,
-  ≤ 5 attempts). **Writes are never blindly retried: an ambiguous write is resolved by re-reading** (§6 W, R3).
-  Client retries use full jitter, honor `Retry-After`, and spend a windowed budget. After a failed activation a
-  key fails fast for a short jittered backoff.
-- **B: every queue is bounded and sheds when full; nothing blocks the caller.** Each dependency has its own
-  concurrency limit sized to its measured knee (S3 fetch 16 / 1 GiB in flight). Caps nest db ≤ tenant ≤ VM.
-  Health and lifecycle never queue behind queries. Bound every result set and listing.
-- **C: a circuit breaker per remote dependency** (`internal/breaker`). Only system failures trip it (timeouts,
-  connection errors, 5xx); `ErrNotFound`/`ErrStale`/`ErrConflict` are answers. Open → fail fast with
-  `ErrUnavailable` and a retry hint. Transitions logged and exposed.
-- **S: everything that accumulates has a reaper** (generations → GC, cache → eviction, fenced records →
-  `Forget`). Background jobs each have a deadline; a tick never overlaps the next; track oldest-unfinished age.
-- **H: startup validates, opens, then serves each key as soon as it is reconciled.** Liveness ≠ readiness;
-  readiness runs a real canary. Remote breakers (S3, placement) never fail readiness; they are metrics/alerts. Shutdown has one total budget.
-- **Per-dependency defaults** (S3, Postgres, inbound HTTP, client, actor) are in Release It §P. A new
-  integration point adds a row to its table and a sheet in §P.
+| Point                                | Code                           | On the request path?                                                                     | Who retries                             |
+| ------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| S3                                   | `objstore` via `durable.Store` | cold activation only; write-back is off the path                                         | `objstore` (idempotent requests only)   |
+| Postgres                             | `placement/pg`                 | locator cache miss, tenancy credential miss; Claim, Reconcile and moves are off the path | the caller, after a re-read             |
+| Inbound HTTP                         | `front`, `cmd/agentd`, `edge`  | yes                                                                                      | the client                              |
+| Client → locator, agent              | `client`, `retry`              | yes                                                                                      | the client, the one retry layer         |
+| Edge → agent                         | `edge`                         | yes                                                                                      | nobody: the edge never retries          |
+| Agent → issuer keys, schema registry | `keyfetch`, `schemareg`        | registry: a database's first request per schema                                          | keys: the next refresh; schemas: nobody |
+| Actor mailbox, read pool             | `actor`                        | yes                                                                                      | nobody: a full queue sheds              |
+
+A new integration point is a design change: add a row here and to the defaults table below.
+
+**Timeouts**
+
+- **Every remote call has a deadline, background work included.** `context.Background()`, `h.ctx` and ticker
+  contexts are roots, not budgets: derive a per-call deadline from them. (A maintenance tick once ran a PUT
+  under the long-lived maintenance ctx, and one hung PUT stopped all maintenance.)
+- **Bound transfers by time as well as size**: a deadline of `OpTimeout + size / MinThroughput` plus a stall
+  timeout. A response-header timeout does not protect a body that stops halfway.
+- **Deadlines shrink on the way down.** An inner timeout is less than the outer one minus the work left; never
+  retry past the caller's deadline. The client sends its budget as `X-Timeout-Ms`; the edge forwards it
+  shrunk.
+- **Waiting is not working.** When a caller gives up, the work it started is interrupted or bounded too
+  (`actor.Do` turns the ctx deadline into the statement timeout).
+- **Every pool checkout and semaphore acquire takes the ctx.** No unbounded blocking acquire.
+
+**Retries**
+
+- **One retry layer per call chain, at the layer that understands the outcome.** Library retries are off
+  (`minio.Options{MaxRetries: 1}`, no driver auto-retry). Layered retries multiply: minio-go's default of ten
+  tries, under our own upload tries, under client retries, turns one failure into hundreds of requests.
+- **Retry only what is safe.** Writes are never blindly retried: an ambiguous write is resolved by re-reading
+  ([object-storage.md](object-storage.md#errors-retries-and-ambiguous-outcomes)). Retried client writes carry
+  the same request id, so they apply at most once.
+- **Exponential backoff with full jitter, a cap on attempts, and `Retry-After` honoured**: wait
+  `max(server hint, jittered delay)`. The `internal/retry` defaults are safe (3 attempts, 50 ms base, 5 s
+  cap); "no backoff" exists only for the bad-client bench profiles, which set it explicitly.
+- **Retries spend a windowed budget**: a token bucket refilled per first attempt and capped, so credit saved
+  in a quiet hour cannot pay for a storm.
+- **Prefer "queue and retry later" to "retry now".** Write-back is the model: acks do not wait for S3, and a
+  failed write-back stays dirty for the next tick.
+- **A failed key backs off on its own.** After a failed activation the key holds a short jittered tombstone
+  (from 100 ms, doubling); requests in that window fail fast instead of fetching again.
+
+**Bulkheads and backpressure**
+
+- **Every queue is bounded, and a full queue sheds; it never blocks the caller.** Mailbox, read queue,
+  admission queues, fetch queue.
+- **Each dependency has its own concurrency limit, sized to its measured knee**, so one slow dependency cannot
+  take slots another needs. S3 fetches: 16 at once and 1 GiB in flight, 256 waiting (past the knee, total
+  throughput falls: 132 MiB fetches ran at 253 MB/s one at a time and 134 MB/s at 64). Postgres: callers are
+  budgeted below the pool ([postgres.md](postgres.md#connections-and-pool-budgeting)).
+- **Caps nest: database ≤ tenant ≤ VM.** Without the VM cap, many tenants could exceed what the process holds.
+- **Reserve capacity for control.** Health, metrics and lifecycle calls (Claim, Fence) use the lifecycle
+  listener and never queue behind queries; runtime controls are on the loopback-only `admin_listen`.
+- **No slow I/O while holding a lock the request path takes** (vactor activates outside `h.mu`).
+- **Bound every result set and listing**: `MaxRows` on reads, a size limit on manifests, paged object listing.
+
+**Circuit breakers** (`internal/breaker`)
+
+- **One breaker per remote dependency**: S3, the placement and tenancy pools, the schema registry, each agent
+  at the edge and at controld. By default it opens when at least 50 % of at least 20 calls in a 10 s window
+  failed, stays open 5 s, then lets one probe through.
+- **Only system failures count**: timeouts, connection errors, 5xx. `ErrNotFound`, `ErrStale`, `ErrConflict`
+  and bad input are answers.
+- **Open means fail fast** with `ErrUnavailable` and a retry hint (the time to the probe).
+- **Breakers are visible and operable**: every transition is logged with a message code and exported as a
+  metric; `agentctl breaker s3 trip|reset` holds one open or closes it.
+- **What an open breaker means for users is a decision, written down.** S3 open: cold activations answer
+  `unavailable` (503 + `Retry-After`), warm traffic is unaffected, write-backs wait (the RPO grows; alert on
+  `oldest_dirty_age`), and readiness stays up. An agent is not pulled from the load balancer for a remote
+  dependency's outage, or one S3 outage would drain every agent.
+
+**Fail fast**
+
+- **Check what you need before expensive work**: ticket, ownership, breaker state and queue room are checked
+  before SQLite or S3 is touched.
+- **Work that cannot finish in time is refused, not started**: expired queued requests are answered `expired`
+  unrun.
+- Error classes on the wire are in §3: a dependency outage is `unavailable`, never `internal`.
+
+**Steady state**
+
+- **Everything that accumulates has a reaper at least as fast**: generations → GC, cache dir → eviction,
+  fenced records → `Forget`, logs → rotation outside the process.
+- **Background loops cannot stall**: each job has its own deadline, a tick never overlaps the next, and a
+  stuck tick is reported.
+- **Track the age of the oldest unfinished thing** (`oldest_dirty_age`, oldest queued request). A flat line is
+  the health signal.
+
+**Health and lifecycle**
+
+- **Startup: validate, open, then serve each key as soon as it is reconciled.** Reconcile runs with bounded
+  workers and a per-key timeout; unreconciled keys are refused with `unavailable` meanwhile. Postgres pools
+  connect lazily, so startup does not block on them.
+- **Liveness is not readiness, and readiness exercises the real path**: `/readyz` runs a canary request
+  through admission and an actor. Remote breakers and the S3 probe (a manifest read every `ready_interval`)
+  are metrics and alerts, not readiness.
+- **Shutdown has one budget** (`shutdown_budget`, 60 s): drain the front, write back the oldest-dirty
+  databases first until the budget ends, then close with local copies kept and their count logged.
+
+**Observability**
+
+- **Per integration point**: requests by outcome class (`ok`, `app_error`, `timeout`, `refused`, `5xx`,
+  `ambiguous`); a latency histogram in which requests that never finished count at their deadline (averages
+  hide hung requests); in-flight and its high-water mark; breaker state and transitions; last success. Per
+  pool or queue: size, in use, high water, times full.
+- **Export counters; keep thresholds out of the code.** Alert rules live in `deploy/prometheus/`.
+- **Log for operators.** ERROR means someone must act (a long-open breaker, write-back failing past the RPO, a
+  bug); WARN means degraded and self-healing. One stable message code per event; correlation fields
+  `request_id`, `log_id`, database key, epoch. Log state transitions, not every refusal; count refusals.
+
+**Defaults per dependency.** The `Config` types are the reference; these are the values to keep in mind.
+
+| Dependency                               | Deadlines                                                     | Concurrency                                                           | Other                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| S3 (`objstore.Config`, `vactor.Options`) | op 5 s, stall 10 s, transfer + size ÷ 32 MiB/s, dial 5 s      | fetches 16 / 1 GiB, queue 256                                         | breaker; GET/HEAD/LIST/DELETE tried ≤ 5 times                                           |
+| Postgres (`pg.Config`)                   | connect 3 s, statement 2 s, lock 1 s, idle-in-transaction 5 s | one pool per process, callers budgeted below it                       | idle connections closed after 60 s; breaker per pool                                    |
+| Inbound HTTP (agentd, edge)              | header 5 s, body 5 s, write = request deadline + grace        | admission per database, tenant and VM; edge: 4096 in flight per agent | 16 KiB headers; edge rate limit 20/s, burst 50 per source                               |
+| Client (`client`, `retry`)               | call 5 s, resolve 3 s, dial 3 s                               | —                                                                     | 3 attempts, full jitter, windowed budget                                                |
+| Locator (controld)                       | 3 s per resolve                                               | 256 resolves, 10 store loads, 2 creates                               | cache 100 000 entries, 5 min TTL, trusted only while LISTEN is up                       |
+| Issuer keys, schema registry (agentd)    | 3 s per fetch; keys refreshed every 30 s                      | schema fetches: 16 at once, single-flight                             | a failed key fetch keeps the old ring; schema text is re-hashed against its fingerprint |
+| Actor                                    | per-request deadline and statement timeout                    | mailbox 256, read queue the same                                      | a full queue sheds                                                                      |
+
+**Open questions**
+
+- A long soak (days, with idle hours to surface idle-timeout and leak bugs) has not been run; the harness is
+  in `scripts/soak/`. Neither has a per-feature availability table (warm read, cold activation, write-back
+  RPO) with each feature's dependencies multiplied out.
+- WAL shipping would put S3 on the write-ack path; see [object-storage.md](object-storage.md#open-questions).
 
 ## 6. Object storage
 
-Full: [object-storage/guide.md](books/object-storage/guide.md). The book's code listings are buggy; follow the
-guide, not the book.
+Full: [object-storage.md](object-storage.md).
 
-- **K: one database owns one prefix**, built only by `durable.KeyPrefix(key)` (hash shard + escaped key). Never
-  `"dbs/" + key`. Compute names; **no LIST on a request path** (only GC, `dbtool`, setup).
-- **I: everything except `manifest.json` is create-only** (`If-None-Match: *`). Never reuse a tried number. Write
-  data first, publish the pointer second, trust only the pointer. Objects carry metadata (`sha256`, `epoch`,
-  `generation`, `key`) to rebuild it.
-- **W: every write to a mutable object is conditional** (`If-Match` / `If-None-Match: *`) **and carries the
-  fencing epoch** (`durable.CheckPublish`, `CheckStamp`). Every publish changes the bytes with strictly
-  increasing `(epoch, generation)`. 412 and 409 both mean stale. **No clocks in correctness.** Coordination
-  lives in Postgres, not S3.
-- **R3/R4: after an ambiguous write, re-read before deciding**; set sticky `stale`/`superseded` only when the
-  re-read shows another writer.
-- **V: verify size + SHA-256 on every generation read** before use; leave no file on failure. `Content-MD5` on
-  uploads.
-- **GC: never delete the current, pending, or K retained generations.** Orphans only after the manifest was
-  rewritten since their upload, plus a grace window. GC never writes the manifest and never crosses a prefix.
-  Drop = placement tombstone first, then delete the prefix.
-- **X: run `TestS3Compat` against every S3 backend/version before use**; record results in `docs/notes/writeback/`.
-- One long-lived client per process; scoped credentials per component; TLS outside dev; metered requests.
+- **One database owns one prefix**, built only by `durable.KeyPrefix(key)`. Compute names; **no LIST on a
+  request path** (only GC, `dbtool`, setup).
+- **Everything except `manifest.json` is create-only.** Never reuse a tried number. Write data first, publish
+  the pointer second, trust only the pointer. Objects carry the metadata to rebuild the pointer.
+- **Every write to the manifest is conditional and carries the fencing epoch**; `(epoch, generation, seal)`
+  only rises. 412 and 409 both mean stale. **No clocks in correctness.** Coordination lives in Postgres.
+- **After an ambiguous write, re-read before deciding**; go stale only when the re-read shows another writer.
+- **Verify size and SHA-256 on every generation read**; `Content-MD5` on every upload.
+- **GC never deletes the current, pending or retained generations**, deletes orphans only after a grace
+  window, never writes the manifest and never crosses a prefix. Drop = placement tombstone first, then the
+  prefix.
+- **Run `TestS3Compat` against every S3 backend and version before use.**
 
 ## 7. SQL
 
-Full: [art-of-postgresql/guide.md](books/art-of-postgresql/guide.md) (rules G-1 … G-23, tagged
-[all]/[sqlite]/[duckdb]/[pg]).
+These hold for SQLite (the data plane), DuckDB (benchmark analysis, `queries/`) and Postgres (the control
+plane). Postgres specifics: [postgres.md](postgres.md).
 
-- **Values are always bind parameters.** Formatted identifiers come only from generator word lists, never from
-  requests. Build connection strings (DSNs, `file:` URIs) in one place.
-- **The connection owner owns the transaction**; callers never send `BEGIN`/`SAVEPOINT`/`PRAGMA`.
-- **Know what an error does to the transaction.** Wrap each grouped write in `SAVEPOINT`/`RELEASE`; if
-  `ROLLBACK TO` fails, the transaction is gone — stop (SQLite `OR ROLLBACK` / I/O errors silently end it).
-- **[pg] One statement over many**: CTEs + `returning`, read committed; a conditional `UPDATE` matching 0 rows is
-  a CAS conflict. Upserts use `on conflict`, never select-then-insert. Locks and LISTEN/NOTIFY only save work;
-  correctness comes from CAS + constraints.
-- **Invariants in the schema**: `not null`, `check`, keys, FKs (index the referencing side). **[sqlite]**
-  `PRAGMA foreign_keys = ON` and `STRICT` tables. **[pg]** `timestamptz`, `bigint`, `text collate "C"` keys,
-  domains; every pool sets `lock_timeout`, `statement_timeout`, `idle_in_transaction_session_timeout` and
-  `application_name`.
-- **Migrations**: numbered, transactional files, never edited after applying.
-- **Layout**: one clause per line, explicit joins, no `order by 2`, explicit insert column lists; set-based over
-  loops; comments explain intent. Existing uppercase SQL stays uppercase; new Postgres files are lowercase.
+- **Values are always bind parameters**, so a value can never be parsed as SQL and identical text reuses the
+  actor's prepared-statement cache. Formatted identifiers come only from the generators' own word lists, never
+  from requests.
+- **Build connection strings in one place** (`internal/sqlitedsn` for SQLite `file:` URIs; `pg.Config` for
+  Postgres). A hand-built `file:` URI opens a different file when the path holds `#` or `?`.
+- **The connection owner owns the transaction**; callers never send `BEGIN`, `SAVEPOINT` or `PRAGMA`. The
+  actor owns `BEGIN IMMEDIATE … COMMIT`.
+- **Know what an error does to the enclosing transaction.** In Postgres any error aborts it; in SQLite
+  `OR ROLLBACK`, `RAISE(ROLLBACK)` and I/O errors end it, and later statements then silently autocommit. The
+  actor wraps each write of a group commit in `SAVEPOINT`/`RELEASE`; if `ROLLBACK TO` fails, the transaction
+  is gone, and the rest of the batch is not run.
+- **Upserts use `on conflict`**, never "select, then insert" (the two-step form races).
+- **Invariants live in the schema**: `not null`, `check`, keys, foreign keys with the referencing side
+  indexed. **SQLite** enforces foreign keys only with `PRAGMA foreign_keys = ON` (every `sqlitedsn` connection
+  sets it) and column types only in `STRICT` tables; repo-owned tables are `STRICT`, and `WITHOUT ROWID` for
+  natural text keys. SQLite times are `integer` unix milliseconds UTC, named `*_ms`.
+- **No hot counter rows**: compute aggregates with `group by`; a counter every write updates serializes
+  writers.
+- **Set-based over loops**: one query returns what the caller needs; bulk work is `insert … select` or
+  multi-row `values` in one transaction.
+- **Layout**: one clause per line for multi-line SQL, explicit joins (no `natural join`), no positional
+  `order by 2`, explicit insert column lists. Comments explain intent. Existing uppercase SQL stays uppercase;
+  new Postgres files are lowercase.
+- **DuckDB reads benchmark CSVs through one typed view file** (`queries/views.sql`, explicit columns, no type
+  sniffing); a test checks it against the CSV header the Go writer emits.
+- **Migrations**: numbered, transactional files, never edited after they are applied.
 
 ## 8. Testing (what every change needs)
 
 Full: [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go-testing.md`.
 
 1. **Spec tables** per partition with on/off points of every boundary.
-2. **Structural**: read uncovered blocks; error branch → inject with a fake; impossible → assertion; dead → delete.
+2. **Structural**: read uncovered blocks; error branch → inject with a fake; impossible → assertion; dead →
+   delete.
 3. **Fakes with fault switches** in `<pkg>test` packages; **one contract suite run against every
-   implementation** (fake, real, and real-through-`faultnet`/`s3test` for adapters — Release It H4 fault table).
+   implementation**. For adapters that means three runs: the fake, the real service, and the real service
+   through a fault harness (`internal/faultnet` for TCP, `internal/objstore/s3test` for HTTP/S3), because an
+   interface-level fake cannot find a missing socket timeout. Minimum faults per adapter:
+
+   | Fault                     | Harness                                             | Expected                                       |
+   | ------------------------- | --------------------------------------------------- | ---------------------------------------------- |
+   | connection refused        | `faultnet` `Refuse`                                 | fails fast, `unavailable`                      |
+   | accepted, no reply        | `AcceptThenSilence`, `Blackhole`                    | fails at the op timeout                        |
+   | headers, then stall       | `s3test` `HeadersThenStall`                         | fails at the stall timeout, no partial file    |
+   | 1 byte/s                  | `Dribble`, `Throttle`                               | fails at the size-derived deadline             |
+   | 5xx or throttling         | `Status` (N times)                                  | exactly one retry layer; the breaker counts it |
+   | applied, reply lost       | `ApplyThenDropReply`, `ApplyThenPreconditionFailed` | resolved by a re-read, not misreported         |
+   | truncated or corrupt body | `TruncateBody`, `CorruptBody`                       | `ErrCorrupt`, nothing activated                |
+   | half-open after idle      | `HalfOpen`                                          | the stale connection is recycled, no hang      |
+
 4. **Model-based fuzzing** for anything stateful; commit failing inputs to `testdata/fuzz/`.
-5. **Adapter integration tests** including failure paths and error wrapping (gated: `COLDLOAD_S3`, `MANSIO_PG_URL`).
+5. **Adapter integration tests** including failure paths and error wrapping (gated: `COLDLOAD_S3`,
+   `MANSIO_PG_URL`).
 6. **Concurrency**: `-race`, many workers on the same key for CAS paths.
 7. **SQL**: every `.sql` file has a golden-output regression test; each constraint has an off-point test.
 8. **Under load and over time**: fault modes during a frontbench/wbbench run before calling a component done.
@@ -162,7 +296,9 @@ Full: [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go
 - [ ] Errors wrapped once at the boundary; messages say what changed and whether retry is safe; error class is
       right (unavailable / bug / bad input)
 - [ ] Every remote call has a deadline; one retry layer; every queue bounded and shedding
-- [ ] Object storage: names via `KeyPrefix`, conditional + fenced writes, re-read after ambiguity, verify hashes
+- [ ] Object storage: names via `KeyPrefix`, conditional + fenced writes, re-read after ambiguity, verify
+      hashes
 - [ ] SQL: bind parameters, savepoints around grouped writes, constraints in the schema, golden tests
 - [ ] Tests per §8; `gofmt -l .`, `go vet ./...`, `go test -race ./...`, `go test -tags noassert ./...` pass
-- [ ] New integration point or storage layout → update the matching guide (and its contract test)
+- [ ] New integration point or storage layout → update §5, [object-storage.md](object-storage.md) or
+      [postgres.md](postgres.md), and the matching contract test

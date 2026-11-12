@@ -68,4 +68,4 @@ says how to run them.
 | `deploy/`  | Compose files for Postgres and SeaweedFS, and the Prometheus alert rules.                         |
 | `scripts/` | Benchmark, soak and simulator drivers.                                                            |
 | `queries/` | DuckDB SQL for reading benchmark results.                                                         |
-| `docs/`    | [Coding style](docs/coding-style.md), the [capacity table](docs/capacity.md), the control-plane plan, C4 notes, and dated design [notes](docs/notes/index.md). |
+| `docs/`    | [Coding style](docs/coding-style.md), how mansio uses [object storage](docs/object-storage.md) and [Postgres](docs/postgres.md), the [capacity table](docs/capacity.md), the control-plane plan, C4 notes, and dated design [notes](docs/notes/index.md). |

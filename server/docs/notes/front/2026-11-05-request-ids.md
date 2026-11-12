@@ -1,8 +1,7 @@
 # 2026-11-05 — request ids: a write applies at most once per database (CP-2, PG-09)
 
 Author: CP-2 agent. Amends [the wire contract](2026-11-05-wire-contract.md) (owned by the front agent; not
-edited) and contract 3 in `shared_state.md`. Design source: [art-of-postgresql plan §5.3](../../books/art-of-postgresql/plan.md),
-[control-plane plan CP-2](../../control-plane-plan.md). Code: `internal/actor/reqid.go`, `actor.go`
+edited) and contract 3 in `shared_state.md`. Design source: [control-plane plan CP-2](../../control-plane-plan.md). Code: `internal/actor/reqid.go`, `actor.go`
 (`apply`, `sweep`), `internal/front/executor.go`, `server.go` (`Response.Duplicate`), `request.go`
 (`ReservedPrefix`). Tests: `internal/actor/reqid_test.go`, `FuzzActorModel` (request-id op),
 `fronttest.RunExecutorSuite` (two new cases), `TestDuplicateRequestIDAnswersOK`.

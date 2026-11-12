@@ -1,4 +1,4 @@
-# 2026-11-05 — storage runbook (object-storage guide O3, plan OS-12)
+# 2026-11-05 — storage runbook (plan OS-12)
 
 By the p4-gc agent. One entry per storage failure mode, each with its `cmd/dbtool` command. dbtool reads
 credentials from `DBTOOL_S3_ACCESS_KEY` / `DBTOOL_S3_SECRET_KEY` and needs List and Delete (the `gc`

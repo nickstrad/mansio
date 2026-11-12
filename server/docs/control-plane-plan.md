@@ -1,12 +1,15 @@
 # From client to the Go process that holds the database: control-plane plan
 
-Status: plan, revised after the book adoption · Date: 2026-11-05 · Baseline: `books/adoption` at `9178d4c`
+Status: plan, revised after the hardening pass · Date: 2026-11-05 · Baseline: `books/adoption` at `9178d4c`
 (first version at `main` `61ddfbe`/`bbf184b`). Design source: mansio option 4
 (`/Users/nick/Software/mansio/docs/architecture/scale-out-direct-actors.md`) and the greenfield proposal
-(`/Users/nick/Software/mansio/docs/architecture/scale-out-go-greenfield.md` §8). Rules: [coding-style.md](coding-style.md)
-and the book guides, cited as `RI` ([release-it](books/release-it/guide.md)), `OS`
-([object-storage](books/object-storage/guide.md)) and `SQL` ([art-of-postgresql](books/art-of-postgresql/guide.md)).
-Open book items (`RI-NN`, `PG-NN`, `OS-NN`) are folded into the steps below; their plans hold the detail.
+(`/Users/nick/Software/mansio/docs/architecture/scale-out-go-greenfield.md` §8). Rules: [coding-style.md](coding-style.md),
+[object-storage.md](object-storage.md) and [postgres.md](postgres.md). The rule citations below (`RI …` for
+integration-point rules, now [coding-style.md §5](coding-style.md#5-integration-points-timeouts-retries-backpressure);
+`OS …` for object-storage rules, now [object-storage.md](object-storage.md); `SQL G-n` for SQL rules, now
+[coding-style.md §7](coding-style.md#7-sql) and [postgres.md](postgres.md)) and the item ids (`RI-NN`, `PG-NN`,
+`OS-NN`) are historical labels from the hardening pass that preceded this plan; the docs above state the rules
+without them.
 Agent reports: `docs/notes/{writeback,fencing,front}/`; contract changes: last entry of `shared_state.md`.
 
 ## 1. Where we stand
@@ -101,7 +104,7 @@ The glue every agent report specified. No new service: a file-backed `Placement`
 
 ### CP-2. Request ids (PG-09) — **Done** (d7c921d; the HTTP kill -9 form of the gate waits for CP-1's wiring — actor-level crash/move tests cover the database half)
 
-A `_mansio_requests` table (`STRICT, WITHOUT ROWID`; DDL in [art-of-postgresql plan §5.3](books/art-of-postgresql/plan.md))
+A `_mansio_requests` table (`STRICT, WITHOUT ROWID`; DDL and cost in [the request-ids note](notes/front/2026-11-05-request-ids.md))
 in each tenant database, so it travels with snapshots. `insert … on conflict (request_id) do nothing returning`
 inside the write's savepoint makes "seen before" and "apply" one decision (`SQL G-8`, `SQL G-10`); retention is a
 batched delete on the actor (`SQL G-17`). It resolves front's `ambiguous` 504s and makes retries after a move
@@ -112,7 +115,7 @@ safe (`RI R2`).
 ### CP-3. Postgres `Placement` adapter (PG-02, PG-03, PG-04, RI-12) — **Done** (06204e3; not wired into agentd/controld (CP-4); the file adapter (CP-1) should run `ownertest.RunPlacementSuite`)
 
 `internal/placement/pg`, implementing `owner.Placement` (`internal/owner/ports.go`).
-- **Schema (PG-02):** `schema/0001_placement.sql` per [art-of-postgresql plan §5.1](books/art-of-postgresql/plan.md):
+- **Schema (PG-02):** `schema/0001_placement.sql` (conventions in [postgres.md](postgres.md#schema-conventions)):
   domains, `not null`, indexed FKs, `collate "C"` keys, the epoch-monotonic trigger; numbered, transactional,
   embedded, recorded in `schema_version` (`SQL G-1`, `G-3`, `G-12`, `G-14`); no counter columns (`SQL G-15`).
 - **Queries (PG-03):** one file per port method (§5.2: `get`, `create`, `cas` with the flip and `moves` row in one
@@ -219,7 +222,7 @@ on the wire (the reserved `op` field).
 | Dependency failures get their own wire code `unavailable` (503 + computed `Retry-After`), never `shed` or `internal` | Made | `docs/notes/front/2026-11-05-unavailable-code.md`, `RI F2` |
 | Remote breakers (S3, placement) never fail readiness. S3 open → cold activations 503, warm traffic unaffected, write-backs deferred, alert on `oldest_dirty_age` | Made (user, 2026-11-05) | `RI C5`, `RI H2` |
 | Layout v2; retention current + 2; orphan sweeper as `dbtool gc` | Made | `docs/notes/writeback/2026-11-05-layout-v2.md`, `docs/notes/writeback/2026-11-05-gc-and-gen-cache.md` |
-| WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [release-it plan §4](books/release-it/plan.md) (after RI-15), `docs/notes/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
+| WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [object-storage.md, open questions](object-storage.md#open-questions), `docs/notes/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
 | Placement policy (M8): least-loaded live VM by dominant share of the database and byte caps, then databases, bytes, id; deterministic | Made (CP-4) | `internal/control/policy.go`, `docs/notes/front/2026-11-05-controld.md` |
 | Leases | Open (options + recommendation, needs the user with the placement-outage question) | `docs/notes/fencing/2026-11-05-leases-options.md` |
 
