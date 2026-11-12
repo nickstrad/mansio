@@ -91,8 +91,8 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
     When another writer changes something your handler read, the SDK re-runs the handler on the new state. So
     a handler must have no side effects beyond `db`: no emails, no HTTP calls, no counters.
 
-15. Read the `find(...).unguarded()` paragraph in
-    `docs/notes/intermediate-representation/2026-11-10-read-path.md` ("Traps").
+15. Read the `find(...).unguarded()` paragraph in `docs/notes/intermediate-representation/read-path.md`
+    ("Traps").
 
     A `find` in a mutation guards the whole table: any change to that table makes your commit retry. For a
     display-only read on a busy table, `unguarded()` avoids needless re-runs.
