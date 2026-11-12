@@ -5,9 +5,7 @@ the TypeScript SDK. The SDK turns their database work into requests of a small, 
 intermediate representation, or IR, [`ir/spec/v1.md`](ir/spec/v1.md)) and sends them to the Go server, which
 validates them, compiles them to SQLite SQL and runs them with one goroutine per database.
 
-Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
-[docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
-[docs/learning/](docs/learning/README.md).
+Step-by-step setup: [docs/guide.md](docs/guide.md). Learning paths: [docs/learning/](docs/learning/README.md).
 
 ## Repository layout
 
