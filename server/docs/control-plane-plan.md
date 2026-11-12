@@ -7,7 +7,7 @@ Status: plan, revised after the book adoption · Date: 2026-11-05 · Baseline: `
 and the book guides, cited as `RI` ([release-it](books/release-it/guide.md)), `OS`
 ([object-storage](books/object-storage/guide.md)) and `SQL` ([art-of-postgresql](books/art-of-postgresql/guide.md)).
 Open book items (`RI-NN`, `PG-NN`, `OS-NN`) are folded into the steps below; their plans hold the detail.
-Agent reports: `knowledge/{writeback,fencing,front}/`; contract changes: last entry of `shared_state.md`.
+Agent reports: `docs/notes/{writeback,fencing,front}/`; contract changes: last entry of `shared_state.md`.
 
 ## 1. Where we stand
 
@@ -17,9 +17,9 @@ pieces are hardened per the three books but still **not wired together**: agentd
 | Piece | Package | State |
 |---|---|---|
 | Actor per database | `internal/actor` | Done. Savepoint per write in group commit (PG-01); `Do` bounded by the ctx deadline (RI-08); FKs + `STRICT` via `internal/sqlitedsn` (PG-05). |
-| Cold ⇄ warm, durable | `vactor`, `durable` | Done. **Layout v2**: `durable.KeyPrefix` = `dbs/<h2>/<escaped key>/`, epoch-qualified self-describing generations (`knowledge/writeback/2026-11-05-layout-v2.md`). Ambiguous writes re-read (OS-02, RI-14). Fetch bulkhead + activation deadline → `vactor.ErrBusy` (RI-02). S3 breaker `durable.WithBreaker` over `internal/breaker`, per-key tombstones (RI-03). Per-job maintenance deadlines, `oldest_dirty_age` (RI-05). `Host.Shutdown(ctx)` (RI-06). Generation cache `Options.GenCacheBytes`, off by default (OS-10). GC with retention current + 2 (OS-06). |
+| Cold ⇄ warm, durable | `vactor`, `durable` | Done. **Layout v2**: `durable.KeyPrefix` = `dbs/<h2>/<escaped key>/`, epoch-qualified self-describing generations (`docs/notes/writeback/2026-11-05-layout-v2.md`). Ambiguous writes re-read (OS-02, RI-14). Fetch bulkhead + activation deadline → `vactor.ErrBusy` (RI-02). S3 breaker `durable.WithBreaker` over `internal/breaker`, per-key tombstones (RI-03). Per-job maintenance deadlines, `oldest_dirty_age` (RI-05). `Host.Shutdown(ctx)` (RI-06). Generation cache `Options.GenCacheBytes`, off by default (OS-10). GC with retention current + 2 (OS-06). |
 | S3 client | `internal/objstore` | Done. One retry layer (idempotent ops only), per-op deadline + stall timeout, Content-MD5, `Classify`, `Store.Metrics()`, paged listing (RI-01, OS-01/07/08). `TestS3Compat` X1–X11 pass on SeaweedFS 4.47 single-node (OS-03). |
-| Storage ops | `cmd/dbtool` | Done (OS-12). `inspect`, `verify`, `orphans`, `gc` (orphan sweeper), `rebuild-manifest`; runbook `knowledge/writeback/2026-11-05-storage-runbook.md`. |
+| Storage ops | `cmd/dbtool` | Done (OS-12). `inspect`, `verify`, `orphans`, `gc` (orphan sweeper), `rebuild-manifest`; runbook `docs/notes/writeback/2026-11-05-storage-runbook.md`. |
 | Single owner | `internal/owner` | Done. `Admit`, `Fence`, `Reconcile`, `Mover`; `ReconcileAll(ctx, ReconcileOptions)` (16 workers, 5 s per key), `ReconcileUntilDone`, `Config.OnChange`. **`Placement` exists only as the fake** (`ownertest`). |
 | Network front | `front`, `ticket`, `cmd/agentd` | Done. 11 wire codes incl. **`unavailable`** (503 + computed `Retry-After`; `cmd/agentd/unavailable.go`). HTTP body/write deadlines, VM-wide admission cap (RI-09). `/livez`, `/readyz` (canary), `/metrics` on the lifecycle listener (RI-07, RI-11). Phased shutdown under one budget (`cmd/agentd/lifecycle.go`). **agentd still runs `front.StaticHost` + `startupAdmitter{epochs(...)}`**: no vactor, no owner, no S3 config, no Claim/Fence endpoints. CP-1 wiring points are marked in `cmd/agentd/main.go` (`newAgent`, `serve`). |
 | Test tools | `faultnet`, `objstore/s3test` | Done (RI-13). A TCP fault proxy and a misbehaving fake S3 that together cover the `RI H4` fault table. Golden tests for `queries/*.sql` (PG-06). |
@@ -55,7 +55,7 @@ Each step ends with a gate. Every new adapter passes its contract suite three wa
 the real service, and the real service through `faultnet`/`s3test` with the H4 fault table. Env gates:
 `COLDLOAD_S3` (SeaweedFS in Docker), `MANSIO_PG_URL` (`docker compose` Postgres).
 
-### CP-1. Wire agentd on one node — **Done** (747abf3; deferred: per-actor queue metrics in durable mode, `ownerAdmitter` per-request `p.Done` allocation, a shared atomic-file helper for owner + placement/file, vactor `CheckActivation` taking a ctx, discard-on-release driven by owner transitions; notes in `knowledge/front/2026-11-05-agentd-durable-mode.md`)
+### CP-1. Wire agentd on one node — **Done** (747abf3; deferred: per-actor queue metrics in durable mode, `ownerAdmitter` per-request `p.Done` allocation, a shared atomic-file helper for owner + placement/file, vactor `CheckActivation` taking a ctx, discard-on-release driven by owner transitions; notes in `docs/notes/front/2026-11-05-agentd-durable-mode.md`)
 
 The glue every agent report specified. No new service: a file-backed `Placement` stands in for Postgres.
 
@@ -133,9 +133,9 @@ safe (`RI R2`).
     with a non-sentinel error; the stale pooled connection is recycled without a hang; a row held in an open
     transaction → non-sentinel error within `lock_timeout`.
   - **Concurrency (PG-04, `SQL G-22`):** 64 goroutines CAS one key → exactly one wins, epoch +1; a many-key
-    move race leaves the invariants query empty; p50/p99 CAS latency at 1/16/64 workers in `knowledge/fencing/`.
+    move race leaves the invariants query empty; p50/p99 CAS latency at 1/16/64 workers in `docs/notes/fencing/`.
 
-### CP-4. `cmd/controld`: registries and lifecycle (RI-16, OS-11) — **Done** (cf4be26; deferred: restore runs keys one at a time, a shared cmd helper package (reporter, secrets, JSON endpoints) for agentd/controld, the resumer does not re-fence suspended databases, no locator yet so the gate resolves through Postgres; notes in `knowledge/front/2026-11-05-controld.md`)
+### CP-4. `cmd/controld`: registries and lifecycle (RI-16, OS-11) — **Done** (cf4be26; deferred: restore runs keys one at a time, a shared cmd helper package (reporter, secrets, JSON endpoints) for agentd/controld, the resumer does not re-fence suspended databases, no locator yet so the gate resolves through Postgres; notes in `docs/notes/front/2026-11-05-controld.md`)
 
 - Tables (a new migration, CP-3 rules): `tenants`, `databases` (tenant owns 0..N, default database), `vms`
   (registry and heartbeats; load computed by `vm_load.sql`).
@@ -162,9 +162,9 @@ safe (`RI R2`).
 72 h of frontbench through agentd + controld in S3 durable mode, with nightly idle hours, and the `RI H4` fault
 modes during a load run (`RI H5`). Track fds, RSS, goroutines, cache-dir bytes, bucket object count and
 `oldest_dirty_age` (`RI S3`); find the one constraint per workload; write the per-feature SLA table.
-- **Gate:** every steady-state gauge has slope ≈ 0 after the first hour; a results note in `knowledge/writeback/`.
+- **Gate:** every steady-state gauge has slope ≈ 0 after the first hour; a results note in `docs/notes/writeback/`.
 
-### CP-5. Locator and ticket issuer (PG-10) — **Done** (9f98cc4; deferred: per-database grants and revocation floors, TLS on the resolve/keys endpoints (CP-7), caching minted tickets, a shared atomic-file helper (now 4 copies), the locator as its own binary; notes in `knowledge/front/2026-11-05-locator.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): TLS for `/v1/resolve`/`/v1/keys`, unknown-key rate limiting, `fsx.WriteAtomic`.
+### CP-5. Locator and ticket issuer (PG-10) — **Done** (9f98cc4; deferred: per-database grants and revocation floors, TLS on the resolve/keys endpoints (CP-7), caching minted tickets, a shared atomic-file helper (now 4 copies), the locator as its own binary; notes in `docs/notes/front/2026-11-05-locator.md`). Follow-ups closed on `cp/fin-loc` ([note](notes/front/2026-11-05-locator-followups.md)): TLS for `/v1/resolve`/`/v1/keys`, unknown-key rate limiting, `fsx.WriteAtomic`.
 
 Inside controld first; split out later.
 - `resolve(tenant, db, principal)` → endpoint, epoch, gen, ticket, TTL. Reads replicas, takes a primary read when
@@ -178,7 +178,7 @@ Inside controld first; split out later.
   VM within one re-resolve; a cached locator sees a move before TTL; killing the LISTEN connection mid-move →
   reconnect, reload, correct resolve.
 
-### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `knowledge/front/2026-11-05-client.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): the locator answers `moving` until the claim lands (0005 NOTIFY on registry flips).
+### CP-6. Client (RI-10 client part) — **Done** (95bdc88; Go client `internal/client` only, the TS SDK is still to do; deferred: the locator should answer `moving` until the new owner's claim lands (the client tolerates the window with ≤ 5 re-resolves); notes in `docs/notes/front/2026-11-05-client.md`). Follow-ups closed on `cp/fin-loc` ([note](notes/front/2026-11-05-locator-followups.md)): the locator answers `moving` until the claim lands (0005 NOTIFY on registry flips).
 
 A Go test client first, then mansio's TS SDK (`RI §P` client sheet).
 - Location cache refreshed ahead of TTL with jitter; re-resolve on `wrong_owner`, `fenced`, `ticket_invalid` or a
@@ -191,7 +191,7 @@ A Go test client first, then mansio's TS SDK (`RI §P` client sheet).
   move; with the S3 breaker tripped, the first retry waits ≥ `Retry-After`; `configs/retry-storm.json` keeps
   retries/first ≤ ratio over every 1 s window.
 
-### CP-7. Edge and TLS — **Done** (fc434e8; deferred: resolver from controld's VM registry (static `agents` now, `edge.Resolver` seam), TLS + unknown-API-key rate limiting for controld's `/v1/resolve` and `/v1/keys` (building blocks `tlsx`, `edge.SourceLimiter`), mTLS edge → agent, edge admin controls, numbers on separate hosts; notes in `knowledge/front/2026-11-05-edge.md`). Follow-ups closed on `cp/fin-loc` ([note](../knowledge/front/2026-11-05-locator-followups.md)): registry resolver (`edge.RegistryRoutes`), controld TLS + rate limiting, `logx.Reporter`/`logx.Open` for controld and edge (agentd still has its copy); mTLS, edge admin controls, separate-host numbers remain.
+### CP-7. Edge and TLS — **Done** (fc434e8; deferred: resolver from controld's VM registry (static `agents` now, `edge.Resolver` seam), TLS + unknown-API-key rate limiting for controld's `/v1/resolve` and `/v1/keys` (building blocks `tlsx`, `edge.SourceLimiter`), mTLS edge → agent, edge admin controls, numbers on separate hosts; notes in `docs/notes/front/2026-11-05-edge.md`). Follow-ups closed on `cp/fin-loc` ([note](notes/front/2026-11-05-locator-followups.md)): registry resolver (`edge.RegistryRoutes`), controld TLS + rate limiting, `logx.Reporter`/`logx.Open` for controld and edge (agentd still has its copy); mTLS, edge admin controls, separate-host numbers remain.
 
 Option 4 §3.6: a stateless proxy that routes on the ticket's `vm` claim, so agents stay private. Rate-limit
 garbage tickets there (each costs a 26 µs verify). TLS client → edge → agent.
@@ -209,29 +209,29 @@ garbage tickets there (each costs a 26 µs verify). TLS client → edge → agen
 
 After CP-6, a client can reach the right Go process for any database: warm, new or cold. That's the "client → go
 process with the db" milestone. For mansio itself, three things are still needed: the handler runtime spike
-(`knowledge/front/2026-11-05-handler-executor.md`), the compiler port, and document operations replacing raw SQL
+(`docs/notes/front/2026-11-05-handler-executor.md`), the compiler port, and document operations replacing raw SQL
 on the wire (the reserved `op` field).
 
 ## 4. Decisions
 
 | Decision | State | Where |
 |---|---|---|
-| Dependency failures get their own wire code `unavailable` (503 + computed `Retry-After`), never `shed` or `internal` | Made | `knowledge/front/2026-11-05-unavailable-code.md`, `RI F2` |
+| Dependency failures get their own wire code `unavailable` (503 + computed `Retry-After`), never `shed` or `internal` | Made | `docs/notes/front/2026-11-05-unavailable-code.md`, `RI F2` |
 | Remote breakers (S3, placement) never fail readiness. S3 open → cold activations 503, warm traffic unaffected, write-backs deferred, alert on `oldest_dirty_age` | Made (user, 2026-11-05) | `RI C5`, `RI H2` |
-| Layout v2; retention current + 2; orphan sweeper as `dbtool gc` | Made | `knowledge/writeback/2026-11-05-layout-v2.md`, `knowledge/writeback/2026-11-05-gc-and-gen-cache.md` |
-| WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [release-it plan §4](books/release-it/plan.md) (after RI-15), `knowledge/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
-| Placement policy (M8): least-loaded live VM by dominant share of the database and byte caps, then databases, bytes, id; deterministic | Made (CP-4) | `internal/control/policy.go`, `knowledge/front/2026-11-05-controld.md` |
-| Leases | Open (options + recommendation, needs the user with the placement-outage question) | `knowledge/fencing/2026-11-05-leases-options.md` |
+| Layout v2; retention current + 2; orphan sweeper as `dbtool gc` | Made | `docs/notes/writeback/2026-11-05-layout-v2.md`, `docs/notes/writeback/2026-11-05-gc-and-gen-cache.md` |
+| WAL shipping with an output gate puts an S3 PUT on the write-ack path (SLA inversion). Degraded mode under an open breaker: refuse writes, or ack locally with a larger RPO | **Open**: needs the user before any WAL code | [release-it plan §4](books/release-it/plan.md) (after RI-15), `docs/notes/writeback/2026-11-05-wal-shipping-amendments.md` (OS-13) |
+| Placement policy (M8): least-loaded live VM by dominant share of the database and byte caps, then databases, bytes, id; deterministic | Made (CP-4) | `internal/control/policy.go`, `docs/notes/front/2026-11-05-controld.md` |
+| Leases | Open (options + recommendation, needs the user with the placement-outage question) | `docs/notes/fencing/2026-11-05-leases-options.md` |
 
 ## 5. Assumptions the plan rests on (from the fencing safety argument)
 
 - Postgres CAS is atomic, epochs only move forward, and Claim and Reconcile read the primary.
 - S3 conditional PUT is atomic. **Verified 2026-11-05 on single-node SeaweedFS**
-  (`knowledge/writeback/2026-11-05-s3-conditional-put-verified.md`; `TestS3Compat` X1–X11:
-  `knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md`). **Also on MinIO and on a 2-filer SeaweedFS
+  (`docs/notes/writeback/2026-11-05-s3-conditional-put-verified.md`; `TestS3Compat` X1–X11:
+  `docs/notes/writeback/2026-11-05-s3-compat-seaweedfs.md`). **Also on MinIO and on a 2-filer SeaweedFS
   cluster with a shared Postgres store, raced across gateways** (CP-8,
-  `knowledge/writeback/2026-11-05-s3-compat-minio-and-cluster.md`); filers with separate stores are not safe.
+  `docs/notes/writeback/2026-11-05-s3-compat-minio-and-cluster.md`); filers with separate stores are not safe.
 - `fsync` is durable. On macOS it isn't, without `F_FULLFSYNC`. On Linux (Docker Desktop VM) a durable commit
-  costs ~93 µs, 4.3 µs per write with group commit (`knowledge/sqlbench/2026-11-05-linux-fsync.md`).
+  costs ~93 µs, 4.3 µs per write with group commit (`docs/notes/sqlbench/2026-11-05-linux-fsync.md`).
 - An operator restores around a VM only when it's really dead. There are no leases and no clocks in the safety
   path (`OS W6`).

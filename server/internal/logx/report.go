@@ -36,7 +36,7 @@ const (
 	ExitBug   = 70
 )
 
-// Reporter classifies a service's top-level error and reports it once (the cmd/sqlbench pattern): an outermost
+// Reporter classifies a service's top-level error and reports it once (the cmd/bench/sqlbench pattern): an outermost
 // error from a Known module is an expected failure (ExitError), anything else a bug (ExitBug). The user gets one
 // line with a log ID; the log gets the chain and the stack. Before Log is set a bug prints its details.
 type Reporter struct {

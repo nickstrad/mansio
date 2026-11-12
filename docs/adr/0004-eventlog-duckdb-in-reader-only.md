@@ -106,7 +106,7 @@ while no reader holds the file; it must never open the file alongside a running 
 - **Large integers.** DuckDB's JSON reader extracts integer literals exactly, but has already rounded a
   literal with a fraction or exponent to the nearest double. The typed columns therefore store `NULL` for any
   integer field they cannot prove exact, rather than a silently rounded value (`platform/eventlog/tables.ts`,
-  `work-scripts/deno/duckdb-json-bigint-probe.ts`).
+  `agent-work/work-scripts/deno/duckdb-json-bigint-probe.ts`).
 - **The reader process gains a second DuckDB instance** and a write workload. It is still single-threaded per
   request, and ingest never touches the app instances or loads the `sqlite` extension.
 

@@ -1,5 +1,5 @@
 /**
- * Unit tests for `app/rules.ts` (plan item 10).
+ * Unit tests for `examples/tic-tac-toe/rules.ts` (plan item 10).
  *
  * The point of these is that the game is now testable without a database: no `SQLiteWriter`, no
  * temp directory, no transaction. Every case the pre-port handler covered by raising is asserted
@@ -19,7 +19,7 @@ import {
   type MoveBody,
   validatePlayers,
   winner,
-} from "../../app/rules.ts";
+} from "../../examples/tic-tac-toe/rules.ts";
 
 /** A fresh, playable game. `_id`/`_creationTime`/`_version` stand in for stored metadata. */
 function game(overrides: Partial<Game> = {}): Game {
@@ -52,7 +52,7 @@ function expectRejection(either: Either.Either<unknown, RuleError>, rule: string
 
 /**
  * Plays `cells` in order, alternating players from whoever has the turn, and folds each result
- * back into a stored document the way `app/functions.ts` does (patch the body, bump the version).
+ * back into a stored document the way `examples/tic-tac-toe/functions.ts` does (patch the body, bump the version).
  */
 function play(cells: readonly number[], start: Game = game()): { game: Game; moves: MoveBody[] } {
   let current = start;

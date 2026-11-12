@@ -3,11 +3,11 @@
  * `dbtool` CLI, for the scenarios that need durability (`backup_restore`).
  *
  * S3 comes from the environment: `E2E_S3_ENDPOINT` (host:port, plain HTTP), `E2E_S3_ACCESS_KEY`,
- * `E2E_S3_SECRET_KEY`, `E2E_S3_BUCKET` (`work-scripts/bash/e2e-linux.sh` starts a SeaweedFS and sets them).
+ * `E2E_S3_SECRET_KEY`, `E2E_S3_BUCKET` (`scripts/dev/e2e-linux.sh` starts a SeaweedFS and sets them).
  * Every agent gets its own prefix in the bucket, so runs and agents never see each other's objects.
  */
 import { Effect, Exit } from "effect";
-import { schema } from "../../../app/schema.ts";
+import { schema } from "../../../examples/tic-tac-toe/schema.ts";
 import { withStorage } from "../../../sdk/schema.ts";
 import { generateIssuer, mintTicket, PERM_READ, PERM_WRITE } from "../../../sdk/ticket.ts";
 import {
@@ -38,7 +38,7 @@ export function s3Store(): S3Store {
     const value = Deno.env.get(name);
     assert.ok(
       value,
-      `${name} is required for durability (work-scripts/bash/e2e-linux.sh sets it)`,
+      `${name} is required for durability (scripts/dev/e2e-linux.sh sets it)`,
     );
     return value;
   };

@@ -7,7 +7,7 @@
  * 1. Argument parsing moved into the error channel. `invoke` is
  *    `Effect<R, E | SchemaError>` — `core/schema.parseObject` returns an `Either`, which *is* an
  *    `Effect` in Effect 3, so the parse simply flat-maps into the handler. Nothing throws.
- * 2. A handler's own failures are typed. `app/functions.ts` fails with `RuleError`,
+ * 2. A handler's own failures are typed. `examples/tic-tac-toe/functions.ts` fails with `RuleError`,
  *    `NotFoundError` and `ConflictError` instead of `throw new Error("Not your turn")`, and `E`
  *    carries them all the way out to the caller.
  *

@@ -12,7 +12,8 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
    It states the deal: you write schemas and document handlers, not SQL, and your handlers run in your own
    process. Everything you learn after this is detail on that.
 
-2. Read `app/schema.ts`, `app/functions.ts` and `app/rules.ts`.
+2. Read `examples/tic-tac-toe/schema.ts`, `examples/tic-tac-toe/functions.ts` and
+   `examples/tic-tac-toe/rules.ts`.
 
    This tic-tac-toe app is a complete example of what you will write. Notice there is no SQL, no connection
    and no transaction code anywhere in it.
@@ -30,17 +31,17 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
 
 ## Phase 2: Write and call your own handlers
 
-5. Follow `docs.md` from "Installation" through "Configure and start agentd".
+5. Follow `docs/guide.md` from "Installation" through "Configure and start agentd".
 
    One agentd with app tokens is the simplest server to develop against. Doing the setup by hand once shows
    you what a "database" is here: one SQLite file per tenant and app.
 
-6. Do the "SDK walkthrough" in `docs.md`: save the `guide.ts` module and run it.
+6. Do the "SDK walkthrough" in `docs/guide.md`: save the `guide.ts` module and run it.
 
    You create a game, read it, make a move, and deliberately break a rule. This is the full loop of an
    application call, including how an error comes back.
 
-7. Read "Core concepts" in `docs.md`.
+7. Read "Core concepts" in `docs/guide.md`.
 
    It defines a document (`_id`, `_creationTime`, `_version`), the two storage layouts, and what a schema
    fingerprint is. `SchemaDriftError` will make sense after this.
@@ -56,13 +57,13 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
    `count`, `countBy`, and the three writes. It also says plainly what is not supported (joins, optional
    fields, cursors), so you can design around it.
 
-10. Add a handler of your own to `app/functions.ts` (for example a `resignGame` mutation or a `gamesByPlayer`
-    query) and call it from `guide.ts`.
+10. Add a handler of your own to `examples/tic-tac-toe/functions.ts` (for example a `resignGame` mutation or a
+    `gamesByPlayer` query) and call it from `guide.ts`.
 
     Writing one handler teaches more than reading ten. If the types guide you to the right call without the
     docs, the SDK is doing its job.
 
-11. Add a field or an index in `app/schema.ts`, call the old database, and read the error.
+11. Add a field or an index in `examples/tic-tac-toe/schema.ts`, call the old database, and read the error.
 
     You get a `RemoteError` with status 409 and `remoteTag: "SchemaDriftError"`: the server knows no schema
     with your new fingerprint for this app, and there is no automatic migration. Knowing this early shapes how
@@ -90,7 +91,8 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
     When another writer changes something your handler read, the SDK re-runs the handler on the new state. So
     a handler must have no side effects beyond `db`: no emails, no HTTP calls, no counters.
 
-15. Read the `find(...).unguarded()` paragraph in `docs/knowledge/ir/2026-11-10-read-path.md` ("Traps").
+15. Read the `find(...).unguarded()` paragraph in
+    `docs/notes/intermediate-representation/2026-11-10-read-path.md` ("Traps").
 
     A `find` in a mutation guards the whole table: any change to that table makes your commit retry. For a
     display-only read on a busy table, `unguarded()` avoids needless re-runs.
@@ -109,7 +111,7 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
 
 ## Phase 4: Errors, retries and credentials
 
-18. Read `core/errors.ts` and the "Troubleshooting" section of `docs.md`.
+18. Read `core/errors.ts` and the "Troubleshooting" section of `docs/guide.md`.
 
     Errors are typed and tagged, and troubleshooting maps each symptom to its cause and fix. Between them you
     can handle every failure your application will see.
@@ -127,7 +129,7 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
     tells you what to catch in production. The SDK's own retries of one commit keep its request id, so they
     apply at most once; a new call from your code gets a new id and is a new write.
 
-21. Read "Authentication and tenancy" in `docs.md`.
+21. Read "Authentication and tenancy" in `docs/guide.md`.
 
     It lists the credentials a single agentd accepts: a ticket, an app token, a tenant API key or a session.
     The credential decides the tenant. Multi-node deployments authenticate at controld instead, with a locator
@@ -145,7 +147,7 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
 ## Phase 5: See what your app did
 
 23. Pass a trace id as the third argument of a `query` or `mutation` call, then follow "Observability" in
-    `docs.md` to run `deno task logs:query trace --param traceId=<yours> --format json`.
+    `docs/guide.md` to run `deno task logs:query trace --param traceId=<yours> --format json`.
 
     Every request of one call carries the same trace id, and with `trace_sql` on you can see the SQL your
     handler caused. This is the main tool for answering "why was that call slow?".

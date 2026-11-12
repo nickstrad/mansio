@@ -125,7 +125,7 @@ export class DecodeError extends Data.TaggedError("DecodeError")<{
 /**
  * An application invariant was violated — the app-domain failures that today read
  * `throw new Error("Not your turn")`. `rule` is an app-defined identifier; the platform only
- * transports it. Item 10 moves these into `app/rules.ts`.
+ * transports it. Item 10 moves these into `examples/tic-tac-toe/rules.ts`.
  */
 export class RuleError extends Data.TaggedError("RuleError")<{
   readonly rule: string;

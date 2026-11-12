@@ -370,7 +370,7 @@ func TestOpsRequestIDOfARawWrite(t *testing.T) {
 // wrong_owner, or with a ticket for it, a protocol answer that is not a decode error).
 func TestOpsDecodeVectors(t *testing.T) {
 	r := newOpsRig(t, front.Config{})
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "ir", "vectors", "decode.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "intermediate-representation", "vectors", "decode.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func FuzzOpsRoute(f *testing.F) {
 	r := newOpsRig(f, front.Config{}, "acme:notes")
 	h := front.NewHandler(r.s, logx.New(io.Discard, slog.LevelError))
 	for _, name := range []string{"decode.json", "execute.json"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", "..", "ir", "vectors", name))
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "intermediate-representation", "vectors", name))
 		if err != nil {
 			f.Fatal(err)
 		}

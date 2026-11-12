@@ -152,7 +152,7 @@ func TestMoveRaceManyKeys(t *testing.T) {
 
 // TestCASLatency records p50/p99 CAS latency and conflicts per second at 1, 16 and 64 workers, on distinct
 // keys (no contention) and on one shared key (every worker races the same row). It runs only with
-// MANSIO_PG_LATENCY=1 (about 20 s); numbers go to knowledge/fencing/.
+// MANSIO_PG_LATENCY=1 (about 20 s); numbers go to docs/notes/fencing/.
 func TestCASLatency(t *testing.T) {
 	if os.Getenv("MANSIO_PG_LATENCY") == "" {
 		t.Skip("set MANSIO_PG_LATENCY=1 to measure CAS latency")

@@ -7,7 +7,7 @@ verification.
 
 ## Application schema and handler
 
-Source: [app/schema.ts](../../app/schema.ts).
+Source: [examples/tic-tac-toe/schema.ts](../../examples/tic-tac-toe/schema.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -37,7 +37,7 @@ export const schema = defineSchema({
 The schema remains TypeScript data. Mutations compose document operations as effects; the following member
 belongs to the exported functions object, not a separate Promise-based handler.
 
-Source: [app/functions.ts](../../app/functions.ts).
+Source: [examples/tic-tac-toe/functions.ts](../../examples/tic-tac-toe/functions.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -103,8 +103,9 @@ export function tableFor(schema: Schema, name: string): Either.Either<Table, Com
 
 `compileSelect` in the same file normalizes the plan and returns `Either<SQL, CompileError | SchemaError>`.
 The compiler returns SQL text with bound values. It is the oracle for the Go server's port
-(`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in `ir/vectors/`.
-`GENERATED_SQL.txt` shows actual output for both layouts and dialects.
+(`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in
+`intermediate-representation/vectors/`. `core/compile/GENERATED_SQL.txt` shows actual output for both layouts
+and dialects.
 
 ## A handler run is recorded, then committed once
 
@@ -234,10 +235,10 @@ connection's finalizer after the instance's, so LIFO release closes the connecti
 ## Run
 
 ```sh
-deno task explain > GENERATED_SQL.txt
-work-scripts/bash/deno-linux.sh 'deno task ci'
+deno task explain > core/compile/GENERATED_SQL.txt
+scripts/dev/deno-linux.sh 'deno task ci'
 deno task go:ci
-work-scripts/bash/e2e-linux.sh
+scripts/dev/e2e-linux.sh
 ```
 
 `deno task ci` runs on Linux because the DuckDB event-log suites hang on macOS. See the README's Verification

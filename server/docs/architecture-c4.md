@@ -1,6 +1,6 @@
 # sqlbench architecture (C4, text)
 
-C4 views of the sqlbench proof of concept as built (see [STATE.md](../STATE.md) and
+C4 views of the sqlbench proof of concept as built (see [STATE.md](../../agent-work/server/STATE.md) and
 [README.md](../README.md)). The coldload side is out of scope; it only imports `internal/actor`.
 Sources are in `diagrams/`; regenerate with the draw-visual skill's `render.py --update`.
 
@@ -83,7 +83,7 @@ Sources are in `diagrams/`; regenerate with the draw-visual skill's `render.py -
 <!-- draw-visual: diagrams/c4-3-component.mmd -->
 ```text
 ┌────────────┐
-│cmd/sqlbench├───2─Run───┐
+│cmd/bench/sqlbench├───2─Run───┐
 └──────┬─────┘           │
        │                 │
    1 config              │
@@ -93,7 +93,7 @@ Sources are in `diagrams/`; regenerate with the draw-visual skill's `render.py -
 └────────────┘        └─────┘
 ```
 
-1. `cmd/sqlbench` reads the config through `load` (config, phases, rate shapes).
+1. `cmd/bench/sqlbench` reads the config through `load` (config, phases, rate shapes).
 2. It then calls `bench.Run`, with a context that Ctrl-C cancels.
 3. `bench` drives the load with `load.Pacer` (how many requests are due), `load.Picker` (which client, database and statement) and `load.Generators`.
 

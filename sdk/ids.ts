@@ -1,7 +1,7 @@
 /**
  * Client-generated ids (IR-3, ADR 0011): document `_id`s for inserts and `requestId`s for mutations.
  *
- * Both are canonical lowercase UUIDv7 (RFC 9562 §5.7), which is what `ir/spec/v1.md` §5.2 requires of
+ * Both are canonical lowercase UUIDv7 (RFC 9562 §5.7), which is what `intermediate-representation/spec/v1.md` §5.2 requires of
  * `insert.id` and which also satisfies the wire-id rule for `requestId` (§4). Layout:
  *
  * ```text

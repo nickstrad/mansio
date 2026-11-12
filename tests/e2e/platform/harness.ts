@@ -5,8 +5,8 @@ import { resolve } from "node:path";
 import { Effect, Either, Exit, type Scope } from "effect";
 import { createClient, schemaFingerprint } from "../../../sdk/client.ts";
 import postgres from "npm:postgres@3.4.9";
-import { functions } from "../../../app/functions.ts";
-import { schema } from "../../../app/schema.ts";
+import { functions } from "../../../examples/tic-tac-toe/functions.ts";
+import { schema } from "../../../examples/tic-tac-toe/schema.ts";
 import { withStorage } from "../../../sdk/schema.ts";
 import { generateIssuer, mintTicket, PERM_READ, PERM_WRITE } from "../../../sdk/ticket.ts";
 import type { ClientError } from "../../../core/errors.ts";
@@ -474,12 +474,14 @@ export async function play(c: Client, cells: readonly number[], suffix = "") {
   let game = await run(c.query("getGame", { gameId }));
   assert.ok(game);
   for (const [i, cell] of cells.entries()) {
-    const written: import("../../../app/rules.ts").Game | null = await run(c.mutation("makeMove", {
-      gameId,
-      playerId: i % 2 === 0 ? people.xPlayer : people.oPlayer,
-      cell,
-      expectedVersion: game._version,
-    }));
+    const written: import("../../../examples/tic-tac-toe/rules.ts").Game | null = await run(
+      c.mutation("makeMove", {
+        gameId,
+        playerId: i % 2 === 0 ? people.xPlayer : people.oPlayer,
+        cell,
+        expectedVersion: game._version,
+      }),
+    );
     game = await run(c.query("getGame", { gameId }));
     assert.deepEqual(game, written, "read-after-write");
     assert.ok(game);

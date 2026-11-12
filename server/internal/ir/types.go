@@ -1,6 +1,6 @@
 package ir
 
-// Limits (spec §3, §4; core/ir/types.ts).
+// Limits (spec §3, §4; core/intermediate-representation/types.ts).
 const (
 	MaxOps       = 64     // operations per request
 	MaxBodyBytes = 65_536 // request body cap, bytes
@@ -140,7 +140,7 @@ func (o *Patch) TableName() string  { return o.Table }
 func (o *Delete) TableName() string { return o.Table }
 func (o *Assert) TableName() string { return o.Table }
 
-// JSON is the request as a JSON value, the shape core/ir/decode.ts produces; Canonical(r.JSON()) is the
+// JSON is the request as a JSON value, the shape core/intermediate-representation/decode.ts produces; Canonical(r.JSON()) is the
 // canonical encoding of spec §9.
 func (r *Request) JSON() *Object {
 	db := NewObject("tenant", r.DB.Tenant, "app", r.DB.App)

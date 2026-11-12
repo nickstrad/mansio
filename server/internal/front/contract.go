@@ -2,7 +2,7 @@ package front
 
 // The caller contract (Backpressure in Microservices ch. 2 "Caller Contract"): for every answer a client can
 // get from an agent or from controld's resolve, what a client library does by itself. It is written once, here:
-// Contract's rows are generated into docs/retry-contract.md and ir/vectors/retry.json (contract_test.go), and
+// Contract's rows are generated into docs/retry-contract.md and intermediate-representation/vectors/retry.json (contract_test.go), and
 // the Go client (internal/client) and the TypeScript SDK (sdk/retry.ts) both run those vectors.
 
 // ClientAction is what a client library does after an answer, without asking its caller.

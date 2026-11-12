@@ -5,9 +5,9 @@
  */
 import assert from "node:assert/strict";
 import { Effect } from "effect";
-import type { Op, Request } from "../../core/ir/types.ts";
-import { functions as app } from "../../app/functions.ts";
-import { schema as appSchema } from "../../app/schema.ts";
+import type { Op, Request } from "../../core/intermediate-representation/types.ts";
+import { functions as app } from "../../examples/tic-tac-toe/functions.ts";
+import { schema as appSchema } from "../../examples/tic-tac-toe/schema.ts";
 import { RuleError } from "../../core/errors.ts";
 import { memoryCache } from "../../sdk/cache.ts";
 import { type ClientOptions, createClient } from "../../sdk/client.ts";

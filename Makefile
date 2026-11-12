@@ -12,7 +12,7 @@
 #   bucket:             mansio-test   (created by `make s3-init`)
 #
 # The Go server's durable agents and dbtool take the endpoint, bucket and keys in their config
-# (server/README.md); the e2e suite starts its own SeaweedFS (work-scripts/bash/e2e-linux.sh).
+# (server/README.md); the e2e suite starts its own SeaweedFS (scripts/dev/e2e-linux.sh).
 #
 # Requires Docker with Compose v2 (`docker compose`). `make s3-init` also needs the AWS CLI and
 # installs it when missing (pip, falling back to apt).

@@ -24,7 +24,7 @@
  * runs on macOS too).
  *
  * The target is agentd (IR-4c): `startScratchAgent` (static mode, `event_log` under the scratch `LOG_DIR`),
- * k6 (`perf/lib/ir.js`: the handlers as the SDK sends them to `/v1/ops`, with minted
+ * k6 (`perf/lib/intermediate-representation.js`: the handlers as the SDK sends them to `/v1/ops`, with minted
  * tickets), the barrier a traced `/v1/ops` read, and the ingest the offline CLI (`scripts/logs.ts ingest`).
  * agentd's `handler` records are the server's half of each handler run (one read or the commit), so each
  * request's client duration still bounds its server duration.
@@ -118,7 +118,7 @@ export async function recordLoadRefusal(refusal: LoadRefusal): Promise<void> {
   await Deno.writeTextFile(path, `${JSON.stringify(refusals, null, 2)}\n`);
 }
 
-/** What the run drives: agentd (k6 on `/v1/ops` through `perf/lib/ir.js`, ingest by the offline CLI). */
+/** What the run drives: agentd (k6 on `/v1/ops` through `perf/lib/intermediate-representation.js`, ingest by the offline CLI). */
 interface Target {
   readonly base: string;
   readonly k6Env: Record<string, string>;

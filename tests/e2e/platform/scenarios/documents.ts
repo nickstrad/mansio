@@ -36,7 +36,7 @@ test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts 
             assert.equal(typeof game._creationTime, "number");
             for (const [i, cell] of moves.X.slice(0, 3).entries()) {
               const before = game._version;
-              const written: import("../../../../app/rules.ts").Game | null = await run(
+              const written: import("../../../../examples/tic-tac-toe/rules.ts").Game | null = await run(
                 c.mutation("makeMove", {
                   gameId,
                   playerId: i % 2 === 0 ? players.xPlayer : players.oPlayer,

@@ -12,9 +12,9 @@
  * tests/e2e/platform/cluster.ts (registerSchema, tenant, client).
  */
 import { Effect } from "effect";
-import { functions } from "../../app/functions.ts";
-import { schema } from "../../app/schema.ts";
-import { fingerprintText } from "../../core/ir/schema.ts";
+import { functions } from "../../examples/tic-tac-toe/functions.ts";
+import { schema } from "../../examples/tic-tac-toe/schema.ts";
+import { fingerprintText } from "../../core/intermediate-representation/schema.ts";
 import { createClient } from "../../sdk/client.ts";
 import { schemaFingerprint } from "../../sdk/fingerprint.ts";
 import { withStorage } from "../../sdk/schema.ts";

@@ -14,7 +14,7 @@ import (
 )
 
 // Postgres tests are gated on MANSIO_PG_URL (deploy/postgres/docker-compose.yml) and each runs in a fresh
-// schema that is dropped afterwards (knowledge/testing/README.md, SQL G-21).
+// schema that is dropped afterwards (docs/notes/testing/README.md, SQL G-21).
 
 var ctx = context.Background()
 

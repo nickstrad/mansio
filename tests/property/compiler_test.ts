@@ -10,7 +10,7 @@
  *   (identifier safety, totality over junk input).
  * - **Drift.** The two dialects and the two storage layouts must agree on what a plan means (dialect
  *   and storage agreement), and the aggregate/limit rules must hold for every plan, not just the
- *   handful in `GENERATED_SQL.txt`.
+ *   handful in `core/compile/GENERATED_SQL.txt`.
  *
  * Execution semantics against a real engine are `sqlite_oracle_test.ts`'s job.
  */

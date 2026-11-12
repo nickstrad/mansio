@@ -1,5 +1,5 @@
 // Command dbtool inspects and repairs the durable copies of databases in object storage (object-storage
-// guide O3, plan OS-12). Runbook: knowledge/writeback/2026-11-05-storage-runbook.md.
+// guide O3, plan OS-12). Runbook: docs/notes/writeback/2026-11-05-storage-runbook.md.
 //
 //	dbtool [flags] inspect <key>            manifest, generations with metadata, what gc would delete
 //	dbtool [flags] verify <key>             download the current generation and check its sha256

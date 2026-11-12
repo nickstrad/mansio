@@ -5,7 +5,7 @@
  *
  * Per request:
  *
- * - **Encoding.** The body is `core/ir/json.ts`'s canonical JSON, built once: every attempt sends the same
+ * - **Encoding.** The body is `core/intermediate-representation/json.ts`'s canonical JSON, built once: every attempt sends the same
  *   bytes, so a retried mutation keeps its `requestId` and a commit that already applied answers
  *   `duplicate: true` instead of applying twice (spec §7).
  * - **Headers.** `Authorization: Bearer <ticket | token>`, `X-Trace-Id` (one per call, the same on every
@@ -28,8 +28,8 @@
  */
 import { Effect } from "effect";
 import { RemoteError, Unavailable } from "../core/errors.ts";
-import { canonical } from "../core/ir/json.ts";
-import type { Kind, Request, Response } from "../core/ir/types.ts";
+import { canonical } from "../core/intermediate-representation/json.ts";
+import type { Kind, Request, Response } from "../core/intermediate-representation/types.ts";
 import {
   backoff,
   decide,

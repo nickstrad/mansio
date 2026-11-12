@@ -11,10 +11,10 @@ Infrastructure_. Use the book for its ideas only: several of its listings break 
 Where this guide and the book disagree, this guide wins.
 
 Related rules:
-- [knowledge/testing/README.md](../../../knowledge/testing/README.md): how to test.
+- [knowledge/testing/README.md](../../notes/testing/README.md): how to test.
 - `~/AI/writeups/go-coding-style.md`: errors (`errs.Wrap`, one log line per failure with its log ID) and
   contracts (`internal/assert`).
-- [fencing safety argument](../../../knowledge/fencing/2026-11-05-safety-argument.md): the ownership
+- [fencing safety argument](../../notes/fencing/2026-11-05-safety-argument.md): the ownership
   invariants these storage rules protect.
 
 ## 1. Key layout
@@ -264,11 +264,11 @@ Run `TestS3Compat` (OS-03) for every backend and version before using it. Record
 | X12 | Scoped identity: the agent credential cannot LIST or delete outside its permissions | §9 |
 
 Known results: single-node SeaweedFS 4.47 passes X1–X12
-([compat note](../../../knowledge/writeback/2026-11-05-s3-compat-seaweedfs.md); X12 with the `agent` identity:
-[scoped identities note](../../../knowledge/writeback/2026-11-05-s3-scoped-identities.md)). Identical bytes repeat the
+([compat note](../../notes/writeback/2026-11-05-s3-compat-seaweedfs.md); X12 with the `agent` identity:
+[scoped identities note](../../notes/writeback/2026-11-05-s3-scoped-identities.md)). Identical bytes repeat the
 ETag there (X5). 2026-11-05 (CP-8): MinIO (2025-05-24 build) passes X1–X12; a SeaweedFS 4.47 cluster with two
 filers on a shared Postgres store passes X1–X11 with X3 raced across both gateways (`S3_COMPAT_PEER`,
-`deploy/seaweedfs-cluster/`) ([note](../../../knowledge/writeback/2026-11-05-s3-compat-minio-and-cluster.md)).
+`deploy/seaweedfs-cluster/`) ([note](../../notes/writeback/2026-11-05-s3-compat-minio-and-cluster.md)).
 Filers with separate stores, failover during a publish, and AWS are unverified.
 
 ## 8. Caching

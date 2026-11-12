@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mansio.dev/ir/v1/request.schema.json",
+  "title": "mansio IR protocol v1 request",
+  "description": "The /v1/ops request envelope (intermediate-representation/spec/v1.md §4-§5). Structural only: JSON Schema cannot express duplicate-member refusal, lone surrogates, the byte cap, $ref targets (earlier inserts only), query ops being select/get/assert only, or the exists:false combinations; intermediate-representation/spec/v1.md and the decode vectors are normative for those.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "db", "kind", "schema", "ops"],
+  "properties": {
+    "v": { "const": 1 },
+    "db": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenant", "app"],
+      "properties": {
+        "tenant": { "$ref": "#/$defs/wireId" },
+        "app": { "$ref": "#/$defs/wireId" }
+      }
+    },
+    "kind": { "enum": ["query", "mutation"] },
+    "requestId": { "$ref": "#/$defs/wireId" },
+    "schema": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "ops": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/op" } }
+  },
+  "if": { "properties": { "kind": { "const": "mutation" } } },
+  "then": { "required": ["requestId"] },
+  "else": {
+    "properties": {
+      "ops": { "items": { "properties": { "op": { "enum": ["select", "get", "assert"] } } } }
+    }
+  },
+  "$defs": {
+    "wireId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_:-][A-Za-z0-9._:-]{0,63}$"
+    },
+    "uuidv7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$ref"],
+      "properties": { "$ref": { "type": "integer", "minimum": 0 } }
+    },
+    "id": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "not": { "pattern": "\u0000" } },
+        { "$ref": "#/$defs/ref" }
+      ]
+    },
+    "value": {
+      "description": "A document value: a scalar, an array of values, or a $ref.",
+      "oneOf": [
+        { "type": ["string", "number", "boolean", "null"] },
+        { "type": "array", "items": { "$ref": "#/$defs/value" } },
+        { "$ref": "#/$defs/ref" }
+      ]
+    },
+    "body": { "type": "object", "additionalProperties": { "$ref": "#/$defs/value" } },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "version": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "exists": { "type": "boolean" },
+        "fields": { "$ref": "#/$defs/body", "minProperties": 1 }
+      }
+    },
+    "filter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "op", "value"],
+      "properties": {
+        "field": { "type": "string" },
+        "op": { "enum": ["eq", "gt"] },
+        "value": { "$ref": "#/$defs/value" }
+      }
+    },
+    "op": {
+      "type": "object",
+      "required": ["op", "table"],
+      "oneOf": [
+        {
+          "properties": {
+            "op": { "const": "select" },
+            "table": { "type": "string" },
+            "filters": { "type": "array", "items": { "$ref": "#/$defs/filter" } },
+            "limit": { "type": "number" },
+            "order": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "direction"],
+              "properties": { "field": { "type": "string" }, "direction": { "enum": ["asc", "desc"] } }
+            },
+            "aggregate": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind"],
+                  "properties": { "kind": { "const": "count" } }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "field"],
+                  "properties": { "kind": { "const": "countBy" }, "field": { "type": "string" } }
+                }
+              ]
+            }
+          },
+          "required": ["filters", "limit"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": { "const": "get" },
+            "table": { "type": "string" },
+            "id": { "$ref": "#/$defs/id" }
+          },
+          "required": ["id"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": { "const": "insert" },
+            "table": { "type": "string" },
+            "value": { "$ref": "#/$defs/body" },
+            "id": { "$ref": "#/$defs/uuidv7" }
+          },
+          "required": ["value"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": { "const": "patch" },
+            "table": { "type": "string" },
+            "id": { "$ref": "#/$defs/id" },
+            "value": { "$ref": "#/$defs/body" },
+            "expect": { "$ref": "#/$defs/expect" }
+          },
+          "required": ["id", "value"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": { "const": "delete" },
+            "table": { "type": "string" },
+            "id": { "$ref": "#/$defs/id" },
+            "expect": { "$ref": "#/$defs/expect" }
+          },
+          "required": ["id"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "op": { "const": "assert" },
+            "table": { "type": "string" },
+            "id": { "$ref": "#/$defs/id" },
+            "expect": { "$ref": "#/$defs/expect" }
+          },
+          "required": ["id", "expect"],
+          "additionalProperties": false
+        },
+        {
+          "description": "A table precondition (intermediate-representation/spec/v1.md §5.5): an assert without an id.",
+          "properties": {
+            "op": { "const": "assert" },
+            "table": { "type": "string" },
+            "expect": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["unchangedSince"],
+              "properties": {
+                "unchangedSince": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              }
+            }
+          },
+          "required": ["expect"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

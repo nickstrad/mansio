@@ -15,13 +15,13 @@
  * if it still has `limit` entries and none sorts after the server's last row (every row the server did not
  * return sorts after that one). Otherwise `overlay` answers `undefined` and the caller fails loudly.
  *
- * The rules are the compiler's (`ir/spec/v1.md` §5.1): `eq null` matches null; `gt` matches a non-null
+ * The rules are the compiler's (`intermediate-representation/spec/v1.md` §5.1): `eq null` matches null; `gt` matches a non-null
  * number above the value; without `order`, `_id` ascending; with `order`, nulls first ascending and last
  * descending, then `_id` ascending; `count` ignores `limit`; `countBy` groups by value, null first, and
  * `limit` caps the groups. Strings compare by code point, which is SQLite's BINARY order over UTF-8.
  */
 import { MAX_LIMIT } from "../core/plan.ts";
-import type { SelectOp } from "../core/ir/types.ts";
+import type { SelectOp } from "../core/intermediate-representation/types.ts";
 
 export type Doc = Record<string, unknown> & { _id: string };
 

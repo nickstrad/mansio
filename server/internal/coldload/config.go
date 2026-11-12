@@ -1,6 +1,6 @@
 // Package coldload is the domain of the coldload benchmark: what to measure and how to summarise it. It does
 // no I/O. Config validation, the level plan, the level runner (through the Getter port) and the CSV row
-// layout live here; cmd/coldload wires them to S3, SQLite and files.
+// layout live here; cmd/bench/coldload wires them to S3, SQLite and files.
 //
 // Errors leaving the package are errs.Error with module "coldload".
 package coldload

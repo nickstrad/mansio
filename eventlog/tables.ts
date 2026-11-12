@@ -66,7 +66,7 @@
  * ## Large integers
  *
  * The item-13 review found SQLite's `json_extract` mishandles integral doubles ≥ 2^53. DuckDB
- * 1.5.6's JSON reader (yyjson), probed with `work-scripts/deno/duckdb-json-bigint-probe.ts`:
+ * 1.5.6's JSON reader (yyjson), probed with `agent-work/work-scripts/deno/duckdb-json-bigint-probe.ts`:
  *
  * - An integer literal (`9007199254740993`) is typed `BIGINT`/`UBIGINT` and extracts exactly.
  * - A literal with a fraction or exponent (`9007199254740993.0`, `1e16`) is typed `DOUBLE` and has

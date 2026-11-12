@@ -10,7 +10,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-var vectorDir = filepath.Join("..", "..", "..", "ir", "vectors")
+var vectorDir = filepath.Join("..", "..", "..", "intermediate-representation", "vectors")
 
 func loadVectors(t testing.TB, name string) []*ir.Object {
 	t.Helper()

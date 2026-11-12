@@ -1,4 +1,4 @@
-# Local development services for mansio. Driven by the Makefile (`make help`); see docker/README.md.
+# Local development services for mansio. Driven by the Makefile (`make help`); see docs/local-infrastructure.md.
 #
 # seaweedfs: a single-container SeaweedFS (master + volume + filer + S3 API) giving the Go server an
 # S3-compatible object store at http://localhost:8333. DEV ONLY: the credentials below are public

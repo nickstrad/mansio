@@ -14,8 +14,8 @@
  *
  * Scoping notes, deliberate:
  * - The `console.*` and `Deno.env` rules cover the shipped library (`core/`, `eventlog/`, `sdk/`,
- *   `app/`). `tests/` is scaffolding (coverage reports, skip notices), `scripts/` are CLIs, and
- *   `work-scripts/`/`perf/` are operator tooling — all legitimately use `console` and env.
+ *   `examples/tic-tac-toe/`). `tests/` is scaffolding (coverage reports, skip notices), `scripts/` are CLIs, and
+ *   `agent-work/work-scripts/`/`perf/` are operator tooling — all legitimately use `console` and env.
  * - Comments are stripped before scanning, so prose about a boundary is not flagged; string literals
  *   are kept, so import specifiers are.
  */
@@ -127,7 +127,7 @@ async function violations(
 }
 
 /** The shipped library the `console.*`/`Deno.env` rules guard. */
-const LIB = ["core", "eventlog", "sdk", "app"];
+const LIB = ["core", "eventlog", "sdk", "examples"];
 
 Deno.test("boundaries: core/ imports nothing from eventlog/, sdk/, node:* or npm:* and never references Deno.", async () => {
   const bad = await violations(await tsFiles("core"), (rel, code) => {

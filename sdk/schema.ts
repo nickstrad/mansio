@@ -7,7 +7,7 @@
  * `Error` message the pre-port code produced, for the callers that still need an `Error`.
  *
  * `AppTable.index` and `defineTable`/`defineSchema` still throw: they run at module load in
- * `app/schema.ts`, which has nowhere to put an `Either`. Item 26 deleted the throwing wrappers
+ * `examples/tic-tac-toe/schema.ts`, which has nowhere to put an `Either`. Item 26 deleted the throwing wrappers
  * (plan items 04 and 09); every other caller is on the `Either` forms in `core/schema.ts` now.
  */
 import { Either, Function as EffectFunction } from "effect";

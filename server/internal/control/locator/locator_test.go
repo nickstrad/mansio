@@ -21,7 +21,7 @@ import (
 )
 
 // fakeStore is a Store with fault switches: block holds every load until released; fail and panicky make
-// loads fail. Mutex-guarded (knowledge/testing/README.md §3).
+// loads fail. Mutex-guarded (docs/notes/testing/README.md §3).
 type fakeStore struct {
 	mu      sync.Mutex
 	rows    map[string]Placement

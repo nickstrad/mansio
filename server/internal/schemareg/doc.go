@@ -3,7 +3,7 @@
 // one by fingerprint (GET /v1/apps/{app}/schemas/{fingerprint}) when a request names it, through Client: a
 // bounded cache, single-flight loads, a deadline per fetch and a circuit breaker (Release It T1, B6, C1).
 //
-// A schema is opaque text here: the fingerprint text of ir/spec/v1.md §2 (JSON.stringify of the defineSchema
+// A schema is opaque text here: the fingerprint text of intermediate-representation/spec/v1.md §2 (JSON.stringify of the defineSchema
 // value), and its fingerprint is "sha256:" + the lowercase hex SHA-256 of exactly those bytes. Check verifies
 // that and that the text is a JSON object; whether it is a valid schema, and in its canonical (fingerprint)
 // form, is internal/docschema's to decide: callers pass that as a Validate hook (controld on register, Client

@@ -7,7 +7,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
-// Assertions must be able to fire (knowledge/testing §2).
+// Assertions must be able to fire (docs/notes/testing §2).
 func TestAssertionsFire(t *testing.T) {
 	if !assert.Enabled {
 		t.Skip("assertions compiled out (-tags noassert)")

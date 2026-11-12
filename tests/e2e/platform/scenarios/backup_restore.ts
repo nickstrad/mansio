@@ -1,7 +1,7 @@
 import { apps, assert, client, Effect, play, players, run, scenarioDir, test } from "../harness.ts";
 import { type Backup, dbtool, keyOf, startDurableAgent } from "../durable.ts";
 import { moves } from "../seed.ts";
-import type { Game } from "../../../../app/rules.ts";
+import type { Game } from "../../../../examples/tic-tac-toe/rules.ts";
 async function checksum(path: string) {
   const digest = await crypto.subtle.digest("SHA-256", await Deno.readFile(path));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");

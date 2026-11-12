@@ -2,8 +2,8 @@
 
 These are C4 views of the coldload work as built: it takes SQLite files stored in SeaweedFS, turns them into
 ready virtual actors, and measures how long that takes. See
-[STATE-coldload.md](state_files/STATE-coldload.md) (archived) and
-[knowledge/coldload/](../knowledge/coldload/README.md). Running actors under request load belongs to
+[STATE-coldload.md](../../agent-work/server/state_files/STATE-coldload.md) (archived) and
+[docs/notes/coldload/](notes/coldload/README.md). Running actors under request load belongs to
 sqlbench ([architecture-c4.md](architecture-c4.md)). Sources are in `diagrams/coldload-c4-*.mmd`;
 regenerate them with the draw-visual skill's `render.py --update`.
 
@@ -88,7 +88,7 @@ regenerate them with the draw-visual skill's `render.py --update`.
 <!-- draw-visual: diagrams/coldload-c4-3-component.mmd -->
 ```text
 ┌────────────┐
-│cmd/coldload│
+│cmd/bench/coldload│
 └──────┬─────┘
        │
        ├────────────────┐
@@ -122,12 +122,12 @@ regenerate them with the draw-visual skill's `render.py --update`.
 └────────────┘    └───────────┘
 ```
 
-1. `cmd/coldload` (`realMain` and its reporter, `seed`, `run`) uses the `internal/coldload` domain package (no I/O). That
+1. `cmd/bench/coldload` (`realMain` and its reporter, `seed`, `run`) uses the `internal/coldload` domain package (no I/O). That
    package holds `Config.Normalize`, the `Levels` plan, `RunLevel` and the CSV rows.
 2. `recorder` is an async CSV writer for `activations.csv`. It drops and counts rows instead of blocking.
 3. `RunLevel` calls the host through its `Getter` port. `vactor.Host` provides `Get` and `Passivate` and
    uses singleflight, so concurrent requests for one key share a single activation.
-4. The `Fetcher` port is implemented by `s3Fetcher`. The `s3Fetcher` and `actorOpener` adapters live in `cmd/coldload`.
+4. The `Fetcher` port is implemented by `s3Fetcher`. The `s3Fetcher` and `actorOpener` adapters live in `cmd/bench/coldload`.
 5. The `Opener` port is implemented by `actorOpener`.
 6. `internal/objstore` is the S3 client (minio-go, one GET per fetch) and talks to SeaweedFS.
 7. `internal/actor` (owned by sqlbench) runs one goroutine per database on the SQLite file.

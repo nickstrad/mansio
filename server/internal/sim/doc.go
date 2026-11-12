@@ -33,7 +33,7 @@
 // only rise.
 //
 // Workloads. Workload is the port: SQL (raw SQL with request ids, today's path) is built in; an IR workload
-// (IR-2b's docexec behind /v1/ops) implements the same four methods. See knowledge/determinism/ for the
+// (IR-2b's docexec behind /v1/ops) implements the same four methods. See docs/notes/determinism/ for the
 // fidelity limits and how to replay a seed.
 //
 // The cluster simulation (DST-2, RunCluster) runs the same loop over several agents (each wired through

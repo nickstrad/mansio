@@ -383,7 +383,7 @@ func withOp(err *Error) *Error {
 	return err
 }
 
-// DecodeValue decodes an already-parsed JSON value (spec §4–§5, core/ir/decode.ts decodeValue). Every
+// DecodeValue decodes an already-parsed JSON value (spec §4–§5, core/intermediate-representation/decode.ts decodeValue). Every
 // failure is a SchemaError; one inside ops[i] carries op i.
 func DecodeValue(value any) (*Request, *Error) {
 	r, err := decodeValue(value)

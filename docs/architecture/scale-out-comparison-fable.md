@@ -3,9 +3,9 @@
 Status: analysis · Author: Fable 5.1 (with nickstrad) · Date: 2026-10-20 · Branch: `main` · Code baseline:
 `main` at `eb5df16` (DP-01 landed).
 
-Nick asked for one document that compares the two scale-out proposals in `pages/`, picks one, and says whether
-and how I would modify the pick. This is that document. It changes nothing else: both datasets, the code and
-every existing document stay as they are.
+Nick asked for one document that compares the two scale-out proposals in `docs/pages/`, picks one, and says
+whether and how I would modify the pick. This is that document. It changes nothing else: both datasets, the
+code and every existing document stay as they are.
 
 ## Answer
 
@@ -23,7 +23,7 @@ Three kinds of statement appear below, and I mark them:
 
 - **Landed** means it runs on `main` at `eb5df16` and is drawn as `existing` in `mansio-current` (46 elements,
   79 relationships, all `existing`, pinned to `2d30330`; nothing under `core/`, `platform/` or `sdk/` changed
-  between `2d30330` and `eb5df16`, which only added `pages/` content and docs).
+  between `2d30330` and `eb5df16`, which only added `docs/pages/` content and docs).
 - **Lanes says** or **planes says** means the dataset, its inventory or its documents state it. Where the
   dataset is silent and only a source document speaks (the lanes README on `docs/ffi-c4` at `81d9936`, my
   scale-out ranking on `arch/fable-ranking`), I say which.
@@ -511,13 +511,13 @@ proof, and M5 is how proof is obtained when the source is gone.
 
 ## 6. Sources checked
 
-- `pages/public/architectures/mansio-lanes-proposal.json` and
-  `pages/content/mansio-lanes-proposal/inventory.md` (P1 to P17, discrepancies 1 to 11);
-  `pages/public/architectures/mansio-planes-proposal.json` and
-  `pages/content/mansio-planes-proposal/inventory.md` (A1 to A4, DP1 to DP13, repair dispositions); every
+- `docs/pages/public/architectures/mansio-lanes-proposal.json` and
+  `docs/pages/content/mansio-lanes-proposal/inventory.md` (P1 to P17, discrepancies 1 to 11);
+  `docs/pages/public/architectures/mansio-planes-proposal.json` and
+  `docs/pages/content/mansio-planes-proposal/inventory.md` (A1 to A4, DP1 to DP13, repair dispositions); every
   plain document in both bundles.
-- `pages/content/mansio-current/inventory.md`; `docs/architecture/README.md` audited-state table;
-  `docs/knowledge/decisions.md`, `glossary.md`, `index.md`.
+- `docs/pages/content/mansio-current/inventory.md`; `docs/architecture/README.md` audited-state table;
+  `docs/notes/decisions.md`, `glossary.md`, `index.md`.
 - `agent-work/items/dp-01-planes/brief.md`, `addendum-1.md`, `review-astra.md`, `review-astra-rereview.md`,
   `report.md`.
 - `docs/plans/ffi/README.md` on `docs/ffi-c4` at `81d9936`; `docs/architecture/lang-switch-fable.md` at

@@ -10,7 +10,7 @@
  * The matrix that matters most is `expression`: each node kind x each physical layout x each
  * dialect. That function decides whether `moveNumber > 3` compares numbers or strings, and it is
  * the one place a dialect difference can silently change query semantics. `tests/core_test.ts` and
- * `GENERATED_SQL.txt` cover the app's real schema; this file covers the cells of the matrix the app
+ * `core/compile/GENERATED_SQL.txt` cover the app's real schema; this file covers the cells of the matrix the app
  * schema has no field for (`number`, `boolean`, nullable scalars).
  */
 import assert from "node:assert/strict";

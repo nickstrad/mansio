@@ -257,8 +257,9 @@ All 56 `new Error(...)` sites in the repo as of commit `962f675`. "Asserted" mar
 | `:96` | `Expected an object`                                                      | `SchemaError({ reason: "not-an-object", path, expected: "object", actual })` |
 | `:99` | `Unknown field: ${key}` — **asserted** `/Unknown field/`                  | `SchemaError({ reason: "unknown-field", path: key })`                        |
 
-`Table.index`, `defineTable` and `defineSchema` run at module load in `app/`, so item 04 keeps them throwing
-through the `*OrThrow` wrappers; the `Either`-returning forms are the ones `core/` exposes.
+`Table.index`, `defineTable` and `defineSchema` run at module load in `examples/tic-tac-toe/`, so item 04
+keeps them throwing through the `*OrThrow` wrappers; the `Either`-returning forms are the ones `core/`
+exposes.
 
 ### `sdk/db.ts`, `sdk/client.ts` — the SDK seam (item 10)
 
@@ -371,7 +372,7 @@ Every other failure inside `take` is wrapped as `BackupError({ appId, phase, cau
 | `:58`        | `reply({ error: "Handler kind mismatch" }, 400)` | `HandlerKindMismatch({ appId, name, expected, actual })`             |
 | `:64-67`     | blanket `catch` → 400 with `e.message`           | `toHttpStatus(e)` with `{ error: { tag, message } }`                 |
 
-### `app/functions.ts` — application rules (item 10)
+### `examples/tic-tac-toe/functions.ts` — application rules (item 10)
 
 | Site         | Today's message                                  | Tagged error                                                        |
 | ------------ | ------------------------------------------------ | ------------------------------------------------------------------- |
@@ -382,9 +383,9 @@ Every other failure inside `take` is wrapped as `BackupError({ appId, phase, cau
 | `:35`        | `Not your turn` — **asserted** `/Not your turn/` | `RuleError({ rule: "not-your-turn" })`                              |
 | `:36`        | `Invalid move` — **asserted** `/Invalid move/`   | `RuleError({ rule: "invalid-move", fields: { cell } })`             |
 
-The four `RuleError`s move into the pure `applyMove` in `app/rules.ts`, which is the second testability win in
-the plan's §1.4: the game rules become unit- and property-testable with no database at all. Item 10 must keep
-`rule` values that render to the asserted strings.
+The four `RuleError`s move into the pure `applyMove` in `examples/tic-tac-toe/rules.ts`, which is the second
+testability win in the plan's §1.4: the game rules become unit- and property-testable with no database at all.
+Item 10 must keep `rule` values that render to the asserted strings.
 
 ### `scripts/restore.ts` — the restore CLI
 

@@ -17,8 +17,8 @@ import {
 } from "../harness.ts";
 import { createClient } from "../../../../sdk/client.ts";
 import { withStorage } from "../../../../sdk/schema.ts";
-import { functions } from "../../../../app/functions.ts";
-import { schema } from "../../../../app/schema.ts";
+import { functions } from "../../../../examples/tic-tac-toe/functions.ts";
+import { schema } from "../../../../examples/tic-tac-toe/schema.ts";
 import { moves, names } from "../seed.ts";
 type Row = Record<string, unknown>;
 const stable = (rows: Row[]) => rows.map((r) => JSON.stringify(r)).sort();

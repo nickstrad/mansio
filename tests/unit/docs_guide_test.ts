@@ -1,5 +1,5 @@
 /**
- * `docs.md` against the repo: every `deno task` it names exists, and its H2 outline is fixed. The Deno
+ * `docs/guide.md` against the repo: every `deno task` it names exists, and its H2 outline is fixed. The Deno
  * platform's checks of its environment options went with it at IR-6; the event-log CLI's options are
  * `eventlog/config.ts`'s (`tests/unit/eventlog_config_test.ts`).
  */
@@ -7,11 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const guide = readFileSync(new URL("../../docs.md", import.meta.url), "utf8");
+const guide = readFileSync(new URL("../../docs/guide.md", import.meta.url), "utf8");
 const config = JSON.parse(readFileSync(new URL("../../deno.json", import.meta.url), "utf8"));
-const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-/** `deno task` runs deno.json tasks and package.json scripts. */
-const tasks = new Set<string>([...Object.keys(config.tasks), ...Object.keys(pkg.scripts ?? {})]);
+const tasks = new Set<string>(Object.keys(config.tasks));
 const headings = [
   "Installation",
   "Configure and start agentd",

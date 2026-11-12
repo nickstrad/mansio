@@ -4,7 +4,7 @@
 -- it creates an app's database, and caches it (internal/schemareg). A database is (tenant, app), stored under
 -- the placement key tenant ':' app (ADR 0011), so an app is named by the database_name domain.
 -- Schemas are content-addressed: the fingerprint is "sha256:" and the lowercase hex SHA-256 of the exact text
--- (ir/spec/v1.md §2), and the schema checks it, whichever code path writes (SQL G-12). Rows are never updated:
+-- (intermediate-representation/spec/v1.md §2), and the schema checks it, whichever code path writes (SQL G-12). Rows are never updated:
 -- a changed schema is a new fingerprint.
 begin;
 

@@ -3,9 +3,10 @@
 Status: proposal · Date: 2026-11-05 · Baseline: mansio `main` at `addda3d`; mansio-server working tree of
 2026-11-05. Builds on: [option 4](scale-out-direct-actors.md) (locator control plane, direct database actors),
 [scaling issues](scaling_issues.md), planes-fable M1–M8 ([comparison](scale-out-comparison-fable.md) §4), and
-mansio-server's measurements (`../mansio-server/knowledge/sqlbench/`, `../mansio-server/knowledge/coldload/`).
-It changes no code. Numbers marked _measured_ come from mansio-server's runs (Apple Silicon, 18 cores, macOS,
-Go 1.26, `modernc.org/sqlite`). Everything else is design or estimate.
+mansio-server's measurements (`../mansio-server/docs/notes/sqlbench/`,
+`../mansio-server/docs/notes/coldload/`). It changes no code. Numbers marked _measured_ come from
+mansio-server's runs (Apple Silicon, 18 cores, macOS, Go 1.26, `modernc.org/sqlite`). Everything else is
+design or estimate.
 
 ## Answer
 
@@ -52,8 +53,9 @@ Hotspots from option 4 §5.1, once the Go agent exists:
 - The TS SDK: `sdk/client.ts`, `sdk/schema.ts`, and the handler API (`sdk/db.ts`, `sdk/functions.ts`), which
   runs inside the engine.
 - Compiler semantics. Port the pure `core/compile/` (624 lines, SQLite only, see
-  [knowledge entry](../knowledge/compiler/2026-11-05-sqlite-only-simplification.md)). Check it against
-  `GENERATED_SQL.txt` byte for byte, and differentially against the TS compiler on fast-check plans.
+  [knowledge entry](../notes/compiler/2026-11-05-sqlite-only-simplification.md)). Check it against
+  `core/compile/GENERATED_SQL.txt` byte for byte, and differentially against the TS compiler on fast-check
+  plans.
 - Document semantics: `_id`, `_creationTime`, `_version`, `expectedVersion` concurrency, the storage layouts,
   decode rules.
 - Option 4's contracts unchanged: tickets (§3.1), admission (§3.2), stale-safe locator (§3.3), moves (§3.4),
@@ -125,7 +127,7 @@ and group commit still gives a several-fold gain.
    has a before number; group commit and fsync numbers on Linux, since macOS FULL skips `F_FULLFSYNC`.
 2. **Single-node agent, no control plane**: one Go binary, wire-compatible with mansio's tenancy-off mode.
    Actors, ported compiler and decode, handler engine. Gate: e2e `documents` and `queries` scenarios green
-   against it. `GENERATED_SQL.txt` matches byte for byte.
+   against it. `core/compile/GENERATED_SQL.txt` matches byte for byte.
 3. **Tenancy and auth on one node**: tenant owns databases, default database. Go auth migrates Better Auth
    accounts. The issuer is embedded and the agent verifies tickets. Gate: e2e `auth` and `tenant_isolation`
    green, with the auth scenario rewritten for the new sign-in endpoints.
@@ -170,7 +172,7 @@ M2's "in-node first" order, carried over.
 Compared on what decides the choice: where handlers run, who owns the data plane (actors, durability, moves),
 and what is left for us to build. The facts about outside products come from memory unless marked. The one
 exception is Durable Objects, from mansio-server's sourced note
-(`../mansio-server/knowledge/sqlbench/2026-11-04-cloudflare-durable-objects.md`). **Check these before
+(`../mansio-server/docs/notes/sqlbench/2026-11-04-cloudflare-durable-objects.md`). **Check these before
 deciding.**
 
 | # | Approach                                                                                                                                                                                                                                                                                                                    | Handlers                                                                          | Data plane owned by                                            | We build                                                                   | Main catch                                                                                                                                                                        |

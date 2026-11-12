@@ -15,7 +15,7 @@
  * - **Schema.** `k6_points` exactly as `core/eventlog/ddl.ts` declares it — the one place the schema
  *   lives: `ts TIMESTAMP` (UTC), `run_id`, `metric`, `value DOUBLE`, `scenario`, `status`,
  *   `trace_id`, `tags JSON`. Only `Point` lines are loaded; k6 interleaves them with `Metric` lines
- *   that describe each metric once (`work-scripts/deno/k6-raw-duckdb-check.ts`).
+ *   that describe each metric once (`agent-work/work-scripts/deno/k6-raw-duckdb-check.ts`).
  * - **Idempotent per run.** One transaction deletes the run's existing rows and inserts the file's
  *   points, so a re-run replaces that run and leaves any other run in the same file untouched.
  *

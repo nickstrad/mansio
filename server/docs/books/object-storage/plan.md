@@ -7,9 +7,9 @@ Sources:
   `~/AI/books/object-storage-as-infrastructure/chapters/` and the raw text is in `raw/chapters-text/`.
   "Ch N" refers to the book.
 - The project's own verified facts, which win over the book:
-  - [S3 conditional PUT verified on SeaweedFS](../../../knowledge/writeback/2026-11-05-s3-conditional-put-verified.md)
-  - [the fencing safety argument](../../../knowledge/fencing/2026-11-05-safety-argument.md)
-  - [the WAL-shipping note](../../../knowledge/writeback/2026-11-05-wal-shipping.md)
+  - [S3 conditional PUT verified on SeaweedFS](../../notes/writeback/2026-11-05-s3-conditional-put-verified.md)
+  - [the fencing safety argument](../../notes/fencing/2026-11-05-safety-argument.md)
+  - [the WAL-shipping note](../../notes/writeback/2026-11-05-wal-shipping.md)
   - [the control-plane plan](../../control-plane-plan.md)
 - The rules agents follow from now on are in [guide.md](guide.md). This file holds the findings and the
   refactor items.

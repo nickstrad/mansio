@@ -6,7 +6,7 @@ help:
 	@grep -hE "^#   make " Makefile | sed "s/^#   //"
 
 # ---------------------------------------------------------------------------------------------------------
-# coldload (owner: coldload agent): SQLite files in SeaweedFS → virtual actors. State (archived): docs/state_files/STATE-coldload.md
+# coldload (owner: coldload agent): SQLite files in SeaweedFS → virtual actors. State (archived): ../agent-work/server/state_files/STATE-coldload.md
 #
 #   make coldload-bench CONFIG=sizes     SeaweedFS up → seed → run → report → full cleanup (KEEP=1 keeps data)
 #   make coldload-smoke                  the same with configs/coldload/smoke.json (~10 s)
@@ -20,7 +20,7 @@ CONFIG   ?= smoke
 FUZZTIME ?= 30s
 KEEP     ?=
 COLDLOAD_PKGS := ./internal/assert ./internal/errs ./internal/logx ./internal/coldload ./internal/vactor/... \
-                 ./internal/objstore ./cmd/coldload
+                 ./internal/objstore ./cmd/bench/coldload
 SEAWEED  := docker compose -f deploy/seaweedfs/docker-compose.yml
 
 .PHONY: coldload-build coldload-test coldload-test-s3 coldload-fuzz coldload-up coldload-down coldload-plan \
@@ -28,7 +28,7 @@ SEAWEED  := docker compose -f deploy/seaweedfs/docker-compose.yml
         coldload-clean-fuzz coldload-disk coldload-check
 
 coldload-build:
-	go build -o bin/coldload ./cmd/coldload
+	go build -o bin/coldload ./cmd/bench/coldload
 
 coldload-test:
 	go vet $(COLDLOAD_PKGS)
@@ -36,14 +36,14 @@ coldload-test:
 	go test -count=1 -tags noassert $(COLDLOAD_PKGS)
 
 coldload-test-s3: coldload-up
-	COLDLOAD_S3=localhost:8333 go test -count=1 -run 'S3|Objstore' ./cmd/coldload
+	COLDLOAD_S3=localhost:8333 go test -count=1 -run 'S3|Objstore' ./cmd/bench/coldload
 
 coldload-fuzz:
 	go test -run='^$$' -fuzz=FuzzHostModel -fuzztime=$(FUZZTIME) ./internal/vactor
 
 coldload-check: coldload-test
-	@test -z "$$(gofmt -l cmd/coldload internal/coldload internal/vactor internal/objstore internal/assert internal/errs internal/logx)" \
-		|| (echo "needs gofmt:"; gofmt -l cmd/coldload internal/coldload internal/vactor internal/objstore; exit 1)
+	@test -z "$$(gofmt -l cmd/bench/coldload internal/coldload internal/vactor internal/objstore internal/assert internal/errs internal/logx)" \
+		|| (echo "needs gofmt:"; gofmt -l cmd/bench/coldload internal/coldload internal/vactor internal/objstore; exit 1)
 
 coldload-up:
 	@curl -s -o /dev/null localhost:8333 || { $(SEAWEED) up -d && for i in $$(seq 30); do curl -s -o /dev/null localhost:8333 && break; sleep 1; done; }
@@ -97,7 +97,7 @@ coldload-disk:
 #   make sqlbench-run CONFIG=smoke       build, run configs/$(CONFIG).json under the bench lock, print the report
 
 SQLBENCH_PKGS := ./internal/actor ./internal/bench ./internal/panicx ./internal/load ./internal/stats ./internal/schema \
-                 ./internal/workload ./internal/retry ./internal/outcome ./internal/sqlitedsn ./cmd/sqlbench ./queries
+                 ./internal/workload ./internal/retry ./internal/outcome ./internal/sqlitedsn ./cmd/bench/sqlbench ./queries
 SQLBENCH_FUZZ := internal/actor:FuzzActorModel internal/schema:FuzzGenerate internal/workload:FuzzStatementsRun \
                  internal/load:FuzzPacerSendsTheIntegratedRate internal/stats:FuzzRecordFormatRoundTrip \
                  internal/retry:FuzzDelayBounds internal/outcome:FuzzParse
@@ -110,7 +110,7 @@ sqlbench-test:
 	go test -count=1 -tags noassert $(SQLBENCH_PKGS)
 
 sqlbench-e2e:
-	go test -count=1 -tags e2e ./cmd/sqlbench
+	go test -count=1 -tags e2e ./cmd/bench/sqlbench
 
 sqlbench-check:
 	@test -z "$$(gofmt -l $(patsubst ./%,%,$(SQLBENCH_PKGS)))" || (echo "needs gofmt:"; gofmt -l $(patsubst ./%,%,$(SQLBENCH_PKGS)); exit 1)
@@ -129,16 +129,16 @@ sqlbench-run:
 	scripts/run.sh configs/$(CONFIG).json
 
 # ---------------------------------------------------------------------------------------------------------
-# front (owner: front agent): tickets, admission and the agent's network front. State: docs/state_files/STATE-front.md
+# front (owner: front agent): tickets, admission and the agent's network front. State: ../agent-work/server/state_files/STATE-front.md
 #
 #   make front-test                      vet + tests, -race and -tags noassert
 #   make front-e2e                       build agentd + frontbench and run them together (-tags e2e)
 #   make front-check                     gofmt + front-test + front-e2e
 #   make front-fuzz                      every front fuzz target for FUZZTIME each, under the bench lock
-#   make front-bench                     the frontbench matrix recorded in knowledge/front, under the bench lock
+#   make front-bench                     the frontbench matrix recorded in docs/notes/front, under the bench lock
 
-FRONT_PKGS := ./internal/ticket/... ./internal/front/... ./cmd/agentd ./cmd/frontbench
-FRONT_DIRS := internal/ticket internal/front cmd/agentd cmd/frontbench
+FRONT_PKGS := ./internal/ticket/... ./internal/front/... ./cmd/agentd ./cmd/bench/frontbench
+FRONT_DIRS := internal/ticket internal/front cmd/agentd cmd/bench/frontbench
 FRONT_FUZZ := internal/ticket:FuzzVerify internal/front:FuzzDecodeRequest internal/front:FuzzLimiterModel
 
 .PHONY: front-test front-e2e front-check front-fuzz front-bench
@@ -149,7 +149,7 @@ front-test:
 	go test -count=1 -tags noassert $(FRONT_PKGS)
 
 front-e2e:
-	go test -count=1 -tags e2e ./cmd/frontbench
+	go test -count=1 -tags e2e ./cmd/bench/frontbench
 
 front-check:
 	@test -z "$$(gofmt -l $(FRONT_DIRS))" || (echo "needs gofmt:"; gofmt -l $(FRONT_DIRS); exit 1)
@@ -163,7 +163,7 @@ front-bench:
 	LOCK_WHO=front scripts/lock.sh results/.bench-lock scripts/front/bench.sh
 
 # ---------------------------------------------------------------------------------------------------------
-# sim (owner: DST builder): deterministic simulation, IR protocol plan §6.4. knowledge/determinism/
+# sim (owner: DST builder): deterministic simulation, IR protocol plan §6.4. docs/notes/determinism/
 #
 #   make sim-test                        the simulations' default seeds (DST-1 single node, DST-2 cluster)
 #   make sim-swarm SEEDS=2000            DST-3 nightly swarm: many seeds, varied fault rates, shrink failures

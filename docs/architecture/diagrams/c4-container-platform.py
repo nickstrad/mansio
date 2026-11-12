@@ -62,7 +62,7 @@ EDGES = [('client', 'controld', 'HTTP POST /v1/resolve; API key or session; tick
  ('controld', 'pg', 'Postgres protocol; placement, tenancy, issuer'),
  ('tools', 'objects', 'S3 HTTP; dbtool restore, import, verify'),
  ('tools', 'agentd', 'Admin HTTP; /admin/tenants, /admin/backup')]
-NOTES = 'This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs alone: static mode (a\nkeys file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or\nsessions on /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or\nplacement_pg); then the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are\nacknowledged before write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts\ntalks to whichever process mounts /admin/tenants (agentd or controld).'
+NOTES = 'This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs alone: static mode (a\nkeys file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or\nsessions on /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or\nplacement_pg); then the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are\nacknowledged before write-back, so a kill -9 can lose the window (intermediate-representation-protocol.md §9). scripts/tenants.ts\ntalks to whichever process mounts /admin/tenants (agentd or controld).'
 NAME = 'c4-container-platform'
 
 

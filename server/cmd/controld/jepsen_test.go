@@ -131,7 +131,7 @@ type jepsenWorld struct {
 	// crashes are, per app, the kill -9 times of the agent that owned its database then (read from the
 	// authority just before the kill). A restarted agent serves each database from its last published
 	// generation: acknowledged writes inside the write-back window (the RPO) may be lost (by design:
-	// knowledge/writeback, DST-1's RPO rule), so each database's history is checked per crash-free segment.
+	// docs/notes/writeback, DST-1's RPO rule), so each database's history is checked per crash-free segment.
 	crashes map[string][]int64
 	kills   int
 	faults  []string

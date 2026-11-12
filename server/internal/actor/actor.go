@@ -56,7 +56,7 @@ type Request struct {
 	// the whole closure; MaxRows is ignored (each Tx.Query takes its own bound).
 	Fn Func
 	// Check, if set, runs first, in the request's savepoint (a write) or read transaction (a read), before the
-	// request id is claimed: a precondition that must hold even for a duplicate (ir/spec/v1.md §6.1: the
+	// request id is claimed: a precondition that must hold even for a duplicate (intermediate-representation/spec/v1.md §6.1: the
 	// fingerprint check runs before the duplicate check). Its Tx is read-only. Its error is the request's
 	// answer, and the savepoint rolls back.
 	Check func(tx *Tx) error

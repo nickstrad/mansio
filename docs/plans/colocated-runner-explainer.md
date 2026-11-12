@@ -316,7 +316,7 @@ What is still missing:
 1. **Local data beyond point reads.** The cache answers `get`. A local `find` needs every row of the table as
    of a known sequence, and a select evaluator over them (the overlay's `matches` and `compareRows` are most
    of one). That means a local store and a way to fill it: the plan's read replicas or an op log
-   (`docs/plans/completed/ir-protocol.md` §7, steps 1 and 2).
+   (`docs/plans/completed/intermediate-representation-protocol.md` §7, steps 1 and 2).
 2. **A change feed.** Today the client learns of other writers' changes only by being refused. Local logic
    wants "what changed since sequence N" pushed or pulled. The sequence exists; the feed does not.
 3. **A pending-write queue with rebase.** Showing a speculative result before the commit returns, queueing
@@ -368,7 +368,7 @@ The smallest preparation that could ride along now: **have a mutation's answer c
 reading** (the server already takes exactly one per request, spec §6.3). With it the client knows every
 document its commit inserted, exactly; inserts become cacheable, which also makes the first `makeMove` after
 `createGame` one round trip, and a local store can apply its own commits without reading them back. It was not
-built in this run; it is recorded in `STATE.md` as a candidate.
+built in this run; it is recorded in `agent-work/STATE.md` as a candidate.
 
 ## What approving change 5 would set in motion
 

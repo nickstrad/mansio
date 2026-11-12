@@ -7,9 +7,9 @@
 import assert from "node:assert/strict";
 import { Effect, Either } from "effect";
 import { ConflictError, RemoteError, Unavailable } from "../../core/errors.ts";
-import type { Request } from "../../core/ir/types.ts";
-import { functions } from "../../app/functions.ts";
-import { schema } from "../../app/schema.ts";
+import type { Request } from "../../core/intermediate-representation/types.ts";
+import { functions } from "../../examples/tic-tac-toe/functions.ts";
+import { schema } from "../../examples/tic-tac-toe/schema.ts";
 import {
   type ClientOptions,
   createClient,

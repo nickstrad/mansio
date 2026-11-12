@@ -265,6 +265,7 @@ what the per-database actor replaces.
 
 ## 9. Sources checked
 
-- `pages/content/mansio-planes-fable/inventory.md` (F1–F11, admission table, trust boundary, move protocol).
+- `docs/pages/content/mansio-planes-fable/inventory.md` (F1–F11, admission table, trust boundary, move
+  protocol).
 - `docs/architecture/scale-out-comparison-fable.md` (§1–§4).
 - Landed code, for §5.1: listed with each row.

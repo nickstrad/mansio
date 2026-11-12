@@ -1,9 +1,9 @@
 // Compile-only checks. This function is never called.
 import type { ReadDB, WriteDB } from "../sdk/db.ts";
-import type { schema } from "../app/schema.ts";
+import type { schema } from "../examples/tic-tac-toe/schema.ts";
 import { createClient } from "../sdk/client.ts";
-import { functions } from "../app/functions.ts";
-import { schema as appSchema } from "../app/schema.ts";
+import { functions } from "../examples/tic-tac-toe/functions.ts";
+import { schema as appSchema } from "../examples/tic-tac-toe/schema.ts";
 export function typeAssertions(read: ReadDB<typeof schema>, write: WriteDB<typeof schema>) {
   read.find("games", { status: "playing" }).sort("_creationTime");
   // @ts-expect-error queries cannot write

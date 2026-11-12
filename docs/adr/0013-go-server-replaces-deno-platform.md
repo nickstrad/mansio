@@ -2,14 +2,13 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-06
-- **Deciders:**
-  [`docs/plans/completed/replace-platform-with-go.md`](../plans/completed/replace-platform-with-go.md) §5
-  phase 7, §6; recorded by IR-6 ([`docs/plans/completed/ir-protocol.md`](../plans/completed/ir-protocol.md)
+- **Deciders:** `docs/plans/completed/replace-platform-with-go.md` (removed; see git history) §5 phase 7, §6;
+  recorded by IR-6 (`docs/plans/completed/intermediate-representation-protocol.md` (removed; see git history)
   §5)
-- **Related:** [ADR 0009](0009-ir-is-the-app-wire.md), [ADR 0010](0010-compiler-port-with-ts-oracle.md),
-  [ADR 0012](0012-single-node-auth-port.md); supersedes [ADR 0001](0001-effect-port.md)'s process split,
-  [ADR 0004](0004-eventlog-duckdb-in-reader-only.md) and [ADR 0008](0008-statement-execution-via-ffi.md) for
-  the server
+- **Related:** [ADR 0009](0009-intermediate-representation-is-the-app-wire.md),
+  [ADR 0010](0010-compiler-port-with-ts-oracle.md), [ADR 0012](0012-single-node-auth-port.md); supersedes
+  [ADR 0001](0001-effect-port.md)'s process split, [ADR 0004](0004-eventlog-duckdb-in-reader-only.md) and
+  [ADR 0008](0008-statement-execution-via-ffi.md) for the server
 - **Implements:** branch `ir/06-cutover` (deletes the Deno platform's `platform/` tree; adds `eventlog/`)
 
 ## Decision
@@ -21,11 +20,11 @@
    `scripts/restore.ts`, `scripts/db/migrate.ts`, `scripts/demo.ts`), `demos/`, and its Deno tasks (`serve`,
    `restore`, `db:migrate`, `integration`, `demo`). The SDK drops its pre-IR `createLegacyClient`.
 2. **The e2e suite is the Go server's conformance suite.** `BACKEND=deno` is gone; the eight scenarios run on
-   Go only (`work-scripts/bash/e2e-linux.sh`).
-3. **What stays in TypeScript:** `sdk/`, `app/`, `core/` (schema, plan, errors, the compiler that is the
-   oracle for Go per ADR 0010, the IR rules, and the event-log record format `core/events.ts` with
-   `core/eventlog/` and `core/logging/`), the shared IR spec and vectors (`ir/`), `perf/` (k6, now always over
-   `/v1/ops`), and the offline event-log CLI.
+   Go only (`scripts/dev/e2e-linux.sh`).
+3. **What stays in TypeScript:** `sdk/`, `examples/tic-tac-toe/`, `core/` (schema, plan, errors, the compiler
+   that is the oracle for Go per ADR 0010, the IR rules, and the event-log record format `core/events.ts` with
+   `core/eventlog/` and `core/logging/`), the shared IR spec and vectors (`intermediate-representation/`),
+   `perf/` (k6, now always over `/v1/ops`), and the offline event-log CLI.
 4. **The event-log ingest and DuckDB analysis stay in TypeScript, as an offline CLI** (`scripts/logs.ts` over
    `eventlog/`). Go has no ingest: agentd writes JSONL in the `core/events.ts` format (IR-4c, goldens shared
    with Go), and the CLI ingests it into DuckDB, sweeps retention and runs the named catalog. The ingest,
@@ -50,8 +49,8 @@
 ## Consequences
 
 - `deno task ci` covers only the surviving TS (fmt, lint, check, unit and property tests); it must run on
-  Linux (`work-scripts/bash/deno-linux.sh`) because the DuckDB event-log suites hang on macOS.
-  `deno task go:ci` covers the server.
+  Linux (`scripts/dev/deno-linux.sh`) because the DuckDB event-log suites hang on macOS. `deno task go:ci`
+  covers the server.
 - There is no TS server to fall back to. Behavior that only the Deno platform had is gone: the legacy
   `/apps/:app/:kind/:name` routes, server-side handlers, the platform's own S3 snapshot format and
   `scripts/restore.ts`, `/admin/logs/*`, Better Auth's other endpoints (ADR 0012 lists what was not ported).
@@ -59,7 +58,7 @@
   `controld import-mansio` (ADR 0012); the e2e check that imported a freshly Deno-written file went with the
   platform.
 - The open durability question is unchanged and is now the only server's: writes are acknowledged before
-  write-back, so a kill -9 can lose the window (`docs/plans/completed/ir-protocol.md` §9; S3 backup work is
-  paused).
+  write-back, so a kill -9 can lose the window (`docs/plans/completed/intermediate-representation-protocol.md`
+  §9; S3 backup work is paused).
 - ADRs 0001, 0004 and 0008 now describe history for the server; their TS-side rules that still apply (pure
   `core/`, a single DuckDB writer, the text storage contract) stay in force for what remains.

@@ -1,5 +1,5 @@
 import { Effect, Either } from "effect";
-import { schema } from "../app/schema.ts";
+import { schema } from "../examples/tic-tac-toe/schema.ts";
 import { withStorage } from "../sdk/schema.ts";
 import { compileDDL } from "../core/compile/ddl.ts";
 import { compileSelect } from "../core/compile/select.ts";

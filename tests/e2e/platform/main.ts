@@ -29,7 +29,7 @@ const gitStatus = async () => {
   return out.stdout;
 };
 /**
- * A Postgres the caller already runs (`E2E_POSTGRES_URL`, e.g. `work-scripts/bash/e2e-linux.sh`'s sibling
+ * A Postgres the caller already runs (`E2E_POSTGRES_URL`, e.g. `scripts/dev/e2e-linux.sh`'s sibling
  * container): no Compose project is started, and the Docker hermeticity checks are skipped.
  */
 const external = Deno.env.get("E2E_POSTGRES_URL") || undefined;

@@ -6,8 +6,8 @@ links to the full guide, which wins on detail.
 | Source | Full guide | Covers |
 |---|---|---|
 | House Go style (Aniche ch. 4, Cox-Buday ch. 4–5) | `~/AI/writeups/go-coding-style.md` | layout, domain vs integration, contracts, errors, logging, concurrency |
-| *Effective Software Testing* (Aniche) | [knowledge/testing/README.md](../knowledge/testing/README.md), `~/AI/writeups/go-testing.md` | test levels, fakes, contract suites, model fuzzing |
-| *Concurrency in Go* (Cox-Buday) | [knowledge/concurrency-in-go/README.md](../knowledge/concurrency-in-go/README.md) | Result pattern, panic forwarding, error propagation |
+| *Effective Software Testing* (Aniche) | [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go-testing.md` | test levels, fakes, contract suites, model fuzzing |
+| *Concurrency in Go* (Cox-Buday) | [docs/notes/concurrency-in-go/README.md](notes/concurrency-in-go/README.md) | Result pattern, panic forwarding, error propagation |
 | *Release It!* (Nygard) | [books/release-it/guide.md](books/release-it/guide.md) | timeouts, retries, bulkheads, breakers, health, fault harness |
 | *The Art of PostgreSQL* (Fontaine) | [books/art-of-postgresql/guide.md](books/art-of-postgresql/guide.md) | SQL for SQLite, DuckDB, Postgres |
 | *Object Storage as Infrastructure* | [books/object-storage/guide.md](books/object-storage/guide.md) | S3 key layout, conditional writes, integrity, GC |
@@ -41,7 +41,7 @@ Full: `go-coding-style.md` §1–2.
 - Never put assertions in a `defer` that also runs while a panic unwinds.
 - Each assertion must be able to fail in some test. Both builds pass: default and `-tags noassert`.
 
-Full: `go-coding-style.md` §3, `knowledge/testing/README.md` §2.
+Full: `go-coding-style.md` §3, `docs/notes/testing/README.md` §2.
 
 ## 3. Errors and logging
 
@@ -117,7 +117,7 @@ guide, not the book.
 - **GC: never delete the current, pending, or K retained generations.** Orphans only after the manifest was
   rewritten since their upload, plus a grace window. GC never writes the manifest and never crosses a prefix.
   Drop = placement tombstone first, then delete the prefix.
-- **X: run `TestS3Compat` against every S3 backend/version before use**; record results in `knowledge/writeback/`.
+- **X: run `TestS3Compat` against every S3 backend/version before use**; record results in `docs/notes/writeback/`.
 - One long-lived client per process; scoped credentials per component; TLS outside dev; metered requests.
 
 ## 7. SQL
@@ -143,7 +143,7 @@ Full: [art-of-postgresql/guide.md](books/art-of-postgresql/guide.md) (rules G-1 
 
 ## 8. Testing (what every change needs)
 
-Full: [knowledge/testing/README.md](../knowledge/testing/README.md), `~/AI/writeups/go-testing.md`.
+Full: [docs/notes/testing/README.md](notes/testing/README.md), `~/AI/writeups/go-testing.md`.
 
 1. **Spec tables** per partition with on/off points of every boundary.
 2. **Structural**: read uncovered blocks; error branch → inject with a fake; impossible → assertion; dead → delete.

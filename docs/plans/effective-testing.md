@@ -96,24 +96,25 @@ precondition ("a snapshot in tenancy mode has a `TenantContext`") turns from sil
 ### 1.5 The `deno.json` freeze
 
 The main plan (§2.2) froze `deno.json` after item 01. New entry points (coverage, mutation, fuzz, Postgres
-integration) need either new tasks or scripts. **Default in this plan: scripts under `work-scripts/bash/`, no
-`deno.json` edit.** New test files go under existing globs (`tests/unit/**`, `tests/property/**`) so
-`deno
-task test` and `test:prop` pick them up. If Nick prefers tasks, TS-03 also owns a single `deno.json`
-edit adding `coverage`, `test:fuzz`, `test:mutation` and `test:pg` (decision D1).
+integration) need either new tasks or scripts. **Default in this plan: scripts under
+`agent-work/work-scripts/bash/`, no `deno.json` edit.** New test files go under existing globs
+(`tests/unit/**`, `tests/property/**`) so `deno
+task test` and `test:prop` pick them up. If Nick prefers
+tasks, TS-03 also owns a single `deno.json` edit adding `coverage`, `test:fuzz`, `test:mutation` and `test:pg`
+(decision D1).
 
 ## 2. Test taxonomy (the book's, mapped to mansio)
 
-| Book level    | mansio meaning                                                                                                      | Where                                                   | Gate                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
-| Unit          | `core/` pure logic, and services over test layers                                                                   | `tests/unit/`, `tests/core_test.ts`                     | `deno task ci`                                       |
-| Specification | Not a level: a way to choose tests at every level, from a written partition/boundary table                          | `docs/testing/spec/*.md` → tests tagged with spec ids   | `ci` (traceability check)                            |
-| Structural    | Coverage and mutation reports used to _find_ missing tests; no percentage target                                    | `work-scripts/bash/coverage.sh`, `mutation.sh`          | Report only                                          |
-| Property      | Generated inputs with invariants, plus stateful command-sequence models                                             | `tests/property/`                                       | `ci` (200 runs, fixed seed)                          |
-| Fuzz          | Long property campaigns over malformed input; failures saved as regressions                                         | `tests/property/fuzz/` + `work-scripts/bash/fuzz.sh`    | Corpus in `ci`; campaigns manual/nightly             |
-| Integration   | One adapter against its real infrastructure: SQLite FFI, Postgres, DuckDB, object store, IPC child                  | `tests/unit/*` (existing), `tests/pg/` (new)            | `ci` where infra is local; Postgres suite via script |
-| System        | The whole server through HTTP and the SDK, as a user                                                                | `tests/e2e/platform/scenarios/`, `tests/integration.ts` | `deno task e2e` before landing risky items           |
-| Contracts     | Not a level: pre/post/invariant checks in product code that halt on a bug, and act as oracles for every level above | `core/contract.ts`; call sites in `core/`, `platform/`  | Always on; every test run is also a contract run     |
+| Book level    | mansio meaning                                                                                                      | Where                                                           | Gate                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| Unit          | `core/` pure logic, and services over test layers                                                                   | `tests/unit/`, `tests/core_test.ts`                             | `deno task ci`                                       |
+| Specification | Not a level: a way to choose tests at every level, from a written partition/boundary table                          | `docs/testing/spec/*.md` → tests tagged with spec ids           | `ci` (traceability check)                            |
+| Structural    | Coverage and mutation reports used to _find_ missing tests; no percentage target                                    | `agent-work/work-scripts/bash/coverage.sh`, `mutation.sh`       | Report only                                          |
+| Property      | Generated inputs with invariants, plus stateful command-sequence models                                             | `tests/property/`                                               | `ci` (200 runs, fixed seed)                          |
+| Fuzz          | Long property campaigns over malformed input; failures saved as regressions                                         | `tests/property/fuzz/` + `agent-work/work-scripts/bash/fuzz.sh` | Corpus in `ci`; campaigns manual/nightly             |
+| Integration   | One adapter against its real infrastructure: SQLite FFI, Postgres, DuckDB, object store, IPC child                  | `tests/unit/*` (existing), `tests/pg/` (new)                    | `ci` where infra is local; Postgres suite via script |
+| System        | The whole server through HTTP and the SDK, as a user                                                                | `tests/e2e/platform/scenarios/`, `tests/integration.ts`         | `deno task e2e` before landing risky items           |
+| Contracts     | Not a level: pre/post/invariant checks in product code that halt on a bug, and act as oracles for every level above | `core/contract.ts`; call sites in `core/`, `platform/`          | Always on; every test run is also a contract run     |
 
 **Validation or contract?** (ch4 4.5.2–4.5.3, applied.) Input that crosses a trust boundary (HTTP, SDK,
 config, files, IPC frames, Postgres rows) is **validated**: typed error, tested by spec tests. Data inside the
@@ -149,10 +150,10 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 - **Model:** **Opus / astra.** Choosing partitions decides what the suite can ever catch.
 - **Owns:** `docs/testing/spec/README.md`, `docs/testing/spec/http.md`, `docs/testing/spec/sdk-documents.md`,
   `docs/testing/spec/schema.md`, `docs/testing/spec/limits.md`, `docs/testing/spec/tenancy-auth.md`.
-- **Reads:** `docs.md`, `platform/http/*.ts`, `sdk/*.ts`, `core/schema.ts`, `core/compile/*.ts`,
+- **Reads:** `docs/guide.md`, `platform/http/*.ts`, `sdk/*.ts`, `core/schema.ts`, `core/compile/*.ts`,
   `platform/config.ts`, §1.1 above, `~/AI/effective-software-testing/book-code/ch2/`.
 - **Work:** For each public surface, follow the book's seven steps (write-up §1) and record:
-  1. Inputs and outputs, from `docs.md` and the code's types.
+  1. Inputs and outputs, from `docs/guide.md` and the code's types.
   2. Partitions per input, per input combination, and per output (the three passes), each with a stable id
      (`HTTP-AUTH-P3`, `LIM-BODY-B1`).
   3. Boundaries with on, off, in and out points; equality conditions get three points.
@@ -184,8 +185,9 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 #### TS-03 — Coverage tooling and baseline (ch3)
 
 - **Model:** **Sonnet / sol.**
-- **Owns:** `work-scripts/bash/coverage.sh`, `work-scripts/INDEX.md` (one row), `docs/testing/coverage.md`,
-  `.gitignore` (add `coverage/`). If D1 = tasks: `deno.json` (one edit, all four tasks).
+- **Owns:** `agent-work/work-scripts/bash/coverage.sh`, `agent-work/work-scripts/INDEX.md` (one row),
+  `docs/testing/coverage.md`, `.gitignore` (add `coverage/`). If D1 = tasks: `deno.json` (one edit, all four
+  tasks).
 - **Reads:** `book-code/ch3/coverage.sh`, `deno.json`.
 - **Work:** Script runs `deno task test` and `test:prop` with `--coverage`, writes lcov and HTML, and prints a
   per-file table (lines, branches) sorted by uncovered branches, with an option to restrict to files changed
@@ -318,8 +320,9 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 #### TS-05 — Mutation testing on `core/` (ch3)
 
 - **Model:** **Sonnet / sol.** Config follows SQ-M.
-- **Owns:** `work-scripts/bash/mutation.sh`, `stryker.config.json` (or the fallback script),
-  `work-scripts/INDEX.md` (one row), new tests `tests/unit/mutation/*_test.ts`, `docs/testing/mutation.md`.
+- **Owns:** `agent-work/work-scripts/bash/mutation.sh`, `stryker.config.json` (or the fallback script),
+  `agent-work/work-scripts/INDEX.md` (one row), new tests `tests/unit/mutation/*_test.ts`,
+  `docs/testing/mutation.md`.
 - **Work:** Adopt the SQ-M config. Run on `core/`; for each surviving mutant, add a test that kills it or mark
   it equivalent with a reason. Manual or nightly, never in `ci` (too slow).
 - **Acceptance criteria:** baseline and after-scores recorded per file; every survivor has a disposition.
@@ -349,7 +352,8 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 
 - **Model:** **Opus / astra.** Decides what counts as a failure at trust boundaries.
 - **Owns:** new `tests/property/fuzz/*_test.ts`, `tests/property/fuzz/corpus/*.json`,
-  `work-scripts/bash/fuzz.sh`, `work-scripts/INDEX.md` (one row), `docs/testing/fuzzing.md`.
+  `agent-work/work-scripts/bash/fuzz.sh`, `agent-work/work-scripts/INDEX.md` (one row),
+  `docs/testing/fuzzing.md`.
 - **Reads:** `core/errors.ts`, `tests/errors_exhaustiveness.ts`, `platform/ipc.ts`, framing and JSON number
   code, `platform/http/router.ts`, `core/compile/*.ts`.
 - **Work:**
@@ -375,8 +379,8 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 #### TS-08 — Postgres adapter integration tests (ch9)
 
 - **Model:** **Sonnet / sol** with **Opus** review. The harness exists; the semantics are fixed.
-- **Owns:** new `tests/pg/*_test.ts`, `tests/pg/harness.ts`, `work-scripts/bash/test-pg.sh`,
-  `work-scripts/INDEX.md` (one row).
+- **Owns:** new `tests/pg/*_test.ts`, `tests/pg/harness.ts`, `agent-work/work-scripts/bash/test-pg.sh`,
+  `agent-work/work-scripts/INDEX.md` (one row).
 - **Reads:** `tests/e2e/platform/postgres.ts`, `platform/tenants/store.ts`, `platform/http/auth.ts`,
   `platform/auth/service.ts`, `tests/layers/tenant_registry_test_layer.ts`,
   `book-code/ch9/src/.../sql/SqlIntegrationTestBase.java`.
@@ -415,8 +419,8 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 #### TS-10 — Documentation, traceability and gate
 
 - **Model:** **Sonnet / sol.**
-- **Owns:** `docs/testing.md`, `tests/unit/spec_traceability_test.ts`, `docs/knowledge/decisions.md` (one
-  dated entry).
+- **Owns:** `docs/testing.md`, `tests/unit/spec_traceability_test.ts`, `docs/notes/decisions.md` (one dated
+  entry).
 - **Work:** Rewrite the tier table in `docs/testing.md` to §2's taxonomy and link the new docs. Add a test
   that parses `docs/testing/spec/*.md` and fails if a spec id is unreferenced by any test name or has no
   "untestable" reason, and if a test references an unknown id. Record the "coverage is a report, not a gate"
@@ -425,8 +429,8 @@ opens a fix item (`TS-FIX-nn`) with its own owner.
 
 ## 4. Decisions needed
 
-- **D1.** Scripts under `work-scripts/bash/` (default, keeps the `deno.json` freeze) or new `deno.json` tasks
-  owned by TS-03.
+- **D1.** Scripts under `agent-work/work-scripts/bash/` (default, keeps the `deno.json` freeze) or new
+  `deno.json` tasks owned by TS-03.
 - **D2.** Whether `fuzz.sh` and `mutation.sh` get a scheduled nightly run (needs a cron or CI runner; none
   exists today) or stay manual.
 - **D3.** Whether TS-09's backup check runs first as a standalone quick check, before the plan starts.

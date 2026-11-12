@@ -12,7 +12,7 @@ dbs="${DBS:-16}" conc="${CONC:-64}" dur="${DURATION:-10s}"
 mkdir -p "$out/bin"
 cd "$root"
 go build -o "$out/bin/agentd" ./cmd/agentd
-go build -o "$out/bin/frontbench" ./cmd/frontbench
+go build -o "$out/bin/frontbench" ./cmd/bench/frontbench
 fb="$out/bin/frontbench"
 "$fb" keygen -out "$out/keys"
 "$fb" seed -dir "$out/dbs" -dbs "$dbs"

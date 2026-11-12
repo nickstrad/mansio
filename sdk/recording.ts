@@ -1,5 +1,5 @@
 /**
- * The recording executor (IR-3, `docs/plans/completed/ir-protocol.md` §3): runs a handler in the caller's process
+ * The recording executor (IR-3, `docs/plans/completed/intermediate-representation-protocol.md` §3): runs a handler in the caller's process
  * against the remote database, and turns what it did into one IR request.
  *
  * - **Reads go out at once** as query requests (`Reads`) and are cached per handler run: a second `get` of
@@ -63,7 +63,7 @@ import {
   type Op,
   type SelectOp,
   type TableAssertOp,
-} from "../core/ir/types.ts";
+} from "../core/intermediate-representation/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
 import type { ReadCache } from "./cache.ts";

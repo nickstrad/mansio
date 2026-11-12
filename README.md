@@ -1,28 +1,31 @@
 # Mansio — a TypeScript document API over a Go SQLite server
 
 **Application authors write schemas and document handlers, not SQL.** Handlers run in the caller's process, in
-the TypeScript SDK. The SDK turns their database work into requests of a small, versioned protocol (the IR,
-[`ir/spec/v1.md`](ir/spec/v1.md)) and sends them to the Go server, which validates them, compiles them to
-SQLite SQL and runs them with one goroutine per database. The event log the server writes is ingested into
-DuckDB by an offline TypeScript CLI for named analysis.
+the TypeScript SDK. The SDK turns their database work into requests of a small, versioned protocol (the
+intermediate representation, or IR,
+[`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md)) and sends them to the Go
+server, which validates them, compiles them to SQLite SQL and runs them with one goroutine per database. The
+event log the server writes is ingested into DuckDB by an offline TypeScript CLI for named analysis.
 
-Step-by-step setup: [docs.md](docs.md). A tour of the Effect code:
+Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 [docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
 [docs/learning/](docs/learning/README.md).
 
 ## Repository layout
 
-| Path                                       | What it is                                                                                                               |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `app/`                                     | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.   |
-| `sdk/`                                     | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`). |
-| `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types, event records.      |
-| `ir/`                                      | The IR protocol spec and the shared vectors both implementations are tested against.                                     |
-| `eventlog/`, `scripts/logs.ts`             | The offline event-log CLI: JSONL → DuckDB ingest, retention sweep, the named analysis catalog.                           |
-| `scripts/tenants.ts`, `scripts/explain.ts` | Tenant admin CLI against agentd's `/admin/tenants*`; the compiler's SQL for both layouts (`GENERATED_SQL.txt`).          |
-| `server/`                                  | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool` and their tests.     |
-| `tests/`                                   | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.            |
-| `perf/`                                    | k6 load scripts against agentd's `/v1/ops`. See [perf/README.md](perf/README.md).                                        |
+| Path                                       | What it is                                                                                                                                                                                                                                   |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `examples/tic-tac-toe/`                    | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.                                                                                                                       |
+| `sdk/`                                     | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`).                                                                                                                     |
+| `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types, event records.                                                                                                                          |
+| `intermediate-representation/`             | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
+| `eventlog/`, `scripts/logs.ts`             | The offline event-log CLI: JSONL → DuckDB ingest, retention sweep, the named analysis catalog.                                                                                                                                               |
+| `scripts/tenants.ts`, `scripts/explain.ts` | Tenant admin CLI against agentd's `/admin/tenants*`; the compiler's SQL for both layouts (`core/compile/GENERATED_SQL.txt`).                                                                                                                 |
+| `server/`                                  | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool` and their tests.                                                                                                                         |
+| `tests/`                                   | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.                                                                                                                                |
+| `perf/`                                    | k6 load scripts against agentd's `/v1/ops`. See [perf/README.md](perf/README.md).                                                                                                                                                            |
+| `docs/`                                    | The [user guide](docs/guide.md), [learning paths](docs/learning/README.md), ADRs, testing and observability references, design notes, and the architecture diagram site (`docs/pages/`, published at <https://nickstrad.github.io/mansio/>). |
+| `scripts/dev/`                             | Scripts that run the CI gate and the e2e suite in Linux containers.                                                                                                                                                                          |
 
 The Go binaries:
 
@@ -36,16 +39,16 @@ The Go binaries:
 - **`dbtool`** inspects, verifies, restores and imports the durable copies in S3.
 
 The config reference for each is its Go config type (`server/cmd/agentd/config.go`, with one comment per
-field) and the sample configs in `server/configs/`. [server/README.md](server/README.md) and
-[server/STATE.md](server/STATE.md) describe the server's design and status.
+field) and the sample configs in `server/configs/`. [server/README.md](server/README.md) describes the
+server's commands and packages.
 
 ## Verification
 
 ```sh
-work-scripts/bash/deno-linux.sh 'deno task ci'   # fmt:check, lint, check, test, test:prop
+scripts/dev/deno-linux.sh 'deno task ci'   # fmt:check, lint, check, test, test:prop
 deno task go:ci                                  # gofmt, go vet, go test -race, go test -tags noassert
-work-scripts/bash/e2e-linux.sh                   # the e2e suite on Linux, with Postgres and SeaweedFS
-deno task explain > GENERATED_SQL.txt            # regenerate the compiler artifact
+scripts/dev/e2e-linux.sh                   # the e2e suite on Linux, with Postgres and SeaweedFS
+deno task explain > core/compile/GENERATED_SQL.txt            # regenerate the compiler artifact
 ```
 
 Run `deno task ci` on Linux: the DuckDB event-log suites hang on macOS. `deno-linux.sh` runs a command in a
@@ -61,8 +64,8 @@ work to agentd as IR requests.
 ```ts
 import { Effect } from "effect";
 import { createClient } from "./sdk/client.ts";
-import { functions } from "./app/functions.ts";
-import { schema } from "./app/schema.ts";
+import { functions } from "./examples/tic-tac-toe/functions.ts";
+import { schema } from "./examples/tic-tac-toe/schema.ts";
 
 const client = createClient({
   functions,
@@ -137,7 +140,7 @@ validated recursively and stored as JSON text. Optional fields, nested-object sc
 predicates, projection, cursors and search are not implemented. Collection reads default to 100 results and
 are capped at 1000. `count` counts all matching documents regardless of limit; `countBy` groups all matches
 and caps returned groups. Sorting adds `_id` as a stable tie-breaker and spells out null ordering. The
-normative rules are in [`ir/spec/v1.md`](ir/spec/v1.md) §5.
+normative rules are in [`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md) §5.
 
 `_id`, `_creationTime` and `_version` are server-owned metadata; each patch increments `_version`. Typed
 clients cannot patch metadata. Arguments and writes also receive runtime validation.
@@ -165,7 +168,7 @@ schema validates the JSON. Index declarations compile to SQLite JSON expression 
 `status = "playing"` targets the `status` column; in JSON mode the compiler uses
 `json_extract(doc,
 '$.status')`. The decoder returns the same document shape in either layout.
-`GENERATED_SQL.txt` shows both.
+`core/compile/GENERATED_SQL.txt` shows both.
 
 Each database stores its schema. A request carries the schema's fingerprint; a mismatch is `SchemaDriftError`
 (409) and nothing runs. There is no automatic migration.
@@ -174,11 +177,11 @@ Each database stores its schema. A request carries the schema's fingerprint; a m
 
 A request runs in one transaction on its database's actor (inside the actor's group-commit batch, as a
 savepoint): a mutation's operations apply atomically and in order, or none do; a query sees one consistent
-snapshot and never writes ([`ir/spec/v1.md`](ir/spec/v1.md) §6). Mutations carry a `requestId`; a retry of an
-applied mutation with the same id answers the original result with `"duplicate": true` (§7). Concurrency
-control is optimistic: the SDK's derived preconditions make a handler that read stale state fail with
-`ConflictError` and re-run. A statement that runs past agentd's `statement_timeout` is interrupted and the
-request fails with `StatementDeadlineError` (504); nothing changed.
+snapshot and never writes ([`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md)
+§6). Mutations carry a `requestId`; a retry of an applied mutation with the same id answers the original
+result with `"duplicate": true` (§7). Concurrency control is optimistic: the SDK's derived preconditions make
+a handler that read stale state fail with `ConflictError` and re-run. A statement that runs past agentd's
+`statement_timeout` is interrupted and the request fails with `StatementDeadlineError` (504); nothing changed.
 
 A successful mutation acknowledges the local SQLite commit, not a durable copy. In durable mode the S3 copy
 follows on the write-back schedule (`maintenance.write_back_every`, default 10 s) and on clean shutdown, so a
@@ -193,12 +196,13 @@ replicated database.
 ## Errors
 
 Failures are `{ "error": { "tag", "message", "op"?, "fields"? } }` with the status from the table in
-[`ir/spec/v1.md`](ir/spec/v1.md) §8: 400 `SchemaError`/`CompileError`, 401 `AuthError`/`ticket_invalid`, 404
-`NotFoundError`, 409 `ConflictError`/`SchemaDriftError`/`aborted`, 413 `RequestTooLarge`, 421
-`wrong_owner`/`fenced`, 429 `QuotaExceeded`, 503 `shed`/`unavailable`, 504 `StatementDeadlineError`/`expired`,
-500 for server faults. The SDK retries or reroutes the transient ones itself. Handler-side failures
-(`RuleError`, an app's `ConflictError`) never reach the server; the client reports them with the status the
-server would have used (`core/errors.ts:toHttpStatus`).
+[`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md) §8: 400
+`SchemaError`/`CompileError`, 401 `AuthError`/`ticket_invalid`, 404 `NotFoundError`, 409
+`ConflictError`/`SchemaDriftError`/`aborted`, 413 `RequestTooLarge`, 421 `wrong_owner`/`fenced`, 429
+`QuotaExceeded`, 503 `shed`/`unavailable`, 504 `StatementDeadlineError`/`expired`, 500 for server faults. The
+SDK retries or reroutes the transient ones itself. Handler-side failures (`RuleError`, an app's
+`ConflictError`) never reach the server; the client reports them with the status the server would have used
+(`core/errors.ts:toHttpStatus`).
 
 ## Observability and the event log
 
@@ -218,17 +222,17 @@ tables, the catalog and worked examples; `scripts/duckdb/` holds ad-hoc DuckDB q
 
 ## Tasks
 
-| `deno task …`                                                        | Purpose                                                                      |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`              | Format, lint, types, unit, property, and the aggregate gate (run on Linux).  |
-| `go:ci`, `ci:all`                                                    | The Go checks; both gates.                                                   |
-| `sim:swarm`                                                          | The Go server's deterministic-simulation seed swarm (`server/scripts/`).     |
-| `explain`                                                            | Compiler output for both layouts; redirect to `GENERATED_SQL.txt`.           |
-| `logs:ingest`, `logs:list`, `logs:query`, `logs:sweep`               | The offline event-log CLI.                                                   |
-| `perf:smoke`, `perf:load`, `perf:query`, `perf:mixed`, `perf:ingest` | k6 scenarios against agentd, and the loader of k6 points into the event log. |
+| `deno task …`                                                        | Purpose                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`              | Format, lint, types, unit, property, and the aggregate gate (run on Linux).     |
+| `go:ci`, `ci:all`                                                    | The Go checks; both gates.                                                      |
+| `sim:swarm`                                                          | The Go server's deterministic-simulation seed swarm (`server/scripts/`).        |
+| `explain`                                                            | Compiler output for both layouts; redirect to `core/compile/GENERATED_SQL.txt`. |
+| `logs:ingest`, `logs:list`, `logs:query`, `logs:sweep`               | The offline event-log CLI.                                                      |
+| `perf:smoke`, `perf:load`, `perf:query`, `perf:mixed`, `perf:ingest` | k6 scenarios against agentd, and the loader of k6 points into the event log.    |
 
-`deno task e2e` (a `package.json` script) runs the e2e suite directly; it needs Linux, Postgres and S3, which
-`work-scripts/bash/e2e-linux.sh` provides.
+`deno task e2e` runs the e2e suite directly; it needs Linux, Postgres and S3, which `scripts/dev/e2e-linux.sh`
+provides.
 
 ## Deliberate limits
 
@@ -241,10 +245,10 @@ query.
 
 ## Architecture diagrams site
 
-[`pages/`](pages/README.md) is an interactive C4 viewer of this repo's architecture, rendered from converted
-copies of the Markdown diagrams in [`docs/architecture/`](docs/architecture/README.md) (the source of truth;
-the site's copies may lag them) plus design proposals. It is a separate npm project (Node 22.23.2); run it
-with `cd pages && npm ci && npm run dev`.
+[`docs/pages/`](docs/pages/README.md) is an interactive C4 viewer of this repo's architecture, rendered from
+converted copies of the Markdown diagrams in [`docs/architecture/`](docs/architecture/README.md) (the source
+of truth; the site's copies may lag them) plus design proposals. It is a separate npm project (Node 22.23.2);
+run it with `cd pages && npm ci && npm run dev`.
 
 ## Primary references
 

@@ -16,7 +16,7 @@ import { compileSelect } from "../core/compile/select.ts";
 import { decode } from "../core/compile/decode.ts";
 import { Documents, type SelectPlan } from "../sdk/db.ts";
 import { withStorage } from "../sdk/schema.ts";
-import { schema } from "../app/schema.ts";
+import { schema } from "../examples/tic-tac-toe/schema.ts";
 
 test(
   "same logical plan generates both dialects and both storage layouts",

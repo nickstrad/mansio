@@ -31,10 +31,10 @@ read would be committed again as truth.
 The two options the plan allows:
 
 1. **Lossless driver reads.** Read every text column as `CAST(... AS BLOB)` and decode UTF-8 in `decode`. That
-   changes the SQL `core/compile/select.ts` emits for every read (and `GENERATED_SQL.txt`), changes the row
-   shape `decode` and `StorageTest` agree on, and still leaves SQLite's own text functions, which the SQLite
-   documentation says behave unpredictably on embedded NULs. It is the larger change, in files this item does
-   not own, for a character no document in this repo needs.
+   changes the SQL `core/compile/select.ts` emits for every read (and `core/compile/GENERATED_SQL.txt`),
+   changes the row shape `decode` and `StorageTest` agree on, and still leaves SQLite's own text functions,
+   which the SQLite documentation says behave unpredictably on embedded NULs. It is the larger change, in
+   files this item does not own, for a character no document in this repo needs.
 2. **Typed rejection before commit.** Refuse U+0000 wherever text enters SQLite, with the existing error
    payloads, and make every read of an older stored NUL fail instead of truncating.
 

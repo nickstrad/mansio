@@ -16,7 +16,7 @@
 //
 // This file is the pure core: the local states, the transition table (Step), the admission table (decide)
 // and the reconcile table (reconcileEvent). No I/O happens here. The safety argument is written out in
-// knowledge/fencing/.
+// docs/notes/fencing/.
 package owner
 
 import "fmt"

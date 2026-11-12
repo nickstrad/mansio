@@ -33,7 +33,7 @@ Every drill from Phase 3 on uses that cluster.
    secrets file, each config, the start order and the readiness checks. `.platform/` holds what it generated,
    including each process's config and log.
 
-5. Follow `docs.md` "Configure and start agentd" once by hand.
+5. Follow `docs/guide.md` "Configure and start agentd" once by hand.
 
    A single static agentd is the smallest deployment. Writing its config and secrets file yourself teaches the
    rules that apply everywhere: unknown fields are errors, secrets files must be mode 0600, and `-check`
@@ -47,8 +47,8 @@ Every drill from Phase 3 on uses that cluster.
    There is no separate config manual: the field comments are the reference. Compare each sample with the file
    `platform-up` generated for the same process.
 
-7. Read "Authentication and tenancy" in `docs.md`, then run `scripts/tenants.ts` without arguments to see its
-   commands.
+7. Read "Authentication and tenancy" in `docs/guide.md`, then run `scripts/tenants.ts` without arguments to
+   see its commands.
 
    Single-node agentd can authenticate with app tokens, tenant API keys or sessions; multi-node deployments
    authenticate at controld. This decides where tenants and keys live and which tool manages them.
@@ -59,7 +59,7 @@ Every drill from Phase 3 on uses that cluster.
    Tickets are how agents trust a request without calling controld: controld signs them and agents verify them
    offline with the public keys. Losing or mixing key rings is a full outage, so know where they live.
 
-9. Read `server/knowledge/front/2026-11-05-controld.md`.
+9. Read `server/docs/notes/front/2026-11-05-controld.md`.
 
    It describes what controld owns: the VM registry, database placement, the locator, and the lifecycle flows
    with what to do when each one stops halfway. It is the control plane's operating manual.
@@ -117,18 +117,18 @@ Every drill from Phase 3 on uses that cluster.
 
 ## Phase 4: Durability, backups and restore
 
-16. Read "Backups and restore" in `docs.md`, especially the paragraph in bold.
+16. Read "Backups and restore" in `docs/guide.md`, especially the paragraph in bold.
 
     It states the promise exactly: the acknowledgement is the local commit, write-back to S3 is asynchronous,
     and a host loss can lose about 11 seconds of acknowledged writes with the defaults, or the whole outage
     while S3 is unreachable. You must know this number before you promise anything to a customer.
 
-17. Read `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`.
+17. Read `server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md`.
 
     The S3 work is built but paused pending a decision on LiteFS. This note lists what is and is not
     guaranteed today, so you know which gaps are known and which would be new bugs.
 
-18. Read `server/knowledge/writeback/2026-11-05-storage-runbook.md`, then run `dbtool` without a command for
+18. Read `server/docs/notes/writeback/2026-11-05-storage-runbook.md`, then run `dbtool` without a command for
     its usage.
 
     This is the storage runbook: `inspect`, `verify`, `orphans`, `gc`, `rebuild-manifest`, `restore` and
@@ -179,7 +179,7 @@ Every drill from Phase 3 on uses that cluster.
     within a minute of recovery. The `MansioUnpublishedWritesOld` alert (older than 60 s for 2 min) exists for
     exactly this.
 
-25. Read `server/knowledge/backpressure/README.md` and `docs/retry-contract.md`.
+25. Read `server/docs/notes/backpressure/README.md` and `docs/retry-contract.md`.
 
     Together they say what overload looks like from both sides: which process refuses, with which code, and
     what clients do next. They let you tell "the platform is protecting itself" from "the platform is broken".
@@ -190,10 +190,11 @@ Every drill from Phase 3 on uses that cluster.
     Most bounds can be moved without a restart, and controld refuses a value that would break its Postgres
     connection budget. Know this before an incident; the change is not written to the config file.
 
-27. Read "Observability" in `docs.md` and `docs/observability.md`. The practice cluster does not enable the
-    event log, so add `"event_log": {"dir": "<absolute dir>"}` to `.platform/vm-a/agentd.json`, restart that
-    agent (step 15), make some calls, then run `LOG_DIR=<dir> DATA_DIR=<scratch dir> deno task logs:ingest`,
-    `deno task logs:list` and `deno task logs:query handler-throughput` with the same variables.
+27. Read "Observability" in `docs/guide.md` and `docs/observability.md`. The practice cluster does not enable
+    the event log, so add `"event_log": {"dir": "<absolute dir>"}` to `.platform/vm-a/agentd.json`, restart
+    that agent (step 15), make some calls, then run
+    `LOG_DIR=<dir> DATA_DIR=<scratch dir> deno task logs:ingest`, `deno task logs:list` and
+    `deno task logs:query handler-throughput` with the same variables.
 
     Metrics tell you that something is wrong; the event log tells you what happened, request by request. The
     writer bounds its own disk use (4 GiB and 45 days by default) and `logs:sweep` trims what has been
@@ -207,12 +208,12 @@ Every drill from Phase 3 on uses that cluster.
 
 ## Phase 6: Failure and load drills
 
-29. Read the "Troubleshooting" section of `docs.md`.
+29. Read the "Troubleshooting" section of `docs/guide.md`.
 
     Each entry is symptom, cause, fix, for the errors callers report most: `ticket_invalid`, `wrong_owner`,
     `SchemaDriftError`, `shed`, `expired`. This is your first-line support sheet.
 
-30. Read `server/knowledge/fencing/2026-11-05-safety-argument.md`.
+30. Read `server/docs/notes/fencing/2026-11-05-safety-argument.md`.
 
     It explains why two agents can never both serve one database: epochs in Postgres, fencing on the agent,
     stamps in S3. You do not need the proof, only the rule it gives you: never bypass the epoch by hand.
@@ -229,8 +230,8 @@ Every drill from Phase 3 on uses that cluster.
     The k6 scripts are how you measure a deployment before trusting it with load. The numbers in the capacity
     table are defaults, not measurements of your machines.
 
-33. Read `server/docs/control-plane-plan.md` (skim for the decisions) and `server/shared_state.md` from the
-    bottom up (its newest entry is last).
+33. Read `server/docs/control-plane-plan.md` (skim for the decisions) and `agent-work/server/shared_state.md`
+    from the bottom up (its newest entry is last).
 
     The plan records what the control plane promises and what was left out; `shared_state.md` records every
     behaviour change since. Read the new entries after each upgrade.

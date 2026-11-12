@@ -1,7 +1,7 @@
 -- 0001_placement.sql — the placement authority (owner.Placement). Applied once by Migrate, or by hand with
 -- psql -X -v ON_ERROR_STOP=1 -f 0001_placement.sql. Never edit after it is applied; add 0002_*.sql.
 -- Safety rests on: one CAS per change, epochs never decrease, owner changes only with an epoch increase
--- (knowledge/fencing/2026-11-05-safety-argument.md, step 1). The schema enforces all three, whichever code
+-- (docs/notes/fencing/2026-11-05-safety-argument.md, step 1). The schema enforces all three, whichever code
 -- path writes (SQL G-12).
 begin;
 

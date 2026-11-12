@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import fc from "fast-check";
 import { Effect, Either } from "effect";
-import type { SelectOp } from "../../core/ir/types.ts";
+import type { SelectOp } from "../../core/intermediate-representation/types.ts";
 import type { Filter } from "../../core/plan.ts";
 import { RuleError, Unavailable } from "../../core/errors.ts";
 import { createClient } from "../../sdk/client.ts";

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { Effect, Exit, type Scope } from "effect";
-import { schema } from "../../app/schema.ts";
+import { schema } from "../../examples/tic-tac-toe/schema.ts";
 import { withStorage } from "../../sdk/schema.ts";
 import { schemaFingerprint } from "../../sdk/fingerprint.ts";
 import * as ticket from "../../sdk/ticket.ts";

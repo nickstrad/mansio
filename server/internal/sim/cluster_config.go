@@ -21,7 +21,7 @@ type ClusterConfig struct {
 	Faults   *ClusterFaults // nil: drawn from the seed
 	// RPO is the loss window the checker allows for a kill -9 (the open decision of plan §9, parameterized):
 	// an acknowledged write lost at a crash is a violation iff a fault-free stretch at least RPO long fits
-	// between its acknowledgement and the crash. 0: Policy.WriteBackEvery + Tick + 1 s (knowledge/writeback).
+	// between its acknowledgement and the crash. 0: Policy.WriteBackEvery + Tick + 1 s (docs/notes/writeback).
 	// Losses across a graceful move are never allowed.
 	RPO time.Duration
 	// Swarm, if set, multiplies each fault rate by a per-run factor in [0, 2] drawn from the seed (and turns

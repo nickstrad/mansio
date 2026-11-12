@@ -24,7 +24,7 @@ import (
 
 // TestS3Compat records, for one S3 backend and version, every S3 behavior mansio-server relies on (object-storage
 // guide §7, plan OS-03). Run it before using a backend or version, and record the table it prints in
-// knowledge/writeback/<date>-s3-compat-<backend>.md. A failure in X1–X5 fails the test (it blocks the
+// docs/notes/writeback/<date>-s3-compat-<backend>.md. A failure in X1–X5 fails the test (it blocks the
 // backend); X6–X11 are recorded as pass / fail / skip and fail nothing.
 //
 //	COLDLOAD_S3=localhost:8333 S3_BACKEND=seaweedfs-4.47 go test -count=1 -v -run TestS3Compat ./internal/objstore

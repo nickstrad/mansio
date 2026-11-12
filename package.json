@@ -1,8 +1,0 @@
-{
-  "name": "document-db-mvp",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "e2e": "deno run -A tests/e2e/platform/main.ts"
-  }
-}

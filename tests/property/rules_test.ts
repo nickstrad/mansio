@@ -1,5 +1,5 @@
 /**
- * Property tests for `app/rules.ts` (plan item 12, work 3).
+ * Property tests for `examples/tic-tac-toe/rules.ts` (plan item 12, work 3).
  *
  * States are *reached by play*, never fabricated: a game is built by applying a generated move order
  * through `applyMove`, so "reachable board" means what it says. The win oracle (`holdsLine`) spells the
@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fc from "fast-check";
 import { Either } from "effect";
-import { applyMove, type Game, type Mark, winner } from "../../app/rules.ts";
+import { applyMove, type Game, type Mark, winner } from "../../examples/tic-tac-toe/rules.ts";
 import { check, SEED, titled } from "./arbitraries.ts";
 
 type Board = Game["board"];
@@ -46,7 +46,7 @@ function newGame(xPlayer: string, oPlayer: string): Game {
 }
 const toMove = (g: Game): string => (g.turn === "X" ? g.xPlayer : g.oPlayer);
 
-/** One applied move folded back into a stored-document-shaped game, as `app/functions.ts` does. */
+/** One applied move folded back into a stored-document-shaped game, as `examples/tic-tac-toe/functions.ts` does. */
 function step(game: Game, cell: number): Game | null {
   const result = applyMove(game, toMove(game), cell);
   if (Either.isLeft(result)) return null;

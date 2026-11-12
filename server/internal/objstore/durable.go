@@ -34,7 +34,7 @@ import (
 //     `If-None-Match: *` when none exists); a 412 is durable.ErrStale. The conditional PUT is what makes
 //     "compare version, then write" atomic. AWS S3 documents both headers on PutObject (2024). Verified on
 //     single-node SeaweedFS 4.47 (2026-11-05): TestS3DurableStoreContract, including concurrent publishes on
-//     one version (exactly one wins), see knowledge/writeback/2026-11-05-s3-conditional-put-verified.md.
+//     one version (exactly one wins), see docs/notes/writeback/2026-11-05-s3-conditional-put-verified.md.
 //     Any other backend or version must pass TestS3Compat first (object-storage guide §7): a server that
 //     ignores the headers would make publishes last-writer-wins.
 //   - Retries (object-storage guide R1–R3): the GETs and the HEAD are retried while Transient; the PUTs are

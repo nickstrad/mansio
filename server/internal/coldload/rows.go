@@ -34,7 +34,7 @@ func (r Record) Row() []string {
 		Millis(a.first), Millis(a.warm), strconv.FormatBool(r.Res.Waited), errText}
 }
 
-// Snapshot is the process's resource use at one moment (filled in by cmd/coldload).
+// Snapshot is the process's resource use at one moment (filled in by cmd/bench/coldload).
 type Snapshot struct {
 	Goroutines, FDs        int
 	HeapMB, TotalMB, RSSMB float64

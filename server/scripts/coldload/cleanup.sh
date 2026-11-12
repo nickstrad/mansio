@@ -6,7 +6,7 @@
 #   scripts/coldload/cleanup.sh all       objects + stop SeaweedFS and delete its Docker volume
 #   scripts/coldload/cleanup.sh fuzz      Go's fuzz cache (go clean -fuzzcache; committed testdata/fuzz stays)
 #
-# Kept on purpose: results/coldload/<run>/*.csv and run.json (small; the evidence for knowledge/ notes).
+# Kept on purpose: results/coldload/<run>/*.csv and run.json (small; the evidence for docs/notes/ notes).
 # Touches only coldload's files, bucket and container; never other Docker volumes or other agents' files.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -43,7 +43,7 @@ echo "local: freed $(( (before - $(kib results/coldload)) / 1024 )) MiB under re
 if [ "$level" = objects ] || [ "$level" = all ]; then
   if curl -s -o /dev/null localhost:8333; then
     echo "objects: SeaweedFS volume before: $(volume_mb)"
-    go build -o bin/coldload ./cmd/coldload
+    go build -o bin/coldload ./cmd/bench/coldload
     for cfg in configs/coldload/*.json; do bin/coldload -config "$cfg" clean 2>&1 | grep -E "clean:|rror" || true; done
   else
     echo "objects: SeaweedFS not running; skipped"

@@ -50,7 +50,7 @@ EDGES = [('developer', 'db', 'Registered schema JSON; handlers stay in the app (
  ('db', 'objects', 'S3 HTTP; write-back of SQLite generations, restore'),
  ('db', 'analytics', 'JSONL event log, ingested offline into DuckDB'),
  ('k6', 'db', 'IR scenarios over /v1/ops and trace headers')]
-NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired.'
+NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired.'
 NAME = 'c4-context-document-db'
 
 

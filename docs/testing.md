@@ -1,10 +1,11 @@
 # Testing
 
-Since IR-6 the server is the Go server in `server/`; the Deno platform and its tests are gone (ADR 0013). The
-TypeScript tests cover what is left in TS: the SDK (`sdk/`), the sample app (`app/`), `core/` (schema, plan,
-errors, the compiler that is the oracle for Go, the IR decode/validation rules and the event-log record
-format), the shared IR vectors (`ir/`) and the offline event-log CLI (`eventlog/`, `scripts/logs.ts`). The e2e
-suite is the Go server's conformance suite.
+Since IR-6 (the cut-over item of the intermediate representation, or IR, plan) the server is the Go server in
+`server/`; the Deno platform and its tests are gone (ADR 0013). The TypeScript tests cover what is left in TS:
+the SDK (`sdk/`), the sample app (`examples/tic-tac-toe/`), `core/` (schema, plan, errors, the compiler that
+is the oracle for Go, the IR decode/validation rules and the event-log record format), the shared IR vectors
+(`intermediate-representation/`) and the offline event-log CLI (`eventlog/`, `scripts/logs.ts`). The e2e suite
+is the Go server's conformance suite.
 
 | Tier                   | What it proves                                                                                                                      | Runner                                                                                                              |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -12,12 +13,12 @@ suite is the Go server's conformance suite.
 | Property               | Generated schemas, plans, values and SDK runs, with shrinking and deterministic seeds; compiled SQL against `node:sqlite`           | `deno task test:prop` (`tests/property/`)                                                                           |
 | Event-log CLI          | Exactly-once JSONL → DuckDB ingest, retention sweep, the analysis catalog, the CLI's own logger, under `ConfigTest`/`EventSinkTest` | `deno task test` and `test:prop` (`eventlog_test`, `retention*`, `logger_test`, `analysis_catalog_test`, `offsets`) |
 | Go server              | Everything the server does: compiler port, executor, actors, tenancy, durability, the cluster sim (DST)                             | `deno task go:ci` (gofmt, vet, `go test -race`, `go test -tags noassert`); see `server/README.md`                   |
-| End to end             | The real binaries (agentd, controld, the edge, dbtool) driven through the SDK and the CLIs, against Postgres and SeaweedFS          | `work-scripts/bash/e2e-linux.sh` (`deno task e2e` inside Linux)                                                     |
+| End to end             | The real binaries (agentd, controld, the edge, dbtool) driven through the SDK and the CLIs, against Postgres and SeaweedFS          | `scripts/dev/e2e-linux.sh` (`deno task e2e` inside Linux)                                                           |
 
 ## Required gate
 
 ```sh
-work-scripts/bash/deno-linux.sh 'deno task ci'
+scripts/dev/deno-linux.sh 'deno task ci'
 deno task go:ci
 ```
 
@@ -37,23 +38,25 @@ PROP_SEED=20261010 deno task test:prop
 Substitute the failing integer, keep the same source/dependency versions, and preserve the reported
 counterexample, shrink path and test title. The harness exposes a seed override, not a shrink-path environment
 option; replaying the whole seed redoes the original generation and shrinking. A different seed explores new
-cases rather than reproducing that failure. `work-scripts/bash/property-seed-sweep.sh` sweeps one file over a
-seed range.
+cases rather than reproducing that failure. `scripts/dev/property-seed-sweep.sh` sweeps one file over a seed
+range.
 
 ## IR vectors
 
-`tests/unit/ir_vectors_test.ts` runs `decode.json`, `validation.json`, `schema.json` and `compile.json`
-against the TS implementation, and checks that every committed vector file (`execute.json` included) and the
-compile corpus still match their generators (`scripts/ir/gen-vectors.ts`, `scripts/ir/gen-compile-corpus.ts`).
-`execute.json` runs only in Go (`server/internal/docexec`); its TS run went with the Deno platform's reference
-executor at IR-6. `work-scripts/bash/ir-differential.sh` runs the compile corpus at scale against the Go
+`tests/unit/intermediate_representation_vectors_test.ts` runs `decode.json`, `validation.json`, `schema.json`
+and `compile.json` against the TS implementation, and checks that every committed vector file (`execute.json`
+included) and the compile corpus still match their generators
+(`scripts/intermediate-representation/gen-vectors.ts`,
+`scripts/intermediate-representation/gen-compile-corpus.ts`). `execute.json` runs only in Go
+(`server/internal/docexec`); its TS run went with the Deno platform's reference executor at IR-6.
+`scripts/dev/intermediate-representation-differential.sh` runs the compile corpus at scale against the Go
 compiler.
 
 ## End to end
 
 ```sh
-work-scripts/bash/e2e-linux.sh                       # all scenarios
-work-scripts/bash/e2e-linux.sh --filter documents    # deno test args pass through
+scripts/dev/e2e-linux.sh                       # all scenarios
+scripts/dev/e2e-linux.sh --filter documents    # deno test args pass through
 ```
 
 The suite needs Linux (process groups, `setsid`, `/proc`), so the script runs it in `denoland/deno:2.9.5` with
@@ -75,8 +78,9 @@ It needs `k6` and Go (or `AGENTD_BIN`) and is host-dependent; see [perf/README.m
 ## Boundary checks and intended scope
 
 `tests/unit/boundaries_test.ts` applies the console and environment rules to the shipped library only:
-`core/`, `eventlog/`, `sdk/`, `app/`. There, `console.*` is allowed only in `eventlog/logger.ts` (the
-documented degradation path), and `Deno.env` only in `eventlog/config.ts`. Scripts, tests, perf and
-work-scripts are outside those two scans because CLI output and test/setup environment access are legitimate
-there. The core import/Deno rule and the untyped-throw rule (`core/`, `eventlog/`) keep their own file scopes.
-The rules that kept `node:sqlite` out of the processes that used the FFI SQLite binding went with the binding.
+`core/`, `eventlog/`, `sdk/`, `examples/tic-tac-toe/`. There, `console.*` is allowed only in
+`eventlog/logger.ts` (the documented degradation path), and `Deno.env` only in `eventlog/config.ts`. Scripts,
+tests, perf and work-scripts are outside those two scans because CLI output and test/setup environment access
+are legitimate there. The core import/Deno rule and the untyped-throw rule (`core/`, `eventlog/`) keep their
+own file scopes. The rules that kept `node:sqlite` out of the processes that used the FFI SQLite binding went
+with the binding.

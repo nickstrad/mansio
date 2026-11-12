@@ -17,7 +17,7 @@ import (
 
 var (
 	repoRoot  = filepath.Join("..", "..", "..")
-	vectorDir = filepath.Join(repoRoot, "ir", "vectors")
+	vectorDir = filepath.Join(repoRoot, "intermediate-representation", "vectors")
 )
 
 func parseFile(t testing.TB, path string) any {
@@ -117,7 +117,7 @@ func TestCompileVectors(t *testing.T) {
 }
 
 // corpusLine recompiles one corpus case and returns the line Go would write: the case's own members with
-// select and ddl replaced by the Go compiler's outputs (ir/vectors/README.md).
+// select and ddl replaced by the Go compiler's outputs (intermediate-representation/vectors/README.md).
 func corpusLine(line string) (string, *ir.Error) {
 	v, err := ir.Parse(line)
 	if err != nil {
@@ -188,7 +188,7 @@ func runCorpus(t *testing.T, path string) int {
 }
 
 // TestCompileCorpus runs the committed differential corpus. MANSIO_IR_CORPUS, a comma-separated list of
-// corpus files, replaces it for larger local runs (work-scripts/bash/ir-differential.sh).
+// corpus files, replaces it for larger local runs (scripts/dev/intermediate-representation-differential.sh).
 func TestCompileCorpus(t *testing.T) {
 	paths := []string{filepath.Join(vectorDir, "generated", "compile-corpus.jsonl")}
 	if env := os.Getenv("MANSIO_IR_CORPUS"); env != "" {
@@ -201,8 +201,8 @@ func TestCompileCorpus(t *testing.T) {
 	t.Logf("%d corpus cases in %v", total, time.Since(start).Round(time.Millisecond))
 }
 
-// TestGeneratedSQL regenerates GENERATED_SQL.txt the way scripts/explain.ts does (`deno task explain`):
-// the app schema (testdata/app_schema.json, JSON.stringify of app/schema.ts) and the SDK plan of
+// TestGeneratedSQL regenerates core/compile/GENERATED_SQL.txt the way scripts/explain.ts does (`deno task explain`):
+// the app schema (testdata/app_schema.json, JSON.stringify of examples/tic-tac-toe/schema.ts) and the SDK plan of
 // db.find("games", {status: "playing"}).sort("_creationTime", "desc").limit(20)
 // (testdata/explain_plan.json), in both layouts and both dialects. Byte-identical to the committed file.
 func TestGeneratedSQL(t *testing.T) {
@@ -228,11 +228,11 @@ func TestGeneratedSQL(t *testing.T) {
 			b.WriteString(string(d) + " " + ir.StringifyIndent(sql.JSON(), "  ") + "\n")
 		}
 	}
-	want, rerr := os.ReadFile(filepath.Join(repoRoot, "GENERATED_SQL.txt"))
+	want, rerr := os.ReadFile(filepath.Join(repoRoot, "core", "compile", "GENERATED_SQL.txt"))
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
 	if got := b.String(); got != string(want) {
-		t.Errorf("GENERATED_SQL.txt differs:\n%s", got)
+		t.Errorf("core/compile/GENERATED_SQL.txt differs:\n%s", got)
 	}
 }

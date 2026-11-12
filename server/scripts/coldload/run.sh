@@ -9,7 +9,7 @@ if ! curl -s -o /dev/null localhost:8333; then
   docker compose -f deploy/seaweedfs/docker-compose.yml up -d
   for _ in $(seq 30); do curl -s -o /dev/null localhost:8333 && break; sleep 1; done
 fi
-go build -o bin/coldload ./cmd/coldload
+go build -o bin/coldload ./cmd/bench/coldload
 
 # Disk guard before seeding: at least COLDLOAD_MIN_FREE_GB (20) free on the host and COLDLOAD_MIN_VM_FREE_GB
 # (12; the sizes config stores ~9.3 GB) in the Docker VM that holds SeaweedFS's volume.
@@ -23,7 +23,7 @@ if [ "$cmd" != run ] && { [ "$host_gb" -lt "$host_min" ] || [ "$vm_gb" -lt "$vm_
   exit 1
 fi
 
-# Shared benchmark lock (see docs/state_files/STATE-coldload.md "Coordination"): one benchmark at a time on this machine.
+# Shared benchmark lock (see ../agent-work/server/state_files/STATE-coldload.md "Coordination"): one benchmark at a time on this machine.
 lock="$root/results/.bench-lock"
 if [ "$cmd" = run ] || [ "$cmd" = all ]; then
   mkdir -p "$root/results"

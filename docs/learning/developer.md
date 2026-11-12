@@ -11,8 +11,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 1. Read the first screen of `README.md` (down to "Repository layout").
 
    It gives the one-sentence shape: handlers run in the caller's process inside the TypeScript SDK, and the Go
-   server only executes a small protocol (the IR) against SQLite. Everything else in this guide is detail on
-   that sentence.
+   server only executes a small protocol (the intermediate representation, or IR) against SQLite. Everything
+   else in this guide is detail on that sentence.
 
 2. Open <https://nickstrad.github.io/mansio/> and click through `context` → `containers`.
 
@@ -33,7 +33,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 2: The app author's view (TypeScript)
 
-5. Read `app/schema.ts`, `app/functions.ts` and `app/rules.ts`.
+5. Read `examples/tic-tac-toe/schema.ts`, `examples/tic-tac-toe/functions.ts` and
+   `examples/tic-tac-toe/rules.ts`.
 
    This tic-tac-toe app is what a user of the platform writes: typed tables and handlers, no SQL. Every later
    layer exists to make these three files work.
@@ -43,7 +44,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    It is a guided tour of the Effect code with excerpts, written for exactly this purpose. It introduces the
    "a handler run is recorded, then committed once" idea that the SDK is built around.
 
-7. Follow `docs.md` from "Installation" through "SDK walkthrough": start a single agentd by hand and call it.
+7. Follow `docs/guide.md` from "Installation" through "SDK walkthrough": start a single agentd by hand and
+   call it.
 
    Writing the config and tokens yourself removes the magic of `platform-up`. Single-node static mode is the
    simplest form of the system, so learn it before the multi-node one.
@@ -58,7 +60,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    `db.ts` is the API handlers call, `recording.ts` turns one handler run into reads plus one commit, and
    `client.ts` is the loop that re-runs on conflict. This is the most important TypeScript in the repo.
 
-10. Read `sdk/cache.ts` and `docs/knowledge/ir/2026-11-10-read-path.md`.
+10. Read `sdk/cache.ts` and `docs/notes/intermediate-representation/2026-11-10-read-path.md`.
 
     The cache is why a warm mutation is one round trip, and the note lists the traps (for example, a cached
     read is never trusted, only asserted). Read the note's "Traps" section twice.
@@ -70,7 +72,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 3: The wire (the IR protocol)
 
-12. Read `ir/spec/v1.md` sections 1 to 6.
+12. Read `intermediate-representation/spec/v1.md` sections 1 to 6.
 
     The IR is the only thing that crosses between TypeScript and Go, so it is the true interface of the
     platform. Sections 5 (operations) and 6 (execution order, atomicity) are the core.
@@ -80,13 +82,14 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     These explain how a retry is safe and how the SDK knows what changed. Most "what happens if…" questions
     are answered here.
 
-14. Open `ir/vectors/README.md` and look at a few cases in `ir/vectors/execute.json`.
+14. Open `intermediate-representation/vectors/README.md` and look at a few cases in
+    `intermediate-representation/vectors/execute.json`.
 
     The vectors are shared test cases both the TypeScript and Go sides must pass, which is what keeps two
     implementations agreeing. Reading three or four vectors makes the spec concrete.
 
-15. Run `deno task explain` and compare with `GENERATED_SQL.txt`; skim `core/compile/select.ts` and
-    `core/compile/write.ts`.
+15. Run `deno task explain` and compare with `core/compile/GENERATED_SQL.txt`; skim `core/compile/select.ts`
+    and `core/compile/write.ts`.
 
     This shows the SQL a document operation becomes, in both storage layouts. The TypeScript compiler is the
     oracle the Go compiler is tested against.
@@ -157,18 +160,18 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 6: Durability and what is paused
 
-28. Read `server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md`.
+28. Read `server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md`.
 
     It says plainly what the S3 write-back does and does not guarantee, and why the work is paused. This is
     the most important "known limits" document in the repo.
 
-29. Read "Backups and restore" in `docs.md`, then skim `server/internal/vactor/writeback.go` and
+29. Read "Backups and restore" in `docs/guide.md`, then skim `server/internal/vactor/writeback.go` and
     `server/internal/durable/durable.go`.
 
     Durable mode stores each database as immutable generations in S3 with a manifest. The key fact to keep:
     the acknowledgement is the local commit, so a crash can lose the last seconds of writes.
 
-30. Read `server/knowledge/writeback/2026-11-10-version-floor.md`.
+30. Read `server/docs/notes/writeback/2026-11-10-version-floor.md`.
 
     It is a worked example of a real bug (versions repeating after a rollback) and its fix. It also shows how
     the simulator found it, which leads into the next phase.
@@ -176,24 +179,24 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 ## Phase 7: How it is tested, and how it fails
 
 31. Read `docs/testing.md`, then run `deno task go:ci` (and `deno task ci` on Linux via
-    `work-scripts/bash/deno-linux.sh 'deno task ci'`).
+    `scripts/dev/deno-linux.sh 'deno task ci'`).
 
     This is the gate every change must pass, and the document says what each suite proves. Knowing the gates
     tells you how much to trust a change you did not write.
 
-32. Run `work-scripts/bash/e2e-linux.sh` and read two files in `tests/e2e/platform/scenarios/`.
+32. Run `scripts/dev/e2e-linux.sh` and read two files in `tests/e2e/platform/scenarios/`.
 
     The e2e suite drives the real Go binaries through the SDK, so it is the closest thing to a user's
     experience. The scenarios read like a list of promised behaviours.
 
-33. Read `server/internal/sim/doc.go` and `server/knowledge/determinism/README.md`, then run
+33. Read `server/internal/sim/doc.go` and `server/docs/notes/determinism/README.md`, then run
     `deno task sim:swarm 20` (20 seeds, about 15 seconds; with no argument it runs 2500 seeds for hours).
 
     The deterministic simulator runs a cluster with injected faults and checks invariants such as "no version
     is reused" (`cluster_model.go`). It is the main reason to believe the move and fencing protocols are
     correct.
 
-34. Read `server/knowledge/backpressure/README.md` and `docs/retry-contract.md`.
+34. Read `server/docs/notes/backpressure/README.md` and `docs/retry-contract.md`.
 
     Together they describe what happens under overload: who refuses, with which code, and what each client
     does next. This is the operational behaviour you would see first in production.
@@ -205,8 +208,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 8: Observability and history
 
-36. Read "Observability" in `docs.md` and run its block against the agentd from step 7: stop agentd, then
-    `deno task logs:ingest`, `deno task logs:list` and
+36. Read "Observability" in `docs/guide.md` and run its block against the agentd from step 7: stop agentd,
+    then `deno task logs:ingest`, `deno task logs:list` and
     `deno task logs:query handler-throughput --format json`.
 
     The server writes a JSONL event log and an offline CLI loads it into DuckDB for named queries. This is how
@@ -224,19 +227,21 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     with a TypeScript oracle, and the Go server replacing the Deno platform. They explain leftovers you will
     see in older docs.
 
-39. Skim `docs/knowledge/index.md`, `docs/knowledge/gotchas.md` and `server/knowledge/index.md`.
+39. Skim `docs/notes/index.md`, `docs/notes/gotchas.md` and `server/docs/notes/index.md`.
 
     These are the running notes of decisions and traps. You do not need to read them all, only to know they
     exist and how they are organised.
 
-40. Read the last two weeks of `STATE.md` (newest first) and `server/shared_state.md` (newest at the bottom).
+40. Read the last two weeks of `agent-work/STATE.md` (newest first) and `agent-work/server/shared_state.md`
+    (newest at the bottom): the logs the build agents kept.
 
     This is the record of what changed most recently and why. It is the best way to catch up after time away.
 
 ## Phase 9: Prove you understand it, then change it
 
-41. Add a small feature to the sample app (for example a `resignGame` mutation in `app/functions.ts`), call it
-    from a script against your local agentd, and watch the SQL in the event log.
+41. Add a small feature to the sample app (for example a `resignGame` mutation in
+    `examples/tic-tac-toe/functions.ts`), call it from a script against your local agentd, and watch the SQL
+    in the event log.
 
     Using the platform as an app author tests everything from phases 2 to 4 at once. If you can predict the IR
     and the SQL before you look, you understand the request path.
@@ -253,7 +258,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     A full answer covers fencing, the epoch flip, `wrong_owner`, the SDK re-resolving, and the retry contract.
     This is the test for phases 5 and 7.
 
-44. Read `CLAUDE.md`, `AGENTS.md`, `server/AGENTS.md` and `server/docs/coding-style.md`.
+44. Read `CLAUDE.md`, `server/docs/coding-style.md` and, for the agent workflow, `agent-work/AGENTS.md`.
 
     These are the working rules: commit style, branches, the gates, and how the Go code is expected to look.
     Most of the code was written by agents following these files, so they explain its habits.
@@ -271,8 +276,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     A change that passes the gates proves you can extend the platform, not only read it. Start with something
     that needs no protocol change.
 
-47. Record what you learned as a dated note under `docs/knowledge/` or `server/knowledge/` (rules:
-    `docs/knowledge/AGENTS.md`).
+47. Record what you learned as a dated note under `docs/notes/` or `server/docs/notes/` (rules:
+    `agent-work/docs-knowledge/AGENTS.md`).
 
-    The knowledge folders are how understanding survives between sessions. Writing a note is also the best
-    check that you understood the thing.
+    The notes folders are how understanding survives between sessions. Writing a note is also the best check
+    that you understood the thing.

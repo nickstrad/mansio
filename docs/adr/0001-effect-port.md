@@ -9,8 +9,8 @@
 ## Context
 
 The repo is a working document-db MVP: a typed TypeScript document API (`sdk/`), a SQLite writer and a DuckDB
-reader in two OS processes (`platform/`), a tic-tac-toe sample app (`app/`), and a 20-test regression suite.
-It works, and almost none of it is unit-testable.
+reader in two OS processes (`platform/`), a tic-tac-toe sample app (`examples/tic-tac-toe/`), and a 20-test
+regression suite. It works, and almost none of it is unit-testable.
 
 Three facts drove the decision:
 
@@ -66,8 +66,8 @@ The division of labour:
 - `core/` — pure. Returns `Either`/`Option`; never performs I/O.
 - `platform/` — effectful. Services, layers, and the only modules that touch the outside world.
 - `sdk/` — the app-facing seam. Effect-typed; re-exports from `core/` where apps need the types.
-- `app/` — business rules. After item 10, the tic-tac-toe rules themselves are a pure `app/rules.ts`, so the
-  game logic is testable without a database at all.
+- `examples/tic-tac-toe/` — business rules. After item 10, the tic-tac-toe rules themselves are a pure
+  `examples/tic-tac-toe/rules.ts`, so the game logic is testable without a database at all.
 
 ### 4. JSONL is the durable log write path; DuckDB is a derived analysis sink
 
@@ -156,7 +156,7 @@ Read as prose, workstream by workstream:
 
 **Docs and boundary enforcement** runs alongside: item 02 writes this ADR and ADR 0002, item 23 writes
 `docs/observability.md`, item 26 adds the grep-level boundary tests, and item 27 regenerates `README.md` and
-`GENERATED_SQL.txt`.
+`core/compile/GENERATED_SQL.txt`.
 
 ## Consequences
 

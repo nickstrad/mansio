@@ -56,7 +56,7 @@ export const v = {
  * A table descriptor: its fields, its physical layout, and its declared indexes.
  *
  * `addIndex` is the total replacement for the pre-port `Table.index`. The app-facing variant that
- * raises lives in `sdk/schema.ts` (`AppTable`), because `app/schema.ts` declares its indexes at
+ * raises lives in `sdk/schema.ts` (`AppTable`), because `examples/tic-tac-toe/schema.ts` declares its indexes at
  * module load and has no place to put an `Either`.
  */
 export class Table<F extends Fields = Fields> {

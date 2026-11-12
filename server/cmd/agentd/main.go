@@ -558,7 +558,7 @@ func epochs(dbs []string, cfg *Config) front.StaticAdmitter {
 	return t
 }
 
-// reporter classifies an error at the top level and reports it once (the cmd/sqlbench pattern): an outermost
+// reporter classifies an error at the top level and reports it once (the cmd/bench/sqlbench pattern): an outermost
 // error from a known module is an expected failure (exit 1), anything else a bug (exit 70). The user gets one
 // line with a log ID; the log gets the chain and the stack. Before the log exists a bug prints its details.
 type reporter struct {

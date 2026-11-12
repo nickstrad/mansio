@@ -72,7 +72,7 @@ func (e *Error) Path() string {
 	return s
 }
 
-// Status is the HTTP status of the tag (core/errors.ts toHttpStatus, core/ir/errors.ts statusOf).
+// Status is the HTTP status of the tag (core/errors.ts toHttpStatus, core/intermediate-representation/errors.ts statusOf).
 func (e *Error) Status() int {
 	switch e.Tag {
 	case TagSchema, TagCompile:
@@ -93,7 +93,7 @@ func (e *Error) Status() int {
 	return 500
 }
 
-// Message is the wire message (core/ir/errors.ts toWireError): "Tag: k=v ..." for 4xx, the bare tag for
+// Message is the wire message (core/intermediate-representation/errors.ts toWireError): "Tag: k=v ..." for 4xx, the bare tag for
 // 5xx.
 func (e *Error) Message() string {
 	if e.Status() >= 500 {

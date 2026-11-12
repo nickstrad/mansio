@@ -58,5 +58,5 @@ This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs a
 file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or sessions on
 /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or placement_pg); then
 the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are acknowledged before
-write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts talks to whichever
-process mounts /admin/tenants (agentd or controld).
+write-back, so a kill -9 can lose the window (intermediate-representation-protocol.md §9). scripts/tenants.ts
+talks to whichever process mounts /admin/tenants (agentd or controld).

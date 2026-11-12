@@ -1,6 +1,5 @@
-# Builds the architecture diagrams site in pages/ and deploys it to GitHub Pages
-# (https://nickstrad.github.io/mansio/). GitHub Pages must first be enabled for the repository with
-# "GitHub Actions" as the source; that is a human step (see pages/README.md). Until then the deploy job fails.
+# Builds the architecture diagrams site in docs/pages/ and deploys it to GitHub Pages
+# (https://nickstrad.github.io/mansio/). The repository's Pages source is "GitHub Actions".
 name: Deploy architecture diagrams to GitHub Pages
 
 on:
@@ -25,14 +24,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     defaults:
       run:
-        working-directory: pages
+        working-directory: docs/pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: pages/package-lock.json
+          cache-dependency-path: docs/pages/package-lock.json
       - run: npm ci
       - name: Typecheck and validate the architecture bundles
         run: |
@@ -45,6 +44,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: pages/dist
+          path: docs/pages/dist
       - id: deployment
         uses: actions/deploy-pages@v4

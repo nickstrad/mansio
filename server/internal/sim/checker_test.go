@@ -13,7 +13,7 @@ import (
 
 // The checker's teeth, end to end through the real agent: workloads that break the contract on purpose must
 // be caught. (Production-code mutants were also run by hand on 2026-11-05: dedupe off and a missed dirty
-// commit were each caught within 30 seeds; see knowledge/determinism.)
+// commit were each caught within 30 seeds; see docs/notes/determinism.)
 
 // doubleApply writes every mark a second time under a fresh request id: the database holds it twice.
 type doubleApply struct{ SQL }

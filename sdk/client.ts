@@ -1,5 +1,5 @@
 /**
- * The typed client (IR-3, `docs/plans/completed/ir-protocol.md` §3): handlers run **in the caller's process**
+ * The typed client (IR-3, `docs/plans/completed/intermediate-representation-protocol.md` §3): handlers run **in the caller's process**
  * against the remote database over `/v1/ops`.
  *
  * ```ts
@@ -53,7 +53,12 @@ import {
   Unavailable,
 } from "../core/errors.ts";
 import { schemaFingerprint } from "./fingerprint.ts";
-import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
+import {
+  type Kind as IrKind,
+  MAX_OPS,
+  type Op,
+  type Request,
+} from "../core/intermediate-representation/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
 import { memoryCache, type ReadCache } from "./cache.ts";
