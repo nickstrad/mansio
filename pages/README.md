@@ -1,75 +1,59 @@
 # mansio architecture diagrams site
 
-An interactive C4 viewer for mansio, meant to be used **while designing a feature**: N architectures in one
-dropdown, the current one (what runs on `main`) by default, each drilled from the system context down to
-containers, components and code. It is not a replacement for the Markdown diagrams in
-[`docs/architecture/`](../docs/architecture/README.md) (the audited source of truth for the current system);
-it renders converted copies of them, with every element traceable to a commit-pinned source.
+An interactive C4 viewer for mansio, meant to be used **while designing a feature**. It shows one
+architecture: **what runs on `main`**. That means the Go control plane (controld, Postgres placement), the Go
+data plane (the edge, agentd and its SQLite files, the paused S3 write-back) and the TypeScript SDK in the
+caller process, drilled from the system context down to components and the key flows. Every element traces to
+a commit-pinned source.
 
-The `mansio-lanes-proposal` entry covers only the unbuilt scale-out design (statement lanes, the placement
-table, the forwarder, the lane supervisor, the peer node and WAL frames): its context, containers, the inside
-of one lane, the four key flows and an illustrative two-node deployment. The FFI execution layer (FFI-01 to
-FFI-08: binding, classifier, deadline and 504) has landed on `main` and is part of `mansio-current`.
-
-Future URL: <https://nickstrad.github.io/mansio/> (GitHub Pages is **not enabled yet**; see
-[Deploying](#deploying)).
+Live at <https://nickstrad.github.io/mansio/>, deployed by `.github/workflows/pages.yml` on every push to
+`main`.
 
 ## What it shows
 
-Today the catalog lists four architectures:
+The catalog has one entry, `mansio-go-platform` (bundle `public/architectures/mansio-go-platform.json`,
+inventory [`content/mansio-go-platform/inventory.md`](content/mansio-go-platform/inventory.md)), pinned to
+`main` `bffb5e9`:
 
-| Catalog entry            | Content                                                                                                                                                                |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mansio-current`         | The default: the four audited pairs of `docs/architecture/`, a landscape and a code view                                                                               |
-| `mansio-lanes-proposal`  | Statement lanes and placement: context, containers, lane components, flows and a deployment                                                                            |
-| `mansio-planes-proposal` | Control plane / data plane: tenants own 0..N databases; database-scoped placement, isolation and lifecycle                                                             |
-| `mansio-planes-fable`    | Fable revision of the planes proposal: route grants, lane view, default database, VM-loss recovery, backup manifests, instance moves, candidate placement rule (M1–M8) |
+| Kind      | Views                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| Context   | `context`                                                                                              |
+| Container | `containers` (request path), `observability` (JSONL → offline DuckDB)                                  |
+| Component | `caller-components` (SDK + read cache), `components` (agentd), `storage-events`, `control-plane`       |
+| Dynamic   | `query-flow` (resolve once, then the cached-ticket data path), `database-move` (fence before the flip) |
 
-The `mansio-planes-proposal` addition supersedes one-file-per-tenant **in this proposal only**. It adds
-control/data-plane component views, create/query/move/drop scenarios with separate failure alternatives, and
-an illustrative uneven three-VM deployment: n SQLite files across m VMs. Routing and the placement registry
-belong to the control plane; the gateway consults them. Every VM runs **VM agent (process)** as the last mile
-for all query and lifecycle file work. The control plane chooses each database’s VM, but the placement policy
-remains an explicit open question. Existing scale-out content is preserved. Its
-[inventory](content/mansio-planes-proposal/inventory.md) records the database-aware router extension, fencing
-protocol, fail-closed online admission, service trust boundaries, bounded resource budgets and the distinction
-between landed FFI code and proposed lane processes. The data overview links to agent execution detail.
-Backup/VM-loss flow expansion and source/target move instance companions are explicitly deferred in the
-inventory and documents. Registration adds one entry to `public/catalog.json`; no viewer code changes.
+There is no landscape, code or deployment view: `main` has no deployment the dataset could assert, and code
+views are not drawn.
 
-The `mansio-planes-fable` entry (DP-02) is the planes proposal with the eight modifications from
-[`docs/architecture/scale-out-comparison-fable.md`](../docs/architecture/scale-out-comparison-fable.md) §4
-applied, generated from the DP-01 generator plus a patch
-(`agent-work/items/dp-02-fable-planes/build-dataset.py`), so everything an M-number does not name is carried
-over unchanged. M1 replaces the per-request single-use decision with a time-boxed **route grant** held by the
-gateway (new `grant-cache`, a grant-reuse flow with no control-plane call, and a stale-route retry that
-obtains a _fresh decision_); M3 adds the lane view inside the agent with backups on a read-only snapshot
-connection; M4 specifies the database selection surface and the per-tenant `default` database; M5 closes the
-VM-loss deferral (operator-attested isolation with provider proof, then restore elsewhere; refusal without
-attestation); M6 makes backup completion a recorded manifest keyed by (database, generation); M7 adds
-instance-level move companions (drawn as illustrative deployment views, because c4-sdk places deployment
-instances only there); M8 draws a candidate v1 placement rule labelled **proposed, pending Nick's decision**;
-M2 (build order) is recorded in documents only. It is a proposal: everything new is `planned`, and the landed
-FFI pieces keep the planes dataset's `existing`/`mixed` marks. M1 and M5 alter contracts Astra reviewed in
-DP-01, so they need Nick's word and a re-review. Its [inventory](content/mansio-planes-fable/inventory.md)
-records F1–F11. The three older datasets are byte-identical.
+On 2026-11-11 the site was cut down to `main` only. The Deno-era `mansio-current` dataset (the platform
+deleted at IR-6) and the scale-out proposals (`mansio-lanes-proposal`, `mansio-planes-proposal`,
+`mansio-planes-fable`) were removed; they stay in git history, and the design documents in
+`docs/architecture/` that cite them are history.
 
-### The architecture dropdown and the sticky bar
+## Keeping main in sync
 
-A bar pinned to the top of the window (`position: sticky`) holds a labelled dropdown (a native `<select>`,
-reachable with Tab) that lists every catalog entry by its `title`, in catalog order, and the SDK's diagram
-navigation (Back, Up, breadcrumbs and related views). Switching architecture or going back therefore works
-from anywhere in a tall diagram page. When the navigation is wider than the bar it scrolls sideways inside the
-bar instead of making the bar taller.
+The dataset describes `main` at the commit in its `revision` and source pins. When a merge to `main` changes
+something the diagrams draw or describe (a process, a component's duty, a relationship, a flow, or a claim in
+a document such as "paused" or "open issue"), refresh it in the same change or right after:
 
-Choosing an entry opens its bundle's `defaultDiagramId` through the SDK hash route port, so it is a normal
-history entry: Back (the bar's button or the browser's) returns to the previous architecture. One architecture
-is shown at a time. **There is no comparison view for now** (Nick, 2026-10-14): entries are peers, and no code
-names a "current" or a "proposed" entry; "current" is only the catalog default.
+1. List what changed since the pin: `git log --first-parent <pin>..main` and
+   `git diff --stat <pin>..main -- server sdk core ir eventlog`; the merge messages, `server/shared_state.md`
+   and the `knowledge/` notes summarise each merge.
+2. Update elements, relationships, documents (both `plain` and `ste`) and diagrams; add a source for each new
+   piece of evidence.
+3. Re-pin every source to the new commit (`url` and `revision`; check each path with
+   `git cat-file -e <sha>:<path>`), and update the bundle `title`/`revision` and the catalog entry `title`.
+4. Record the refresh in the inventory's conversion notes and add every new element and relationship id to its
+   mapping tables.
+5. Run the checks below.
 
-URLs are the SDK's own deep links, `#/architectures/<entry id>/diagrams/<diagram id>[/elements/<id>]`. An
-empty hash opens the catalog default. Unknown architectures, unknown diagrams and malformed links show Not
-Found (with a link to each architecture); nothing falls back silently.
+### The dropdown and the sticky bar
+
+The viewer keeps the catalog mechanism, so the bar still holds a labelled dropdown (now with one entry) and
+the SDK's diagram navigation (Back, Up, breadcrumbs and related views), pinned to the top of the window. URLs
+are the SDK's deep links, `#/architectures/<entry id>/diagrams/<diagram id>[/elements/<id>]`. An empty hash
+opens the catalog default. Unknown architectures, unknown diagrams and malformed links show Not Found; nothing
+falls back silently.
 
 ### `defaultId`
 
@@ -77,7 +61,7 @@ Found (with a link to each architecture); nothing falls back silently.
 
 ```json
 {
-  "defaultId": "mansio-current",
+  "defaultId": "mansio-go-platform",
   "entries": [{ "id": "…", "title": "…", "url": "architectures/….json" }]
 }
 ```
@@ -89,7 +73,9 @@ unknown key is still rejected.
 
 ### Adding an architecture
 
-No code changes (the tests prove it with a three-entry fixture catalog):
+The site shows `main` only (Nick, 2026-11-11), so do not add proposal datasets without asking. The mechanism
+stays in case that changes, and it needs no code changes (the tests prove it with a two-entry fixture
+catalog):
 
 1. Write the bundle as `public/architectures/<id>.json` and its conversion inventory as
    `content/<id>/inventory.md` (see [Authoring and verifying a dataset](#authoring-and-verifying-a-dataset)).
@@ -98,25 +84,6 @@ No code changes (the tests prove it with a three-entry fixture catalog):
    `public/catalog.json`, at the position it should take in the dropdown. Change `defaultId` only if the new
    entry should open by default.
 3. Add the new id to the catalog test in `tests/bundles.test.ts`, then run `npm run check`.
-
-### Diagram kinds per dataset
-
-All seven C4 kinds are drawn across the catalog (`tests/views.test.ts` checks it). The
-`mansio-planes-proposal` entry has context, container, three component views, nine dynamic scenarios and one
-illustrative deployment; `mansio-planes-fable` has context, container, four component views (adding the lane
-view), fifteen dynamic scenarios and three illustrative deployment views (the fleet plus the two
-instance-level move companions). Neither adds a landscape or code view. The original two entries retain these
-views:
-
-| Kind       | `mansio-current`                                  | `mansio-lanes-proposal`                                            |
-| ---------- | ------------------------------------------------- | ------------------------------------------------------------------ |
-| Landscape  | `landscape` (shared by both)                      | none: the proposal adds no person or system                        |
-| Context    | `context`                                         | `lanes-context`                                                    |
-| Container  | `containers-platform`, `containers-observability` | `lanes-containers`                                                 |
-| Component  | `components-server`                               | `lanes-components` (one statement lane)                            |
-| Code       | `code-document-reader`                            | none: no code-level elements are drawn for unbuilt code            |
-| Dynamic    | none                                              | the four key flows and their named alternatives (`flow-*`)         |
-| Deployment | none                                              | `lanes-deployment` (illustrative two-node layout, not the droplet) |
 
 ## Run, build, check
 
@@ -133,12 +100,12 @@ npm run preview      # serve dist/ at http://localhost:4173/mansio/
 npm run check        # typecheck + unit tests + build + browser smoke
 ```
 
-| Script         | What it does                                                                                            |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| `typecheck`    | `tsc -b` over the viewer and the tests, against the c4-sdk package's declarations                       |
-| `test`         | vitest: every bundle decodes with `decodeArchitecture` and **zero** diagnostics; catalog, routes, views |
-| `build`        | `vite build --base /mansio/`                                                                            |
-| `test:browser` | Playwright against `vite preview` of `dist/`: dropdown, four entries, sticky bar, deep links, Not Found |
+| Script         | What it does                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `typecheck`    | `tsc -b` over the viewer and the tests, against the c4-sdk package's declarations                                  |
+| `test`         | vitest: every bundle decodes with `decodeArchitecture` and **zero** diagnostics; catalog, routes, views            |
+| `build`        | `vite build --base /mansio/`                                                                                       |
+| `test:browser` | Playwright against `vite preview` of `dist/`: the one entry, every view renders, sticky bar, deep links, Not Found |
 
 The browser smoke reuses Playwright 1.64.0's Chromium from `~/.cache/ms-playwright` (already installed on vm-1
 for c4-sdk); elsewhere run `npx playwright install chromium` once.
@@ -152,7 +119,7 @@ pages/
   public/architectures/        one ArchitectureBundle v1 JSON per catalog entry
   content/<dataset>/           inventory.md: source node/edge → JSON id → documents, discrepancies, decisions
   tests/                       *.test.ts (vitest), smoke.spec.ts (Playwright)
-  tests/fixtures/              the three-entry test catalog and its tiny third bundle (never published)
+  tests/fixtures/              the two-entry test catalog and its tiny fixture bundle (never published)
 ```
 
 Root toolchain constraints that shape this folder: `deno fmt --check` and `deno lint` at the repo root scan
@@ -187,16 +154,12 @@ c4-sdk is the oracle) plus a conversion inventory.
    covers them; without `--config` deno formats at width 80 because of `pages/package.json`), then `npm test`,
    then look at the result in `npm run dev`.
 
-`mansio-current` is pinned to `main` at `2d30330` (audit stamp `0b82504`). When the Markdown diagrams change,
-refresh it from the new commit: diff the pairs, update elements, relationships, documents and sources, and
-re-run the checks.
+`mansio-go-platform` is pinned to `main` at `bffb5e9`; see [Keeping main in sync](#keeping-main-in-sync).
 
 Views with no Markdown source follow the same rules. A **dynamic** view reuses model relationships (its edge
 numbers are their static numbers), uses `reverse` only for a response, uses `parallel` only for things that
 both happen in no given order, and draws each alternative outcome as its own named diagram
-(`tests/views.test.ts` checks that every step's relationship has both endpoints in the view). The **code**
-view copies declarations from `platform/document_reader.ts` at the pinned commit as text; refresh it when that
-file changes. The **deployment** is illustrative and every part of it is `planned`.
+(`tests/views.test.ts` checks that every step's relationship has both endpoints in the view).
 
 ## The c4-sdk dependency
 
@@ -214,7 +177,5 @@ exports or peers, then run `npm run check`.
 
 `.github/workflows/pages.yml` runs on pushes to `main` and on manual dispatch: `npm ci`, typecheck, unit
 tests, `npm run build`, `dist/index.html` copied to `dist/404.html`, then `configure-pages`,
-`upload-pages-artifact` and `deploy-pages`. **GitHub Pages is not enabled on the repository** (the Pages API
-answered 404 on 2026-10-15). Enabling it (Settings → Pages → Source: GitHub Actions) is a human step for Nick
-or Twin, and the first deploy is externally visible. Until then, the deploy job fails on every push to `main`;
-after enabling, use "Run workflow" for the first deploy.
+`upload-pages-artifact` and `deploy-pages`. GitHub Pages is enabled with GitHub Actions as the source, so
+every push to `main` redeploys <https://nickstrad.github.io/mansio/>.

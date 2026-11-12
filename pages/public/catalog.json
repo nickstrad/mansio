@@ -1,29 +1,9 @@
 {
-  "defaultId": "mansio-current",
+  "defaultId": "mansio-go-platform",
   "entries": [
     {
-      "id": "mansio-current",
-      "title": "mansio today (main 2d30330)",
-      "url": "architectures/mansio-current.json"
-    },
-    {
-      "id": "mansio-lanes-proposal",
-      "title": "Proposed: statement lanes and tenant placement (scale-out)",
-      "url": "architectures/mansio-lanes-proposal.json"
-    },
-    {
-      "id": "mansio-planes-proposal",
-      "title": "Proposed: control plane / data plane — tenants own many databases",
-      "url": "architectures/mansio-planes-proposal.json"
-    },
-    {
-      "id": "mansio-planes-fable",
-      "title": "Fable revision: control/data planes with route grants (M1–M8 applied)",
-      "url": "architectures/mansio-planes-fable.json"
-    },
-    {
       "id": "mansio-go-platform",
-      "title": "mansio Go platform (main 6330c9f; S3 work paused)",
+      "title": "mansio on main (bffb5e9; S3 work paused)",
       "url": "architectures/mansio-go-platform.json"
     }
   ]

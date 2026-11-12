@@ -98,10 +98,9 @@ export function App() {
           <p className="site-eyebrow">C4 model</p>
           <p className="site-title">mansio architecture</p>
           <p className="site-purpose">
-            Use these diagrams when you design a feature. Pick an architecture from the list in the bar below
-            (what runs on <code>main</code>{" "}
-            today opens by default), then drill from the system context down to components. Every element
-            traces to a commit-pinned source.
+            Use these diagrams when you design a feature. They show what runs on{" "}
+            <code>main</code>: the Go control and data planes and the TypeScript SDK. Drill from the system
+            context down to components and the key flows. Every element traces to a commit-pinned source.
           </p>
           <p className="site-links">
             <a href={`${REPO}/tree/main/docs/architecture`}>

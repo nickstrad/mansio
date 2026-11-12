@@ -2,14 +2,9 @@
   "defaultId": "fixture-third",
   "entries": [
     {
-      "id": "mansio-current",
-      "title": "mansio today (main 2d30330)",
-      "url": "architectures/mansio-current.json"
-    },
-    {
-      "id": "mansio-lanes-proposal",
-      "title": "Proposed: statement lanes and tenant placement (scale-out)",
-      "url": "architectures/mansio-lanes-proposal.json"
+      "id": "mansio-go-platform",
+      "title": "mansio on main (bffb5e9; S3 work paused)",
+      "url": "architectures/mansio-go-platform.json"
     },
     {
       "id": "fixture-third",

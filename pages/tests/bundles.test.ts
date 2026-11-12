@@ -4,15 +4,9 @@ import type { ArchitectureBundle } from "c4-sdk/core";
 import { bundles, catalog, readText } from "./fixtures.ts";
 
 describe("catalog", () => {
-  it("lists every architecture and opens the current one by default", () => {
-    expect(catalog.entries.map((entry) => entry.id)).toEqual([
-      "mansio-current",
-      "mansio-lanes-proposal",
-      "mansio-planes-proposal",
-      "mansio-planes-fable",
-      "mansio-go-platform",
-    ]);
-    expect(catalog.defaultId).toBe("mansio-current");
+  it("lists only the architecture on main and opens it by default", () => {
+    expect(catalog.entries.map((entry) => entry.id)).toEqual(["mansio-go-platform"]);
+    expect(catalog.defaultId).toBe("mansio-go-platform");
   });
 });
 

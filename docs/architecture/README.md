@@ -36,8 +36,14 @@ glow docs/architecture/c4-component-server.terminal.md   # historical (Deno serv
 **IR-6 (2026-11-06, `ir/06-cutover` from main `7cf4ba6`):** the Deno platform is deleted and the server is the
 Go server in `server/` (ADR 0013). The context and both container pairs are redrawn for it from the e2e
 harness (`tests/e2e/platform/harness.ts`, `cluster.ts`) and the IR-4a to IR-5a notes; the Level 3 pair is kept
-as a historical picture of the deleted Deno server process. The `pages/` datasets are unchanged and still show
-the pre-IR-6 architecture. The rest of this section is the history before IR-6.
+as a historical picture of the deleted Deno server process. The rest of this section is the history before
+IR-6.
+
+**Site (2026-11-11):** the static site in [`pages/`](../../pages/README.md) now renders one dataset,
+`mansio-go-platform`: the Go control and data planes and the TypeScript SDK as on `main` `bffb5e9`, including
+the backpressure, read-path and version/sequence-floor work that these Markdown pairs do not yet draw. The
+Deno-era `mansio-current` and the lanes, planes and Fable-planes proposals were removed from the site (git
+history keeps them); the mentions of them below are history.
 
 These diagrams describe landed main `643b706`, audited on 2026-10-11 for item 27, plus the FFI-01 to FFI-05
 delta at `f2bf1c9`, the FFI-07 audit at `14ef53c`, the FFI-06 delta at `5c2a499` and a full re-audit of the

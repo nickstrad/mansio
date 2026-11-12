@@ -36,36 +36,30 @@ async function load(catalog: string) {
 }
 
 describe("catalog loading", () => {
-  it("loads the site catalog and opens mansio-current by default", async () => {
+  it("loads the site catalog and opens mansio-go-platform by default", async () => {
     expect(await load(readText("public/catalog.json"))).toEqual({
-      ids: [
-        "mansio-current",
-        "mansio-lanes-proposal",
-        "mansio-planes-proposal",
-        "mansio-planes-fable",
-        "mansio-go-platform",
-      ],
-      ok: [true, true, true, true, true],
-      defaultId: "mansio-current",
-      choice: { ok: true, id: "mansio-current" },
+      ids: ["mansio-go-platform"],
+      ok: [true],
+      defaultId: "mansio-go-platform",
+      choice: { ok: true, id: "mansio-go-platform" },
     });
   });
 
-  it("loads a three-entry catalog with no code change, defaulting to its defaultId", async () => {
+  it("loads a two-entry catalog with no code change, defaulting to its defaultId", async () => {
     // The fixture's defaultId is its LAST entry, so the default is not merely the first entry.
-    expect(await load(readText("tests/fixtures/catalog-three.json"))).toEqual({
-      ids: ["mansio-current", "mansio-lanes-proposal", "fixture-third"],
-      ok: [true, true, true],
+    expect(await load(readText("tests/fixtures/catalog-two.json"))).toEqual({
+      ids: ["mansio-go-platform", "fixture-third"],
+      ok: [true, true],
       defaultId: "fixture-third",
       choice: { ok: true, id: "fixture-third" },
     });
   });
 
   it("defaults to the first entry when the catalog has no defaultId", async () => {
-    const { entries } = readJson("tests/fixtures/catalog-three.json") as { entries: unknown[] };
-    const catalog = JSON.stringify({ entries: [entries[2], entries[0]] });
+    const { entries } = readJson("tests/fixtures/catalog-two.json") as { entries: unknown[] };
+    const catalog = JSON.stringify({ entries: [entries[1], entries[0]] });
     expect(await load(catalog)).toEqual({
-      ids: ["fixture-third", "mansio-current"],
+      ids: ["fixture-third", "mansio-go-platform"],
       ok: [true, true],
       defaultId: undefined,
       choice: { ok: true, id: "fixture-third" },
@@ -80,7 +74,7 @@ describe("catalog loading", () => {
   it("passes every other request through untouched", async () => {
     const response = new Response("{}");
     const lifted = liftDefaultId(CATALOG_URL, () => Promise.resolve(response));
-    expect(await lifted.fetch(`${SITE}architectures/mansio-current.json`)).toBe(response);
+    expect(await lifted.fetch(`${SITE}architectures/mansio-go-platform.json`)).toBe(response);
     expect(lifted.defaultId()).toBeUndefined();
   });
 });
@@ -163,21 +157,15 @@ describe("the catalog fetch keeps the SDK's size bound while streaming", () => {
   it("lifts defaultId from a catalog of exactly LIMIT bytes; one byte more is the SDK size error", async () => {
     const json = JSON.stringify({
       ...readJson("public/catalog.json") as object,
-      defaultId: "mansio-lanes-proposal",
+      defaultId: "mansio-go-platform",
     });
     const padded = (bytes: number) => json + " ".repeat(bytes - new TextEncoder().encode(json).byteLength);
     expect(new TextEncoder().encode(padded(LIMIT)).byteLength).toBe(LIMIT);
     expect(await load(padded(LIMIT))).toEqual({
-      ids: [
-        "mansio-current",
-        "mansio-lanes-proposal",
-        "mansio-planes-proposal",
-        "mansio-planes-fable",
-        "mansio-go-platform",
-      ],
-      ok: [true, true, true, true, true],
-      defaultId: "mansio-lanes-proposal",
-      choice: { ok: true, id: "mansio-lanes-proposal" },
+      ids: ["mansio-go-platform"],
+      ok: [true],
+      defaultId: "mansio-go-platform",
+      choice: { ok: true, id: "mansio-go-platform" },
     });
     await expect(load(padded(LIMIT + 1))).rejects.toThrow(SIZE_ERROR);
   });
@@ -242,7 +230,7 @@ describe("the catalog fetch keeps the SDK's size bound while streaming", () => {
   });
 });
 
-describe("the three-entry fixture bundle", () => {
+describe("the fixture bundle", () => {
   it("decodes with decodeArchitecture and no diagnostics at all", () => {
     const decoded = decodeArchitecture(readJson("tests/fixtures/fixture-third.json"));
     expect(decoded.diagnostics).toEqual([]);

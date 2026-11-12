@@ -5,17 +5,17 @@ describe("parseSiteRoute", () => {
   it.each([
     ["", { kind: "home" }],
     ["#", { kind: "home" }],
-    ["#/architectures/mansio-current/diagrams/context", {
+    ["#/architectures/mansio-go-platform/diagrams/context", {
       kind: "single",
-      architectureId: "mansio-current",
+      architectureId: "mansio-go-platform",
       diagramId: "context",
     }],
     [
-      "#/architectures/mansio-current/diagrams/components-server/elements/storage",
+      "#/architectures/mansio-go-platform/diagrams/components/elements/storage",
       {
         kind: "single",
-        architectureId: "mansio-current",
-        diagramId: "components-server",
+        architectureId: "mansio-go-platform",
+        diagramId: "components",
       },
     ],
     ["#/architectures/fixture-third/diagrams/fixture-context", {
@@ -30,8 +30,8 @@ describe("parseSiteRoute", () => {
   // Never a silent fallback: each of these is Not Found.
   it.each([
     "#/somewhere",
-    "#/architectures/mansio-current",
-    "#/architectures/mansio-current/diagrams/context/extra",
+    "#/architectures/mansio-go-platform",
+    "#/architectures/mansio-go-platform/diagrams/context/extra",
   ])("%j is Not Found", (hash) => {
     expect(parseSiteRoute(hash).kind).toBe("not-found");
   });
@@ -39,16 +39,16 @@ describe("parseSiteRoute", () => {
 
 describe("chooseDefault", () => {
   // Three peer entries; none is special to the code.
-  const ids = ["mansio-current", "mansio-lanes-proposal", "fixture-third"];
+  const ids = ["mansio-go-platform", "other-entry", "fixture-third"];
 
   it("uses defaultId when it names an entry", () => {
     expect(chooseDefault(ids, "fixture-third")).toEqual({ ok: true, id: "fixture-third" });
-    expect(chooseDefault(ids, "mansio-current")).toEqual({ ok: true, id: "mansio-current" });
+    expect(chooseDefault(ids, "mansio-go-platform")).toEqual({ ok: true, id: "mansio-go-platform" });
   });
 
   it("falls back to the first entry when the catalog has no defaultId", () => {
-    expect(chooseDefault(ids, undefined)).toEqual({ ok: true, id: "mansio-current" });
-    expect(chooseDefault(["fixture-third", "mansio-current"], undefined)).toEqual({
+    expect(chooseDefault(ids, undefined)).toEqual({ ok: true, id: "mansio-go-platform" });
+    expect(chooseDefault(["fixture-third", "mansio-go-platform"], undefined)).toEqual({
       ok: true,
       id: "fixture-third",
     });
@@ -75,11 +75,11 @@ describe("shownArchitectureId", () => {
     expect(shownArchitectureId({ kind: "home" }, "fixture-third")).toBe("fixture-third");
     expect(
       shownArchitectureId(
-        { kind: "single", architectureId: "mansio-lanes-proposal", diagramId: "lanes-context" },
-        "mansio-current",
+        { kind: "single", architectureId: "fixture-third", diagramId: "fixture-context" },
+        "mansio-go-platform",
       ),
-    ).toBe("mansio-lanes-proposal");
-    expect(shownArchitectureId({ kind: "not-found", message: "x" }, "mansio-current"))
+    ).toBe("fixture-third");
+    expect(shownArchitectureId({ kind: "not-found", message: "x" }, "mansio-go-platform"))
       .toBeUndefined();
   });
 });
