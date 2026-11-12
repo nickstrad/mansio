@@ -1,7 +1,6 @@
 /**
  * `docs/guide.md` against the repo: every `deno task` it names exists, and its H2 outline is fixed. The Deno
- * platform's checks of its environment options went with it (ADR 0013); the event-log CLI's options are
- * `eventlog/config.ts`'s (`tests/unit/eventlog_config_test.ts`).
+ * platform's checks of its environment options went with it (ADR 0013).
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -22,16 +21,9 @@ const headings = [
 ];
 
 test("guide: every deno task exists", () => {
-  const named = [...guide.matchAll(/deno task ([\w:-]+)(\*)?/g)];
+  const named = [...guide.matchAll(/deno task ([\w:-]+)/g)];
   assert.ok(named.length > 0, "expected runnable tasks");
-  for (const [, name, star] of named) {
-    if (star) {
-      // `deno task logs:*`: a family of tasks; at least one must exist.
-      assert.ok([...tasks].some((task) => task.startsWith(name)), `No deno task matches ${name}*`);
-    } else {
-      assert.ok(tasks.has(name), `Unknown deno task: ${name}`);
-    }
-  }
+  for (const [, name] of named) assert.ok(tasks.has(name), `Unknown deno task: ${name}`);
 });
 
 test("guide: the eight H2 headings are present in order, with no extras", () => {

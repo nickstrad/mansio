@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-// The goldens are core/events.ts toJsonLine's output for the same records, by name, in
-// testdata/goldens.jsonl, which tests/unit/eventlog_goldens_test.ts writes and checks from the TS side. A
-// difference is a format change the TS ingest may not read the same way.
+// The goldens are the request log's bytes for these records, by name, in testdata/goldens.jsonl: the record
+// format's definition by example (docs/observability.md documents it). They were first written by the
+// TypeScript encoder this package had to match, which is gone (ADR 0014). A difference is a format change:
+// update the file only on purpose, as the log's readers (collectors, queries) depend on the bytes.
 var goldens = []struct {
 	name string
 	ev   Event
@@ -46,8 +47,8 @@ var goldens = []struct {
 
 var goldenStamp = stamp{EventID: "e1", TS: time.Date(2026, 11, 6, 10, 11, 12, 345e6, time.UTC), Role: "server", PID: 42}
 
-// TestLineMatchesTS: every kind serializes byte for byte as core/events.ts toJsonLine does, redaction,
-// JS whitespace and case folding, key order and number format included.
+// TestLineMatchesTS: every kind serializes byte for byte as testdata/goldens.jsonl says (the encoding the
+// TypeScript encoder had), redaction, JS whitespace and case folding, key order and number format included.
 func TestLineMatchesTS(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "goldens.jsonl"))
 	if err != nil {
@@ -62,7 +63,7 @@ func TestLineMatchesTS(t *testing.T) {
 		want[g.Name] = g.Line
 	}
 	if len(want) != len(goldens) {
-		t.Fatalf("%d goldens in the file, %d here: keep record_test.go and eventlog_goldens_test.ts in step", len(want), len(goldens))
+		t.Fatalf("%d goldens in the file, %d here: keep record_test.go and testdata/goldens.jsonl in step", len(want), len(goldens))
 	}
 	for _, g := range goldens {
 		t.Run(g.name, func(t *testing.T) {
@@ -71,7 +72,7 @@ func TestLineMatchesTS(t *testing.T) {
 				t.Fatalf("no golden named %q", g.name)
 			}
 			if got := string(goldenStamp.line(g.ev)); got != w {
-				t.Fatalf("line differs from core/events.ts\ngot:  %s\nwant: %s", got, w)
+				t.Fatalf("line differs from testdata/goldens.jsonl\ngot:  %s\nwant: %s", got, w)
 			}
 		})
 	}

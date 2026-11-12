@@ -10,8 +10,7 @@
  * Three rules for everything built on top of this file:
  *
  * 1. Errors carry **structured fields**, never a pre-formatted message. Rendering a human string is
- *    the caller's job (`sdk/schema.ts`'s `formatSchemaError`, the HTTP error body,
- *    `core/events.ts`'s `fromPlatformError`).
+ *    the caller's job (`sdk/schema.ts`'s `formatSchemaError`, the HTTP error body).
  * 2. A tag's HTTP status is decided once, in `toHttpStatus`. Adding a member to `PlatformError`
  *    without adding a case there is a compile error.
  * 3. `Data.TaggedError` extends `Error`, so these are `yield*`-able inside `Effect.gen` and still
@@ -70,9 +69,6 @@ export type ConfigFailure = "missing" | "malformed" | "out-of-range" | "inconsis
 /** Why a restore run refused to continue. */
 export type RestoreFailure = "usage" | "would-overwrite" | "invalid-manifest" | "checksum-mismatch";
 
-/** The named queues with an enforced depth cap. */
-export type QueueName = "writer" | "reader" | "events";
-
 /** The two kinds of handler. Mirrors `sdk/functions.ts`'s `Kind` without importing it. */
 export type HandlerKind = "query" | "mutation";
 
@@ -84,9 +80,6 @@ export type BackupPhase =
   | "put-object"
   | "put-manifest"
   | "publish-latest";
-
-/** The phases of a JSONL-to-DuckDB ingest run. */
-export type IngestPhase = "inventory" | "plan" | "read" | "insert" | "commit" | "state-update";
 
 // ---------------------------------------------------------------------------
 // Request and plan errors (pure; raised from `core/`)
@@ -102,7 +95,7 @@ export class SchemaError extends Data.TaggedError("SchemaError")<{
   readonly path: string;
   /** The node kind or shape that was required, e.g. `"integer"`, `"object"`, `"integer or null"`. */
   readonly expected?: string;
-  /** The rejected value. Carried structurally; redaction is `core/events.ts`'s job. */
+  /** The rejected value. Carried structurally; whoever logs it redacts it. */
   readonly actual?: unknown;
 }> {}
 
@@ -310,31 +303,6 @@ export class RestoreError extends Data.TaggedError("RestoreError")<{
 }> {}
 
 // ---------------------------------------------------------------------------
-// Event log and analysis
-// ---------------------------------------------------------------------------
-
-/** JSONL-to-DuckDB ingestion failed at a named phase. */
-export class IngestError extends Data.TaggedError("IngestError")<{
-  readonly phase: IngestPhase;
-  readonly sourceFile?: string;
-  readonly detail?: string;
-  readonly cause?: unknown;
-}> {}
-
-/** A named analysis query failed to execute. */
-export class AnalysisError extends Data.TaggedError("AnalysisError")<{
-  readonly name: string;
-  readonly detail?: string;
-  readonly cause?: unknown;
-}> {}
-
-/** The requested analysis query is not in the catalog. Callers never supply SQL. */
-export class UnknownAnalysisQuery extends Data.TaggedError("UnknownAnalysisQuery")<{
-  readonly name: string;
-  readonly known: readonly string[];
-}> {}
-
-// ---------------------------------------------------------------------------
 // Startup and client
 // ---------------------------------------------------------------------------
 
@@ -430,10 +398,7 @@ export type DbError = MutationError | QueryError | StatementDeadlineError;
 export type RemoteReaderError =
   | QueryError
   | UnknownHandlerError
-  | HandlerKindMismatch
-  | IngestError
-  | AnalysisError
-  | UnknownAnalysisQuery;
+  | HandlerKindMismatch;
 
 /** Everything that can reach an HTTP response, and therefore needs a status. */
 export type PlatformError =
@@ -444,10 +409,7 @@ export type PlatformError =
   | RequestTooLarge
   | IpcError
   | ObjectStoreError
-  | BackupError
-  | IngestError
-  | AnalysisError
-  | UnknownAnalysisQuery;
+  | BackupError;
 
 /** Fails layer construction. The process does not start, so no status is ever needed. */
 export type StartupError = ConfigError | SchemaDriftError;
@@ -458,7 +420,7 @@ export type CliError = RestoreError;
 /** Raised inside an SDK consumer's process by `sdk/client.ts`. */
 export type ClientError = RemoteError | Unavailable;
 
-/** Every error this repo defines. Useful for `core/events.ts`'s `error_tag` column. */
+/** Every error this repo defines. */
 export type AnyError = PlatformError | StartupError | CliError | ClientError;
 
 // ---------------------------------------------------------------------------
@@ -477,8 +439,8 @@ export type AnyError = PlatformError | StartupError | CliError | ClientError;
  * `UnknownAppError`, `ContextExpiredError`, `QueryWriteAttemptError`, `QueueFullError`,
  * `ReaderExitedError`, `InvalidKeyError`, `BackupAlreadyRunning`, `SnapshotIntegrityError` and the three
  * tenant errors). Old event-log rows keep those names as plain `error_tag` text; decoding a JSONL line
- * never builds an error class, so nothing here is needed to read them. The classes that remain are still
- * used by the SDK, the compiler, the event-log CLI or the record format.
+ * never builds an error class, so nothing here is needed to read them. The offline event-log tool's
+ * `IngestError`, `AnalysisError` and `UnknownAnalysisQuery` went with that tool (ADR 0014).
  */
 export function toHttpStatus(error: PlatformError): number {
   switch (error._tag) {
@@ -496,7 +458,6 @@ export function toHttpStatus(error: PlatformError): number {
     // 404 — nothing is addressed by this request.
     case "UnknownHandlerError":
     case "NotFoundError":
-    case "UnknownAnalysisQuery":
       return 404;
 
     // 409 — the request is well-formed but conflicts with current state.
@@ -513,8 +474,6 @@ export function toHttpStatus(error: PlatformError): number {
     case "StorageError":
     case "ReaderError":
     case "BackupError":
-    case "IngestError":
-    case "AnalysisError":
       return 500;
 
     // 502 — a dependency this server talks to is at fault.

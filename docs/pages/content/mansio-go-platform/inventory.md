@@ -5,55 +5,58 @@ Built 2026-11-07 for Nick's C4 dataset directive at `6330c9f`; refreshed 2026-11
 `main-bffb5e9-go-platform`, describing `bffb5e9face4a4e83839f6e8fbd0819a5a503dc6`. Since 2026-11-11 this is
 the **only** dataset on the site: main is Go for the control and data planes plus the TypeScript SDK, and the
 Deno-era `mansio-current` and the lanes/planes/Fable-planes proposals were removed (they remain in git
-history).
+history). Refreshed 2026-11-12 to revision `main-b1f9488-go-platform`, describing
+`b1f94885210e79b73b7f0beeecae5c0a8127bc95` (ADR 0014: the offline event-log tool removed); every source is
+pinned there except `src-topics`, whose file was deleted after `bffb5e9` and stays pinned to it. The source
+paths that moved since (the notes) were updated.
 
 ## Sources
 
-Every URL and path below was checked with `git cat-file -e <pin>:<path>`. All sources use the baseline above.
-Source `notes` is explicit because the video framework decoder requires it, although older Pages bundles omit
-it.
+Every URL and path below was checked with `git cat-file -e <pin>:<path>`. Sources use the latest pin named
+above. Source `notes` is explicit because the video framework decoder requires it, although older Pages
+bundles omit it.
 
-| Source id           | Pinned file                                                                                                                                                                                              | Evidence                                           |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `src-adr`           | [docs/adr/0013-go-server-replaces-deno-platform.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0013-go-server-replaces-deno-platform.md)                 | Go-only backend and offline analysis               |
-| `src-recording`     | [sdk/recording.ts](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/recording.ts)                                                                                   | Caller-side handler recording                      |
-| `src-transport`     | [sdk/transport.ts](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/transport.ts)                                                                                   | Cached locator routes and retries                  |
-| `src-agent`         | [server/cmd/agentd/main.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/main.go)                                                                 | Agent daemon and server wiring                     |
-| `src-edge`          | [server/cmd/edge/main.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/edge/main.go)                                                                     | Separate TLS edge process                          |
-| `src-controld`      | [server/cmd/controld/main.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/controld/main.go)                                                             | Control daemon and operator commands               |
-| `src-locator`       | [server/internal/control/locator/doc.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/locator/doc.go)                                       | Routing and signed tickets                         |
-| `src-control`       | [server/internal/control/controller.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/controller.go)                                         | Database lifecycle and attest-dead recovery        |
-| `src-placement`     | [server/internal/placement/pg/doc.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/placement/pg/doc.go)                                             | Postgres epoch authority                           |
-| `src-move`          | [server/internal/owner/move.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/owner/move.go)                                                         | Four-step move protocol                            |
-| `src-owner`         | [server/internal/owner/state.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/owner/state.go)                                                       | Admission, fencing and storage epochs              |
-| `src-actor`         | [server/internal/actor/actor.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/actor/actor.go)                                                       | Mailbox, single writer and group commit            |
-| `src-reqid`         | [server/internal/actor/reqid.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/actor/reqid.go)                                                       | Request-id savepoint claims                        |
-| `src-ops`           | [server/internal/front/ops.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/front/ops.go)                                                           | IR HTTP validation and actor dispatch              |
-| `src-exec`          | [server/internal/docexec/doc.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/doc.go)                                                       | IR execution on the actor connection               |
-| `src-compile`       | [server/internal/doccompile/doc.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/doccompile/doc.go)                                                 | Document SQL compiler                              |
-| `src-writeback`     | [server/internal/vactor/writeback.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/vactor/writeback.go)                                             | Snapshot write-back and epoch stamps               |
-| `src-durable`       | [server/internal/durable/durable.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/durable/durable.go)                                               | Immutable generations and conditional manifest     |
-| `src-paused`        | [server/docs/notes/writeback/backup-open-issues.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/docs/notes/writeback/backup-open-issues.md)                 | Built S3 work paused on 2026-11-06                 |
-| `src-events`        | [server/internal/eventlog/log.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/eventlog/log.go)                                                     | Nonblocking structured JSONL sink                  |
-| `src-ingest`        | [eventlog/ingest.ts](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/eventlog/ingest.ts)                                                                               | Offline DuckDB ingest                              |
-| `src-log-adr`       | [docs/adr/0004-eventlog-duckdb-in-reader-only.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0004-eventlog-duckdb-in-reader-only.md)                     | JSONL authority and rebuildable analysis           |
-| `src-topics`        | [docs/cache-dividend-topics.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/cache-dividend-topics.md)                                                         | Current platform survey and implementation caveats |
-| `src-observer`      | [server/cmd/agentd/events.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/events.go)                                                             | Agentd IR event observer wiring                    |
-| `src-agent-durable` | [server/cmd/agentd/durable.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/durable.go)                                                           | Durable mode: S3 host and Postgres/file authority  |
-| `src-control-ports` | [server/internal/control/ports.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/ports.go)                                                   | Drop deletes a database's S3 objects               |
-| `src-cache`         | [sdk/cache.ts](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/cache.ts)                                                                                           | Version-checked client read cache                  |
-| `src-read-path`     | [docs/notes/intermediate-representation/read-path.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/notes/intermediate-representation/read-path.md)             | Read path after survey changes 1-4                 |
-| `src-retry`         | [docs/retry-contract.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/retry-contract.md)                                                                       | One retry contract for both clients                |
-| `src-admission`     | [server/internal/front/admission.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/front/admission.go)                                               | Admission caps and would-expire shedding           |
-| `src-edge-proxy`    | [server/internal/edge/proxy.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/edge/proxy.go)                                                         | Edge refusals before the body is read              |
-| `src-locator-gates` | [server/internal/control/locator/locator.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/locator/locator.go)                               | Locator resolve, load and create gates             |
-| `src-seq`           | [server/internal/docexec/seq.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/seq.go)                                                       | Commit sequence and its floor                      |
-| `src-version`       | [server/internal/docexec/version.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/version.go)                                               | Version floor per incarnation                      |
-| `src-witness`       | [server/internal/docexec/witness.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/witness.go)                                               | Conflict answers carry current state               |
-| `src-version-floor` | [server/docs/notes/writeback/version-and-sequence-floor.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/docs/notes/writeback/version-and-sequence-floor.md) | Version and sequence floor after rollback          |
-| `src-retention`     | [server/internal/eventlog/retention.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/eventlog/retention.go)                                         | Event-log retention in the writer                  |
-| `src-queues`        | [server/internal/metrics/queue.go](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/metrics/queue.go)                                                   | Per-queue metric families                          |
-| `src-capacity`      | [server/docs/capacity.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/docs/capacity.md)                                                                     | Capacity table, alerts and levers                  |
+| Source id           | Pinned file                                                                                                                                                                                                                  | Evidence                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `src-adr`           | [docs/adr/0013-go-server-replaces-deno-platform.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/adr/0013-go-server-replaces-deno-platform.md)                                     | Go-only backend (ADR 0013)                                |
+| `src-recording`     | [sdk/recording.ts](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/recording.ts)                                                                                                       | Caller-side handler recording                             |
+| `src-transport`     | [sdk/transport.ts](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/transport.ts)                                                                                                       | Cached locator routes and retries                         |
+| `src-agent`         | [server/cmd/agentd/main.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/main.go)                                                                                     | Agent daemon and server wiring                            |
+| `src-edge`          | [server/cmd/edge/main.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/edge/main.go)                                                                                         | Separate TLS edge process                                 |
+| `src-controld`      | [server/cmd/controld/main.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/controld/main.go)                                                                                 | Control daemon and operator commands                      |
+| `src-locator`       | [server/internal/control/locator/doc.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/locator/doc.go)                                                           | Routing and signed tickets                                |
+| `src-control`       | [server/internal/control/controller.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/controller.go)                                                             | Database lifecycle and attest-dead recovery               |
+| `src-placement`     | [server/internal/placement/pg/doc.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/placement/pg/doc.go)                                                                 | Postgres epoch authority                                  |
+| `src-move`          | [server/internal/owner/move.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/owner/move.go)                                                                             | Four-step move protocol                                   |
+| `src-owner`         | [server/internal/owner/state.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/owner/state.go)                                                                           | Admission, fencing and storage epochs                     |
+| `src-actor`         | [server/internal/actor/actor.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/actor/actor.go)                                                                           | Mailbox, single writer and group commit                   |
+| `src-reqid`         | [server/internal/actor/reqid.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/actor/reqid.go)                                                                           | Request-id savepoint claims                               |
+| `src-ops`           | [server/internal/front/ops.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/front/ops.go)                                                                               | IR HTTP validation and actor dispatch                     |
+| `src-exec`          | [server/internal/docexec/doc.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/doc.go)                                                                           | IR execution on the actor connection                      |
+| `src-compile`       | [server/internal/doccompile/doc.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/doccompile/doc.go)                                                                     | Document SQL compiler                                     |
+| `src-writeback`     | [server/internal/vactor/writeback.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/vactor/writeback.go)                                                                 | Snapshot write-back and epoch stamps                      |
+| `src-durable`       | [server/internal/durable/durable.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/durable/durable.go)                                                                   | Immutable generations and conditional manifest            |
+| `src-paused`        | [server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md) | Built S3 work paused on 2026-11-06                        |
+| `src-events`        | [server/internal/eventlog/log.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/eventlog/log.go)                                                                         | Nonblocking request log writer                            |
+| `src-log-decision`  | [docs/adr/0014-request-log-without-an-offline-tool.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/adr/0014-request-log-without-an-offline-tool.md)                               | Request log shipped, no offline tool (ADR 0014)           |
+| `src-request-log`   | [docs/observability.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/observability.md)                                                                                             | Request log reference: records, limits, shipping, metrics |
+| `src-topics`        | [docs/cache-dividend-topics.md](https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/cache-dividend-topics.md)                                                                             | Current platform survey and implementation caveats        |
+| `src-observer`      | [server/cmd/agentd/events.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/events.go)                                                                                 | Agentd IR event observer wiring                           |
+| `src-agent-durable` | [server/cmd/agentd/durable.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/durable.go)                                                                               | Durable mode: S3 host and Postgres/file authority         |
+| `src-control-ports` | [server/internal/control/ports.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/ports.go)                                                                       | Drop deletes a database's S3 objects                      |
+| `src-cache`         | [sdk/cache.ts](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/cache.ts)                                                                                                               | Version-checked client read cache                         |
+| `src-read-path`     | [docs/notes/intermediate-representation/2026-11-10-read-path.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/notes/intermediate-representation/2026-11-10-read-path.md)           | Read path after survey changes 1-4                        |
+| `src-retry`         | [docs/retry-contract.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/retry-contract.md)                                                                                           | One retry contract for both clients                       |
+| `src-admission`     | [server/internal/front/admission.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/front/admission.go)                                                                   | Admission caps and would-expire shedding                  |
+| `src-edge-proxy`    | [server/internal/edge/proxy.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/edge/proxy.go)                                                                             | Edge refusals before the body is read                     |
+| `src-locator-gates` | [server/internal/control/locator/locator.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/locator/locator.go)                                                   | Locator resolve, load and create gates                    |
+| `src-seq`           | [server/internal/docexec/seq.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/seq.go)                                                                           | Commit sequence and its floor                             |
+| `src-version`       | [server/internal/docexec/version.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/version.go)                                                                   | Version floor per incarnation                             |
+| `src-witness`       | [server/internal/docexec/witness.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/witness.go)                                                                   | Conflict answers carry current state                      |
+| `src-version-floor` | [server/docs/notes/writeback/2026-11-10-version-floor.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/notes/writeback/2026-11-10-version-floor.md)                         | Version and sequence floor after rollback                 |
+| `src-retention`     | [server/internal/eventlog/retention.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/eventlog/retention.go)                                                             | Event-log retention in the writer                         |
+| `src-queues`        | [server/internal/metrics/queue.go](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/metrics/queue.go)                                                                       | Per-queue metric families                                 |
+| `src-capacity`      | [server/docs/capacity.md](https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/capacity.md)                                                                                         | Capacity table, alerts and levers                         |
 
 ## Conversion notes and deliberate exclusions
 
@@ -89,8 +92,16 @@ it.
   so they depend on the built-but-paused S3 path. Relationship labels say so.
 - Attest-dead and restore orchestration belong to controld. Target agentd performs claim/restore and file
   work.
-- Canonical JSONL means the persisted emitted record, not guaranteed lossless logging. The bounded sink can
-  drop events. DuckDB can be rebuilt only from retained input; compressed input needs decompression.
+- The request log (`jsonl`, named "Request log (JSONL)") is the persisted emitted record, not guaranteed
+  lossless logging: the bounded sink can drop records, and the writer deletes its oldest files at its limits.
+- Observability without the offline tool (2026-11-12, ADR 0014): the offline log CLI (`analysis`) and the
+  derived DuckDB copy (`duckdb`) are deleted with their relationships (`log-ingest`, `analysis-db`,
+  `operator-analysis`), document (`doc-element-duckdb`) and sources (`src-ingest`, `src-log-adr`). The
+  `observability` view now draws agentd writing the request log and the operator reading or shipping it
+  (`operator-log`, new); `controld` and `operator-control` left that view (they are drawn in the move view).
+  The metrics endpoints are described in its document only: no log store, log collector or Prometheus server
+  is part of the platform, so none is drawn. New sources: `src-log-decision` (ADR 0014) and `src-request-log`
+  (`docs/observability.md`).
 - No design-stage lanes, private worker processes, proposed leases or planes components were imported as
   built. The historical proposal datasets were removed from the site on 2026-11-11 (see git history of
   `docs/pages/content/`).
@@ -104,39 +115,37 @@ it.
 
 ## Element mapping
 
-| Element id       | Kind / parent              | Evidence source ids                           |
-| ---------------- | -------------------------- | --------------------------------------------- |
-| `developer`      | person / root              | `src-recording`, `src-transport`              |
-| `operator`       | person / root              | `src-controld`, `src-adr`                     |
-| `platform`       | softwareSystem / root      | `src-adr`, `src-control`, `src-topics`        |
-| `application`    | softwareSystem / root      | `src-recording`                               |
-| `caller-process` | container / application    | `src-recording`                               |
-| `sdk`            | component / caller-process | `src-recording`, `src-transport`              |
-| `read-cache`     | component / caller-process | `src-cache`, `src-read-path`                  |
-| `s3`             | softwareSystem / root      | `src-durable`, `src-paused`                   |
-| `controld`       | container / platform       | `src-controld`, `src-locator`, `src-control`  |
-| `edge`           | container / platform       | `src-edge`                                    |
-| `agentd`         | container / platform       | `src-agent`, `src-owner`, `src-agent-durable` |
-| `files`          | container / platform       | `src-actor`, `src-reqid`, `src-control`       |
-| `metadata`       | container / platform       | `src-placement`, `src-agent`                  |
-| `jsonl`          | container / platform       | `src-events`, `src-adr`, `src-log-adr`        |
-| `analysis`       | container / platform       | `src-adr`, `src-ingest`                       |
-| `duckdb`         | container / platform       | `src-ingest`, `src-log-adr`                   |
-| `admission`      | component / agentd         | `src-agent`, `src-ops`, `src-owner`           |
-| `ir`             | component / agentd         | `src-ops`, `src-exec`                         |
-| `compiler`       | component / agentd         | `src-compile`, `src-exec`                     |
-| `mailbox`        | component / agentd         | `src-actor`                                   |
-| `actor`          | component / agentd         | `src-actor`, `src-exec`                       |
-| `writer`         | component / agentd         | `src-actor`                                   |
-| `requests`       | component / agentd         | `src-reqid`, `src-actor`                      |
-| `storage`        | component / agentd         | `src-writeback`, `src-durable`, `src-paused`  |
-| `events`         | component / agentd         | `src-events`                                  |
-| `locator`        | component / controld       | `src-locator`                                 |
-| `authority`      | component / controld       | `src-placement`, `src-move`                   |
-| `signer`         | component / controld       | `src-locator`, `src-transport`                |
-| `lifecycle`      | component / controld       | `src-control`, `src-move`, `src-controld`     |
-| `source-agent`   | container / platform       | `src-move`, `src-owner`                       |
-| `target-agent`   | container / platform       | `src-move`, `src-owner`, `src-durable`        |
+| Element id       | Kind / parent              | Evidence source ids                                                  |
+| ---------------- | -------------------------- | -------------------------------------------------------------------- |
+| `developer`      | person / root              | `src-recording`, `src-transport`                                     |
+| `operator`       | person / root              | `src-controld`, `src-adr`, `src-request-log`                         |
+| `platform`       | softwareSystem / root      | `src-adr`, `src-control`, `src-topics`                               |
+| `application`    | softwareSystem / root      | `src-recording`                                                      |
+| `caller-process` | container / application    | `src-recording`                                                      |
+| `sdk`            | component / caller-process | `src-recording`, `src-transport`                                     |
+| `read-cache`     | component / caller-process | `src-cache`, `src-read-path`                                         |
+| `s3`             | softwareSystem / root      | `src-durable`, `src-paused`                                          |
+| `controld`       | container / platform       | `src-controld`, `src-locator`, `src-control`                         |
+| `edge`           | container / platform       | `src-edge`                                                           |
+| `agentd`         | container / platform       | `src-agent`, `src-owner`, `src-agent-durable`                        |
+| `files`          | container / platform       | `src-actor`, `src-reqid`, `src-control`                              |
+| `metadata`       | container / platform       | `src-placement`, `src-agent`                                         |
+| `jsonl`          | container / platform       | `src-events`, `src-log-decision`, `src-request-log`, `src-retention` |
+| `admission`      | component / agentd         | `src-agent`, `src-ops`, `src-owner`                                  |
+| `ir`             | component / agentd         | `src-ops`, `src-exec`                                                |
+| `compiler`       | component / agentd         | `src-compile`, `src-exec`                                            |
+| `mailbox`        | component / agentd         | `src-actor`                                                          |
+| `actor`          | component / agentd         | `src-actor`, `src-exec`                                              |
+| `writer`         | component / agentd         | `src-actor`                                                          |
+| `requests`       | component / agentd         | `src-reqid`, `src-actor`                                             |
+| `storage`        | component / agentd         | `src-writeback`, `src-durable`, `src-paused`                         |
+| `events`         | component / agentd         | `src-events`                                                         |
+| `locator`        | component / controld       | `src-locator`                                                        |
+| `authority`      | component / controld       | `src-placement`, `src-move`                                          |
+| `signer`         | component / controld       | `src-locator`, `src-transport`                                       |
+| `lifecycle`      | component / controld       | `src-control`, `src-move`, `src-controld`                            |
+| `source-agent`   | container / platform       | `src-move`, `src-owner`                                              |
+| `target-agent`   | container / platform       | `src-move`, `src-owner`, `src-durable`                               |
 
 ## Relationship mapping
 
@@ -144,7 +153,7 @@ it.
 | --------------------- | ------------------------- | ---------------------------------------------------- |
 | `ctx-call`            | developer → application   | `src-recording`                                      |
 | `ctx-use`             | application → platform    | `src-recording`, `src-ops`                           |
-| `ctx-operate`         | operator → platform       | `src-controld`, `src-adr`                            |
+| `ctx-operate`         | operator → platform       | `src-controld`, `src-adr`, `src-request-log`         |
 | `ctx-durable`         | platform → s3             | `src-durable`, `src-paused`                          |
 | `caller-sdk`          | developer → sdk           | `src-recording`                                      |
 | `sdk-cache`           | sdk → read-cache          | `src-cache`, `src-read-path`                         |
@@ -158,10 +167,8 @@ it.
 | `control-agent`       | controld → agentd         | `src-control`, `src-move`, `src-agent`               |
 | `control-meta`        | controld → metadata       | `src-placement`, `src-control`                       |
 | `operator-control`    | operator → controld       | `src-controld`, `src-control`                        |
-| `agent-log`           | agentd → jsonl            | `src-events`, `src-adr`                              |
-| `log-ingest`          | jsonl → analysis          | `src-ingest`, `src-adr`                              |
-| `analysis-db`         | analysis → duckdb         | `src-ingest`                                         |
-| `operator-analysis`   | operator → analysis       | `src-adr`                                            |
+| `agent-log`           | agentd → jsonl            | `src-events`, `src-observer`, `src-request-log`      |
+| `operator-log`        | operator → jsonl          | `src-request-log`, `src-log-decision`                |
 | `edge-admit`          | edge → admission          | `src-edge`, `src-ops`                                |
 | `admit-ir`            | admission → ir            | `src-ops`, `src-owner`                               |
 | `ir-mail`             | ir → mailbox              | `src-ops`, `src-exec`, `src-actor`                   |
@@ -176,7 +183,7 @@ it.
 | `storage-files`       | storage → files           | `src-writeback`, `src-durable`, `src-paused`         |
 | `storage-s3`          | storage → s3              | `src-durable`, `src-paused`                          |
 | `ir-events`           | ir → events               | `src-ops`, `src-events`, `src-observer`              |
-| `events-jsonl`        | events → jsonl            | `src-events`                                         |
+| `events-jsonl`        | events → jsonl            | `src-events`, `src-retention`                        |
 | `control-locator`     | sdk → locator             | `src-transport`, `src-locator`                       |
 | `locator-authority`   | locator → authority       | `src-locator`, `src-placement`                       |
 | `authority-meta`      | authority → metadata      | `src-placement`                                      |
@@ -206,7 +213,7 @@ it.
 | `components`        | component | agentd: admission, IR and per-database execution          |
 | `storage-events`    | component | agentd: paused durability and canonical events            |
 | `control-plane`     | component | controld: locator, signer and epoch authority             |
-| `observability`     | container | Canonical JSONL → offline DuckDB analysis                 |
+| `observability`     | container | Request log (JSONL) and metrics                           |
 | `query-flow`        | dynamic   | Query: resolve once, then cached-ticket data path         |
 | `database-move`     | dynamic   | Database move: fence before epoch flip (S3 built, paused) |
 

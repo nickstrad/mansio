@@ -44,7 +44,6 @@ const statusByTag: Record<E.PlatformError["_tag"], number> = {
   AuthError: 401,
   UnknownHandlerError: 404,
   NotFoundError: 404,
-  UnknownAnalysisQuery: 404,
   ConflictError: 409,
   RequestTooLarge: 413,
   DecodeError: 500,
@@ -52,8 +51,6 @@ const statusByTag: Record<E.PlatformError["_tag"], number> = {
   StorageError: 500,
   ReaderError: 500,
   BackupError: 500,
-  IngestError: 500,
-  AnalysisError: 500,
   IpcError: 502,
   ObjectStoreError: 502,
   StatementDeadlineError: 504,
@@ -85,9 +82,6 @@ type FrozenPlatformTags =
   | "IpcError"
   | "ObjectStoreError"
   | "BackupError"
-  | "IngestError"
-  | "AnalysisError"
-  | "UnknownAnalysisQuery"
   // An unbounded statement stopped at its deadline (ADR 0008).
   | "StatementDeadlineError";
 

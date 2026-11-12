@@ -29,7 +29,7 @@ export const cleanEnv = (): Record<string, string> => {
     const value = Deno.env.get(key);
     if (value !== undefined) env[key] = value;
   }
-  assert.ok(env.HOME, "HOME must be set for DuckDB extensions");
+  assert.ok(env.HOME, "HOME must be set");
   return env;
 };
 export const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

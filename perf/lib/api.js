@@ -1,8 +1,8 @@
 // Shared k6 helpers for calling the document-db HTTP API: agentd's POST /v1/ops, the handlers sent as the
-// SDK sends them (./ir.js; tickets and the schema fingerprint from READ_TICKET, WRITE_TICKET,
-// SCHEMA_FINGERPRINT).
+// SDK sends them (./intermediate-representation.js; tickets and the schema fingerprint from READ_TICKET,
+// WRITE_TICKET, SCHEMA_FINGERPRINT).
 import http from "k6/http";
-import { irCall } from "./ir.js";
+import { irCall } from "./intermediate-representation.js";
 
 // Treat any non-200 API response as a failure (k6 counts it in http_req_failed).
 // Set here so every script importing these helpers inherits the 200-only callback.

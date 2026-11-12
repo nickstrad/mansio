@@ -41,7 +41,8 @@ The request path, outermost first:
 | `owner`, `placement`           | Who may serve a database: epochs, fencing, moves; file and Postgres authorities.        |
 | `control`                      | The control plane's lifecycle controller, placement policy, locator and agent client.   |
 
-Supporting packages: `eventlog` (the JSONL event log), `metrics`, `capacity` (generates
+Supporting packages: `eventlog` (the request log: its record format, queue, files and limits;
+[docs/observability.md](../docs/observability.md)), `metrics`, `capacity` (generates
 [docs/capacity.md](docs/capacity.md)), `breaker`, `slots`, `ratelimit`, `retry`, `client` (the Go client),
 `logx`, `errs`, `assert`, `tlsx`, `fsx`, `det` (clock, randomness and id seams for deterministic tests) and
 `sim` (the deterministic cluster simulator). `bench`, `load`, `workload`, `schema`, `stats`, `outcome` and

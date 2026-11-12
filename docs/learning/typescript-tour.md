@@ -2,8 +2,7 @@
 
 These excerpts are copied from the source. Omitted sections are described in prose, not rewritten as alternate
 implementations. The server is the Go code in `server/`; this tour covers the TypeScript side: the app, the
-SDK, the pure compiler and the offline event-log CLI. See [README.md](../../README.md) for the layout and
-verification.
+SDK and the pure compiler. See [README.md](../../README.md) for the layout and verification.
 
 ## Application schema and handler
 
@@ -200,38 +199,6 @@ conflict carries the current state of what the run read, and the next run starts
 reading again. `send` (`sdk/transport.ts`) owns transport retries, reroutes and the retry budget; the same
 `requestId` on a transport retry lets the server answer an applied mutation as a duplicate.
 
-## The event-log CLI is a layer chain
-
-Source: [eventlog/root.ts](../../eventlog/root.ts).
-
-<!-- deno-fmt-ignore -->
-```ts
-/** `Config` from the environment and the CLI's own event sink, in the order of the module comment. */
-export const CliRootLive = LoggingReaderLive.pipe(Layer.provideMerge(ConfigLive));
-```
-
-Each `scripts/logs.ts` command is its own Effect program. `ingest` and `sweep` run on `CliRootLive`
-(configuration from the environment, then the CLI's own event sink) and build the event-log handle in the
-program's scope; `query` and `list` need only `Config` and the read-only `AnalysisLive`. `ConfigLive`
-(`eventlog/config.ts`) is the only module that reads the environment; it fails with a typed `ConfigError` at
-layer construction. Service tags are declared in `eventlog/services.ts`.
-
-## Native handles register finalizers immediately
-
-Source: [eventlog/ingest.ts](../../eventlog/ingest.ts).
-
-<!-- deno-fmt-ignore -->
-```ts
-    const instance = yield* Effect.acquireRelease(
-      attempt("inventory", () => driver.open(dbPath)),
-      (handle) => close("instance", handle),
-    );
-```
-
-The ingest opens the DuckDB instance under `acquireRelease`, then its connection, and registers the
-connection's finalizer after the instance's, so LIFO release closes the connection first.
-`eventlog/duckdb.ts`'s `drainDuckDB` forces pending N-API finalizers to run before the handles close.
-
 ## Run
 
 ```sh
@@ -241,5 +208,5 @@ deno task go:ci
 scripts/dev/e2e-linux.sh
 ```
 
-`deno task ci` runs on Linux because the DuckDB event-log suites hang on macOS. See the README's Verification
-section.
+`deno task ci` runs in a Linux container through `deno-linux.sh`: natively on macOS one property test fails on
+a SQLite rounding difference. See the README's Verification section.

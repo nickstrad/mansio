@@ -35,33 +35,33 @@ and the server is the Go server in `server/`. Both formats are generated from
    │ scripts/tenants.ts;          │   │ S3 (SeaweedFS in dev)        │
    │ server/cmd/dbtool            │   │ SQLite generations and       │
    │ Tenants, keys, placement,    │   │ manifests (durable mode)     │
-   │ backups and log analysis     │   └──────────────────────────────┘
+   │ backups; reads the request   │   └──────────────────────────────┘
+   │ log and metrics              │
    └──────────────────────────────┘
 
-   ┌──────────────────────────────┐   ┌──────────────────────────────┐
-   │ Analytics consumer           │   │ k6 load generator            │
-   │ [External system]            │   │ [External system]            │
-   │ scripts/logs.ts;             │   │ perf/*.js                    │
-   │ scripts/duckdb/              │   │ IR load over /v1/ops; raw    │
-   │ Offline DuckDB event log:    │   │ metric points                │
-   │ named catalog or SQL         │   └──────────────────────────────┘
+   ┌──────────────────────────────┐
+   │ k6 load generator            │
+   │ [External system]            │
+   │ perf/*.js                    │
+   │ IR load over /v1/ops; raw    │
+   │ metric points                │
    └──────────────────────────────┘
 ```
 
 ## Relationships
 
-| # | From               | To                 | Relationship                                                                   |
-| - | ------------------ | ------------------ | ------------------------------------------------------------------------------ |
-| 1 | App developer      | Mansio             | Registered schema JSON; handlers stay in the app (TypeScript SDK)              |
-| 2 | Application caller | Mansio             | IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id |
-| 3 | Operator           | Mansio             | Admin HTTP and CLIs; tenants, keys, moves, backups                             |
-| 4 | Mansio             | Object storage     | S3 HTTP; write-back of SQLite generations, restore                             |
-| 5 | Mansio             | Analytics consumer | JSONL event log, ingested offline into DuckDB                                  |
-| 6 | k6 load generator  | Mansio             | IR scenarios over /v1/ops and trace headers                                    |
+| # | From               | To             | Relationship                                                                         |
+| - | ------------------ | -------------- | ------------------------------------------------------------------------------------ |
+| 1 | App developer      | Mansio         | Registered schema JSON; handlers stay in the app (TypeScript SDK)                    |
+| 2 | Application caller | Mansio         | IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id       |
+| 3 | Operator           | Mansio         | Admin HTTP and CLIs; tenants, keys, moves, backups; request log (JSONL) and /metrics |
+| 4 | Mansio             | Object storage | S3 HTTP; write-back of SQLite generations, restore                                   |
+| 5 | k6 load generator  | Mansio         | IR scenarios over /v1/ops and trace headers                                          |
 
 ## Runtime notes
 
 Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers run
 in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application
 SQL crosses the client boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres
-is inside the system, shown at Level 2. No external identity provider is wired.
+is inside the system, shown at Level 2. No external identity provider is wired. The request log and the
+metrics are for the deployment's own log collector and Prometheus, which are not part of mansio (ADR 0014).

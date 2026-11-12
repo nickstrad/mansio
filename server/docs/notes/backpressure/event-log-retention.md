@@ -2,6 +2,10 @@
 
 How agentd's event-log writer bounds its own files on disk by bytes and age, and counts what it drops.
 
+The offline ingest and sweep that older text here refers to were removed
+([ADR 0014](../../../../docs/adr/0014-request-log-without-an-offline-tool.md)): the writer's limits are the only
+retention, and a log collector is expected to ship files before they reach them.
+
 Related work not implemented: a warm-set default (requiring `cache_bytes` or `max_active` in durable mode),
 which waits on the open LiteFS / write-back decision; exporting the owner-slot count (the slots are never
 removed); and rotating the operational log (one append-only file).

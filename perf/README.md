@@ -34,11 +34,7 @@ A run needs a running agentd that serves `local:tic-tac-toe` (static mode) and t
 | `APP_ID`, `TENANT`            | Defaults `tic-tac-toe` and `local`.                                       |
 | `K6_RUN_ID`                   | The run id: artifact directory and trace-id suffix; default `k6-smoke`.   |
 
-`startScratchAgent` in `tests/e2e/scratch.ts` does the whole setup for a test: an agentd in static mode with
-an event log, a fresh ticket issuer, both tickets and the fingerprint. `tests/e2e/observability_test.ts` uses
-it to run `perf/smoke.js` and join k6's latencies to agentd's event log
-(`deno run -A tests/e2e/observability_test.ts`; needs `k6` and Go). For a manual run, the same steps by hand
-(from the repository root; the tickets are valid for 50 minutes):
+To set one up by hand (from the repository root; the tickets are valid for 50 minutes):
 
 ```sh
 export MANSIO_DIR="$(mktemp -d)"
@@ -73,8 +69,17 @@ JSON
 . "$MANSIO_DIR/tickets.env"
 ```
 
-Add `"event_log": {"dir": "logs"}` to the config to get the server-side records for `perf:ingest` and the
-`k6-vs-platform` analysis query ([docs/observability.md](../docs/observability.md)).
+To see the server's side of a run, add `"event_log": {"dir": "logs", "trace_sql": true}` to the config: agentd
+then writes its request log under `$MANSIO_DIR/logs/server/`, and every k6 request is there under its trace id
+`<vu>-<iter>-<run-id>`. For example, the first iteration of VU 1 in run `k6-smoke`:
+
+```sh
+jq -c 'select(.traceId == "1-0-k6-smoke") | {kind, name, status, statementKind, durationMs}
+  | with_entries(select(.value != null))' "$MANSIO_DIR"/logs/server/*/*.jsonl
+```
+
+[docs/observability.md](../docs/observability.md) describes the records and has queries over them (slowest
+statements, errors and latency by handler).
 
 ## `smoke.js`
 
@@ -110,7 +115,39 @@ k6 run --out json="logs/k6/$K6_RUN_ID/raw.json" perf/smoke.js
 ```
 
 Both files land under `logs/k6/<run-id>/`, which is gitignored — this is local/CI run output, not something to
-commit. `deno task perf:ingest` loads `raw.json` into the `k6_points` table (see `docs/adr/0003-k6-perf.md`).
+commit.
+
+## Reading a run
+
+k6 prints its end-of-test summary, and the scripts' `handleSummary` prints a compact verdict (run id, each
+threshold's pass or fail, check counts, `http_req_failed` rate and `http_req_duration` p(95)) and writes k6's
+full summary data to `logs/k6/<run-id>/summary.json`. Read the numbers from that file, for example the request
+latency in milliseconds and the totals:
+
+```sh
+jq '.metrics.http_req_duration.values | {avg, med, "p(95)": .["p(95)"], max}' logs/k6/k6-smoke/summary.json
+jq '{checks: .metrics.checks.values.rate, failed: .metrics.http_req_failed.values.rate,
+     requests: .metrics.http_reqs.values.count}' logs/k6/k6-smoke/summary.json
+```
+
+```text
+{
+  "avg": 0.6048564102564102,
+  "med": 0.5185,
+  "p(95)": 1.5205999999999997,
+  "max": 3.11
+}
+{
+  "checks": 1,
+  "failed": 0,
+  "requests": 390
+}
+```
+
+Every metric k6 tracked is under `.metrics` (custom ones too, such as `conflicts`), with its `values` and, for
+thresholded metrics, `thresholds`. `raw.json` holds every data point (newline-delimited JSON, one object of
+`type` `Point` per sample) for anything finer. To compare client and server latency for one request, look up
+its trace id in agentd's request log (above).
 
 ## Load scenarios
 
@@ -143,12 +180,11 @@ mkdir -p "logs/k6/$K6_RUN_ID"
 K6_OUT="json=logs/k6/$K6_RUN_ID/raw.json" deno task perf:mixed
 ```
 
-Both `logs/k6/<run-id>/raw.json` (newline-delimited JSON; `read_json_auto` reads the mixed file directly, then
-filter `WHERE type='Point'`) and `summary.json` (written by the scenario's `handleSummary`, with `run_id` and
-`scenario` added) land there. `K6_RUN_ID` also feeds the `X-Trace-Id` suffix, so the trace ids in agentd's
-event log match the directory name. If you forget it the run id falls back to `k6-smoke`, which is smoke's
-directory — always set it. Use a fresh database per run (a new `MANSIO_DIR` above) so runs do not see each
-other's games.
+Both `logs/k6/<run-id>/raw.json` and `summary.json` (written by the scenario's `handleSummary`, with `run_id`
+and `scenario` added) land there; read them as in [Reading a run](#reading-a-run). `K6_RUN_ID` also feeds the
+`X-Trace-Id` suffix, so the trace ids in agentd's request log match the directory name. If you forget it the
+run id falls back to `k6-smoke`, which is smoke's directory — always set it. Use a fresh database per run (a
+new `MANSIO_DIR` above) so runs do not see each other's games.
 
 Thresholds are enforced by k6: a crossed threshold makes the task exit 99. The environment variables work as
 for `smoke.js`.

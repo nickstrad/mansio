@@ -147,7 +147,8 @@ to run, read or try, followed by why it matters. Paths are from the repo root. S
 ## Phase 5: See what your app did
 
 23. Pass a trace id as the third argument of a `query` or `mutation` call, then follow "Observability" in
-    `docs/guide.md` to run `deno task logs:query trace --param traceId=<yours> --format json`.
+    `docs/guide.md` to find it in agentd's request log:
+    `jq -c 'select(.traceId == "<yours>")' <event_log dir>/server/*/*.jsonl`.
 
     Every request of one call carries the same trace id, and with `trace_sql` on you can see the SQL your
     handler caused. This is the main tool for answering "why was that call slow?".

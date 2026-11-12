@@ -8,10 +8,10 @@ files and their event log live under [`agent-work/`](agent-work/AGENTS.md); this
 A document database. A TypeScript SDK (`sdk/`) runs application handlers in the caller's process and speaks
 the intermediate representation (IR) protocol (`intermediate-representation/spec/v1.md`, `POST /v1/ops`) to
 the Go server (`server/`: agentd, controld, the edge, agentctl, dbtool). Also here: the shared core (`core/`:
-schema, plan, errors, the TypeScript compiler that is the oracle for the Go one, IR rules, the event-log
-record format), the shared IR test vectors (`intermediate-representation/vectors/`), the offline event-log CLI
-(`eventlog/`, `scripts/logs.ts`), a sample app (`examples/tic-tac-toe/`), tests, and the docs (`docs/`, with
-the architecture diagram site in `docs/pages/`).
+schema, plan, errors, the TypeScript compiler that is the oracle for the Go one, IR rules), the shared IR test
+vectors (`intermediate-representation/vectors/`), a sample app (`examples/tic-tac-toe/`), tests, and the docs
+(`docs/`, with the architecture diagram site in `docs/pages/`). agentd's request log format belongs to
+`server/internal/eventlog`.
 
 ## Environment
 
@@ -20,9 +20,10 @@ export PATH="$HOME/.deno/bin:$PATH"   # deno 2.9.5 is not on PATH in agent shell
 ```
 
 Use `deno task <name>` for everything (`deno.json`: `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`,
-`go:ci`, `ci:all`, `e2e`, `explain`, `logs:*`, `perf:*`, `sim:swarm`). Don't hand-roll `deno run`/`deno test`
-invocations when a task exists. Run `deno task ci` on Linux (`scripts/dev/deno-linux.sh 'deno task ci'`): the
-DuckDB event-log suites hang on macOS. Run e2e with `scripts/dev/e2e-linux.sh`. See `docs/testing.md`.
+`go:ci`, `ci:all`, `e2e`, `explain`, `perf:*`, `sim:swarm`). Don't hand-roll `deno run`/`deno test`
+invocations when a task exists. Run the gate with `scripts/dev/deno-linux.sh 'deno task ci'` (a clean Linux
+container): natively on macOS, `tests/property/json_number_test.ts` fails (macOS SQLite rounds one huge JSON
+double differently). Run e2e with `scripts/dev/e2e-linux.sh`. See `docs/testing.md`.
 
 ## Conventions
 
@@ -46,8 +47,8 @@ DuckDB event-log suites hang on macOS. Run e2e with `scripts/dev/e2e-linux.sh`. 
 ## Docs-only vs. implementation work
 
 Some sessions are explicitly docs-only and must not implement plan items. If a task description says
-docs-only, stay out of `core/`, `eventlog/`, `sdk/`, `examples/`, `server/`, `tests/`, `scripts/`, `perf/` and
-`deno.json` entirely, even if a fix looks trivial.
+docs-only, stay out of `core/`, `sdk/`, `examples/`, `server/`, `tests/`, `scripts/`, `perf/` and `deno.json`
+entirely, even if a fix looks trivial.
 
 ## Commit style
 

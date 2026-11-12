@@ -1,6 +1,7 @@
 # ADR 0004 — The event log's DuckDB file is opened only by the reader process
 
-- **Status:** accepted
+- **Status:** superseded by [ADR 0014](0014-request-log-without-an-offline-tool.md) (the offline event-log
+  tool and its DuckDB file are deleted)
 - **Date:** 2026-10-10
 - **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 21; recorded by item
   21

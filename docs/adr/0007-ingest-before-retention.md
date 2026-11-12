@@ -1,6 +1,7 @@
 # ADR 0007 — Retention follows committed ingest
 
-- **Status:** accepted
+- **Status:** superseded by [ADR 0014](0014-request-log-without-an-offline-tool.md) (no ingest remains;
+  agentd's writer deletes by its own size and age limits)
 - **Date:** 2026-10-11
 - **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 36, from the accepted
   `reflection/astra` P1 finding; recorded by item 36

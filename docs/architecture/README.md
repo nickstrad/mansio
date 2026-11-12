@@ -8,12 +8,12 @@ Conventions, naming and the maintenance contract: [`AGENTS.md`](../../agent-work
 
 ## Index
 
-| Level | Diagram                                 | What it shows                                                                                                                                                                       | GitHub                                         | Terminal                                           |
-| ----- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
-| 1     | System Context                          | Mansio as one box: app developers, application callers (the SDK runs their handlers), the operator, and the external object store, DuckDB analytics consumer and k6 load generator. | [github](c4-context-document-db.github.md)     | [terminal](c4-context-document-db.terminal.md)     |
-| 2     | Container — request path                | The SDK, the edge, agentd and its SQLite files, controld and the Postgres control store, the operator CLIs and S3 (multi-node shape; a single agentd also runs alone).              | [github](c4-container-platform.github.md)      | [terminal](c4-container-platform.terminal.md)      |
-| 2     | Container — observability path          | agentd's JSONL event log, the offline logs CLI (`eventlog/`) with its ingest-then-sweep into the derived DuckDB event log and the named catalog, and the k6 loader.                 | [github](c4-container-observability.github.md) | [terminal](c4-container-observability.terminal.md) |
-| 3     | Component — server process (historical) | The Deno platform's server process, deleted at IR-6. Kept for the plans that link it; not redrawn for agentd.                                                                       | [github](c4-component-server.github.md)        | [terminal](c4-component-server.terminal.md)        |
+| Level | Diagram                                 | What it shows                                                                                                                                                          | GitHub                                         | Terminal                                           |
+| ----- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------- |
+| 1     | System Context                          | Mansio as one box: app developers, application callers (the SDK runs their handlers), the operator, and the external object store and k6 load generator.               | [github](c4-context-document-db.github.md)     | [terminal](c4-context-document-db.terminal.md)     |
+| 2     | Container — request path                | The SDK, the edge, agentd and its SQLite files, controld and the Postgres control store, the operator CLIs and S3 (multi-node shape; a single agentd also runs alone). | [github](c4-container-platform.github.md)      | [terminal](c4-container-platform.terminal.md)      |
+| 2     | Container — observability path          | agentd's request log (JSONL) with its own size and age limits, the operator reading or shipping it and scraping `/metrics`, and k6's artifacts.                        | [github](c4-container-observability.github.md) | [terminal](c4-container-observability.terminal.md) |
+| 3     | Component — server process (historical) | The Deno platform's server process, deleted at IR-6. Kept for the plans that link it; not redrawn for agentd.                                                          | [github](c4-component-server.github.md)        | [terminal](c4-component-server.terminal.md)        |
 
 Level 2 is split in two so neither picture is cluttered; together they cover one container set.
 
@@ -32,6 +32,10 @@ glow docs/architecture/c4-component-server.terminal.md   # historical (Deno serv
 ```
 
 ## Audited state
+
+**ADR 0014 (2026-11-12):** the offline event-log tool is deleted. The observability pair now draws agentd's
+request log, the operator who reads or ships it and scrapes `/metrics`, and k6's artifacts; the context pair
+drops the DuckDB analytics consumer. The rest of this section is older history.
 
 **IR-6 (2026-11-06, `ir/06-cutover` from main `7cf4ba6`):** the Deno platform is deleted and the server is the
 Go server in `server/` (ADR 0013). The context and both container pairs are redrawn for it from the e2e
