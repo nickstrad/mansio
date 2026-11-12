@@ -285,8 +285,8 @@ func TestPassivateWritesBackOnlyWhenDirty(t *testing.T) {
 	}
 }
 
-// OS-08: Host.Stats reports the store's request counts and their cost. An activation is one manifest read and
-// one fetch; a warm write-back is four requests (put_gen + head + get_manifest + publish, guide G7).
+// Host.Stats reports the store's request counts and their cost. An activation is one manifest read and
+// one fetch; a warm write-back is four requests (put_gen + head + get_manifest + publish).
 func TestStatsCountRequestsPerWriteBack(t *testing.T) {
 	r := newDurable(t, nil)
 	r.s.Seed("t/a", 0, []byte("v1"))
@@ -398,12 +398,12 @@ func TestLostPublishReplyIsReconciled(t *testing.T) {
 	}
 }
 
-// Found by the DST-1 simulation (seeds 192, 373): a publish applies but its reply is lost and the re-read
-// fails, so it stays pending; the next publish (conditional on the old version) gets 412 because of it, and
-// its re-read fails too. That 412 is our own doing, so it must not come back as ErrStale (the owner.WriteBack
-// contract: ErrStale only when a re-read shows another writer; the owner table fences the key superseded on
-// it, and a superseded key's unpublished writes are discarded). The next write-back adopts the publish that
-// did apply and goes on.
+// Found by the single-node simulation (seeds 192, 373): a publish applies but its reply is lost and the re-read
+// fails, so it stays pending; the next publish (conditional on the old version) gets 412 because of it, and its
+// re-read fails too. That 412 is our own doing, so it must not come back as ErrStale (the owner.WriteBack
+// contract: ErrStale only when a re-read shows another writer; the owner table fences the key superseded on it,
+// and a superseded key's unpublished writes are discarded). The next write-back adopts the publish that did apply
+// and goes on.
 func TestOwnPendingPublishIsNotAnotherWriter(t *testing.T) {
 	r := newDurable(t, nil)
 	r.put("t/a", "v1")
@@ -437,8 +437,9 @@ func TestOwnPendingPublishIsNotAnotherWriter(t *testing.T) {
 	}
 }
 
-// DST-1 seed 1586: a publish applies on a re-send and answers 412 (ApplyThenStale) while its re-read fails.
-// Nothing else is pending, but the 412 is still our own: not ErrStale; the next write-back adopts it.
+// Found by the single-node simulation (seed 1586): a publish applies on a re-send and answers 412 (ApplyThenStale)
+// while its re-read fails. Nothing else is pending, but the 412 is still our own: not ErrStale; the next write-back
+// adopts it.
 func TestOwnResentPublishIsNotAnotherWriter(t *testing.T) {
 	r := newDurable(t, nil)
 	r.put("t/a", "v1")
@@ -506,7 +507,7 @@ func TestWaitersBehindAStalledWriteBackHonourTheirDeadline(t *testing.T) {
 	}
 }
 
-// DST-1 review: publish P1 gets no reply but is still in flight; its re-read shows our version, so P1 is kept
+// Publish P1 gets no reply but is still in flight; its re-read shows our version, so P1 is kept
 // pending. P2 fails the same way (FailPublish). P1 then lands late. The next publish gets 412 and the re-read
 // shows P1: still pending (a later one must not drop it), so ours, adopted; not another writer.
 func TestLatePendingPublishIsStillOurs(t *testing.T) {
@@ -596,7 +597,7 @@ func TestPendingPublishesInDoubtAreKeptUntilGrace(t *testing.T) {
 
 // Generation numbers a lost incarnation of this key tried are taken (orphans at our epoch): after a restart
 // lastGen starts at the manifest's generation again. The upload skips past them with HEADs, however many there
-// are, instead of failing after a fixed number of create-only PUTs (guide I2).
+// are, instead of failing after a fixed number of create-only PUTs (any number above every tried one will do).
 func TestUploadSkipsGenerationsTakenByOrphans(t *testing.T) {
 	r := newDurable(t, nil)
 	r.put("t/a", "v1")
@@ -1032,7 +1033,7 @@ func TestOwnershipHooks(t *testing.T) {
 }
 
 // A panic in a Tick worker (here: the Guard) reaches Tick's caller with the worker's stack, after the other
-// workers stopped (Cox-Buday: panics do not cross goroutines on their own).
+// workers stopped (panics do not cross goroutines on their own).
 func TestTickForwardsWorkerPanic(t *testing.T) {
 	r := newDurable(t, func(o *vactor.Options) {
 		o.Policy = vactor.Policy{WriteBackCommits: 1}
@@ -1071,7 +1072,7 @@ func TestPassivateWithALeftoverWALAndAFailingSnapshotStaysWarm(t *testing.T) {
 	}
 }
 
-// B5: the snapshot of a database closed with a WAL left runs under the passivation's own context (at shutdown:
+// The snapshot of a database closed with a WAL left runs under the passivation's own context (at shutdown:
 // the shutdown budget), not a fresh one. A snapshot that hangs ends when the caller's deadline passes and the
 // key stays warm; before, it ran from context.Background() for the whole WriteBackTimeout.
 func TestLeftoverWALSnapshotEndsWithThePassivationsContext(t *testing.T) {
@@ -1097,7 +1098,7 @@ func TestLeftoverWALSnapshotEndsWithThePassivationsContext(t *testing.T) {
 	r.o.HangSnapshot = false // the host's Close (cleanup) passivates again
 }
 
-// RI-14 / OS-02: a warm Stamp whose publish applied but was reported ErrStale (a re-send of a lost reply
+// A warm Stamp whose publish applied but was reported ErrStale (a re-send of a lost reply
 // finds the version moved) or lost must re-read and succeed, not mark the key superseded forever.
 func TestWarmStampLostReplyIsNotSuperseded(t *testing.T) {
 	for _, f := range []durabletest.Faults{{ApplyThenStale: true}, {LosePublishReply: true}} {
@@ -1125,7 +1126,7 @@ func TestWarmStampLostReplyIsNotSuperseded(t *testing.T) {
 }
 
 // A stamp that fails without another writer showing up (the re-read finds the manifest we last saw) must
-// not mark the key stale either: only a re-read showing another writer does (object-storage guide R4).
+// not mark the key stale either: only a re-read showing another writer does.
 func TestWarmStampFailureWithoutAnotherWriterIsNotStale(t *testing.T) {
 	r := newDurable(t, nil)
 	m := r.s.Seed("t/a", 0, []byte("v1"))
@@ -1144,7 +1145,7 @@ func TestWarmStampFailureWithoutAnotherWriterIsNotStale(t *testing.T) {
 	}
 }
 
-// OS-02: an upload whose reply was lost is resolved by HEADing the object and comparing its sha256: it is
+// An upload whose reply was lost is resolved by HEADing the object and comparing its sha256: it is
 // adopted, not uploaded again under the next generation (which would cost a full upload and an orphan).
 func TestLostUploadReplyIsAdoptedByHash(t *testing.T) {
 	r := newDurable(t, nil)

@@ -1,11 +1,11 @@
--- 0005_state_notify.sql — registry state notifications for the locator's cache (the claim-pending follow-up of
--- CP-5/CP-6). Applied once by Migrate; never edit after it is applied.
+-- 0005_state_notify.sql — registry state notifications for the locator's cache, so a claim that lands is seen
+-- at once. Applied once by Migrate; never edit after it is applied.
 -- The locator answers "moving" while a database's placement already names its new owner but the registry still
 -- says creating/moving (the owner's Claim has not landed). The flip of the registry row to active must reach the
 -- locator at once, or resolves would answer "moving" until the cache TTL: every committed change of a
 -- database's state or target sends pg_notify('database_state', database_id). Inserts are not notified: a new
 -- row is "creating" with no placement row, which the locator never caches.
--- Like 0003, notifications only save work (SQL G-11): a lost one costs "moving" answers until the listener's
+-- Like 0003, notifications only save work: a lost one costs "moving" answers until the listener's
 -- reconnect drops the cache.
 begin;
 

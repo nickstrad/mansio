@@ -34,16 +34,15 @@ import (
 // epoch before it serves (owner.Reconcile's reopen stamp), so a publish the crashed host still had in flight
 // must never land afterwards.
 //
-// Model per key: the published contents (what a fresh activation must see), whether it is warm, its warm
-// contents, whether it has unpublished writes, whether it is fenced, and our epoch. Lost replies
-// (LosePublishReply, ApplyThenStale, LoseUploadReply) must never fail a write-back or a stamp, and a stamp
-// that fails must never leave the key stale: a later write-back still succeeds (OS-02, RI-14). The check after every step: the
-// store's manifest names exactly the model's published contents (nothing acknowledged and written back is
-// ever lost or replaced by something older), every warm key's local file holds the model's warm contents,
-// cold keys have no local file, and the open-database count matches. Owner-side retention (K = 2) runs on
-// every publish, and the generation cache (OS-10) is on with a budget that forces evictions; after a GC op
-// without faults, each key holds at most K+1 generations older than its
-// manifest's last rewrite (OS-06): the current one and K below it.
+// Model per key: the published contents (what a fresh activation must see), whether it is warm, its warm contents,
+// whether it has unpublished writes, whether it is fenced, and our epoch. Lost replies (LosePublishReply,
+// ApplyThenStale, LoseUploadReply) must never fail a write-back or a stamp, and a stamp that fails must never leave
+// the key stale: a later write-back still succeeds. The check after every step: the store's manifest names exactly
+// the model's published contents (nothing acknowledged and written back is ever lost or replaced by something older),
+// every warm key's local file holds the model's warm contents, cold keys have no local file, and the open-database
+// count matches. Owner-side retention (K = 2) runs on every publish, and the generation cache is on with a budget
+// that forces evictions; after a GC op without faults, each key holds at most K+1 generations older than its
+// manifest's last rewrite: the current one and K below it.
 func FuzzDurableHostModel(f *testing.F) {
 	f.Add([]byte{1, 0, 2, 0, 0, 0})                                                               // write, passivate, reactivate
 	f.Add([]byte{1, 0, 6, 1, 2, 0, 6, 0, 2, 0, 0, 0})                                             // upload fails: stays warm; then ok
@@ -72,7 +71,7 @@ func FuzzDurableHostModel(f *testing.F) {
 		gc := durable.GCPolicy{Keep: 2, Grace: time.Nanosecond}
 		grace := 10 * time.Minute // the host's: how long a publish in doubt may still land (LandLate is shorter)
 		opts := vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s, CreateMissing: true, Clock: clk, Workers: 2,
-			GenCacheBytes: 12, // the generation cache on (OS-10), small enough to evict: values are "s<step>"
+			GenCacheBytes: 12, // the generation cache on, small enough to evict: values are "s<step>"
 			FailBackoff:   -1, // tombstones are tested on their own
 			GC:            durable.GCPolicy{Keep: 2, Grace: grace},
 			Policy:        vactor.Policy{WriteBackCommits: 2, IdleAfter: 30 * time.Second, MaxActive: 3}}
@@ -158,7 +157,7 @@ func FuzzDurableHostModel(f *testing.F) {
 				}
 			case fenced[k] && fault.FailRead:
 				// 412 and no re-read: our own write (a pending one, or a re-send) may have caused it, so the
-				// outcome is unknown, never ErrStale (guide R4); the host marks it stale once a re-read works.
+				// outcome is unknown, never ErrStale; the host marks it stale once a re-read works.
 				if err == nil || errors.Is(err, durable.ErrStale) {
 					t.Fatalf("step %d: %s(%s) fenced, re-read failing: %v, want an unknown outcome", step, what, k, err)
 				}

@@ -74,7 +74,7 @@ func minEpochAfter(a answer, epoch uint64) uint64 {
 	return 0
 }
 
-// resolveStep maps a locator answer (POST /v1/resolve, CP-5) to the next step (front.Contract's resolve rows):
+// resolveStep maps a locator answer (POST /v1/resolve) to the next step (front.Contract's resolve rows):
 //
 //	moving                                   → reroute: resolve again after Retry-After (never charged to the
 //	                                           retry budget: controld is pacing a planned move)

@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	// ErrUnavailable: the authority cannot answer now. Either the breaker is open (nothing was sent; the
-	// error has a RetryAfter hint), or the call hit a system failure: a timeout, a lock timeout, a connection
-	// error. For a CAS the outcome is then unknown: re-read before deciding. Retry later (Release It C3, F2).
+	// ErrUnavailable: the authority cannot answer now. Either the breaker is open (nothing was sent; the error has a
+	// RetryAfter hint), or the call hit a system failure: a timeout, a lock timeout, a connection error. For a CAS
+	// the outcome is then unknown: re-read before deciding. Retry later.
 	ErrUnavailable = errors.New("placement: authority unavailable")
 	// ErrInvariant: the schema refused the change (the epoch-monotonic trigger, a check, a duplicate moves
 	// row). Not a conflict: the expected row matched, and the caller asked for an illegal next row. A bug.
@@ -38,8 +38,8 @@ func classify(err error) error {
 	return marked{err, ErrUnavailable}
 }
 
-// isAnswer reports whether err says something about the data or the request, not about the authority's
-// health: it does not count against the breaker (Release It C2).
+// isAnswer reports whether err says something about the data or the request, not about the authority's health: it
+// does not count against the breaker.
 func isAnswer(err error) bool {
 	for _, a := range []error{owner.ErrNotFound, owner.ErrConflict, owner.ErrInvalid, ErrInvariant, ErrUnknownVM,
 		tenancy.ErrNotFound, tenancy.ErrConflict, tenancy.ErrDeactivated} {

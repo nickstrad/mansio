@@ -2,10 +2,10 @@ package sim
 
 import "time"
 
-// Shrink looks for a smaller run that still fails: the duration cut to just past the first violation, then
-// each fault class turned off, then fewer databases, keeping each change while the run still fails. Every
-// stream is per class and per database, so turning one off does not move the others' draws; the failure may
-// still change shape (DST-3 shrinks op scripts properly). run runs one config, each in its own synctest bubble.
+// Shrink looks for a smaller run that still fails: the duration cut to just past the first violation, then each
+// fault class turned off, then fewer databases, keeping each change while the run still fails. Every stream is per
+// class and per database, so turning one off does not move the others' draws; the failure may still change shape
+// (ShrinkCluster shrinks op scripts properly). run runs one config, each in its own synctest bubble.
 //
 //	pre: res = run(cfg) failed
 func Shrink(cfg Config, res Result, run func(Config) Result) (Config, Result) {

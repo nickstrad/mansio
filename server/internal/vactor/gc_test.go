@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// Owner-side retention (OS-06, guide GC2) keeps the bucket flat: after every write-back the key holds its
+// Owner-side retention keeps the bucket flat: after every write-back the key holds its
 // current generation and the K = 2 before it, and nothing else, however many write-backs ran.
 func TestRetentionKeepsBucketFlat(t *testing.T) {
 	r := newDurable(t, nil)
@@ -93,7 +93,7 @@ func TestRetentionFailureLeavesItToTheSweeper(t *testing.T) {
 	}
 }
 
-// GC racing an activation (OS-06): a sweep that runs while a cold key is activating (manifest read, fetch in
+// GC racing an activation: a sweep that runs while a cold key is activating (manifest read, fetch in
 // flight) never deletes the generation the activation read, so the activation succeeds; older ones go.
 func TestSweepRacingActivation(t *testing.T) {
 	r := newDurable(t, nil)

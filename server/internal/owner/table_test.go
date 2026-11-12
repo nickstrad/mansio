@@ -398,8 +398,8 @@ func TestFenceRejectsAGenerationThatWentBack(t *testing.T) {
 	mustIs(t, err, owner.ErrInvalid)
 }
 
-// The storage backstop (contract 1): two processes both think they own k. The lower epoch's publish fails,
-// and the lower-epoch owner stops admitting and reports itself.
+// The storage backstop (the store's conditional, epoch-fenced publish): two processes both think they own k. The
+// lower epoch's publish fails, and the lower-epoch owner stops admitting and reports itself.
 func TestStorageBackstopLowerEpochOwnerFencesItself(t *testing.T) {
 	for _, order := range []string{"new owner stamps first", "zombie publishes first"} {
 		t.Run(order, func(t *testing.T) {
@@ -416,7 +416,7 @@ func TestStorageBackstopLowerEpochOwnerFencesItself(t *testing.T) {
 				return err
 			}
 			if order == "zombie publishes first" {
-				must(t, publishA()) // stored epoch is still 1: contract 1 allows it
+				must(t, publishA()) // stored epoch is still 1: the store allows it
 			}
 			_, err := b.Claim(ctx, "k")
 			must(t, err)
@@ -596,7 +596,7 @@ func TestClaimWithSlowAuthorityHonoursDeadline(t *testing.T) {
 	}
 }
 
-// An import (dbtool import without -placement-dir, IR-4b) leaves generation 1 at epoch 1 and no row; the
+// An import (dbtool import without -placement-dir) leaves generation 1 at epoch 1 and no row; the
 // control plane's create then writes ACTIVE(vm, 1, gen 0). The claim adopts the imported generation: the
 // manifest is not behind the row, and the stamp keeps generation 1.
 func TestClaimAdoptsAnImportedGeneration(t *testing.T) {
@@ -616,7 +616,7 @@ func TestClaimAdoptsAnImportedGeneration(t *testing.T) {
 
 // A fence whose final write-back failed leaves the key Fencing until the control plane retries it. Periodic
 // write-backs keep publishing it meanwhile (admission has stopped, so its writes are final): a crash before
-// the retry loses nothing beyond the write-back window. Found by the DST-2 cluster sim (seed 1963 in swarm
+// the retry loses nothing beyond the write-back window. Found by the cluster simulation (seed 1963 in swarm
 // mode: a move's fence failed in an S3 storm; ticks refused the Fencing key for the rest of the run).
 func TestPublishWhileAFenceIsPending(t *testing.T) {
 	w := newWorld(t, "a")

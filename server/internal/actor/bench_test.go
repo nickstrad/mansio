@@ -99,7 +99,7 @@ func BenchmarkFanOut1000Actors(b *testing.B) {
 	})
 }
 
-// BenchmarkWritesWithRequestID: the cost of CP-2's claim + result record per write, at batch 1 and 64.
+// BenchmarkWritesWithRequestID: the cost of the request-id claim + result record per write, at batch 1 and 64.
 func BenchmarkWritesWithRequestID(b *testing.B) {
 	for _, withID := range []bool{false, true} {
 		for _, batch := range []int{1, 64} {

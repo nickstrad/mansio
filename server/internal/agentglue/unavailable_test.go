@@ -65,7 +65,7 @@ func TestDependencyErrorsMapToUnavailable(t *testing.T) {
 }
 
 // An open S3 breaker (durable.WithBreaker) reaches the wire as 503 unavailable, and its time to half-open
-// rides along as the retry hint (RI-03); a plain S3 system failure is unavailable too.
+// rides along as the retry hint; a plain S3 system failure is unavailable too.
 func TestStorageUnavailableCarriesRetryHint(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 	b, err := breaker.New(breaker.Config{MinCalls: 1, FailureRate: 1, CoolDown: 7 * time.Second})

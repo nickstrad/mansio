@@ -1,5 +1,5 @@
 /**
- * `number` fields read as doubles in both storage layouts on SQLite (plan item 30).
+ * `number` fields read as doubles in both storage layouts on SQLite.
  *
  * The writer stores a `json`-layout document as `JSON.stringify(body)`, and the shortest decimal of
  * an integral double at or beyond 2^53 is integer text: `1693240866440448800` for the double

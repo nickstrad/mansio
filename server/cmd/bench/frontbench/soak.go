@@ -20,7 +20,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/front"
 )
 
-// Soak support (control-plane plan CP-4b, RI-15): pacing, a skewed database mix, an acknowledgement log that
+// Soak support (scripts/soak/run.sh): pacing, a skewed database mix, an acknowledgement log that
 // `frontbench verify` checks against the databases' rows, and an event log (errors, retries, moves) that the
 // soak analysis lines up with its fault windows.
 

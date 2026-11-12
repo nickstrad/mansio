@@ -1,8 +1,8 @@
-// Command agentd is the VM agent (scale-out option 4 §2): one actor per SQLite database behind ticket
+// Command agentd is the VM agent (one per VM): one actor per SQLite database behind ticket
 // verification, admission and the wire codes of internal/front. Requests use the INTERNAL, TRUSTED-CALLER
 // protocol (parameterized SQL); see package front.
 //
-// Two modes. Durable (an "s3" section; control-plane plan CP-1): databases live in S3 behind a virtual-actor
+// Two modes. Durable (an "s3" section): databases live in S3 behind a virtual-actor
 // host (internal/vactor), ownership is the owner table (internal/owner) over a single-node placement authority
 // (internal/placement/file), and the control plane calls Claim, Fence, Forget and Health on the lifecycle
 // listener (control.go). Static (db_dir; benchmarks): the *.db files in one directory at fixed epochs.
@@ -10,10 +10,10 @@
 //	agentd -config configs/agentd/local.json [-addr-file path] [-check] [-dev]
 //
 // -dev allows what only a developer laptop may do: durable mode over plain-HTTP S3 (s3.secure false; refused
-// otherwise, object-storage guide S2), a plain-HTTP keys_url, and the claim's "create" stand-in (control.go).
+// otherwise: TLS outside a laptop), a plain-HTTP keys_url, and the claim's "create" stand-in (control.go).
 //
 // Ticket keys come from keys_file (static; dev and benches) or keys_url (controld's GET /v1/keys, refetched
-// every keys_refresh and cached in keys_file; keys.go, CP-5). An optional admin
+// every keys_refresh and cached in keys_file; keys.go). An optional admin
 // listener (admin_listen, loopback only) serves the runtime controls of admin.go; cmd/agentctl is its client.
 //
 // Exit codes: 0 stopped cleanly after SIGINT/SIGTERM (drained), 1 failed (message and log ID on stderr; this
@@ -169,7 +169,7 @@ type agent struct {
 	tenancy     *tenancyPart // its slot pools exist once queryRoutes mounted them
 }
 
-// backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table; CP-1).
+// backend is what a mode plugs into the pipeline (static: local files, durable: S3 + owner table).
 type backend struct {
 	schemas    front.SchemaSource // creates new databases on /v1/ops (registry or schemas_dir); nil = none
 	admitter   front.Admitter
@@ -252,8 +252,8 @@ func newAgent(cfg *Config, log *slog.Logger, keys *ticket.KeyRing, dbs []string,
 		front.Check{Name: "startup", Run: be.ready},
 		front.Check{Name: "tenancy", Run: ten.ready},
 		front.Check{Name: "canary", Run: func(ctx context.Context) error { return srv.Canary(ctx, front.CanaryDB, probe*2/3) }},
-		// Remote dependency breakers (S3, placement) never fail readiness: warm traffic still works while they are
-		// open (Release It C5, H2). They are exposed on /metrics instead.
+		// Remote dependency breakers (S3, placement) never fail readiness: warm traffic still works while they
+		// are open, so an outage must not pull the agent from the load balancer. They are on /metrics instead.
 	)
 	reg := metrics.NewRegistry()
 	metrics.Process(reg)
@@ -312,7 +312,7 @@ func newStatic(cfg *Config, log *slog.Logger, dbs []string, host *front.StaticHo
 	}
 }
 
-// logReadiness logs readiness transitions only (Release It O3: transitions, not every probe).
+// logReadiness logs readiness transitions only, not every probe, so the log stays readable for operators.
 func logReadiness(log *slog.Logger) func(prev, cur front.ReadyState) {
 	return func(prev, cur front.ReadyState) {
 		switch {
@@ -433,8 +433,8 @@ func (a *agent) serve(ctx context.Context, addrFile string, rep reporter, stderr
 		}},
 		{"front.drain", cfg.DrainTimeout.Duration, func(ctx context.Context) error { return drain(ctx, srv, hs, log) }},
 		// Static: queued work is answered (shed), then every database is closed. Durable: the vactor host writes
-		// back oldest-dirty first and keeps the rest locally (RI H3); the owner table needs no phase (each of its
-		// transitions is durable when made).
+		// back oldest-dirty first within the shutdown budget and keeps the rest locally; the owner table needs no
+		// phase (each of its transitions is durable when made).
 		{"host.close", 0, a.be.close},
 		{"lifecycle.close", 0, func(context.Context) error {
 			for _, s := range servers[1:] {
@@ -487,7 +487,7 @@ func waitCtx(ctx context.Context, wg *sync.WaitGroup, msg string) error {
 }
 
 // healthServer serves the lifecycle endpoints alone. Health requests have no body and a tiny answer, so plain server-wide
-// timeouts bound every phase: a stuck or slow peer cannot hold its connection (Release It B4, T1).
+// timeouts bound every phase: a stuck or slow peer cannot hold its connection, and health stays answerable.
 func healthServer(cfg *Config, h http.Handler) *http.Server {
 	return &http.Server{Handler: h, ReadHeaderTimeout: cfg.ReadHeaderTimeout.Duration, ReadTimeout: cfg.ReadHeaderTimeout.Duration,
 		WriteTimeout: healthWriteTimeout, IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10}

@@ -14,7 +14,7 @@ import (
 )
 
 // Closure requests (fn.go): spec tables for the statement guard, fault tests for the statement order, and
-// integration tests on real SQLite for the semantics IR-2's executor relies on.
+// integration tests on real SQLite for the semantics the document executor (docexec) relies on.
 
 func TestClosureSafe(t *testing.T) {
 	for _, tc := range []struct {
@@ -69,7 +69,7 @@ func TestClosureSafe(t *testing.T) {
 		{`CREATE TEMP TABLE t (x)`, false},
 		{`create temporary trigger g after insert on kv begin select 1; end`, false},
 		{`CREATE TABLE temp.t (x)`, false},
-		{`CREATE TABLE t (x)`, true}, // on point: ordinary DDL (IR-2b creates an app's tables)
+		{`CREATE TABLE t (x)`, true}, // on point: ordinary DDL (docexec creates an app's tables)
 		{`CREATE TABLE t (temp_x TEXT DEFAULT 'temp')`, true},
 		{`INSERT INTO kv (id, v) SELECT 1, 2 WHERE 'TEMP' <> ''`, true},
 	} {
@@ -147,7 +147,7 @@ func TestFailingClosureRollsBackOnlyItsSavepoint(t *testing.T) {
 	}
 }
 
-// A closure statement that ends the transaction aborts the batch, as a SQL write's does (PG-01).
+// A closure statement that ends the transaction aborts the batch, as a SQL write's does.
 func TestClosureThatEndsTheTransactionAbortsTheBatch(t *testing.T) {
 	f := &faultExec{EndsTxn: map[string]bool{"ends": true}}
 	res := submitAll(t, fakeActor(t, Config{}, f, nil), write("w1"), fnWrite(`[]`, "ends", "after"), write("w3"))

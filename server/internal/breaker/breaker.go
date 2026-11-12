@@ -1,14 +1,13 @@
-// Package breaker is a circuit breaker for one remote dependency (Release It C1–C4): Closed → Open when the
-// share of system failures in a window passes a threshold → HalfOpen after a cool-down, where one probe call
-// decides Closed or Open again.
+// Package breaker is a circuit breaker for one remote dependency: Closed → Open when the share of system failures in
+// a window passes a threshold → HalfOpen after a cool-down, where one probe call decides Closed or Open again.
 //
-// Domain code: no I/O, no logging, no clock of its own. Every method takes now, so tests and fuzzers drive
-// time; a transition is reported through Config.OnChange for the adapter that wires the breaker to log
-// (message code S3.BREAKER_OPEN etc.) and to expose (RI-11). The caller decides what counts as a failure
-// (Release It C2: only system failures; answers such as not-found are successes).
+// Domain code: no I/O, no logging, no clock of its own. Every method takes now, so tests and fuzzers drive time; a
+// transition is reported through Config.OnChange for the adapter that wires the breaker to log (message code
+// S3.BREAKER_OPEN etc.) and to expose as metrics. The caller decides what counts as a failure (only system failures;
+// answers such as not-found are successes).
 //
-// Operators can force it (Release It C4, plan RI-16): Trip holds it open until Reset, whatever calls do; Reset
-// closes it at once. Both are transitions, reported through OnChange with Manual set.
+// Operators can force it: Trip holds it open until Reset, whatever calls do; Reset closes it at once. Both are
+// transitions, reported through OnChange with Manual set.
 //
 // Use: p, wait, ok := b.Allow(now); if !ok, fail fast with a retry hint of wait; else make the call and report
 // b.Done(p, now, outcome). Outcomes of calls permitted before the last transition are ignored, so a slow
@@ -48,7 +47,7 @@ const (
 	Ignore                 // says nothing about the dependency (the caller gave up first)
 )
 
-// Config sets the thresholds. The zero value takes the S3 defaults of Release It §P.
+// Config sets the thresholds. The zero value takes the defaults below, sized for S3.
 type Config struct {
 	Window      time.Duration // failures are counted per window of this length; default 10 s
 	MinCalls    int           // the breaker opens only after at least this many calls in a window; default 20
@@ -189,8 +188,8 @@ func (b *Breaker) Done(p Permit, now time.Time, o Outcome) {
 	b.invariant()
 }
 
-// Trip forces the breaker open at now (an operator's control, Release It C4): every Allow fails fast until
-// Reset, and no probe is let through. It reports whether anything changed (false: already forced open).
+// Trip forces the breaker open at now (an operator's control): every Allow fails fast until Reset, and no probe is
+// let through. It reports whether anything changed (false: already forced open).
 //
 //	post: State(t) == Open for every t until Reset
 func (b *Breaker) Trip(now time.Time) bool { return b.force(Open, now) }
@@ -275,7 +274,7 @@ func (b *Breaker) State(now time.Time) State {
 	return b.state
 }
 
-// Transitions counts state changes since New (RI-11 exposes it).
+// Transitions counts state changes since New (metrics.Breakers exposes it).
 func (b *Breaker) Transitions() uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()

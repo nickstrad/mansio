@@ -22,10 +22,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore"
 )
 
-// TestS3Compat records, for one S3 backend and version, every S3 behavior mansio-server relies on (object-storage
-// guide §7, plan OS-03). Run it before using a backend or version, and record the table it prints in
-// docs/notes/writeback/<date>-s3-compat-<backend>.md. A failure in X1–X5 fails the test (it blocks the
-// backend); X6–X11 are recorded as pass / fail / skip and fail nothing.
+// TestS3Compat records, for one S3 backend and version, every S3 behavior mansio-server relies on. Run it before
+// using a backend or version, and record the table it prints in docs/notes/writeback/<date>-s3-compat-<backend>.md. A
+// failure in X1–X5 fails the test (it blocks the backend); X6–X11 are recorded as pass / fail / skip and fail
+// nothing.
 //
 //	COLDLOAD_S3=localhost:8333 S3_BACKEND=seaweedfs-4.47 go test -count=1 -v -run TestS3Compat ./internal/objstore
 //
@@ -366,9 +366,9 @@ func TestS3Compat(t *testing.T) {
 	})
 
 	t.Run("X12 scoped identity", func(t *testing.T) {
-		// The agent identity (deploy/seaweedfs/s3.json, OS-11) may read, write and delete objects in the bucket,
-		// and nothing else: no LIST (guide K: no LIST on a request path), no bucket creation, no other bucket.
-		// When the identity exists the checks block; when the backend does not know it, X12 is skipped.
+		// The agent identity (deploy/seaweedfs/s3.json) may read, write and delete objects in the bucket, and nothing
+		// else: no LIST (an agent never lists on a request path), no bucket creation, no other bucket. When the
+		// identity exists the checks block; when the backend does not know it, X12 is skipped.
 		ak, sk := env("S3_AGENT_ACCESS_KEY", "agent"), env("S3_AGENT_SECRET_KEY", "agent-secret-dev")
 		if ak == "-" {
 			results = append(results, result{"X12", "skip", "S3_AGENT_ACCESS_KEY=-"})

@@ -7,7 +7,7 @@
  * The Go runner (`server/`) reads the same files and must reach the same outcomes.
  *
  * `execute.json` runs only in Go (`server/internal/docexec`). Its TS run went with the Deno platform's
- * reference executor and SQLite binding at IR-6; its expectations are hand-written in the generator, not
+ * reference executor and SQLite binding (ADR 0013); its expectations are hand-written in the generator, not
  * produced by an executor, so the staleness check below still covers the file.
  *
  * The last two tests regenerate the corpus from `scripts/intermediate-representation/gen-vectors.ts` and the compile corpus from

@@ -1,4 +1,4 @@
-// Package agentglue is the glue between agentd's durable-mode parts (control-plane plan CP-1): the owner table,
+// Package agentglue is the glue between agentd's durable-mode parts: the owner table,
 // the virtual-actor host and the front pipeline. Each type is a thin adapter that translates sentinels between
 // packages and decides nothing itself. cmd/agentd wires it, and so does the deterministic simulation
 // (internal/sim), so the two cannot drift apart.
@@ -39,7 +39,8 @@ func OwnerErr(err error) error {
 	return err
 }
 
-// WriteBack implements owner.WriteBack (contract 1) over the vactor host and its store.
+// WriteBack implements owner.WriteBack (the conditional manifest publish in internal/durable) over the vactor
+// host and its store.
 type WriteBack struct {
 	Host  *vactor.Host
 	Store durable.Store // the host's own store (behind the same S3 breaker)
@@ -91,7 +92,8 @@ func (w WriteBack) Stamp(ctx context.Context, key string, epoch owner.Epoch, gen
 const CheckActivationTimeout = 5 * time.Second
 
 // ActivationCheck is vactor.Options.CheckActivation: the owner table's guard before an activation fetches.
-// The host's hook has no ctx, so it derives its own bounded one on clk (Release It T1; nil clk = real time).
+// The host's hook has no ctx, so it derives its own bounded one on clk: every remote call has a deadline (nil clk
+// = real time).
 func ActivationCheck(clk det.Clock, tab func() *owner.Table) func(key string, epoch uint64, m durable.Manifest) error {
 	clk = det.Or(clk)
 	return func(key string, epoch uint64, m durable.Manifest) error {
@@ -128,8 +130,9 @@ func notOwned(tab *owner.Table, key string, err error) bool {
 	return (errors.Is(err, owner.ErrFenced) || errors.Is(err, owner.ErrWrongOwner)) && (st == owner.Fenced || st == owner.Absent)
 }
 
-// Lifecycle is an agent's side of the control plane's lifecycle calls (agentd's /v1/lifecycle/{claim,fence,
-// forget}, option 4 §3.4) over the owner table and the host. It implements control.Agent and owner.Agent.
+// Lifecycle is an agent's side of the control plane's lifecycle calls (agentd's /v1/lifecycle/{claim,fence, forget}:
+// the offline move protocol in owner/move.go) over the owner table and the host. It implements control.Agent and
+// owner.Agent.
 type Lifecycle struct {
 	Tab  *owner.Table
 	Host *vactor.Host

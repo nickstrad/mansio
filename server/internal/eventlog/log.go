@@ -7,7 +7,7 @@
 //	Emit ─(never blocks)─> bounded queue ─> one writer goroutine ─> buffered file, rolled on date, hour, size
 //	        full: counted                     each drain: a "queue" record for the drops, then the batch, flush
 //
-// Release It B1, B2: the request path never waits on the log. A full queue drops the record and counts it;
+// The request path never waits on the log. A full queue drops the record and counts it;
 // the writer reports the count as its own queue record (queue "events", event "dropped") before the next
 // batch, as platform/logging/logger.ts does, and the count is exposed in Stats. Write failures lose the
 // records (counted) and are reported to the operational log at most once a minute.

@@ -42,7 +42,7 @@ type restoredFile struct {
 }
 
 // restore writes one generation of key to a new local file (the Deno platform's scripts/restore.ts, over
-// generations): the current one, or generation gen. The download is verified (size and sha256, guide V1),
+// generations): the current one, or generation gen. The download is verified (size and sha256),
 // then the file passes integrity_check, then a hard link publishes it complete; it never overwrites. Nothing
 // in object storage changes. To serve it again, import it (a new key or a new bucket) or put it in a
 // static-mode db_dir.
@@ -87,7 +87,7 @@ func (t *tool) restore(ctx context.Context, a restoreArgs) error {
 }
 
 // restorePoint is the manifest to download: the stored one (no gen, or gen is current), or one built from the
-// metadata of generation gen's object (guide I4), which FetchGeneration then verifies the bytes against.
+// metadata of generation gen's object, which FetchGeneration then verifies the bytes against.
 func (t *tool) restorePoint(ctx context.Context, a restoreArgs) (durable.Manifest, error) {
 	m, _, err := t.s.ReadManifest(ctx, a.key)
 	if a.gen == 0 {

@@ -51,8 +51,9 @@ func scrape(t *testing.T, reg *metrics.Registry) string {
 	return b.String()
 }
 
-// RI-11 acceptance, agent side: a scripted fault sequence against a running agent, then one scrape of
-// /metrics on the lifecycle listener shows every guide-O1 counter for the front, admission and actors.
+// A scripted fault sequence against a running agent, then one scrape of /metrics on the lifecycle listener
+// shows every per-integration-point counter (outcomes, latency, in flight, breakers) for the front, admission
+// and actors.
 func TestMetricCatalogAfterFaultScript(t *testing.T) {
 	cfg := fixture(t, []string{"db-1"}, `,"health_listen":"127.0.0.1:0","ready_interval":"50ms","ready_timeout":"30ms","statement_timeout":"5s"`)
 	os.WriteFile(filepath.Join(filepath.Dir(cfg), "dbs", "db-bad.db"), []byte(strings.Repeat("not a database ", 512)), 0o644)
@@ -116,7 +117,7 @@ func TestMetricCatalogAfterFaultScript(t *testing.T) {
 		`mansio_startup_pending`:                                                       1, // db-bad
 		`mansio_ready`:                                                                 1,
 		`mansio_admission_shed_total`:                                                  0,
-		// B1: per-queue capacity, refusals and waits; db-1's mailbox is the default 256.
+		// Per-queue capacity, refusals and waits; db-1's mailbox is the default 256.
 		`mansio_queue_capacity{queue="mailbox"}`:                       256,
 		`mansio_queue_capacity{queue="read"}`:                          256,
 		`mansio_queue_rejected_total{queue="admission",reason="full"}`: 0,
@@ -142,7 +143,7 @@ func TestMetricCatalogAfterFaultScript(t *testing.T) {
 	<-done
 }
 
-// RI-11 acceptance, dependency side (wired at CP-1): breaker, S3, virtual-actor host and ownership adapters,
+// The dependency side: breaker, S3, virtual-actor host and ownership adapters,
 // each driven through a fault, then scraped; their transitions log stable message codes.
 func TestDependencyMetricsAndCodes(t *testing.T) {
 	var logb syncBuf
@@ -270,9 +271,9 @@ func TestOwnerCodes(t *testing.T) {
 	}
 }
 
-// B1's overload scenario: one database capped at one statement in flight and two queued, hit by a burst of
-// slow reads. Before B1 the scrape showed only depth gauges and one shed counter; now the same overload reads
-// as refusals per queue, a capacity to hold the depth against, and how long the admitted requests waited.
+// An overload scenario: one database capped at one statement in flight and two queued, hit by a burst of
+// slow reads. Depth gauges and one shed counter alone would not explain it; the scrape reads as refusals per
+// queue, a capacity to hold the depth against, and how long the admitted requests waited.
 func TestOverloadIsVisiblePerQueue(t *testing.T) {
 	cfg := fixture(t, []string{"db-1"}, `,"health_listen":"127.0.0.1:0","statement_timeout":"200ms",`+
 		`"admission":{"db_in_flight":1,"db_queue":2,"tenant_in_flight":1}`)

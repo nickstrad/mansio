@@ -1,9 +1,8 @@
-// Package capacity renders the capacity table (docs/capacity.md): every bounded queue and slot pool on a
-// request's path, with its capacity, workers, full-queue policy, the deadline it lives under, its metric and
-// its runtime lever (Backpressure in Microservices ch. 7 "Capacity Review", ch. 8 "Runbook Template" and
-// "Service Owner Handoff Checklist"). Each daemon lists its own rows from its config defaults (a capacity_test
-// in cmd/agentd, cmd/controld and cmd/edge) and owns one section of the document; the tests fail when the
-// document and the defaults disagree, and rewrite their section with -update.
+// Package capacity renders the capacity table (docs/capacity.md): every bounded queue and slot pool on a request's
+// path, with its capacity, workers, full-queue policy, the deadline it lives under, its metric and its runtime lever,
+// so an operator can review capacity and act on a full queue from one page. Each daemon lists its own rows from its
+// config defaults (a capacity_test in cmd/agentd, cmd/controld and cmd/edge) and owns one section of the document;
+// the tests fail when the document and the defaults disagree, and rewrite their section with -update.
 //
 // Error module: none (test and documentation support; no I/O besides the document).
 package capacity

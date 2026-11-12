@@ -15,8 +15,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
-// The locator and ticket issuer inside controld (CP-5): POST /v1/resolve, GET /v1/keys, the API-key admin
-// calls, the placement listener (PG-10) and the key rotation job.
+// The locator and ticket issuer inside controld: POST /v1/resolve, GET /v1/keys, the API-key admin
+// calls, the placement listener (Postgres LISTEN/NOTIFY invalidates the cache) and the key rotation job.
 
 // locStore adapts the Postgres adapter to locator.Store. Placement reads go to the replica unless the
 // locator asks for the primary; API keys always read the primary (a key created a moment ago must work).

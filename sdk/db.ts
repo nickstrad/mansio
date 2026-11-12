@@ -1,17 +1,16 @@
 /**
- * The app-facing document API (plan item 10).
+ * The app-facing document API.
  *
  * The intermediate representation below — `Filter`, `SelectPlan`, `Operation` — is the stable
  * contract shared by the SDK, the compiler (`core/compile`, and its Go port in `server/`) and
  * `scripts/explain.ts`. The Effect port leaves it exactly as it was; `core/compile/GENERATED_SQL.txt` is the
  * canary that proves it. There is still no SQL in the public SDK.
  *
- * What changed is the seam underneath it (plan §1.4): `Execute` returns an `Effect` carrying
+ * What changed is the seam underneath it: `Execute` returns an `Effect` carrying
  * `DbError` in its error channel instead of a `Promise` that rejects, so every `Find` and
  * `Documents` method now *describes* a read or a write rather than starting one. Nothing in this
- * module runs an effect; the runtime that supplies `Execute` decides when and where the work
- * happens — today through the temporary `Effect.runPromise` bridge in the two engine files, from
- * items 15/16 through the `Storage` and `Reader` services.
+ * module runs an effect; the runtime that supplies `Execute` (the recording executor in
+ * `sdk/recording.ts`) decides when and where the work happens.
  */
 import { Effect } from "effect";
 import type { DbError } from "../core/errors.ts";
@@ -73,8 +72,8 @@ export class Find<T> {
   }
   /**
    * The limit rule is still enforced here, and still by raising: a bad limit is a programming
-   * error in app code, not a request failure. Item 09 moves the rule into `core/plan.ts`'s
-   * `normalise`, which is where this guard goes once that lands.
+   * error in app code, not a request failure. The bounds are `core/plan.ts`'s, which `normalise`
+   * checks again (as a `CompileError`) for plans that do not come through this builder.
    */
   limit(limit: number): Find<T> {
     if (!Number.isInteger(limit) || limit < MIN_LIMIT || limit > MAX_LIMIT) {

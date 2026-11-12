@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// Request ids (CP-2, PG-09; art-of-postgresql plan §5.3). Each database holds the ids of the writes it applied
+// Request ids. Each database holds the ids of the writes it applied
 // in _mansio_requests, so the record travels with the file: through a crash (it commits with the write), a
 // snapshot, a write-back and a move. A write with Request.RequestID claims its id inside its own savepoint
-// before its statement runs (SQL G-8, G-10): the claim inserting a row means "new, apply"; inserting nothing
+// before its statement runs: the claim inserting a row means "new, apply"; inserting nothing
 // means "applied before", and the statement never runs. A write that fails is rolled back to its savepoint
 // together with its claim, so only applied writes leave an id row.
 //
 // The table is created lazily, inside the first batch that carries an id after each open, so opening a database
-// never changes its file. Retention is one batched, set-based delete on the actor (SQL G-17), never
+// never changes its file. Retention is one batched, set-based delete on the actor, never
 // row-at-a-time.
 
 // ReservedPrefix starts the name of every table the actor keeps in a tenant database. Clients must not touch

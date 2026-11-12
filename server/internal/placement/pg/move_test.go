@@ -55,10 +55,10 @@ func (h *flipHook) CAS(ctx context.Context, key string, expect, next owner.Place
 	return h.Placement.CAS(ctx, key, expect, next)
 }
 
-// TestMoveCrashPoints, "flip applied but its reply was lost", with the real adapter (PG-03): the flip's
-// statement reaches Postgres and commits, but its reply never reaches the Mover. The Mover sees a
-// non-sentinel error (not ErrConflict), and calling Move again resumes from Get: the target claims at the
-// new epoch, nothing acknowledged is lost, the source is fenced, and exactly one moves row exists.
+// TestMoveCrashPoints, "flip applied but its reply was lost", with the real adapter: the flip's statement reaches
+// Postgres and commits, but its reply never reaches the Mover. The Mover sees a non-sentinel error (not ErrConflict),
+// and calling Move again resumes from Get: the target claims at the new epoch, nothing acknowledged is lost, the
+// source is fenced, and exactly one moves row exists.
 //
 // How the reply is lost: a second session holds the row lock, so the flip waits inside Postgres after it was
 // sent (seen in pg_stat_activity); then the proxy freezes the Mover's connection and the lock is released.

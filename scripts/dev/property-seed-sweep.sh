@@ -8,9 +8,8 @@
 # Env:    KEEP_RAW=<dir> keeps each seed's deno output as <dir>/<seed>.txt (otherwise a temp dir is used).
 # Needs:  deno on PATH. Runs from the repo root. Parallelism is capped at 3 (8 GB VM).
 #
-# Adopted 2026-10-11 from the sq-11 side quest (Opus 5.5 reviewed): a usable starting point for MT-09's
-# seed-sweep gating. Note on the "SEED-FLAKE" language in sq-11's findings: a seed is deterministic, so a
-# failing seed fails every run — a rerun will not go green. Only exit 139 is truly run-to-run intermittent.
+# A starting point for gating on a seed sweep. A seed is deterministic, so a failing seed fails every run — a
+# rerun will not go green. Only exit 139 is truly run-to-run intermittent.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PATH="$HOME/.deno/bin:$PATH" NO_COLOR=1

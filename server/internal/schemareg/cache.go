@@ -6,9 +6,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
-// cache is a least-recently-used map of (app, fingerprint) → schema text, bounded by entries and by bytes
-// (Release It B6). Entries never go stale: a fingerprint names one text forever, and a registration is never
-// withdrawn, so there is no TTL. Not safe for concurrent use (Client holds its lock). Pure: no I/O, no clock.
+// cache is a least-recently-used map of (app, fingerprint) → schema text, bounded by entries and by bytes (so a
+// flood of distinct schemas cannot exhaust memory). Entries never go stale: a fingerprint names one text forever,
+// and a registration is never withdrawn, so there is no TTL. Not safe for concurrent use (Client holds its lock).
+// Pure: no I/O, no clock.
 //
 //	Invariant: len(items) == lru.Len() <= maxEntries; bytes == Σ len(text) <= maxBytes
 type cache struct {

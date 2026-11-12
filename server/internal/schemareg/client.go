@@ -18,7 +18,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
-// Config is one Client. Zero fields take the defaults (Release It §P, "Schema registry" sheet).
+// Config is one Client. Zero fields take the defaults given on each field.
 type Config struct {
 	URL   string // controld's API base URL, e.g. https://controld:7443 (required)
 	Token string // the control token (Authorization: Bearer); controld accepts it for schema reads
@@ -30,9 +30,9 @@ type Config struct {
 	MaxBytes    int64         // bytes of schema text cached; default 64 MiB
 	MaxInFlight int           // distinct fetches at once (more are refused, never queued); default 16
 	Breaker     breaker.Config
-	// Validate, if set, runs after Check on every fetched text before it is cached or returned: IR-2b's
-	// docschema check (a valid schema, in fingerprint form). Its error is the registry's fault (it stored a
-	// text this agent cannot use): ErrUnavailable, counted as a failure.
+	// Validate, if set, runs after Check on every fetched text before it is cached or returned: the document
+	// executor's docschema check (a valid schema, in fingerprint form). Its error is the registry's fault (it stored
+	// a text this agent cannot use): ErrUnavailable, counted as a failure.
 	Validate func(fingerprint string, text []byte) error
 	Clock    det.Clock // fetch deadlines and the breaker's window; default det.System()
 }
@@ -120,7 +120,7 @@ func (c *Client) Stats() Stats {
 
 // Get returns the text of the schema app registered under fingerprint: from the cache, or by one fetch shared
 // by every concurrent caller of the same key. The fetch runs under Config.Timeout whatever ctx does, so a
-// caller that leaves does not cancel it for the others; ctx bounds only this caller's wait (Release It T5).
+// caller that leaves does not cancel it for the others; ctx bounds only this caller's wait.
 //
 //	post: err == nil ⇒ Check(fingerprint, text) == nil (and Config.Validate accepted it)
 //	post: errors match ErrInvalid (bad fingerprint or app; nothing sent), ErrNotFound, ErrUnavailable (with a
@@ -202,7 +202,7 @@ func (c *Client) load(k cacheKey, f *flight, permit breaker.Permit) {
 	defer cancel()
 	text, err := c.fetch(ctx, k)
 	if err == nil || errors.Is(err, ErrNotFound) {
-		outcome = breaker.Success // an answer, either way (Release It C2)
+		outcome = breaker.Success // an answer, either way: only system failures count
 	}
 	if err != nil {
 		f.err = errs.Wrap(module, err, "cannot fetch schema %s of app %q", k.fingerprint, k.app)
@@ -254,7 +254,7 @@ func (c *Client) fetch(ctx context.Context, k cacheKey) (string, error) {
 	if a.App != k.app || a.Fingerprint != k.fingerprint {
 		return "", fmt.Errorf("%w: answered for %q %s, asked for %q %s", ErrUnavailable, a.App, a.Fingerprint, k.app, k.fingerprint)
 	}
-	// Integrity (object-storage guide V, applied to the registry): never use a text that is not the one named.
+	// Integrity: never use a text that is not the one named.
 	if err := Check(k.fingerprint, []byte(a.Schema)); err != nil {
 		return "", fmt.Errorf("%w: the registry's text fails its check: %w", ErrUnavailable, err)
 	}

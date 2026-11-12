@@ -326,7 +326,7 @@ func decodeSchema(t testing.TB, v *ir.Object) *docexec.Schema {
 	return s
 }
 
-// TestExecuteVectors runs every execute.json vector against a real actor (plan §5 IR-2 gate).
+// TestExecuteVectors runs every execute.json vector against a real actor.
 func TestExecuteVectors(t *testing.T) {
 	vectors := loadVectors(t, "execute.json")
 	if len(vectors) == 0 {

@@ -48,7 +48,8 @@ func (a importArgs) check() string {
 	return ""
 }
 
-// importEpoch is the epoch an imported database starts at: the first owner's (flow B creates at 1).
+// importEpoch is the epoch an imported database starts at: the first owner's (the control plane creates a
+// database at epoch 1).
 const importEpoch = 1
 
 // imported is import's answer, one JSON line on stdout.
@@ -67,19 +68,19 @@ type placementRow struct {
 	Gen   uint64 `json:"gen"`
 }
 
-// importFile makes an existing SQLite file the first generation of a new key (replace-platform plan §4.3):
+// importFile makes an existing SQLite file the first generation of a new key:
 //
 //  1. a consistent standalone copy (VACUUM INTO from a read-only open: the source is not changed, and a -wal
 //     it has is read), which must pass integrity_check;
 //  2. the copy's _platform_schema fingerprint must be the app's schema (-schema), so the agent opens it with
 //     no drift;
 //  3. the key must be new: no manifest, and no placement row other than the one this import writes;
-//  4. upload generation 1 at epoch 1 (create-only, guide I1), then publish the manifest only if none exists
-//     (If-None-Match, W1), then write the placement row ACTIVE(vm, 1, 1) if the authority has none (a CAS).
+//  4. upload generation 1 at epoch 1 (create-only), then publish the manifest only if none exists
+//     (If-None-Match), then write the placement row ACTIVE(vm, 1, 1) if the authority has none (a CAS).
 //
-// Data first, pointer second (I3). Every ambiguous step is resolved by re-reading (R3), and a rerun with the
-// same file resumes where an interrupted one stopped. Once the row exists, the control plane's claim serves
-// the key. Without -placement-dir only the generation and manifest are written: controld's create writes a
+// Data first, pointer second: only the published manifest is trusted. Every ambiguous step is resolved by
+// re-reading, and a rerun with the same file resumes where an interrupted one stopped. Once the row exists,
+// the control plane's claim serves the key. Without -placement-dir only the generation and manifest are written: controld's create writes a
 // row at generation 0, and the owner's claim adopts the manifest (its generation is not behind the row's).
 func (t *tool) importFile(ctx context.Context, a importArgs) error {
 	key := a.tenant + ":" + a.app
@@ -162,10 +163,10 @@ func (t *tool) publishImport(ctx context.Context, key, snap string, d durable.Di
 	m := durable.NextManifest(key, 1, importEpoch, d, t.now())
 	resumed := false
 	if err := t.s.PutGeneration(ctx, m, snap); err != nil {
-		// Ambiguous or already there: the object's recorded digest says whether it holds these bytes (R3).
+		// Ambiguous or already there: the object's recorded digest says whether it holds these bytes.
 		info, serr := t.s.StatGeneration(ctx, m.Object)
 		if errors.Is(err, durable.ErrExists) && serr == nil && !info.Holds(d) {
-			// An interrupted import of another file left it; a rerun can never replace it (create-only, I1).
+			// An interrupted import of another file left it; a rerun can never replace it (create-only).
 			return m, false, errs.Wrap(module, err, "cannot import %s: it already has a generation 1 object from another import (sha256 %s), "+
 				"named by no manifest; run dbtool inspect %s, then rerun with that file or delete the object (gc skips a key "+
 				"without a manifest); nothing published", key, info.SHA256, key)

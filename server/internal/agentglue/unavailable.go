@@ -14,17 +14,17 @@ import (
 
 // unavailableCauses are the dependency sentinels that mean "a dependency cannot serve this request now; nothing
 // ran". The front answers them 503 unavailable + Retry-After and logs them at WARN, sampled — never internal
-// (Release It F2, plan RI-04). Adding a dependency is one line here:
+// (a dependency being down is neither a bug nor a bad request). Adding a dependency is one line here:
 //
 //   - owner.ErrUnavailable: the key is not reconciled since restart, or the authority/manifest is unreadable.
-//   - vactor.ErrBusy: the fetch bulkhead's queue is full, or an activation hit its own deadline (RI-02).
-//   - durable.ErrUnavailable: the S3 breaker is open, or a store call hit a system failure (RI-03). An open
+//   - vactor.ErrBusy: the fetch bulkhead's queue is full, or an activation hit its own deadline.
+//   - durable.ErrUnavailable: the S3 breaker is open, or a store call hit a system failure. An open
 //     breaker's time to half-open, and a key's failure backoff in vactor, ride in the chain as a
 //     front.RetryHint, so the wire's Retry-After says when to come back.
 //   - vactor.ErrInDoubt: a write-back sent nothing because too many publishes of the key are in doubt (after
 //     an S3 brownout); its RetryHint is when the oldest is past the grace window.
 //   - pg.ErrUnavailable: the Postgres placement authority's breaker is open (with a RetryHint), or a call to
-//     it timed out or lost its connection (CP-4). owner.Table already wraps authority errors in
+//     it timed out or lost its connection. owner.Table already wraps authority errors in
 //     owner.ErrUnavailable; this line keeps any direct caller right too.
 //
 // A bare context.DeadlineExceeded is deliberately NOT listed, because it also means "the caller's deadline

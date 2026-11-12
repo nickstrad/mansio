@@ -1,5 +1,5 @@
 /**
- * Unit tests for `core/schema.ts` (plan item 04).
+ * Unit tests for `core/schema.ts`.
  *
  * The point of these is that validation is now *total*: every rejection is a `SchemaError` value
  * with a structured `reason`/`path`, and nothing in `core/` throws. So the assertions below check
@@ -316,7 +316,7 @@ Deno.test("defineSchema: rejects _-prefixed and sqlite_-prefixed table names in 
 });
 
 // ---------------------------------------------------------------------------
-// The text storage contract (plan item 31, docs/adr/0005-text-storage-contract.md)
+// The text storage contract (docs/adr/0005-text-storage-contract.md)
 // ---------------------------------------------------------------------------
 
 Deno.test("names: table, field and index names holding U+0000 fail the identifier rule", () => {

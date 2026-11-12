@@ -1,5 +1,5 @@
 /**
- * IR-4b: a Go agent in durable mode (databases are S3 generations behind the virtual-actor host) and the
+ * A Go agent in durable mode (databases are S3 generations behind the virtual-actor host) and the
  * `dbtool` CLI, for the scenarios that need durability (`backup_restore`).
  *
  * S3 comes from the environment: `E2E_S3_ENDPOINT` (host:port, plain HTTP), `E2E_S3_ACCESS_KEY`,

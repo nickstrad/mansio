@@ -36,7 +36,7 @@ func newHungRig(t *testing.T) *drig {
 	return r
 }
 
-// TestTickHungWriteBackDoesNotStopMaintenance (plan RI-05): one key's upload hangs. The tick still writes back
+// TestTickHungWriteBackDoesNotStopMaintenance: one key's upload hangs. The tick still writes back
 // the other dirty key and passivates the idle one, ends after the job deadline (not never), reports the hung
 // key as timed out with the database still warm, and the next tick runs.
 func TestTickHungWriteBackDoesNotStopMaintenance(t *testing.T) {

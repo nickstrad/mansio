@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Schema migrations: numbered, transactional files, applied once and recorded in schema_version (SQL G-3).
+// Schema migrations: numbered, transactional files, applied once and recorded in schema_version.
 // Each file wraps itself in begin … commit and inserts its own version, so psql -f applies it the same way.
 //
 //go:embed schema/*.sql
@@ -50,7 +50,7 @@ func migrations() ([]migration, error) {
 }
 
 // migrateLock is the advisory lock key Migrate holds, so two processes starting together do not both try
-// the same file. It only saves work: a second apply of a file fails on its own DDL and rolls back (SQL G-11).
+// the same file. It only saves work: a second apply of a file fails on its own DDL and rolls back.
 const migrateLock = 0x7473_6462_706c_6163 // "tsdbplac"
 
 // Migrate applies every embedded schema file newer than the database's schema_version, in order, each in

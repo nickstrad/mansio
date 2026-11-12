@@ -14,7 +14,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The IR-5 auth gate (ADR 0012, multi-node half): with a "tenancy" section controld resolves app databases
+// Multi-node auth (ADR 0012, multi-node half): with a "tenancy" section controld resolves app databases
 // for every credential mansio's tenancy accepts: a tenant's new API key, a legacy Deno-platform key and a user
 // session. The tenant comes from the credential (an omitted tenant takes it, another is forbidden); a
 // deactivated tenant's credentials stop working and it gets no new key; create on first use stops at the

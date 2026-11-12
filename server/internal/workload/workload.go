@@ -206,10 +206,10 @@ func newTablePlan(s *schema.Schema, t *schema.Table) tablePlan {
 
 // Generator produces statements for one database's schema. Not safe for concurrent use.
 //
-// Foreign keys are enforced (SQL G-13), so the generator keeps every statement valid under them: deletes go only
-// to leaf tables (no other table references them), so a parent row is never deleted, and parent_id values are
-// drawn from the parent's seed rows, which therefore always exist. (nextID would over-count when inserts fail
-// or are shed, and a dangling parent_id would fail the insert.)
+// Foreign keys are enforced (sqlitedsn turns them on), so the generator keeps every statement valid under them:
+// deletes go only to leaf tables (no other table references them), so a parent row is never deleted, and parent_id
+// values are drawn from the parent's seed rows, which therefore always exist. (nextID would over-count when inserts
+// fail or are shed, and a dangling parent_id would fail the insert.)
 //
 //	Invariant: nextID[i] >= 1 for every table i; len(leaves) >= 1 (the last table is never a parent).
 type Generator struct {

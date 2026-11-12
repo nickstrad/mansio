@@ -199,7 +199,7 @@ function agentdBinary(): Promise<string> {
 }
 
 /**
- * agentd in single-node static mode for both apps (IR-3): a fresh Ed25519 issuer (`keys_file`), an empty
+ * agentd in single-node static mode for both apps: a fresh Ed25519 issuer (`keys_file`), an empty
  * `local:<app>.db` per app in `db_dir` (static mode serves only files it finds at start), and each app's
  * schema in its layout under `schemas_dir/<app>/v1.json`, so the first request creates the tables. Tickets
  * are minted per request kind by `mint`. `extra` is merged into the agent config.
@@ -306,7 +306,7 @@ export type Server = GoAgent | GoTenancy;
 export type Tenancy = "off" | "api-key" | "session";
 
 /**
- * agentd with a `tenancy` section (IR-4a, ADR 0012): credentials on `/v1/ops`, `/admin/tenants*`, and in
+ * agentd with a `tenancy` section (ADR 0012): credentials on `/v1/ops`, `/admin/tenants*`, and in
  * `session` mode `/api/auth` and `/admin/users/link`. Keys, users and sessions live in the scenario's
  * Postgres database, schema `control`. `env` holds the admin and app tokens under the names `request`,
  * `cli` (`ADMIN_TOKEN`) and `client` read. Databases `<tenant>:<app>` are created on first use
@@ -390,7 +390,7 @@ export async function opsQuery(app: string, id: string, tenant: string = TENANT)
 
 export type Client = ReturnType<typeof createClient<typeof functions>>;
 /**
- * An IR-3 SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. The bearer
+ * An SDK client for `app`: the handlers run here, their reads and commits go to `/v1/ops`. The bearer
  * is `token` (an API key or a session), else the app token of a tenancy agent, else a minted ticket.
  * `tenant` is what the client claims (with tenancy, credentials decide).
  */

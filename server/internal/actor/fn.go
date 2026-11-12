@@ -10,7 +10,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
-// Closure requests (IR protocol plan §4, IR-2). A Request with Fn set runs a Go function on the actor's
+// Closure requests. A Request with Fn set runs a Go function on the actor's
 // connection instead of one SQL string, so a request can run several statements, read rows and return a
 // result, as one unit:
 //
@@ -69,16 +69,16 @@ var (
 	ErrReadOnly = errors.New("actor: write refused in a read-only closure")
 	// ErrTxControl: a closure statement would control the transaction (BEGIN, COMMIT, ROLLBACK, SAVEPOINT,
 	// RELEASE, END), change connection state (PRAGMA, ATTACH, DETACH, VACUUM) or hold more than one statement.
-	// The connection owner owns the transaction (SQL G-8); a closure must not leave its savepoint.
+	// The connection owner owns the transaction; a closure must not leave its savepoint.
 	ErrTxControl = errors.New("actor: transaction control or multiple statements refused in a closure")
 	// ErrTxDone: a closure used its Tx after returning.
 	ErrTxDone = errors.New("actor: closure transaction used after the closure returned")
-	// ErrMaxRows: Tx.Query was called without a positive row bound (every result set is bounded, RI B6).
+	// ErrMaxRows: Tx.Query was called without a positive row bound (every result set is bounded).
 	ErrMaxRows = errors.New("actor: closure query needs maxRows > 0")
 	// ErrRecordKind: a request id was claimed by a request of the other kind (a SQL write and a closure share
 	// one id space), so its stored result cannot answer this one. Nothing ran. The claim may be a batch-mate's
 	// that was then rolled back with its batch (the answer is an own error, so it stays): a retry may then
-	// succeed. IR-2b: map it as a client error (the id was reused across kinds), not a server fault.
+	// succeed. Callers map it as a client error (the id was reused across kinds), not a server fault.
 	ErrRecordKind = errors.New("actor: request id was applied by a request of another kind")
 )
 

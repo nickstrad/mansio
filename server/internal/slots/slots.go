@@ -1,7 +1,6 @@
-// Package slots is a pool of call slots that never queues (Release It B1, B2): a caller that finds none free
-// is refused at once and counted. Its limit can change while it is in use, so an operator can narrow the
-// load on a struggling dependency without a restart (Release It C4; Backpressure in Microservices ch. 4
-// "Incident Actions": the levers must exist before the incident).
+// Package slots is a pool of call slots that never queues: a caller that finds none free is refused at once and
+// counted. Its limit can change while it is in use, so an operator can narrow the load on a struggling dependency
+// without a restart (the levers must exist before the incident).
 //
 // Error module: none. A zero or negative limit is a bug and panics.
 package slots

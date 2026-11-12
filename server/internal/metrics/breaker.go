@@ -8,8 +8,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/breaker"
 )
 
-// Breakers exposes each remote dependency's breaker: its state (one series per state, 1 for the current one)
-// and its transitions (Release It C4, O1). Shared by agentd, controld and the edge so dashboards read them alike.
+// Breakers exposes each remote dependency's breaker: its state (one series per state, 1 for the current one) and its
+// transitions. Shared by agentd, controld and the edge so dashboards read them alike.
 func Breakers(reg *Registry, deps map[string]*breaker.Breaker) {
 	BreakersFunc(reg, func() map[string]*breaker.Breaker { return deps })
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
-// The locator's reads and the API-key registry (CP-5; schema 0003, 0004).
+// The locator's reads and the API-key registry (schema 0003, 0004).
 
 // Location is one database as the locator sees it: registry state, placement row and owner endpoint.
 type Location struct {

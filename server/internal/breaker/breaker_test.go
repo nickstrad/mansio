@@ -172,8 +172,8 @@ func TestStalePermitIgnored(t *testing.T) {
 	}
 }
 
-// RI-16: Trip holds the breaker open past the cool-down (no probe) until Reset; both are manual transitions;
-// a repeat changes nothing; permits from before either are ignored.
+// Trip holds the breaker open past the cool-down (no probe) until Reset; both are manual transitions; a repeat
+// changes nothing; permits from before either are ignored.
 func TestTripHoldsUntilReset(t *testing.T) {
 	var log []Transition
 	b := newB(t, Config{CoolDown: time.Second, OnChange: func(tr Transition) { log = append(log, tr) }})
@@ -351,7 +351,7 @@ func (m *model) stateAt(now time.Time) State {
 }
 
 // FuzzBreakerModel runs a byte script of allow / done(success, failure, ignore) / tick / trip / reset against the
-// breaker and the model, comparing every answer and the state after every step (plans RI-03, RI-16).
+// breaker and the model, comparing every answer and the state after every step.
 func FuzzBreakerModel(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 2, 2, 2, 4, 50, 0, 1})
 	f.Add([]byte{0, 2, 0, 2, 0, 2, 0, 2, 4, 60, 0, 0, 3, 0, 1, 0, 1})

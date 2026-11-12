@@ -60,8 +60,8 @@ func replay(seed uint64) string {
 	return fmt.Sprintf("MANSIO_SIM_SEED=%d MANSIO_SIM_TRACE=1 go test ./internal/sim -run 'TestSeeds' -v", seed)
 }
 
-// TestSeeds is DST-1: each seed is one simulated run of the single-agent request path under faults and
-// crashes, checked for lost, duplicated or phantom writes (see package sim).
+// TestSeeds runs the single-node simulation: each seed is one simulated run of the single-agent request path under
+// faults and crashes, checked for lost, duplicated or phantom writes (see package sim).
 func TestSeeds(t *testing.T) {
 	for _, seed := range seeds(t) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestSeeds(t *testing.T) {
 	}
 }
 
-// TestIRSeeds is DST-1 with the document-protocol workload: the same checker over /v1/ops and docexec.
+// TestIRSeeds is TestSeeds with the document-protocol workload: the same checker over /v1/ops and docexec.
 func TestIRSeeds(t *testing.T) {
 	for _, seed := range seedsN(t, defaultIRSeeds) {
 		t.Run(strconv.FormatUint(seed, 10), func(t *testing.T) {

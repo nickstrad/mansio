@@ -27,7 +27,7 @@ type tool struct {
 func (t *tool) printf(format string, args ...any) { fmt.Fprintf(t.out, format, args...) }
 
 // inspect shows key's manifest, every generation object with its metadata and role, and what GC would
-// delete (guide O3).
+// delete: the first look at any storage failure.
 func (t *tool) inspect(ctx context.Context, key string) error {
 	l, err := t.s.ListKey(ctx, key)
 	if err != nil {
@@ -64,8 +64,8 @@ func (t *tool) inspect(ctx context.Context, key string) error {
 	return nil
 }
 
-// verify downloads the generation key's manifest names and checks its size and sha256 (guide V1), and that
-// the object's recorded metadata agrees with the manifest.
+// verify downloads the generation key's manifest names and checks its size and sha256 (as every read of a
+// generation does), and that the object's recorded metadata agrees with the manifest.
 func (t *tool) verify(ctx context.Context, key string) error {
 	m, _, err := t.s.ReadManifest(ctx, key)
 	if err != nil {
@@ -102,10 +102,11 @@ type rebuildArgs struct {
 }
 
 // rebuildManifest publishes a manifest for an existing generation object, rebuilt from the object's own
-// metadata (guide I4), after downloading and verifying it. It never overwrites blindly: with no manifest it
-// publishes only if none appears meanwhile (If-None-Match); otherwise only on the version the operator saw
-// (If-Match). A readable stored manifest also bounds it: the new (epoch, generation) must be greater (W3),
-// and the epoch never lower (W2). A rollback to an older generation therefore needs a new epoch.
+// metadata (each object carries enough to rebuild its pointer), after downloading and verifying it. It never
+// overwrites blindly: with no manifest it publishes only if none appears meanwhile (If-None-Match); otherwise
+// only on the version the operator saw (If-Match). A readable stored manifest also bounds it: the new (epoch,
+// generation) must be greater, and the epoch (the writer's fencing epoch) never lower. A rollback to an older
+// generation therefore needs a new epoch.
 func (t *tool) rebuildManifest(ctx context.Context, a rebuildArgs) error {
 	obj, err := t.pickObject(ctx, "rebuild", a)
 	if err != nil {

@@ -13,16 +13,15 @@ import (
 	"github.com/nickstrad/mansio/server/internal/panicx"
 )
 
-// Lifecycle paths (Release It H2: liveness ≠ readiness). Serve them on the lifecycle listener, so they never
-// queue behind queries (B4).
+// Lifecycle paths: liveness and readiness are separate answers. Serve them on the lifecycle listener, so they never
+// queue behind queries (capacity is reserved for control traffic).
 const (
 	LivePath  = "/livez"  // the process is up and its lifecycle listener answers
 	ReadyPath = "/readyz" // the agent can serve: startup finished, dependencies usable, the canary passes
 )
 
-// Canary marks the synthetic transaction readiness runs (Release It ch13). CanaryDB is not a valid client
-// database id (CheckDBID rejects '~'), so no ticket or request can reach the canary database, and the canary
-// never touches tenant data.
+// Canary marks the synthetic transaction readiness runs. CanaryDB is not a valid client database id (CheckDBID
+// rejects '~'), so no ticket or request can reach the canary database, and the canary never touches tenant data.
 const (
 	CanaryTenant = "~canary"
 	CanaryDB     = "~canary"

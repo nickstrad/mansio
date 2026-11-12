@@ -57,7 +57,7 @@ func run(db *sql.DB, st workload.Statement, timeout time.Duration) (err error, t
 // Statement timeouts for checkRuns. An expected-slow class gets a short one, so the test does not wait for a
 // cross join to finish; any other class must succeed within a generous one. 30 ms for every class flaked
 // under load (go test -race ./... runs packages in parallel), failing fast statements that were merely
-// descheduled (CP-8).
+// descheduled.
 const (
 	slowTimeout = 30 * time.Millisecond
 	fastTimeout = 5 * time.Second
@@ -312,7 +312,7 @@ func FuzzStatementsRun(f *testing.F) {
 	})
 }
 
-// PG-05: with foreign keys enforced, a long random mix of every write class never violates one: deletes go only
+// With foreign keys enforced, a long random mix of every write class never violates one: deletes go only
 // to leaf tables, and parent_id values always name an existing parent row. ParentProb 1 makes every table after
 // the first a child, so the chain of parents is as deep as it gets.
 func TestWritesNeverViolateForeignKeys(t *testing.T) {

@@ -1,5 +1,5 @@
 /**
- * The write path: insert, replace and delete (plan item 09).
+ * The write path: insert, replace and delete.
  *
  * PURE: nothing in here raises. A bad collection is a `CompileError`, a body that does not match
  * the table's fields is a `SchemaError` from `core/schema.ts`'s `parseObject`.

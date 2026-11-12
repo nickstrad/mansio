@@ -35,7 +35,7 @@ func (e ActorExecutor) Exec(ctx context.Context, c Call) (Reply, error) {
 	if err != nil {
 		return Reply{}, err
 	}
-	// The actor applies a write's RequestID at most once per database (CP-2); reads ignore it.
+	// The actor applies a write's RequestID at most once per database; reads ignore it.
 	r := &actor.Request{SQL: c.SQL, Args: c.Args, Write: c.Kind == KindWrite, StmtTimeout: c.StmtTimeout,
 		Deadline: c.Deadline, RequestID: c.RequestID, Fn: c.Fn, Check: c.Check}
 	if c.Kind == KindRead && c.Fn == nil {
@@ -194,7 +194,7 @@ func (h *StaticHost) Lookup(_ context.Context, db string) (*actor.Actor, error) 
 	return a, nil
 }
 
-// QueueStats are the actors' queue depths at one instant (Release It O1: per queue, its depth).
+// QueueStats are the actors' queue depths at one instant.
 type QueueStats struct {
 	Actors   int
 	Total    int // requests queued across actors
@@ -243,8 +243,8 @@ func (h *StaticHost) Close() {
 	wg.Wait()
 }
 
-// Shutdown is Close bounded by ctx (Release It H3). If ctx ends first it returns an error matching ctx.Err();
-// the actors finish closing in the background (each statement is bounded by its own timeout).
+// Shutdown is Close bounded by ctx, so shutdown has one budget. If ctx ends first it returns an error matching
+// ctx.Err(); the actors finish closing in the background (each statement is bounded by its own timeout).
 func (h *StaticHost) Shutdown(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() { h.Close(); close(done) }()

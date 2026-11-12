@@ -1,6 +1,6 @@
-// Package parallel runs a function over n items on a bounded number of goroutines, the Cox-Buday way: every
-// worker reports to the caller, a panic in one is recovered there and re-raised in the caller once all have
-// stopped, and ctx stops new items from starting.
+// Package parallel runs a function over n items on a bounded number of goroutines: every worker reports to the
+// caller, a panic in one is recovered there and re-raised in the caller once all have stopped, and ctx stops new
+// items from starting.
 //
 // Error module: none (it returns the callers' own errors and ctx.Err()).
 package parallel

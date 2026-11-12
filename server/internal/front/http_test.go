@@ -119,8 +119,8 @@ func TestHTTPStatusesAndHeaders(t *testing.T) {
 	}
 }
 
-// A dependency outage fails every request: the log gets WARN lines at a bounded rate (with a count of the
-// suppressed ones), never one ERROR per request (Release It F2).
+// A dependency outage fails every request: the log gets WARN lines at a bounded rate (with a count of the suppressed
+// ones), never one ERROR per request: an unavailable dependency is not a bug.
 func TestHTTPUnavailableLogsSampledWarn(t *testing.T) {
 	r, srv, log := newHTTP(t, front.Config{})
 	r.ex.Set(func(e *fronttest.Executor) { e.Err = fmt.Errorf("%w: s3 down", front.ErrUnavailable) })
@@ -155,8 +155,8 @@ func TestHTTPUnavailableLogsSampledWarn(t *testing.T) {
 	}
 }
 
-// A client that dribbles its body (1 byte per 50 ms) is cut at BodyReadTimeout with 408, and the connection is
-// usable for nothing else; the handler does not wait for the body forever (Release It T3).
+// A client that dribbles its body (1 byte per 50 ms) is cut at BodyReadTimeout with 408, and the connection is usable
+// for nothing else; the handler does not wait for the body forever.
 func TestSlowBodyIsCut(t *testing.T) {
 	const timeout = 200 * time.Millisecond
 	r, srv, _ := newHTTP(t, front.Config{BodyReadTimeout: timeout})

@@ -2646,7 +2646,7 @@ function finalOf(final: J): J {
 }
 
 // ---------------------------------------------------------------------------
-// execute.json: SDK-generated scenarios (IR-3)
+// execute.json: SDK-generated scenarios
 // ---------------------------------------------------------------------------
 
 /**

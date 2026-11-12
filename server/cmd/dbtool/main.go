@@ -1,5 +1,5 @@
-// Command dbtool inspects and repairs the durable copies of databases in object storage (object-storage
-// guide O3, plan OS-12). Runbook: docs/notes/writeback/2026-11-05-storage-runbook.md.
+// Command dbtool inspects and repairs the durable copies of databases in object storage: every storage failure
+// mode has a command here. Runbook: docs/notes/writeback/2026-11-05-storage-runbook.md.
 //
 //	dbtool [flags] inspect <key>            manifest, generations with metadata, what gc would delete
 //	dbtool [flags] verify <key>             download the current generation and check its sha256
@@ -9,10 +9,10 @@
 //	dbtool [flags] restore [-gen G] [-object NAME] <key> <new file>
 //	dbtool [flags] import <file> -tenant T -app A -schema F [-placement-dir D -vm V]
 //
-// restore and import (replace-platform plan phase 4) print one JSON line. import without -placement-dir writes
+// restore and import print one JSON line. import without -placement-dir writes
 // only object storage: with controld, register the app's schema (PUT /v1/apps/{app}/schema) and create the
 // database (POST /v1/apps/{app}/databases) after the import; the owner's claim adopts generation 1. That
-// multi-node path is IR-5's to exercise end to end.
+// multi-node path runs end to end in cmd/controld's import_gate_test.go.
 // Credentials come from the environment (DBTOOL_S3_ACCESS_KEY, DBTOOL_S3_SECRET_KEY), never from flags or
 // files. Results go to stdout; a JSON log (UTC, log IDs) goes to stderr. Exit codes: 0 ok, 1 expected failure
 // (message + log ID; e.g. verify found corruption), 2 usage, 70 bug, 130 interrupted.

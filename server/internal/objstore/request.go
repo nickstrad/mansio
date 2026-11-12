@@ -12,10 +12,9 @@ import (
 	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
-// The one retry layer for S3 (Release It R1, object-storage guide R2). minio-go's own retries are off
-// (Config.MaxRetries 1), so each attempt below is one HTTP request. Only idempotent requests come through
-// retryIdempotent; conditional PUTs are sent once and an ambiguous outcome is left to the caller to resolve by
-// re-reading.
+// The one retry layer for S3. minio-go's own retries are off (Config.MaxRetries 1), so each attempt below is one HTTP
+// request. Only idempotent requests come through retryIdempotent; conditional PUTs are sent once and an ambiguous
+// outcome is left to the caller to resolve by re-reading.
 
 // idempotentRetry is the backoff for GET, HEAD, LIST and DELETE: 100 ms ×2 with full jitter, 5 s cap, 5
 // attempts in all.
@@ -28,9 +27,9 @@ var idempotentRetry = func() retry.Policy {
 	return p
 }()
 
-// retryIdempotent runs fn, one attempt at a time with budget d each, until it succeeds, fails with a
-// non-Transient error, runs out of attempts, or the next backoff would end past ctx's deadline (never retry
-// past the caller's deadline, T4).
+// retryIdempotent runs fn, one attempt at a time with budget d each, until it succeeds, fails with a non-Transient
+// error, runs out of attempts, or the next backoff would end past ctx's deadline (never retry past the caller's
+// deadline).
 //
 //	pre:  fn is idempotent: running it twice has the effect of running it once
 //	post: the error returned is fn's last error
@@ -81,9 +80,9 @@ func run(ctx context.Context, d time.Duration, fn func(*attempt) error) error {
 	return a.end(fn(a))
 }
 
-// attempt is one request's budget (Release It T1, T3): a deadline from its start, which a transfer can
-// extend once it knows its size, and stall timers on the bodies it moves. Its context ends when either
-// fires, with an ErrTimeout cause; the caller's own context ending stays Canceled.
+// attempt is one request's budget: a deadline from its start, which a transfer can extend once it knows its size, and
+// stall timers on the bodies it moves. Its context ends when either fires, with an ErrTimeout cause; the caller's own
+// context ending stays Canceled.
 type attempt struct {
 	parent   context.Context
 	ctx      context.Context
@@ -131,11 +130,11 @@ func (a *attempt) watch(r io.Reader, size int64, d time.Duration) io.Reader {
 	return sr
 }
 
-// end releases the attempt and returns err, marked ErrTimeout (Transient) if a timeout of ours ended it while
-// the caller still waits: this attempt's own deadline, a stall, or a transport timeout. net/http's
-// ResponseHeaderTimeout and dial timeout match context.DeadlineExceeded, which Classify would otherwise read
-// as the caller's deadline (Canceled, never retried); it fires at OpTimeout too, so it raced the attempt's
-// deadline and a dead connection was retried only when the deadline won (CP-8).
+// end releases the attempt and returns err, marked ErrTimeout (Transient) if a timeout of ours ended it while the
+// caller still waits: this attempt's own deadline, a stall, or a transport timeout. net/http's ResponseHeaderTimeout
+// and dial timeout match context.DeadlineExceeded, which Classify would otherwise read as the caller's deadline
+// (Canceled, never retried); it fires at OpTimeout too, so it raced the attempt's deadline and a dead connection was
+// retried only when the deadline won.
 func (a *attempt) end(err error) error {
 	a.deadline.Stop()
 	for _, sr := range a.stalls {
@@ -199,7 +198,7 @@ func (s *stallReader) stop() {
 	}
 }
 
-// transferTime is the size-derived budget for moving size bytes: OpTimeout + size/MinThroughput (T3).
+// transferTime is the size-derived budget for moving size bytes: OpTimeout + size/MinThroughput.
 func (s *Store) transferTime(size int64) time.Duration {
 	return s.cfg.OpTimeout + time.Duration(float64(max(size, 0))/float64(s.cfg.MinThroughput)*float64(time.Second))
 }

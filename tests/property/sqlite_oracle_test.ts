@@ -1,5 +1,5 @@
 /**
- * The SQLite oracle property (plan item 13, work 4): the compiled SQL, executed by a real SQLite,
+ * The SQLite oracle property: the compiled SQL, executed by a real SQLite,
  * returns what the plan means.
  *
  * For a generated schema and document set, the test builds a temporary in-memory database with
@@ -27,14 +27,14 @@
  * 1. `json` layout, `number` field holding an integral double with 2^53 <= |x| < 2^63. The writer
  *    stores `JSON.stringify(x)` (`1693240866440448800` for the double 1693240866440448768), which
  *    SQLite's `json_extract` read as an exact 64-bit INTEGER: `eq x` missed the row and `countBy`
- *    returned an INTEGER that `node:sqlite` refuses beyond 2^53. Fixed by item 30's
+ *    returned an INTEGER that `node:sqlite` refuses beyond 2^53. Fixed by the
  *    `CAST(... AS REAL)` for `number` nodes; regressions 1a and 1b. The generated documents include
  *    such numbers again.
  * 2. Text containing U+0000. `node:sqlite` binds it intact but returns TEXT truncated at the first
- *    NUL, so `_id: "\0"` read back as `""`. A driver issue, resolved by item 31's text storage
+ *    NUL, so `_id: "\0"` read back as `""`. A driver issue, resolved by the text storage
  *    contract (`docs/adr/0005-text-storage-contract.md`): the writer rejects such text before commit
  *    and fails a read of older stored NUL text instead of truncating it. Its regression ran through the
- *    Deno platform's `StorageLive` and went with it at IR-6 (the Go writer enforces the contract; the
+ *    Deno platform's `StorageLive` and went with it (ADR 0013; the Go writer enforces the contract; the
  *    IR vectors pin it). The generated documents still exclude U+0000: this oracle runs compiled SQL
  *    directly, beneath the writer's boundary where the contract is enforced.
  *

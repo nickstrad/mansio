@@ -1,6 +1,6 @@
 -- vm_load.sql — placement policy input: VMs not attested dead, with their ACTIVE database count, the bytes
--- they last reported and the age of their last heartbeat, least loaded first, at most $1 rows (RI B6). One
--- set-based query, no per-VM loop, no counter column (SQL G-15, G-17). The policy (internal/control) decides
+-- they last reported and the age of their last heartbeat, least loaded first, at most $1 rows (bounded). One
+-- set-based query, no per-VM loop, no counter column. The policy (internal/control) decides
 -- which are alive and under the cap.
    select vms.vm_id,
           vms.endpoint,

@@ -1,4 +1,4 @@
--- 0004_api_keys.sql — API keys, the locator's first principals (CP-5). Applied once by Migrate; never edit after
+-- 0004_api_keys.sql — API keys, the locator's first principals. Applied once by Migrate; never edit after
 -- it is applied.
 -- A key is "mansio_<key_id>_<secret>" (internal/control/locator); only SHA-256(secret) is stored, so a leaked
 -- table yields no usable key. The locator checks a key once per ticket it issues (cached for seconds), never
@@ -20,7 +20,7 @@ create table api_keys (
   created_at    timestamptz not null default now(),
   revoked_at    timestamptz
 );
--- "keys of tenant t" and the FK on tenant_id (SQL G-12).
+-- "keys of tenant t" and the FK on tenant_id.
 create index api_keys_tenant on api_keys (tenant_id);
 
 insert into schema_version (version) values (4);

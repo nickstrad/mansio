@@ -256,7 +256,7 @@ func inproc(host *front.StaticHost, f runFlags) target {
 	}
 }
 
-// requestSeq makes request ids unique per run: the actor applies each id at most once per database (CP-2), so
+// requestSeq makes request ids unique per run: the actor applies each id at most once per database, so
 // a shared id would turn every write after the first into a duplicate.
 var (
 	requestRun = time.Now().UnixNano()

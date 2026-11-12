@@ -194,8 +194,9 @@ func (a *app) clean(ctx context.Context, st *objstore.Store) error {
 	return nil
 }
 
-// reporter classifies an error at the top level and logs it once (Cox-Buday ch. 5): an outermost error from
-// a module this command calls is an expected failure with a message for the user; anything else is a bug.
+// reporter classifies an error at the top level and logs it once, where the most context is: an outermost
+// error from a module this command calls is an expected failure with a message for the user; anything else is
+// a bug.
 type reporter struct {
 	logger *slog.Logger
 	stderr io.Writer

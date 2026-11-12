@@ -29,8 +29,8 @@ func sameCounts(t *testing.T, what string, got, want map[string]int64) {
 	}
 }
 
-// The request accounting of object-storage plan G7, checked on a scripted write-back, stamp and activation
-// against the fake: the counters must match what the server saw (OS-08 acceptance).
+// Request accounting per logical operation, checked on a scripted write-back, stamp and activation against the fake:
+// the counters must match what the server saw.
 func TestMetricsCountRequestsPerLogicalOperation(t *testing.T) {
 	fake := s3test.New()
 	t.Cleanup(fake.Close)

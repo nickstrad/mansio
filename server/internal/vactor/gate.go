@@ -8,11 +8,11 @@ import (
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
-// fetchGate is the fetch bulkhead (Release It B1, B2): at most maxN fetches and maxBytes bytes in flight, and
-// at most maxQueue activations waiting for a slot. Waiters are served in arrival order, so a large fetch is
-// not starved by a stream of small ones. A full queue sheds: acquire fails at once with ErrBusy.
+// fetchGate is the fetch bulkhead: at most maxN fetches and maxBytes bytes in flight, and at most maxQueue
+// activations waiting for a slot. Waiters are served in arrival order, so a large fetch is not starved by a stream of
+// small ones. A full queue sheds: acquire fails at once with ErrBusy.
 //
-// maxN can change at run time (setMaxN, Release It C4): fetches already running when it is lowered finish,
+// maxN can change at run time (setMaxN, an operator's control): fetches already running when it is lowered finish,
 // so n may exceed maxN for a while; take never starts one at or over maxN (asserted there).
 //
 // Invariant: bytes <= maxBytes unless one fetch larger than maxBytes runs alone (n == 1); len(queue) <=
@@ -78,7 +78,7 @@ func (g *fetchGate) acquire(ctx context.Context, bytes int64) (release func(), e
 	return nil, ctx.Err()
 }
 
-// shedding reports whether a new waiter would be refused now (GetAt's fail-fast check, guide F1).
+// shedding reports whether a new waiter would be refused now (GetAt's fail-fast check, before any expensive work).
 func (g *fetchGate) shedding() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -149,7 +149,7 @@ func (g *fetchGate) invariant() {
 	assert.That(len(g.queue) == 0 || !g.fits(g.queue[0].bytes), "fetchGate: head of the queue fits but waits")
 }
 
-// inFlight reports the fetches and bytes in flight and the waiters (tests, and RI-11's gauges).
+// inFlight reports the fetches and bytes in flight and the waiters (tests, and the host's Gauges).
 func (g *fetchGate) inFlight() (n int, bytes int64, queued int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

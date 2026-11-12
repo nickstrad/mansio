@@ -17,8 +17,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
-// The Release It guide H4 failure table, run against the adapter through s3test (protocol faults) and
-// faultnet (transport faults). Timeouts are scaled down so the table runs in seconds.
+// The dependency failure table (each fault mode a remote dependency can show), run against the adapter through s3test
+// (protocol faults) and faultnet (transport faults). Timeouts are scaled down so the table runs in seconds.
 
 const (
 	opTimeout    = 300 * time.Millisecond
@@ -99,8 +99,8 @@ func wantKind(t *testing.T, err error, k objstore.Kind) {
 
 func body(n int) []byte { return bytes.Repeat([]byte("0123456789abcdef"), n/16+1)[:n] }
 
-// Status(503) once, then healthy: a GET succeeds on the second request; a conditional PUT is sent once and
-// surfaces Transient (OS-01 acceptance).
+// Status(503) once, then healthy: a GET succeeds on the second request; a conditional PUT is sent once and surfaces
+// Transient.
 func TestOne503RetriesGetsButNotPuts(t *testing.T) {
 	r := newRig(t, objstore.Config{})
 	m := r.seed(t, "k", []byte("gen1"))
@@ -181,8 +181,8 @@ func TestNotFoundAndPermanentAreNotRetried(t *testing.T) {
 	}
 }
 
-// HeadersThenStall: the fetch fails at the stall timeout, not at the size-derived deadline, and leaves no
-// .part (RI-01 acceptance). Bounded by the caller's deadline, it fails within StallTimeout + 1 s.
+// HeadersThenStall: the fetch fails at the stall timeout, not at the size-derived deadline, and leaves no .part.
+// Bounded by the caller's deadline, it fails within StallTimeout + 1 s.
 func TestHeadersThenStallFailsAtTheStallTimeout(t *testing.T) {
 	r := newRig(t, objstore.Config{OpTimeout: 5 * time.Second})
 	m := r.seed(t, "k", body(4096))
@@ -210,8 +210,8 @@ func TestHeadersThenStallFailsAtTheStallTimeout(t *testing.T) {
 	}
 }
 
-// Dribble: a body that keeps moving (so the stall detector never fires) still fails at its size-derived
-// deadline, OpTimeout + size/MinThroughput (RI-01 acceptance).
+// Dribble: a body that keeps moving (so the stall detector never fires) still fails at its size-derived deadline,
+// OpTimeout + size/MinThroughput.
 func TestDribbleFailsAtTheSizeDerivedDeadline(t *testing.T) {
 	r := newRig(t, objstore.Config{StallTimeout: 5 * time.Second, MinThroughput: 1 << 20})
 	data := body(1000)
@@ -427,8 +427,8 @@ func TestS3TransportFaults(t *testing.T) {
 	noPart(t, out+"2")
 }
 
-// OS-07: a byte flipped in flight makes the server reject the PUT (Content-MD5 → BadDigest, Permanent), and
-// no object exists afterwards. The flip lands in the body: 32 KiB into the request, past the headers.
+// A byte flipped in flight makes the server reject the PUT (Content-MD5 → BadDigest, Permanent), and no object exists
+// afterwards. The flip lands in the body: 32 KiB into the request, past the headers.
 func TestFlippedUploadByteIsRejectedByTheServer(t *testing.T) {
 	r := newRig(t, objstore.Config{})
 	data := bytes.Repeat([]byte("a"), 64<<10)

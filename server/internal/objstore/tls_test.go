@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
-// OS-11: Secure and CAFile are validated at the edge (New), before any request.
+// Secure and CAFile are validated at the edge (New), before any request.
 func TestTLSConfigValidation(t *testing.T) {
 	dir := t.TempDir()
 	garbage := filepath.Join(dir, "garbage.pem")
@@ -49,9 +49,9 @@ func TestTLSConfigValidation(t *testing.T) {
 	}
 }
 
-// OS-11: over HTTPS the client reaches a server signed by the configured CA, and refuses one it cannot verify
-// (no CA file: the self-signed certificate is unknown) or a plain-HTTP client talking to a TLS port. Only the
-// trusted client's request reaches the handler.
+// Over HTTPS the client reaches a server signed by the configured CA, and refuses one it cannot verify (no CA file:
+// the self-signed certificate is unknown) or a plain-HTTP client talking to a TLS port. Only the trusted client's
+// request reaches the handler.
 func TestTLSReachesOnlyTrustedServer(t *testing.T) {
 	srv := s3test.NewTLS()
 	t.Cleanup(srv.Close)

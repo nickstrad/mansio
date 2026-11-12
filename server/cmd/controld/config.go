@@ -47,7 +47,7 @@ type Config struct {
 		Bucket    string        `json:"bucket"`
 		Prefix    string        `json:"prefix"`
 		OpTimeout load.Duration `json:"op_timeout"`
-		// Secure speaks HTTPS; false (plain HTTP) is refused without -dev (object-storage guide S2, OS-11).
+		// Secure speaks HTTPS; false (plain HTTP) is refused without -dev (TLS outside a laptop).
 		Secure bool   `json:"secure"`
 		CAFile string `json:"ca_file"` // PEM bundle of a private CA; needs secure
 	} `json:"s3"`
@@ -79,8 +79,8 @@ type Config struct {
 	// accepting: at least the load balancer's readiness poll interval. Default 0. Part of shutdown_budget.
 	DrainDelay load.Duration `json:"drain_delay"`
 
-	// Locator is the resolve API (CP-5): POST /v1/resolve with an API key, answered from a placement cache
-	// that Postgres notifications invalidate (PG-10). Its own bulkhead: resolves never queue behind admin calls.
+	// Locator is the resolve API: POST /v1/resolve with an API key, answered from a placement cache
+	// that Postgres notifications invalidate. Its own bulkhead: resolves never queue behind admin calls.
 	Locator struct {
 		TicketTTL   load.Duration `json:"ticket_ttl"`  // default 60 s; must not exceed the agents' max_ticket_ttl
 		CacheTTL    load.Duration `json:"cache_ttl"`   // default 5 min (notifications invalidate sooner)
@@ -105,9 +105,9 @@ type Config struct {
 			Burst      float64 `json:"burst"`              // default 50
 			MaxSources int     `json:"max_sources"`        // default 100 000
 		} `json:"rate_limit"`
-		// MaxDBs and MaxDBsPerTenant cap create on first use (a resolve with "create"; Release It S, B6): past
-		// either, live databases (not dropped) in the registry, the answer is quota_exceeded (429) and nothing
-		// is created. Defaults 10 000 and 100, as agentd's single-node create_dbs. Explicit creates are not
+		// MaxDBs and MaxDBsPerTenant cap create on first use (a resolve with "create"), so nothing grows without
+		// bound: past either, live databases (not dropped) in the registry, the answer is quota_exceeded (429)
+		// and nothing is created. Defaults 10 000 and 100, as agentd's single-node create_dbs. Explicit creates are not
 		// capped (the operator decides). The check is not atomic with the create: concurrent first uses may pass a
 		// cap by up to locator.concurrency × the number of controld instances.
 		MaxDBs          int `json:"max_dbs"`
@@ -321,7 +321,7 @@ func loadConfig(path string) (*Config, error) {
 }
 
 // checkDev refuses, unless -dev is given, plain-HTTP S3 (the gc identity's keys would cross the network in the
-// clear; object-storage guide S1, S2; OS-11) and a plain-HTTP listener (admin tokens and API keys in the clear,
+// clear) and a plain-HTTP listener (admin tokens and API keys in the clear,
 // and whoever answers GET /v1/keys in its place can mint tickets).
 func (c *Config) checkDev() error {
 	switch {
@@ -336,7 +336,8 @@ func (c *Config) checkDev() error {
 	return nil
 }
 
-// Secrets is controld's secrets file (0600; object-storage guide S2, RI-16).
+// Secrets is controld's secrets file (0600, outside the config, so credentials never sit in a config file
+// or a log).
 type Secrets struct {
 	PGDSN        string `json:"pg_dsn"`
 	ControlToken string `json:"control_token"` // the agents' lifecycle token

@@ -1,5 +1,5 @@
 /**
- * Drift guard for the Go copy of `scripts/explain.ts`'s inputs (IR-1, `server/internal/doccompile`
+ * Drift guard for the Go copy of `scripts/explain.ts`'s inputs (`server/internal/doccompile`
  * `TestGeneratedSQL`). The Go test regenerates `core/compile/GENERATED_SQL.txt` from frozen JSON in
  * `server/internal/doccompile/testdata/`; these tests fail on the TS side when that JSON, or the committed
  * `core/compile/GENERATED_SQL.txt`, no longer matches what the app schema and the SDK produce.

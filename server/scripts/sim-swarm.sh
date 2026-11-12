@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: scripts/sim-swarm.sh [seeds] [first]        (env: SIM_SEEDS, SIM_FIRST, SIM_SHRINK=0 to skip shrinking)
 #
-# DST-3, the nightly swarm (IR protocol plan §6.4 item 4): runs <seeds> cluster simulations (default 2000) with
-# fault rates varied per seed (MANSIO_SIM_SWARM=1), and <seeds>/4 single-node (DST-1) seeds, from <first>
+# The nightly swarm of deterministic simulations: runs <seeds> cluster simulations (default 2000) with
+# fault rates varied per seed (MANSIO_SIM_SWARM=1), and <seeds>/4 single-node simulation seeds, from <first>
 # (default: a new range each day). Each failing cluster seed is shrunk (sim.ShrinkCluster) and its vector
 # written to results/sim-swarm/<time>/seed-<s>.json, next to the output and replay commands; nothing is written
 # under internal/sim. Triage by hand: copy a vector to internal/sim/testdata/open while the bug is open, and

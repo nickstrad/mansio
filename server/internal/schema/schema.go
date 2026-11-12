@@ -37,7 +37,7 @@ type Column struct {
 func (c Column) Numeric() bool { return c.Type == Integer || c.Type == Real }
 
 // Table has an INTEGER PRIMARY KEY id, columns, and optionally a parent_id pointing at another table's id. Tables
-// are STRICT and parent_id is a real foreign key: every connection built by sqlitedsn enforces foreign keys (SQL G-13).
+// are STRICT and parent_id is a real foreign key: every connection built by sqlitedsn enforces foreign keys.
 type Table struct {
 	Name     string
 	Columns  []Column

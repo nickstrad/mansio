@@ -1,7 +1,7 @@
 -- moving.sql — moves to resume (lifecycle controller): rows MOVING for longer than $1, oldest first, at most
 -- $2, each with its database's lifecycle state and move target when the registry knows it (0002): a
 -- 'moving' row resumes towards target_vm, 'suspended' stays put, 'dropping' resumes the drop. A table scan,
--- not NOTIFY: this work must not be lost (SQL G-11). Served by placement_moving.
+-- not NOTIFY: this work must not be lost. Served by placement_moving.
    select placement.database_id,
           placement.owner_vm,
           placement.epoch,

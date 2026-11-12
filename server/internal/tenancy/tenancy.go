@@ -27,7 +27,7 @@ var (
 	ErrDeactivated     = errors.New("tenancy: tenant deactivated")
 	ErrInvalid         = errors.New("tenancy: invalid input")
 	// ErrUnavailable: the store cannot answer now; nothing changed or the outcome is unknown (a write).
-	// Retry later (Release It F2).
+	// Retry later: a dependency being down is neither a bug nor a bad request.
 	ErrUnavailable = errors.New("tenancy: store unavailable")
 )
 
@@ -163,9 +163,9 @@ type Config struct {
 	CacheMax int
 	// SessionTTL is a new session's lifetime; default 7 days (Better Auth's).
 	SessionTTL time.Duration
-	// HashSlots bounds concurrent password hashes (each scrypt holds 32 MiB; Release It B2); default 4.
+	// HashSlots bounds concurrent password hashes (each scrypt holds 32 MiB); default 4.
 	HashSlots  int
-	MaxTenants int       // ListTenants' bound (Release It B6); default 10 000
+	MaxTenants int       // ListTenants' bound (every listing is bounded); default 10 000
 	Clock      det.Clock // default det.System()
 	Rand       io.Reader // secrets and ids; default crypto/rand
 }

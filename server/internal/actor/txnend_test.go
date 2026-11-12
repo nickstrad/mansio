@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// PG-01 / SQL G-8: a statement can end the batch's transaction on its own (INSERT OR ROLLBACK, RAISE(ROLLBACK)
+// A statement can end the batch's transaction on its own (INSERT OR ROLLBACK, RAISE(ROLLBACK)
 // in a trigger). Every write must then be either committed and ok, or not committed and not ok — checked by
 // reading the table back. Before savepoints, a write after the one that ended the transaction autocommitted
 // and was reported failed (a client retry duplicated it).

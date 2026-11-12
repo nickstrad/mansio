@@ -1,13 +1,13 @@
-// Package tenancyhttp is package tenancy's HTTP adapter (IR-4a, ADR 0012): the admin API scripts/tenants.ts
+// Package tenancyhttp is package tenancy's HTTP adapter (ADR 0012): the admin API scripts/tenants.ts
 // speaks (/admin/tenants…, plus POST /admin/users/link for scripts/auth.ts users link) and Better Auth's
 // email/password endpoints (/api/auth/sign-up/email, /api/auth/sign-in/email), with the Deno platform's
 // shapes, so the CLIs and clients work against either backend.
 //
-// Every /admin/ path needs Authorization: Bearer <admin token> (constant-time), checked before routing: an
-// unknown admin path answers 401 to a wrong token and 404 to the right one. Answers are {"result": …} or
-// {"error": {"tag", "message"}} (/admin), and Better Auth's {token, user} or {code, message} (/api/auth).
-// Each call runs under Timeout, at most Concurrency at once (more are refused 503 at once, never queued;
-// Release It T1, B1); sign-in and sign-up also spend a per-source token (ratelimit.SourceLimiter: 429).
+// Every /admin/ path needs Authorization: Bearer <admin token> (constant-time), checked before routing: an unknown
+// admin path answers 401 to a wrong token and 404 to the right one. Answers are {"result": …} or {"error": {"tag",
+// "message"}} (/admin), and Better Auth's {token, user} or {code, message} (/api/auth). Each call runs under Timeout,
+// at most Concurrency at once (more are refused 503 at once, never queued); sign-in and sign-up also spend a
+// per-source token (ratelimit.SourceLimiter: 429).
 package tenancyhttp
 
 import (
@@ -59,7 +59,7 @@ func (p *Pools) Queues() []metrics.QueueStat {
 	return []metrics.QueueStat{p.Admin.Stat("tenancy_admin"), p.Auth.Stat("tenancy_auth")}
 }
 
-// maxBody caps every request body (Release It B6).
+// maxBody caps every request body, so a client cannot make the server buffer an unbounded one.
 const maxBody = 4 << 10
 
 // writeGrace is how long past a call's Timeout its answer may take to write.
@@ -268,7 +268,7 @@ func (rt *routes) admin(notFound string, fn func(ctx context.Context, r *http.Re
 	}
 }
 
-// classify maps an error to a status and tag, logging what needs it (Release It F2: unavailable WARN, bug ERROR
+// classify maps an error to a status and tag, logging what needs it (unavailable WARN, bug ERROR
 // with a log ID in the answer's message).
 func (rt *routes) classify(r *http.Request, err error, notFound string) (int, string) {
 	switch {

@@ -1,5 +1,5 @@
 /**
- * The typed client (IR-3, `docs/plans/completed/intermediate-representation-protocol.md` §3): handlers run **in the caller's process**
+ * The typed client: handlers run **in the caller's process**
  * against the remote database over `/v1/ops`.
  *
  * ```ts
@@ -154,7 +154,7 @@ export function localFailure(error: unknown): RemoteError {
 
 const isClientError = (e: unknown): e is ClientError => e instanceof RemoteError || e instanceof Unavailable;
 
-/** Answers as they crossed HTTP before IR-3: `undefined` → `null`, non-JSON values refused. */
+/** Answers as they cross HTTP as JSON: `undefined` → `null`, non-JSON values refused. */
 function roundTrip(result: unknown): Effect.Effect<unknown, RemoteError> {
   return Effect.try({
     try: () => JSON.parse(JSON.stringify(result ?? null)) as unknown,

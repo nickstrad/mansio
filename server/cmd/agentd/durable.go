@@ -26,7 +26,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
 )
 
-// durableAgent is durable mode (control-plane plan CP-1): one long-lived S3 client behind a breaker, the
+// durableAgent is durable mode: one long-lived S3 client behind a breaker, the
 // virtual-actor host in durable mode, the owner table over a local FileStore and the single-node placement
 // authority, and the glue between them (glue.go).
 type durableAgent struct {
@@ -40,8 +40,8 @@ type durableAgent struct {
 	tab   *owner.Table
 	place owner.Placement
 	pg    *pg.Placement // the Postgres authority (placement_pg); nil with placement_dir
-	// schemas fetches app schemas from controld by fingerprint (schemas_url; IR-2); nil without schemas_url.
-	// IR-2b's /v1/ops executor reads it.
+	// schemas fetches app schemas from controld by fingerprint (schemas_url); nil without schemas_url.
+	// The /v1/ops executor reads it.
 	schemas *schemareg.Client
 	canary  *front.StaticHost
 	ticks   *tickLog
@@ -56,14 +56,14 @@ type durableAgent struct {
 }
 
 // s3Transient is the S3 breaker classifier: only Transient errors (timeouts, connection errors, 5xx, 429)
-// are system failures (Release It C2).
+// are system failures; not-found, stale and conflict are answers and do not trip it.
 func s3Transient(err error) bool { return objstore.Classify(err) == objstore.Transient }
 
 // openTimeout bounds startup's local work, and the bucket check.
 const openTimeout = 10 * time.Second
 
 // newDurable wires durable mode. S3 being down does not stop startup: keys stay unreconciled (unavailable)
-// until it answers (Release It H1).
+// until it answers, while reconciled keys are served.
 func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.StaticHost) (*backend, error) {
 	s := cfg.S3
 	st, err := objstore.New(objstore.Config{Endpoint: s.Endpoint, Bucket: s.Bucket, AccessKey: sec.S3AccessKey, SecretKey: sec.S3SecretKey,
@@ -72,7 +72,7 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	if err != nil {
 		return nil, err
 	}
-	bc := s.Breaker.config() // zero fields: Release It §P S3 sheet
+	bc := s.Breaker.config() // zero fields take the breaker defaults
 	bc.OnChange = logx.BreakerLog(log, "s3")
 	b, err := breaker.New(bc)
 	if err != nil {
@@ -149,9 +149,9 @@ func newDurable(cfg *Config, log *slog.Logger, sec *Secrets, canary *front.Stati
 	return be, nil
 }
 
-// openPlacement opens the configured authority: the single-node file adapter, or Postgres (CP-4). The
-// Postgres pool connects lazily, so the authority being down does not stop startup: keys stay unreconciled
-// (unavailable) until it answers (Release It H1). Its breaker is "placement" in the metrics.
+// openPlacement opens the configured authority: the single-node file adapter, or Postgres (shared with
+// controld). The Postgres pool connects lazily, so the authority being down does not stop startup: keys stay
+// unreconciled (unavailable) until it answers. Its breaker is "placement" in the metrics.
 func (d *durableAgent) openPlacement(sec *Secrets) (owner.Placement, error) {
 	c := d.cfg.PlacementPG
 	if c == nil {
@@ -190,7 +190,7 @@ func (d *durableAgent) breakers() map[string]*breaker.Breaker {
 }
 
 // openSchemas builds the schema registry client (schemas_url), or nil without one. It does no I/O: the first
-// fetch connects, so controld being down does not stop startup (Release It H1).
+// fetch connects, so controld being down does not stop startup.
 func openSchemas(cfg *Config, log *slog.Logger, sec *Secrets) (*schemareg.Client, error) {
 	if cfg.SchemasURL == "" {
 		return nil, nil
@@ -204,7 +204,7 @@ func openSchemas(cfg *Config, log *slog.Logger, sec *Secrets) (*schemareg.Client
 		Validate: validSchema})
 }
 
-// readyCheck passes once the first reconcile round finished: every key was tried once (Release It H1).
+// readyCheck passes once the first reconcile round finished: every key was tried once.
 func (d *durableAgent) readyCheck(context.Context) error {
 	if !d.firstRound.Load() {
 		return errors.New("startup: first reconcile round running")
@@ -240,7 +240,7 @@ func (d *durableAgent) maintain(ctx context.Context) {
 }
 
 // close is the host.close shutdown phase: write back oldest-dirty first within the budget, keep the rest
-// locally, and log what happened (VACTOR.SHUTDOWN; Release It H3). Then the canary.
+// locally, and log what happened (VACTOR.SHUTDOWN): shutdown has one time budget. Then the canary.
 func (d *durableAgent) close(ctx context.Context) error {
 	rep, err := d.host.Shutdown(ctx)
 	attrs := []any{"event", "VACTOR.SHUTDOWN", "written_back", rep.WrittenBack, "dropped", rep.Dropped, "kept", len(rep.Kept),
@@ -256,7 +256,7 @@ func (d *durableAgent) close(ctx context.Context) error {
 }
 
 // register adds durable mode's metric families: S3 requests, the S3 breaker, the host, ownership transitions
-// and the S3 probe (Release It O1).
+// and the S3 probe.
 func (d *durableAgent) register(reg *metrics.Registry) {
 	s3Metrics(reg, d.s3.Metrics)
 	metrics.Breakers(reg, d.breakers())
@@ -289,7 +289,8 @@ func (d *durableAgent) register(reg *metrics.Registry) {
 const probeKey = "~probe"
 
 // s3Probe is the S3 canary: one manifest read every ready_interval, past the breaker, bounded by
-// ready_timeout. Metrics only: it never fails readiness (Release It H2, C5). Transitions are logged.
+// ready_timeout. Metrics only: it never fails readiness, so an S3 outage does not pull an agent that still
+// serves warm traffic from the load balancer. Transitions are logged.
 type s3Probe struct {
 	ok       atomic.Bool
 	lastOK   atomic.Int64 // UnixNano; 0 = never

@@ -1,7 +1,7 @@
-// Package s3test is an in-process, misbehaving S3 server for tests (Release It guide H4, plan RI-13). It
-// speaks enough path-style S3 for internal/objstore: object GET, HEAD, PUT (If-Match / If-None-Match,
-// Content-MD5, x-amz-meta-*), DELETE, ListObjectsV2, multi-object delete, bucket HEAD/PUT/location.
-// Conditional PUTs are checked and applied under one lock, the semantics AWS documents.
+// Package s3test is an in-process, misbehaving S3 server for tests: it injects the protocol faults a real S3 can
+// show. It speaks enough path-style S3 for internal/objstore: object GET, HEAD, PUT (If-Match / If-None-Match,
+// Content-MD5, x-amz-meta-*), DELETE, ListObjectsV2, multi-object delete, bucket HEAD/PUT/location. Conditional PUTs
+// are checked and applied under one lock, the semantics AWS documents.
 //
 // It also breaks the protocol on request: stall after the headers, dribble the body, truncate it, lie in
 // Content-Length, answer 5xx/429, apply a PUT and drop the reply (or answer 412), corrupt the body. Each fault is a
@@ -60,8 +60,8 @@ const (
 	Status                  // any request: answer with Status (and Code) instead
 	ApplyThenDropReply      // PUT: apply the write, then close the connection without a response
 	CorruptBody             // GET: flip one byte of the body
-	// ApplyThenPreconditionFailed: PUT: apply the write, then answer 412. That is what a client that re-sends
-	// a conditional PUT whose reply was lost sees (minio-go's own retries did this, object-storage plan G2).
+	// ApplyThenPreconditionFailed: PUT: apply the write, then answer 412. That is what a client that re-sends a
+	// conditional PUT whose reply was lost sees (minio-go's own retries did this before they were turned off).
 	ApplyThenPreconditionFailed
 )
 

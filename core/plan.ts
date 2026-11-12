@@ -1,5 +1,5 @@
 /**
- * The logical read plan, and its **total** normalisation (plan item 09, work 2).
+ * The logical read plan, and its **total** normalisation.
  *
  * This module is PURE, per the `core/` rule in `docs/adr/0001-effect-port.md`: it imports `effect`
  * and `./errors.ts`, and nothing else. Nothing in here raises; the one rejection is a
@@ -17,8 +17,8 @@
  *    no row order to speak of, and a `countBy` is ordered by its grouping key, not by the caller's
  *    sort.
  *
- * Note on the type parameter order: the plan writes these signatures error-first
- * (`Either<CompileError, SelectPlan>`), but Effect 3's `Either` is value-first — `Either<A, E>`.
+ * Note on the type parameter order: Effect 3's `Either` is value-first — `Either<A, E>` — not
+ * error-first (`Either<CompileError, SelectPlan>`).
  * The code below uses the real Effect order, as `core/schema.ts` does.
  */
 import { Either } from "effect";
@@ -43,9 +43,7 @@ export type SelectPlan = {
 };
 
 /** The inclusive bounds every plan's `limit` must sit within. The MVP has no pagination cursor. */
-// Coordination (item 09 -> item 10): `sdk/db.ts:34` still carries its own 1..1000 limit check.
-// Item 10 should import MIN_LIMIT/MAX_LIMIT rather than duplicating the rule, so the two copies
-// cannot drift.
+// `sdk/db.ts`'s `Find.limit` imports these too, so the builder and `normalise` cannot drift.
 export const MIN_LIMIT = 1;
 export const MAX_LIMIT = 1000;
 

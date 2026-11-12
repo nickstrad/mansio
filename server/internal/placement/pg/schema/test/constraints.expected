@@ -1,6 +1,6 @@
--- constraints.sql — each constraint of the schema files (0001 …) rejects its off point and accepts its on point
--- (SQL G-20, G-21). Run in a fresh schema after the migrations; every statement autocommits, so a refused
--- statement leaves nothing behind. Golden output: constraints.expected (TestConstraintsGolden, -update).
+-- constraints.sql — each constraint of the schema files (0001 …) rejects its off point and accepts its on point.
+-- Run in a fresh schema after the migrations; every statement autocommits, so a refused statement leaves
+-- nothing behind. Golden output: constraints.expected (TestConstraintsGolden, -update).
 -- By hand: psql -X -v ON_ERROR_STOP=0 -a -f constraints.sql (psql's error text differs in layout).
 
 -- Fixtures: two VMs.

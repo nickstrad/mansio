@@ -1,5 +1,6 @@
 /**
- * The differential compile corpus for IR-1 (`intermediate-representation/vectors/README.md`, "Generated compile corpus").
+ * The differential compile corpus for the Go compiler port (ADR 0010;
+ * `intermediate-representation/vectors/README.md`, "Generated compile corpus").
  *
  * Draws schemas and select plans from the fast-check arbitraries of `tests/property/` — valid plans,
  * plans with exactly one defect, and junk that ignores every builder invariant — compiles each with

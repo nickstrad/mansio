@@ -14,7 +14,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/det/dettest"
 )
 
-// CP-2 / PG-09: request ids. Spec tests for the pure parts, fault tests for the statement order, and
+// Request ids (reqid.go). Spec tests for the pure parts, fault tests for the statement order, and
 // integration tests on real SQLite for the gate: the same id retried after a crash and after a move applies
 // exactly once, and a failed write leaves no id row.
 

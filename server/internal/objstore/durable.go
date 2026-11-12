@@ -23,7 +23,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Durable is the S3 adapter for durable.Store (contract 1). Object names are Root + the durable layout.
+// Durable is the S3 adapter for durable.Store. Object names are Root + the durable layout.
 //
 // What is atomic, and what is verified:
 //
@@ -35,17 +35,17 @@ import (
 //     "compare version, then write" atomic. AWS S3 documents both headers on PutObject (2024). Verified on
 //     single-node SeaweedFS 4.47 (2026-11-05): TestS3DurableStoreContract, including concurrent publishes on
 //     one version (exactly one wins), see docs/notes/writeback/2026-11-05-s3-conditional-put-verified.md.
-//     Any other backend or version must pass TestS3Compat first (object-storage guide §7): a server that
-//     ignores the headers would make publishes last-writer-wins.
-//   - Retries (object-storage guide R1–R3): the GETs and the HEAD are retried while Transient; the PUTs are
-//     sent exactly once. A PUT that fails without an answer is ambiguous and says so; the caller re-reads.
-//     minio-go's own retries are off, so a lost reply is never re-sent and misread as a 412.
-//   - Upload integrity (object-storage guide V1, V2): every PUT carries Content-MD5, so the server rejects a
-//     body that differs from what we read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces
-//     it (TestS3Compat X6). The generation's MD5 comes from the caller's digest (vactor computes it in
-//     its sha256 pass); only a digest without one costs an extra read of the file before the PUT. Each
-//     generation records x-amz-meta-{sha256, epoch, generation, key, format} (guide I4: enough to rebuild
-//     its manifest), and a HEAD after the PUT checks the size and the sha256 metadata; the server does not
+//     Any other backend or version must pass TestS3Compat first: a server that ignores the headers would make
+//     publishes last-writer-wins.
+//   - Retries: the GETs and the HEAD are retried while Transient; the PUTs are sent exactly once. A PUT that
+//     fails without an answer is ambiguous and says so; the caller re-reads. minio-go's own retries are off,
+//     so a lost reply is never re-sent and misread as a 412.
+//   - Upload integrity: every PUT carries Content-MD5, so the server rejects a body that differs from what we
+//     read (BadDigest, Permanent) and stores nothing; SeaweedFS 4.47 enforces it (TestS3Compat X6). The
+//     generation's MD5 comes from the caller's digest (vactor computes it in its sha256 pass); only a digest
+//     without one costs an extra read of the file before the PUT. Each generation records
+//     x-amz-meta-{sha256, epoch, generation, key, format} (enough to rebuild its manifest), and a HEAD after
+//     the PUT checks the size and the sha256 metadata; the server does not
 //     check the sha256 itself (minio-go's AutoChecksum does not add
 //     x-amz-checksum-sha256 to a single streaming-signed PUT). FetchGeneration re-hashes every download and
 //     fails with durable.ErrCorrupt on a mismatch, so a bad object is never activated.
@@ -173,8 +173,8 @@ func (d *Durable) stat(ctx context.Context, name string) (durable.GenInfo, error
 	return genInfo(st.Size, st.Metadata), err
 }
 
-// metadata is a generation's x-amz-meta-* (object-storage guide I4). The key is path-escaped, as in the
-// object name: header values must be ASCII.
+// metadata is a generation's x-amz-meta-*, enough to rebuild its manifest. The key is path-escaped, as in the object
+// name: header values must be ASCII.
 func metadata(g durable.GenInfo) map[string]string {
 	return map[string]string{"sha256": g.SHA256, "epoch": strconv.FormatUint(g.Epoch, 10),
 		"generation": strconv.FormatUint(g.Generation, 10), "key": url.PathEscape(g.Key), "format": g.Format}
@@ -279,7 +279,7 @@ func (d *Durable) DeleteGenerations(ctx context.Context, key string, names []str
 	return d.s.Delete(ctx, full)
 }
 
-// ListKey lists KeyPrefix(key) page by page (GC and dbtool only, guide K2).
+// ListKey lists KeyPrefix(key) page by page (GC and dbtool only: never on a request path).
 func (d *Durable) ListKey(ctx context.Context, key string) (durable.Listing, error) {
 	var l durable.Listing
 	man, gen := durable.ManifestObject(key), durable.GenPrefix(key)

@@ -36,12 +36,12 @@ func idList(t *testing.T, a *Actor, c context.Context) string {
 //	kind%6 == 1  queue a delete: DELETE FROM kv WHERE id = key
 //	kind%6 == 2  queue a read of key
 //	kind%6 == 3  flush: wait for every queued op
-//	kind%6 == 5  queue a write with request id "id-<(arg>>3)&3>" (CP-2): (arg>>5)&3 picks INSERT OR REPLACE
+//	kind%6 == 5  queue a write with request id "id-<(arg>>3)&3>": (arg>>5)&3 picks INSERT OR REPLACE
 //	             (0, 1), plain INSERT (2, fails if key exists) or DELETE (3). Four ids, so ids repeat often.
 //	kind%6 == 4  queue an insert that fails if key exists: INSERT OR ROLLBACK (ends the batch's transaction,
-//	             PG-01) when arg bit 6 is clear, plain INSERT (fails on its own) when set
+//	             see txnend_test.go) when arg bit 6 is clear, plain INSERT (fails on its own) when set
 //
-// The model holds the PG-01 property: a write answered without error is committed, a write answered with an
+// The model holds the batch property: a write answered without error is committed, a write answered with an
 // error is not. So at each flush the model applies, in queue order, exactly the writes that reported success;
 // after the flush every key read on its own must equal the model. A successful insert must find its key absent
 // in the model at that point in the order.
@@ -50,7 +50,7 @@ func idList(t *testing.T, a *Actor, c context.Context) string {
 // may see any value its key held during that group (checked against everything queued for that key in the
 // group). arg's bit 7 picks the read pool.
 //
-// Request ids (CP-2): a write whose id the model has applied must answer Duplicate with the original's row
+// Request ids: a write whose id the model has applied must answer Duplicate with the original's row
 // count and change nothing; a write answered without Duplicate must carry an id the model has not applied; a
 // write that fails on its own is never a duplicate. After each flush the database's id rows equal the model's
 // applied ids: a failed or rolled-back write leaves none.

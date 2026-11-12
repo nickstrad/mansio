@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// simulated lists the packages a deterministic simulation drives (IR protocol plan §6.4). Each decides state
+// simulated lists the packages a deterministic simulation drives. Each decides state
 // from time, randomness or generated ids, so it must take them from det's Clock, Rand and IDGen. Paths are
 // relative to internal/; subpackages are listed on their own. Adapters (objstore, placement/pg,
 // placement/file, control/agenthttp, logx, metrics, stats, fsx, faultnet), the benchmark harnesses (bench,
@@ -95,7 +95,7 @@ func banned(path, name string) (string, bool) {
 }
 
 // TestSimulatedPackagesUseSeams fails when a simulated package reads the wall clock, the global random
-// generator, crypto entropy or a uuid package directly (DST-0). Test files are not checked.
+// generator, crypto entropy or a uuid package directly. Test files are not checked.
 func TestSimulatedPackagesUseSeams(t *testing.T) {
 	root := filepath.Join("..") // internal/
 	used := map[string]bool{}

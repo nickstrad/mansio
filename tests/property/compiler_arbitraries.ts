@@ -1,6 +1,6 @@
 /**
- * Generators and SQL-auditing helpers for the item-13 property suites (compiler, plan, decode, SQLite
- * oracle). Everything the four item-13 files share lives here.
+ * Generators and SQL-auditing helpers for the compiler property suites (compiler, plan, decode, SQLite
+ * oracle). Everything those four files share lives here.
  *
  * Two families of things:
  *
@@ -932,7 +932,7 @@ function expectedCast(node: Node | undefined): string {
   return "none";
 }
 
-/** SQLite casts only a `json`-layout `number` read, to REAL (plan item 30); every other kind is bare. */
+/** SQLite casts only a `json`-layout `number` read, to REAL; every other kind is bare. */
 function expectedSqliteCast(node: Node | undefined): string {
   return node?.kind === "number" ? "REAL" : "none";
 }

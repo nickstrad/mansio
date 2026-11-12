@@ -16,7 +16,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The app schema registry and app databases (IR protocol plan §2.4, §4; ADR 0011):
+// The app schema registry and app databases (ADR 0011):
 //
 //	PUT  /v1/apps/{app}/schema                    admin   {"fingerprint", "schema"} → {"code","app","fingerprint","created"}
 //	GET  /v1/apps/{app}/schemas/{fingerprint}     admin or control token (agents) → {"code","app","fingerprint","schema"}

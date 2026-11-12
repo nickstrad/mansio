@@ -1,6 +1,6 @@
 /**
  * `docs/guide.md` against the repo: every `deno task` it names exists, and its H2 outline is fixed. The Deno
- * platform's checks of its environment options went with it at IR-6; the event-log CLI's options are
+ * platform's checks of its environment options went with it (ADR 0013); the event-log CLI's options are
  * `eventlog/config.ts`'s (`tests/unit/eventlog_config_test.ts`).
  */
 import assert from "node:assert/strict";

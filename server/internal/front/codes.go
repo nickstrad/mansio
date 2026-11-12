@@ -1,4 +1,4 @@
-// Package front is the agent's client-facing request pipeline (scale-out option 4 §2 "actor-front"):
+// Package front is the agent's client-facing request pipeline, in front of the actors:
 //
 //	validate the request → verify the ticket → Admitter.Admit(db, epoch) → per-tenant and per-database
 //	admission (caps, shedding, deadlines) → Executor → wire code
@@ -22,7 +22,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
-// Code is a wire outcome (contract 3 in shared_state.md). The set is closed: clients switch on it.
+// Code is a wire outcome, shared by agentd and the edge. The set is closed: clients switch on it.
 type Code string
 
 const (
@@ -70,8 +70,7 @@ func (c Code) index() int {
 	return 10
 }
 
-// Outcome classes per integration point (Release It guide O1): the same six for every dependency, so
-// dashboards and alerts compare them.
+// Outcome classes per integration point: the same six for every dependency, so dashboards and alerts compare them.
 const (
 	ClassOK        = "ok"
 	ClassAppError  = "app_error" // the dependency answered no: bad input, not owned, statement rejected or too slow
@@ -128,9 +127,9 @@ var Spec = map[Code]Wire{
 // Sentinels for outcomes produced by the ports and the pipeline. Adapters translate their own errors into these
 // (e.g. the owner adapter maps owner.ErrFenced to ErrFenced) so this package imports no other agent's code.
 //
-// ErrUnavailable: a dependency the request needs (S3, the placement authority, the fetch bulkhead) cannot serve
-// it now; nothing ran. It is a system failure, not a bug: 503 + Retry-After, logged at WARN, sampled (Release It
-// F2). Adapters wrap their dependency's sentinel with it (cmd/agentd lists which ones).
+// ErrUnavailable: a dependency the request needs (S3, the placement authority, the fetch bulkhead) cannot serve it
+// now; nothing ran. It is a system failure, not a bug: 503 + Retry-After, logged at WARN, sampled. Adapters wrap
+// their dependency's sentinel with it (cmd/agentd lists which ones).
 var (
 	ErrShed        = errors.New("front: shed")
 	ErrUnavailable = errors.New("front: dependency unavailable")
@@ -146,9 +145,9 @@ var (
 	ErrDraining    = errors.New("front: draining")
 )
 
-// RetryHint is implemented by errors that know when a retry can succeed, e.g. a breaker's time to half-open.
-// For codes that carry Retry-After, the answer's Retry-After is max(the Spec floor, the hint), capped at
-// MaxRetryAfter (Release It R3: the server tells clients when to come back).
+// RetryHint is implemented by errors that know when a retry can succeed, e.g. a breaker's time to half-open. For
+// codes that carry Retry-After, the answer's Retry-After is max(the Spec floor, the hint), capped at MaxRetryAfter,
+// so the server tells clients when to come back.
 type RetryHint interface{ RetryAfter() time.Duration }
 
 // MaxRetryAfter caps a hinted Retry-After, so a wrong hint cannot park clients for long.

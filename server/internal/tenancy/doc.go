@@ -1,7 +1,7 @@
-// Package tenancy is mansio's tenants, API keys, users and sessions on the Go backend (replace-platform plan
-// §4.4, phase 3; IR-4a; ADR 0012): who a bearer credential is, and the admin and sign-in operations behind
-// /admin/tenants and /api/auth. Domain code: no I/O and no logging. It reaches Postgres through the Store port
-// (internal/placement/pg implements it); tenancyhttp is its HTTP adapter.
+// Package tenancy is mansio's tenants, API keys, users and sessions on the Go backend (ADR 0012): who a bearer
+// credential is, and the admin and sign-in operations behind /admin/tenants and /api/auth. Domain code: no I/O and no
+// logging. It reaches Postgres through the Store port (internal/placement/pg implements it); tenancyhttp is its HTTP
+// adapter.
 //
 // # The credential decides the tenant
 //

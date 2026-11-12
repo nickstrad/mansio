@@ -11,9 +11,9 @@
  * 2. The tag inventory is **frozen**. `TagsAreExactly` fails if a tag is added to or removed from
  *    `PlatformError` without updating this list, which forces the change to be deliberate.
  * 3. `toHttpStatus` **rejects** a tagged error that is not in the union (the `@ts-expect-error`).
- * 4. The four union aliases the plan names (`DbError`, `MutationError`, `QueryError`,
+ * 4. The four union aliases (`DbError`, `MutationError`, `QueryError`,
  *    `PlatformError`) nest as documented, and the never-served unions stay out of `PlatformError`.
- *    FFI-05's `StatementDeadlineError` joins at `DbError`, not inside the IPC-facing unions.
+ *    `StatementDeadlineError` (ADR 0008) joins at `DbError`, not inside the IPC-facing unions.
  */
 import { Data } from "effect";
 import * as E from "../core/errors.ts";
@@ -31,10 +31,10 @@ type Extends<A, B> = [A] extends [B] ? true : false;
 const _acceptsThePlatformUnion: (error: E.PlatformError) => number = E.toHttpStatus;
 
 /**
- * Independent restatement of §1.3. `Record<PlatformError["_tag"], number>` is exhaustive by
- * construction: omit a tag and this object literal fails to typecheck. The values are asserted
+ * Independent restatement of the tag-to-status mapping (ADR 0002).
+ * `Record<PlatformError["_tag"], number>` is exhaustive by construction: omit a tag and this object literal fails to typecheck. The values are asserted
  * against `toHttpStatus` is key-set only — value parity with `toHttpStatus` is a runtime
- * concern for item 22's tests.
+ * concern for the HTTP tests.
  */
 const statusByTag: Record<E.PlatformError["_tag"], number> = {
   SchemaError: 400,
@@ -65,7 +65,7 @@ type _StatusTableIsExact = Expect<Equals<keyof typeof statusByTag, E.PlatformErr
 // --- 2. the frozen tag inventory -------------------------------------------
 
 /**
- * Every tag that can reach an HTTP response, as of item 02. Changing `PlatformError` without
+ * Every tag that can reach an HTTP response. Changing `PlatformError` without
  * changing this list is a compile error, so the taxonomy cannot grow by accident.
  */
 type FrozenPlatformTags =
@@ -88,7 +88,7 @@ type FrozenPlatformTags =
   | "IngestError"
   | "AnalysisError"
   | "UnknownAnalysisQuery"
-  // FFI-05: an unbounded statement stopped at its deadline.
+  // An unbounded statement stopped at its deadline (ADR 0008).
   | "StatementDeadlineError";
 
 type _TagsAreExactly = Expect<Equals<E.PlatformError["_tag"], FrozenPlatformTags>>;
@@ -143,13 +143,13 @@ type _DeadlineIsNotInMutationError = Expect<
 >;
 type _DeadlineIsServed = Expect<Extends<E.StatementDeadlineError, E.PlatformError>>;
 
-// --- the payload shapes the plan's own examples rely on --------------------
+// --- the documented payload shapes ----------------------------------------
 
 export function documentedConstructorsCompile() {
-  // plan §1.4, verbatim shape
+  // the documented shapes, verbatim
   const notFound = new E.NotFoundError({ table: "games", id: "id-1" });
   const conflict = new E.ConflictError({ expected: 1, actual: 2 });
-  // item 02's own examples
+  // the taxonomy's own examples
   const schema = new E.SchemaError({
     path: "cell",
     expected: "integer",
@@ -157,7 +157,7 @@ export function documentedConstructorsCompile() {
     reason: "type-mismatch",
   });
   const compile = new E.CompileError({ reason: "unsupported-operator", field: "status" });
-  // FFI-05's payload
+  // the statement-deadline payload
   const deadline = new E.StatementDeadlineError({
     deadlineMs: 5000,
     elapsedMs: 5000.4,

@@ -396,8 +396,8 @@ func (noopExec) Exec(context.Context, front.Call) (front.Reply, error) {
 	return front.Reply{Columns: []string{"k", "v"}, Rows: [][]any{{int64(1), "v1"}}, Count: 1}, nil
 }
 
-// CP-2: a write retried with the same request_id (after an ambiguous expired, an internal, or a lost reply) is
-// answered ok with the original's count and duplicate=true, and does not run again.
+// A write retried with the same request_id (after an ambiguous expired, an internal, or a lost reply) is answered ok
+// with the original's count and duplicate=true, and does not run again.
 func TestDuplicateRequestIDAnswersOK(t *testing.T) {
 	r := newRig(t, front.Config{})
 	in := func() front.Input { return front.Input{Ticket: r.tok(t, "db-1", nil), Body: put(40)} }

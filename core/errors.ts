@@ -1,7 +1,7 @@
 /**
  * The error taxonomy. Every failure in this repo is one of these tagged classes.
  *
- * This module is the contract the rest of the Effect port codes against (plan item 02). It is PURE:
+ * This module is the contract the rest of the Effect port codes against. It is PURE:
  * it imports `effect` and nothing else — no platform or SDK modules, no Node built-ins, no native
  * npm packages, no Deno globals. See `docs/adr/0001-effect-port.md` for the `core/` purity rule and
  * `docs/adr/0002-error-taxonomy.md` for the per-tag payload rationale and the mapping from every
@@ -10,8 +10,8 @@
  * Three rules for everything built on top of this file:
  *
  * 1. Errors carry **structured fields**, never a pre-formatted message. Rendering a human string is
- *    the caller's job (`sdk/schema.ts`'s `formatSchemaError`, the HTTP body in item 22,
- *    `core/events.ts`'s `fromPlatformError` in item 07).
+ *    the caller's job (`sdk/schema.ts`'s `formatSchemaError`, the HTTP error body,
+ *    `core/events.ts`'s `fromPlatformError`).
  * 2. A tag's HTTP status is decided once, in `toHttpStatus`. Adding a member to `PlatformError`
  *    without adding a case there is a compile error.
  * 3. `Data.TaggedError` extends `Error`, so these are `yield*`-able inside `Effect.gen` and still
@@ -76,7 +76,7 @@ export type QueueName = "writer" | "reader" | "events";
 /** The two kinds of handler. Mirrors `sdk/functions.ts`'s `Kind` without importing it. */
 export type HandlerKind = "query" | "mutation";
 
-/** The backup phases, in the order `Backups.take` performs them (item 19). */
+/** The backup phases, in the order `Backups.take` performs them. */
 export type BackupPhase =
   | "snapshot"
   | "verify"
@@ -85,7 +85,7 @@ export type BackupPhase =
   | "put-manifest"
   | "publish-latest";
 
-/** The phases of a JSONL-to-DuckDB ingest run (item 21). */
+/** The phases of a JSONL-to-DuckDB ingest run. */
 export type IngestPhase = "inventory" | "plan" | "read" | "insert" | "commit" | "state-update";
 
 // ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ export class DecodeError extends Data.TaggedError("DecodeError")<{
 /**
  * An application invariant was violated — the app-domain failures that today read
  * `throw new Error("Not your turn")`. `rule` is an app-defined identifier; the platform only
- * transports it. Item 10 moves these into `examples/tic-tac-toe/rules.ts`.
+ * transports it. The sample app's rules live in `examples/tic-tac-toe/rules.ts`.
  */
 export class RuleError extends Data.TaggedError("RuleError")<{
   readonly rule: string;
@@ -134,7 +134,7 @@ export class RuleError extends Data.TaggedError("RuleError")<{
 }> {}
 
 // ---------------------------------------------------------------------------
-// Routing and authentication errors (raised by the HTTP surface; the Deno platform's until IR-6)
+// Routing and authentication errors (raised by the HTTP surface, the Deno platform's until it was removed)
 // ---------------------------------------------------------------------------
 
 /** The app exists but exports no handler by this name. */
@@ -177,8 +177,7 @@ export class NotFoundError extends Data.TaggedError("NotFoundError")<{
 
 /**
  * Optimistic-concurrency failure: the caller's `_version` is not the stored one.
- * `table` and `id` are optional so app handlers can fail with just the two versions
- * (see the plan's §1.4 example).
+ * `table` and `id` are optional so app handlers can fail with just the two versions.
  */
 export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly expected: number;
@@ -228,7 +227,7 @@ export class NonSerializableResultError extends Data.TaggedError("NonSerializabl
 }> {}
 
 // ---------------------------------------------------------------------------
-// Statement deadline (both SQLite paths, FFI-05)
+// Statement deadline (both SQLite paths, ADR 0008)
 // ---------------------------------------------------------------------------
 
 /** The unbounded statement kinds a deadline can stop: a plain select, `count` or `countBy`. */
@@ -304,7 +303,7 @@ export class BackupError extends Data.TaggedError("BackupError")<{
   readonly cause?: unknown;
 }> {}
 
-/** A restore run refused to continue (the Deno platform's restore script; unused since IR-6). CLI-only. */
+/** A restore run refused to continue (the removed Deno platform's restore script; now unused). CLI-only. */
 export class RestoreError extends Data.TaggedError("RestoreError")<{
   readonly reason: RestoreFailure;
   readonly detail?: string;
@@ -348,7 +347,7 @@ export class ConfigError extends Data.TaggedError("ConfigError")<{
 
 /**
  * A call through `sdk/client.ts` ended with a definite, tagged failure. Raised in the *caller's*
- * process; never served. Since IR-3 the tag is decided either by the server (a non-2xx `/v1/ops`
+ * process; never served. The tag is decided either by the server (a non-2xx `/v1/ops`
  * answer) or by the handler, which now runs in the caller's process: a handler failure such as
  * `makeMove`'s `ConflictError`, or a `SchemaError` from argument parsing, is reported with the status
  * the server would have answered (`toHttpStatus`), so callers see the same `status`/`remoteTag` on
@@ -368,7 +367,7 @@ export class RemoteError extends Data.TaggedError("RemoteError")<{
 }> {}
 
 /**
- * A call through `sdk/client.ts` got no definite answer (IR-3): the server never answered, kept
+ * A call through `sdk/client.ts` got no definite answer: the server never answered, kept
  * answering a retryable code (`shed`, `unavailable`, `aborted`, `expired`, `wrong_owner`, `fenced`)
  * until the retry policy, the retry budget or the call's deadline ran out, or the locator could not
  * route it. `code` is the last code seen (`transport` for no answer, `deadline` for the call's own
@@ -416,8 +415,8 @@ export type QueryError =
   | ReaderError;
 
 /**
- * The SDK seam: `Execute = (operation) => Effect<unknown, DbError>` (plan §1.4). Both SQLite paths
- * can also stop an unbounded statement at its deadline (`StatementDeadlineError`, FFI-05). That tag
+ * The SDK seam: `Execute = (operation) => Effect<unknown, DbError>`. Both SQLite paths
+ * can also stop an unbounded statement at its deadline (`StatementDeadlineError`, ADR 0008). That tag
  * joins here rather than in `MutationError` / `QueryError`, whose members cross the reader IPC and
  * are listed exhaustively by the DuckDB reader and the test doubles, none of which can raise it.
  */
@@ -425,7 +424,7 @@ export type DbError = MutationError | QueryError | StatementDeadlineError;
 
 /**
  * What the reader process can send back inside a `ReaderReply` error frame. The parent rehydrates
- * these (item 17) instead of collapsing them into `IpcError`, so a query-side validation failure
+ * these instead of collapsing them into `IpcError`, so a query-side validation failure
  * still answers 400 rather than 502.
  */
 export type RemoteReaderError =
@@ -467,14 +466,14 @@ export type AnyError = PlatformError | StartupError | CliError | ClientError;
 // ---------------------------------------------------------------------------
 
 /**
- * The single place a tag becomes a status (plan §1.3). Total by construction: the `default` branch
+ * The single place a tag becomes a status. Total by construction: the `default` branch
  * narrows `error` to `never`, so adding a member to `PlatformError` without a case here is a type
  * error. `tests/errors_exhaustiveness.ts` locks that property in the `check` entry points.
  *
- * ADR 0002 records the deliberate mappings (`ConflictError` → 409, `RequestTooLarge` → 413) and FFI-05's
- * `StatementDeadlineError` → 504. The SDK uses this for a failure decided in the caller's process.
+ * ADR 0002 records the deliberate mappings (`ConflictError` → 409, `RequestTooLarge` → 413) and
+ * `StatementDeadlineError` → 504 (ADR 0008). The SDK uses this for a failure decided in the caller's process.
  *
- * IR-6 deleted the classes only the Deno platform raised and nothing else used (`RouteNotFound`,
+ * Removing the Deno platform (ADR 0013) deleted the classes only it raised and nothing else used (`RouteNotFound`,
  * `UnknownAppError`, `ContextExpiredError`, `QueryWriteAttemptError`, `QueueFullError`,
  * `ReaderExitedError`, `InvalidKeyError`, `BackupAlreadyRunning`, `SnapshotIntegrityError` and the three
  * tenant errors). Old event-log rows keep those names as plain `error_tag` text; decoding a JSONL line
@@ -523,7 +522,7 @@ export function toHttpStatus(error: PlatformError): number {
     case "ObjectStoreError":
       return 502;
 
-    // 504 — a statement ran past its deadline and was interrupted (FFI-05).
+    // 504 — a statement ran past its deadline and was interrupted (ADR 0008).
     case "StatementDeadlineError":
       return 504;
 

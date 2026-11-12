@@ -23,7 +23,8 @@ if [ "$cmd" != run ] && { [ "$host_gb" -lt "$host_min" ] || [ "$vm_gb" -lt "$vm_
   exit 1
 fi
 
-# Shared benchmark lock (see ../agent-work/server/state_files/STATE-coldload.md "Coordination"): one benchmark at a time on this machine.
+# Shared benchmark lock (results/.bench-lock; its owner file names the holder): one benchmark at a time on this
+# machine, so runs do not skew each other's numbers.
 lock="$root/results/.bench-lock"
 if [ "$cmd" = run ] || [ "$cmd" = all ]; then
   mkdir -p "$root/results"

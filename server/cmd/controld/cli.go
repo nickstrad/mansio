@@ -30,7 +30,7 @@ func need(names ...string) error {
 	return nil
 }
 
-// commands are the admin calls, each a thin wrapper over one API endpoint (Release It C4: scriptable).
+// commands are the admin calls, each a thin wrapper over one API endpoint, so every operation can be scripted.
 var commands = map[string]*command{
 	"create": {"-tenant T -name N", func(fs *flag.FlagSet) func() (string, string, any, error) {
 		tenant, name := fs.String("tenant", "", "tenant id"), fs.String("name", "", "database name")

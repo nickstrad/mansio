@@ -1,5 +1,5 @@
 /**
- * Property tests for `core/plan.ts` and for the plan generators themselves (plan item 13, work 1).
+ * Property tests for `core/plan.ts` and for the plan generators themselves.
  *
  * `normalise` is where the limit rule and the aggregate-drops-order rule live, and it is the only
  * copy of either rule: `compileSelect` must reject a limit exactly when `normalise` does. The second

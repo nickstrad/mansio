@@ -1,5 +1,5 @@
 /**
- * Schema descriptors and **total** validation (plan item 04).
+ * Schema descriptors and **total** validation.
  *
  * This module is PURE, per the `core/` rule in `docs/adr/0001-effect-port.md`: it imports `effect`
  * and `./errors.ts`, and nothing else — no `eventlog/`, no `sdk/`, no `node:*`, no `npm:*`, no
@@ -7,9 +7,8 @@
  * `Either`, carrying the structured `path`/`expected`/`actual` fields rather than a formatted
  * message; rendering a human string is the caller's job (`sdk/schema.ts`'s `formatSchemaError`).
  *
- * Note on the type parameter order: the plan writes these signatures error-first
- * (`Either<SchemaError, unknown>`), but Effect 3's `Either` is value-first — `Either<A, E>`. The
- * code below uses the real Effect order.
+ * Note on the type parameter order: Effect 3's `Either` is value-first — `Either<A, E>` — not
+ * error-first (`Either<SchemaError, unknown>`). The code below uses the real Effect order.
  *
  * The validation semantics are carried over from the pre-port `sdk/schema.ts` unchanged:
  * `null` is accepted only when the node is `nullable`, `number` requires `Number.isFinite`,
@@ -17,7 +16,7 @@
  * exactly and is validated element-wise, unknown object keys are rejected, and `partial` mode
  * (document patches) skips absent keys instead of validating `undefined`.
  *
- * `storable` is the one storage rule layered on top (plan item 31, `docs/adr/0005-text-storage-contract.md`):
+ * `storable` is the one storage rule layered on top (`docs/adr/0005-text-storage-contract.md`):
  * text bound for SQLite must not contain U+0000. `validate` itself still accepts it.
  */
 import { Either } from "effect";

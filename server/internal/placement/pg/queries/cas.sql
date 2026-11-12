@@ -1,6 +1,6 @@
 -- cas.sql — Placement.CAS on an existing row; also records the flip when MOVING → ACTIVE on another VM.
 -- One statement, one snapshot: the moves row exists iff the flip happened. Under read committed a racing CAS
--- waits for the row, re-checks the where clause on the new version and updates 0 rows (SQL G-9).
+-- waits for the row, re-checks the where clause on the new version and updates 0 rows.
 -- count 0 ⇒ owner.ErrConflict; 1 ⇒ success. A trigger error (placement_epoch_monotonic) is a caller bug.
 -- Params: $1 key; $2..$5 expected owner, epoch, generation, state; $6..$9 next owner, epoch, generation, state.
 with flipped as (

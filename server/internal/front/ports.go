@@ -8,7 +8,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/actor"
 )
 
-// Admitter is the ownership port (contract 2; fencing's internal/owner implements it through an adapter).
+// Admitter is the ownership port: internal/owner implements it through an adapter.
 type Admitter interface {
 	// Admit lets one request for db at the ticket's epoch in, or refuses it.
 	//
@@ -98,9 +98,9 @@ type Host interface {
 	Lookup(ctx context.Context, db string) (*actor.Actor, error)
 }
 
-// Credentials is the single-node auth port for /v1/ops (replace-platform plan §4.4; ADR 0012): a bearer that is
-// not a ticket (an app token, a tenant API key, a session) is checked here. The tenant comes from the
-// credential; the request body's db.tenant is ignored.
+// Credentials is the single-node auth port for /v1/ops (ADR 0012): a bearer that is not a ticket (an app token, a
+// tenant API key, a session) is checked here. The tenant comes from the credential; the request body's db.tenant is
+// ignored.
 type Credentials interface {
 	// Authenticate returns the tenant and a log subject for token used with app.
 	//

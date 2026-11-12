@@ -1,6 +1,6 @@
-// Package keyfetch keeps a ticket key ring in step with the issuer (control-plane plan CP-5): every Every it
-// GETs URL (controld's GET /v1/keys), bounded by Timeout, and replaces the ring when the set changed. Shared by
-// agentd and the edge (CP-7), which verify the same tickets.
+// Package keyfetch keeps a ticket key ring in step with the issuer: every Every it GETs URL (controld's GET
+// /v1/keys), bounded by Timeout, and replaces the ring when the set changed. Shared by agentd and the edge, which
+// verify the same tickets.
 //
 // The issuer publishes a key before it signs with it and keeps a retired key published for the ticket lifetime,
 // so a fetch period well under ticket_keys.activate never refuses a valid ticket. A failed fetch keeps the
@@ -36,7 +36,7 @@ import (
 
 const module = "keyfetch"
 
-// MaxBody bounds the key set answer (Release It B6).
+// MaxBody bounds the key set answer, so a bad answer cannot exhaust memory.
 const MaxBody = 64 << 10
 
 // Config is one fetcher.
@@ -104,7 +104,7 @@ func LoadFile(path string) (*ticket.KeyRing, error) {
 	return ticket.NewKeyRing(keys), nil
 }
 
-// Run fetches now, then every period until ctx ends; a fetch never overlaps the next (Release It S1).
+// Run fetches now, then every period until ctx ends; a fetch never overlaps the next.
 func (f *Fetcher) Run(ctx context.Context) {
 	t := f.cfg.Clock.NewTicker(f.cfg.Every)
 	defer t.Stop()

@@ -15,7 +15,7 @@ type Admission struct {
 	l   *limiter
 	now func() time.Time
 
-	// Guarded by mu: for Stats (Release It O1: in use, high water, times full) and the shed Retry-After.
+	// Guarded by mu: for Stats (in use, high water, times full) and the shed Retry-After.
 	wouldExpire     int64 // shed because the request was expected to finish after its deadline (not in shed)
 	shed            int64
 	inFlightHW, qHW int
@@ -160,8 +160,8 @@ func (d *drainRate) perSec(now time.Time) float64 {
 	return float64(d.prev)
 }
 
-// queueDrain estimates when a shed request could be admitted: the queue ahead of it, plus itself, at the
-// measured rate (Release It R3: the server says when to come back). 0 = no estimate (the Spec floor applies).
+// queueDrain estimates when a shed request could be admitted: the queue ahead of it, plus itself, at the measured
+// rate, so the server can say when to come back. 0 = no estimate (the Spec floor applies).
 //
 //	post: perSec <= 0 ⇒ 0; otherwise (queued+1)/perSec seconds
 func queueDrain(queued int, perSec float64) time.Duration {

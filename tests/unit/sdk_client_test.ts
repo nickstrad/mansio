@@ -1,5 +1,5 @@
 /**
- * The IR-3 SDK client against an in-memory `/v1/ops` (`sdk_model.ts`), through the real HTTP transport
+ * The SDK client against an in-memory `/v1/ops` (`sdk_model.ts`), through the real HTTP transport
  * (a fake `fetch`): what the sample app's handlers send, the handler-retry model (derived vs app
  * conflicts, duplicates, lost replies, shed, budget), routing (static tokens, the locator), and the
  * ticket and id formats. Pure: no server, no SQLite.

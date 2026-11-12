@@ -16,7 +16,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
-// The admin endpoints: runtime controls without a deploy (Release It C4, ch. 16; plan RI-16). They are served
+// The admin endpoints: runtime controls (breakers, limits) an operator can change without a deploy. They are served
 // only on admin_listen, a third listener separate from the query and lifecycle listeners, with the lifecycle
 // listener's server-wide timeouts. admin_listen must be a loopback address: binding is their only access
 // control (whoever can reach a loopback port already has a shell on the VM and could signal the process).

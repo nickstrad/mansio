@@ -118,7 +118,7 @@ type RateLimit struct {
 	MaxSources int     `json:"max_sources"`         // default 100,000
 }
 
-// BreakerConfig is a breaker's thresholds in a config file; zero fields take Release It §P.
+// BreakerConfig is a breaker's thresholds in a config file; zero fields take the breaker package's defaults.
 type BreakerConfig struct {
 	Window      load.Duration `json:"window"`
 	MinCalls    int           `json:"min_calls"`
@@ -282,7 +282,7 @@ func checkAgentURL(s string) error {
 }
 
 // checkDev refuses what only local development may do unless -dev is given: plain HTTP to clients or to agents
-// (object-storage guide S2's rule for S3, applied to the edge's two hops), and a CA file nothing would use.
+// (TLS outside a developer laptop, applied to the edge's two hops), and a CA file nothing would use.
 func (c *Config) checkDev() error {
 	plain := 0 // agents reached over plain http
 	for _, u := range c.Agents {

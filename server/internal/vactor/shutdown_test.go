@@ -13,7 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// RI-06 acceptance: 500 dirty databases, every store call takes 100 ms, a 1.5 s budget. Shutdown returns
+// 500 dirty databases, every store call takes 100 ms, a 1.5 s budget. Shutdown returns
 // within the budget plus a little, every database is either published or kept on disk (never lost), and the
 // write-backs that made it are the ones with the oldest unpublished writes.
 func TestCloseHonorsDeadline(t *testing.T) {

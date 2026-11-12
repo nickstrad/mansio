@@ -121,7 +121,7 @@ func TestSchemaReadDoesNotQueueBehindAdminCalls(t *testing.T) {
 	if code, _ := do(t, srv, http.MethodPut, "/v1/apps/tic-tac-toe/schema", adminToken, body); code != 503 {
 		t.Fatalf("PUT with the admin bulkhead full: %d, want 503", code)
 	}
-	if d.api.Shed() != 1 || d.resolves.Shed() != 0 || d.loads.Shed() != 0 { // B1: counted against its own pool
+	if d.api.Shed() != 1 || d.resolves.Shed() != 0 || d.loads.Shed() != 0 { // counted against its own pool
 		t.Fatalf("refusals counted: api %d resolve %d load %d, want 1, 0 and 0", d.api.Shed(), d.resolves.Shed(), d.loads.Shed())
 	}
 }
@@ -328,7 +328,7 @@ type noSigner struct{}
 
 func (noSigner) Mint(ticket.Claims) (string, error) { return "", errors.New("not reached") }
 
-// B4: create on first use has its own small bulkhead. With every create slot taken, a creating resolve is
+// Create on first use has its own small bulkhead. With every create slot taken, a creating resolve is
 // refused shed with Retry-After before it reads the schema registry, counts databases or calls an agent.
 func TestCreateOnFirstUseIsBoundedByItsOwnSlots(t *testing.T) {
 	store := &memSchemas{regs: map[[2]string][]byte{}}
@@ -365,7 +365,7 @@ func (m *memSchemas) appReads() int {
 	return m.apps
 }
 
-// B11: the pools in front of Postgres have a runtime lever. Lowering resolve_load applies to the next read; the
+// The pools in front of Postgres have a runtime lever. Lowering resolve_load applies to the next read; the
 // pool budget (load + create + api below pg.max_conns) cannot be broken at run time either.
 func TestLimitLever(t *testing.T) {
 	store := &memSchemas{regs: map[[2]string][]byte{}}

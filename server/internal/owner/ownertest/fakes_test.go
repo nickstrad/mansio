@@ -19,7 +19,7 @@ func TestMemStoreContract(t *testing.T) {
 	})
 }
 
-// The fake object store must implement contract 1 exactly, or every test built on it proves nothing.
+// The fake object store must implement the durable.Store contract exactly, or every test built on it proves nothing.
 func TestObjectsImplementContract1(t *testing.T) {
 	o := ownertest.NewObjects()
 	g1, _ := o.Upload("k", []string{"a"})

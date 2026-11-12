@@ -8,9 +8,9 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Operation names for Metrics (Release It guide §P, object-storage guide O1). One name per kind of HTTP
-// request this package sends; a durable write-back is put_gen + head + get_manifest + publish. The durable
-// ones are durable's names, so request counts mean the same for every Store (durable.RequestCounter).
+// Operation names for Metrics: every S3 request is measured. One name per kind of HTTP request this package sends; a
+// durable write-back is put_gen + head + get_manifest + publish. The durable ones are durable's names, so request
+// counts mean the same for every Store (durable.RequestCounter).
 const (
 	OpGetManifest = durable.OpGetManifest // GET manifest.json
 	OpFetch       = durable.OpFetch       // GET a generation

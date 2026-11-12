@@ -1,6 +1,6 @@
 // Package schemaregtest is a fake schema registry: an httptest server speaking controld's
-// GET /v1/apps/{app}/schemas/{fingerprint}, with fault switches (Release It H4), for schemareg.Client's tests
-// and for anything built on it (IR-2b's executor).
+// GET /v1/apps/{app}/schemas/{fingerprint}, with fault switches, for schemareg.Client's tests
+// and for anything built on it (the document executor).
 package schemaregtest
 
 import (

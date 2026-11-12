@@ -40,7 +40,7 @@ type VMLoad struct {
 // VM is a VM registry row.
 type VM struct {
 	ID   string
-	Dead bool // an operator attested it dead (M5)
+	Dead bool // an operator attested it dead
 }
 
 // Stuck is a placement row MOVING for a while, with the registry's intent for it.
@@ -87,8 +87,8 @@ type Agent interface {
 	Forget(ctx context.Context, key string) error
 }
 
-// Objects deletes a database's objects: everything under durable.KeyPrefix(key), and nothing else (object-storage
-// guide GC: drop = placement tombstone first, then the prefix). Idempotent.
+// Objects deletes a database's objects: everything under durable.KeyPrefix(key), and nothing else (a drop writes
+// the placement tombstone first, then deletes the prefix). Idempotent.
 type Objects interface {
 	DeletePrefix(ctx context.Context, key string) (int, error)
 }

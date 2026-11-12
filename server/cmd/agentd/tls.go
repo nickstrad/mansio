@@ -9,7 +9,7 @@ import (
 )
 
 // TLSFiles is the query listener's server certificate and key (PEM). With it the listener speaks HTTPS, h2 and
-// http/1.1 by ALPN (protocols then does not apply): the edge → agent hop (control-plane plan CP-7), where the
+// http/1.1 by ALPN (protocols then does not apply): the edge → agent hop, where the
 // edge checks the certificate against the operator's private CA (its agent_tls.ca_file).
 type TLSFiles = tlsx.Files
 
@@ -26,8 +26,8 @@ func (c *Config) queryTLS() (*tls.Config, error) {
 }
 
 // checkTLS refuses, without -dev, a query listener that clients off this host could reach in plain HTTP:
-// outside a laptop, agents sit behind the edge and speak TLS to it (object-storage guide S2's rule, applied to
-// the agent's own listener).
+// outside a laptop, agents sit behind the edge and speak TLS to it (the same TLS-outside-a-laptop rule as for
+// S3, applied to the agent's own listener).
 func (c *Config) checkTLS() error {
 	if c.TLS == nil && c.Listen != "" && !tlsx.Loopback(c.Listen) && !c.Dev { // "" is refused by parseConfig
 		return errs.Wrap(module, nil, "listen %s is not loopback and there is no tls section: plain HTTP off this host is for local "+

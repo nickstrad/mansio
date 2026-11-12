@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# IR-1 differential test at scale (docs/plans/completed/intermediate-representation-protocol.md §6.2): generate a large compile corpus with the
-# TypeScript compiler (scripts/intermediate-representation/gen-compile-corpus.ts, in chunks of distinct seeds so no single JS string
-# outgrows V8), then recompile every case with the Go compiler (server/internal/doccompile TestCompileCorpus)
-# and require each output line to match byte for byte.
+# Differential compiler test at scale (ADR 0010: the TS compiler is the oracle for the Go port): generate a
+# large compile corpus with the TypeScript compiler (scripts/intermediate-representation/gen-compile-corpus.ts,
+# in chunks of distinct seeds so no single JS string outgrows V8), then recompile every case with the Go
+# compiler (server/internal/doccompile TestCompileCorpus) and require each output line to match byte for byte.
 #
 # Usage: scripts/dev/intermediate-representation-differential.sh [total=1000000] [chunk=100000] [first-seed=1] [dir]
 # Env:   none required. dir defaults to ${TMPDIR:-/tmp}/mansio-ir-corpus. Chunk files are named by a hash of

@@ -9,11 +9,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
-// AdmissionLimits are the caps per database, per tenant and per VM (option 4 §3.2: "subject to mailbox, tenant
-// and VM caps"; Release It B3: caps nest db ≤ tenant ≤ VM). A request runs when its database, its tenant and the
-// VM are all under their in-flight caps; otherwise it waits if all three queues have room; otherwise it is shed.
-// The actor's own mailbox is a further cap behind these. Without the VM cap the process's in-flight count would
-// be tenants × TenantInFlight, which is unbounded.
+// AdmissionLimits are the caps per database, per tenant and per VM; they nest db ≤ tenant ≤ VM. A request runs when
+// its database, its tenant and the VM are all under their in-flight caps; otherwise it waits if all three queues have
+// room; otherwise it is shed. The actor's own mailbox is a further cap behind these. Without the VM cap the process's
+// in-flight count would be tenants × TenantInFlight, which is unbounded.
 type AdmissionLimits struct {
 	TenantInFlight int `json:"tenant_in_flight"` // default 256
 	TenantQueue    int `json:"tenant_queue"`     // default 1024

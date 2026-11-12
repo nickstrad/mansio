@@ -1,5 +1,5 @@
-// Command agentctl is the scriptable client of agentd's admin endpoints (cmd/agentd/admin.go; Release It C4,
-// ch. 14 "CLI first", plan RI-16). It sends one control to the admin listener and prints the JSON answer.
+// Command agentctl is the scriptable client of agentd's admin endpoints (cmd/agentd/admin.go), so every runtime
+// control can be driven from a script. It sends one control to the admin listener and prints the JSON answer.
 //
 //	agentctl [-addr 127.0.0.1:7072] [-timeout 10s] breaker <dep> trip|reset
 //	agentctl [flags] fetch-limit <n>

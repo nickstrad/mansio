@@ -1,5 +1,5 @@
-// Package ticket holds the access ticket of scale-out option 4 (§3.1): a capability, signed by the control
-// plane with Ed25519, for one database on one VM at one epoch. The agent verifies it without any network call.
+// Package ticket holds the access ticket of the scale-out deployment: a capability, signed by the control plane with
+// Ed25519, for one database on one VM at one epoch. The agent verifies it without any network call.
 //
 // # Encoding (version 1)
 //

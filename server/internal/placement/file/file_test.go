@@ -26,7 +26,7 @@ func open(t *testing.T, dir string) *Placement {
 	return p
 }
 
-// The shared owner.Placement contract (CP-1 gate: the file adapter passes TestPlacementCAS).
+// The shared owner.Placement contract: the file adapter passes the same CAS suite as the Postgres one.
 func TestPlacementCAS(t *testing.T) {
 	ownertest.RunPlacementSuite(t, func(t *testing.T) owner.Placement { return open(t, t.TempDir()) }) // accepts any owner, so SuiteVMs too
 }
@@ -132,7 +132,7 @@ func TestInvalidInput(t *testing.T) {
 	}
 }
 
-// A CAS waits for the lock only until its ctx ends (Release It T6), and changes nothing then.
+// A CAS waits for the lock only until its ctx ends (no blocking acquire without a ctx), and changes nothing then.
 func TestLockWaitHonorsDeadline(t *testing.T) {
 	dir := t.TempDir()
 	p := open(t, dir)

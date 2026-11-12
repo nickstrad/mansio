@@ -1,5 +1,5 @@
 /**
- * The SDK's retry decisions (IR-3), ported from mansio-server's `internal/retry` and `internal/client`
+ * The SDK's retry decisions, ported from mansio-server's `internal/retry` and `internal/client`
  * (`decide.go`): pure functions plus one piece of shared state, the windowed retry budget.
  *
  * - **Policy.** At most `maxAttempts` attempts per request (default 3); the wait before attempt `n + 1`
@@ -7,7 +7,8 @@
  *   (50 ms, 5 s); no wait may end past the call's deadline.
  * - **Budget.** A token bucket: each first attempt adds `ratio` tokens (default 0.1), each retry takes
  *   one, the bucket holds at most `burst` (default 10). Credit expires, so a quiet hour banks at most
- *   `burst` retries for the storm that follows (Release It R4). Shared by every call of one client.
+ *   `burst` retries for the storm that follows, and retries cannot multiply an outage. Shared by every
+ *   call of one client.
  * - **What an answer means** (`decide`, `resolveStep`): the caller contract in `docs/retry-contract.md`,
  *   generated from mansio-server's `front.Contract` and shared with the Go client as test vectors
  *   (`intermediate-representation/vectors/retry.json`, run by `tests/unit/sdk_retry_contract_test.ts`). `ok` done; `shed`,

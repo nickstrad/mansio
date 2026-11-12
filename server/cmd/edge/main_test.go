@@ -389,7 +389,7 @@ func TestRegistryRoutes(t *testing.T) {
 	}
 }
 
-// B5: with drain_delay, shutdown fails /readyz first and keeps serving for the delay, so a load balancer
+// With drain_delay, shutdown fails /readyz first and keeps serving for the delay, so a load balancer
 // polling readiness stops routing before the listener closes. Before, readiness flipped and the listener
 // closed in consecutive statements: a request sent right after the flip was refused.
 func TestDrainDelayServesWhileNotReady(t *testing.T) {
@@ -435,7 +435,7 @@ func TestDrainDelayServesWhileNotReady(t *testing.T) {
 	}
 }
 
-// B11: the per-agent bulkhead has a runtime lever on the loopback admin listener. Lowered to 1 with one
+// The per-agent bulkhead has a runtime lever on the loopback admin listener. Lowered to 1 with one
 // request in flight, the next request to that agent is shed; the capacity gauge shows the new limit.
 func TestAdminAgentLimit(t *testing.T) {
 	dir := t.TempDir()

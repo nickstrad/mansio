@@ -1,6 +1,6 @@
 /**
- * IR-3 properties of the recording executor and the handler retry (plan §6.6 "precondition derivation
- * properties"), over random handlers against the in-memory `/v1/ops` model (`tests/unit/sdk_model.ts`):
+ * Properties of the recording executor and the handler retry, over random handlers against the in-memory
+ * `/v1/ops` model (`tests/unit/sdk_model.ts`):
  *
  * 1. **Derived expects are exactly the reads.** The mutation's asserts are one per document the handler
  *    `get` from the server (not one it inserted), with the version it saw (or `exists: false`), all

@@ -167,7 +167,7 @@ function execute(command: Command, base: URL, token: string): Effect.Effect<stri
           }),
         );
       case "revoke-key": {
-        // MT-05 has only tenant-scoped revocation and no key-list/owner lookup endpoint.
+        // The tenancy API has only tenant-scoped revocation and no key-list/owner lookup endpoint.
         // Revocation is idempotent and restricted to the URL's tenant. Trying every tenant
         // preserves the one-argument CLI without persisting secrets or reaching into Postgres.
         const result = yield* request("GET", root);

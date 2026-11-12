@@ -20,7 +20,7 @@ type Controller struct {
 	Agents    func(vm string) (Agent, error)
 	Objects   Objects
 	Policy    Policy
-	// LoadLimit bounds the VMs the policy reads (RI B6). Default 1000.
+	// LoadLimit bounds the VMs the policy reads, so the result set stays bounded. Default 1000.
 	LoadLimit int
 	// Clock times the per-key deadlines of Restore and ResumeStuck. Default det.System().
 	Clock det.Clock
@@ -67,8 +67,8 @@ func (p *picker) pick(ctx context.Context, exclude ...string) (string, error) {
 	return vm, err
 }
 
-// agent returns vm's lifecycle client, or, for a VM an operator attested dead (M5), a deadAgent that never
-// calls it: the one place the controller treats dead VMs differently.
+// agent returns vm's lifecycle client, or, for a VM an operator attested dead, a deadAgent that never calls it: the
+// one place the controller treats dead VMs differently.
 func (c *Controller) agent(ctx context.Context, vm string) (Agent, error) {
 	dead, err := c.dead(ctx, vm)
 	if err != nil {
@@ -323,10 +323,9 @@ func (c *Controller) stop(ctx context.Context, key string) (owner.Place, error) 
 	return owner.Place{}, errs.Wrap(module, owner.ErrConflict, "cannot stop %s: its placement row kept changing", key)
 }
 
-// Drop deletes a database: the "dropping" tombstone first, then the row MOVING and the owner fenced, then
-// every object under its prefix, then the agent's record, then the placement row; the registry row stays as
-// "dropped" (object-storage guide GC). A move in progress must finish first (ErrState). Repeating Drop
-// resumes it.
+// Drop deletes a database: the "dropping" tombstone first, then the row MOVING and the owner fenced, then every
+// object under its prefix, then the agent's record, then the placement row; the registry row stays as "dropped". A
+// move in progress must finish first (ErrState). Repeating Drop resumes it.
 func (c *Controller) Drop(ctx context.Context, key string) (Database, error) {
 	d, err := c.get(ctx, key)
 	if err != nil {
@@ -371,7 +370,7 @@ func (c *Controller) finishDrop(ctx context.Context, d Database) (Database, erro
 	return c.setState(ctx, d, StateDropped, "")
 }
 
-// AttestDead records an operator's attestation that vm is dead (M5). Nothing moves until Restore.
+// AttestDead records an operator's attestation that vm is dead. Nothing moves until Restore.
 func (c *Controller) AttestDead(ctx context.Context, vm, by string) error {
 	if err := c.Registry.AttestDead(ctx, vm, by); err != nil {
 		return errs.Wrap(module, err, "cannot record that vm %s is dead", vm)
@@ -386,9 +385,9 @@ type RestoreReport struct {
 	Failed  map[string]error  // key → why; Restore again to retry them
 }
 
-// Restore moves every database a VM attested dead owns to live VMs (policy picks), from the generation
-// storage holds (M5). Without an attestation it is ErrNotDead. Drops in progress finish instead. Each key
-// gets perKey (0: no own deadline).
+// Restore moves every database a VM attested dead owns to live VMs (policy picks), from the generation storage holds.
+// Without an attestation it is ErrNotDead. Drops in progress finish instead. Each key gets perKey (0: no own
+// deadline).
 func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duration) (RestoreReport, error) {
 	rep := RestoreReport{Moved: map[string]string{}, Failed: map[string]error{}}
 	dead, err := c.dead(ctx, vm)
@@ -472,7 +471,7 @@ type ResumeReport struct {
 // for longer than olderThan (moving.sql) resume their move or drop, and databases "creating", "moving" or
 // "dropping" for longer than olderThan (pending.sql) finish (a move whose claim failed after the flip has an
 // ACTIVE row, which only pending.sql finds). At most limit of each per pass;
-// each key gets perKey. Table scans, never notifications (SQL G-11).
+// each key gets perKey. Table scans, never notifications, which can be lost.
 func (c *Controller) ResumeStuck(ctx context.Context, olderThan time.Duration, limit int, perKey time.Duration) (ResumeReport, error) {
 	rep := ResumeReport{Failed: map[string]error{}}
 	stuck, err := c.Registry.Moving(ctx, olderThan, limit)

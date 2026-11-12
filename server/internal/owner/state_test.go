@@ -88,7 +88,7 @@ func TestStep(t *testing.T) {
 	}
 }
 
-// TestDecide is the admission table (option 4 §3.2) with on/off points around the local epoch.
+// TestDecide is the admission table with on/off points around the local epoch.
 func TestDecide(t *testing.T) {
 	for _, tc := range []struct {
 		l     Local

@@ -597,9 +597,9 @@ func (c *fakeCreds) Cached(token string) bool {
 	return c.cached[token]
 }
 
-// IR-5 (ADR 0012, multi-node half): an app resolve accepts what the tenancy port accepts (legacy keys,
-// sessions); the tenant comes from the credential (an empty request tenant takes it, another one is
-// forbidden); a raw database resolve still takes API keys only; uncached credentials are charged to the source.
+// ADR 0012, multi-node half: an app resolve accepts what the tenancy port accepts (legacy keys, sessions); the tenant
+// comes from the credential (an empty request tenant takes it, another one is forbidden); a raw database resolve
+// still takes API keys only; uncached credentials are charged to the source.
 func TestCredentialsResolveApps(t *testing.T) {
 	creds := &fakeCreds{}
 	f := newFixture(t, Config{Credentials: creds, Limiter: ratelimit.NewSourceLimiter(1, 3, 100)})

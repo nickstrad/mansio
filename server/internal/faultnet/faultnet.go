@@ -1,7 +1,7 @@
-// Package faultnet is a fault-injecting TCP proxy for tests (Release It ch5 §5.7, guide H4). It sits between a
-// client and a real service and breaks the transport the way networks do: refused, silent, black-holed,
-// reset mid-stream, slow, throttled, half-open. Interface-level fakes cannot produce these failures, and they
-// are what find a missing socket timeout.
+// Package faultnet is a fault-injecting TCP proxy for tests: each adapter's contract suite also runs against the real
+// service through it. It sits between a client and a real service and breaks the transport the way networks do:
+// refused, silent, black-holed, reset mid-stream, slow, throttled, half-open. Interface-level fakes cannot produce
+// these failures, and they are what find a missing socket timeout.
 //
 // Test harness, not production code: it may log nothing and has no error module of its own (errors are plain).
 package faultnet

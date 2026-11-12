@@ -1,5 +1,5 @@
 /**
- * Property tests for `core/schema.ts` (plan item 12, work 2).
+ * Property tests for `core/schema.ts`.
  *
  * Each property is falsifiable: the generators build values from a node's structure (never by
  * calling `validate`), and the mismatch generator states the failure path it expects.

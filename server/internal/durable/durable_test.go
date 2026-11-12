@@ -55,8 +55,8 @@ func TestLayout(t *testing.T) {
 	}
 }
 
-// FuzzKeyPrefixDisjoint (OS-04, guide K1): for distinct valid keys a and b, no object of a lies under
-// KeyPrefix(b), so prefix-based GC, drop and inventory never reach another database.
+// FuzzKeyPrefixDisjoint: for distinct valid keys a and b, no object of a lies under KeyPrefix(b), so prefix-based GC,
+// drop and inventory never reach another database.
 func FuzzKeyPrefixDisjoint(f *testing.F) {
 	f.Add("t1", "t1/gen/x")
 	f.Add("a", "a/b")
@@ -139,8 +139,8 @@ func overflow(object string) string {
 	return object[:i+2] + strings.Repeat("9", 20) + ".db"
 }
 
-// Validate's epoch rule (OS-05): a manifest may name an object uploaded at its own epoch or an earlier one
-// (a Stamp raises the manifest's epoch without renaming the object), never a later one.
+// Validate's epoch rule: a manifest may name an object uploaded at its own epoch or an earlier one (a Stamp raises
+// the manifest's epoch without renaming the object), never a later one.
 func TestValidateObjectEpoch(t *testing.T) {
 	for _, tc := range []struct {
 		objEpoch, epoch uint64
@@ -250,8 +250,8 @@ func TestStamp(t *testing.T) {
 	}
 }
 
-// A stamp whose publish applied but whose reply was lost (or re-sent and refused with 412) is resolved by a
-// re-read (object-storage guide R3): it succeeds. A stamp that did not apply still fails (OS-02).
+// A stamp whose publish applied but whose reply was lost (or re-sent and refused with 412) is resolved by a re-read:
+// it succeeds. A stamp that did not apply still fails.
 func TestStampAmbiguousOutcomes(t *testing.T) {
 	for _, tc := range []struct {
 		name string

@@ -1,4 +1,4 @@
-// Command edge is the stateless edge of scale-out option 4 §3.6 (control-plane plan CP-7): a TLS reverse proxy
+// Command edge is the stateless edge in front of the agents: a TLS reverse proxy
 // that verifies each query's ticket, routes it on the ticket's vm claim to that agent's query listener over TLS
 // (a private CA), and relays the agent's answer. Agents stay private; only the edge faces clients. See
 // internal/edge.
@@ -259,9 +259,10 @@ func serve(ctx context.Context, cfg *Config, e *edge.Edge, reg *metrics.Registry
 	return exitOK
 }
 
-// adminServer serves the edge's runtime lever on the loopback admin listener (Release It C4; the capacity
-// table's lever for the per-agent bulkhead): POST /admin/agent:limit?n=N sets every agent's bulkhead from now
-// on, until the process restarts → {"code":"ok","agent_in_flight":N,"previous":P}. Logged at WARN.
+// adminServer serves the edge's runtime lever on the loopback admin listener (changeable without a deploy;
+// the capacity table's lever for the per-agent bulkhead): POST /admin/agent:limit?n=N sets every agent's
+// bulkhead from now on, until the process restarts → {"code":"ok","agent_in_flight":N,"previous":P}. Logged
+// at WARN.
 func adminServer(cfg *Config, e *edge.Edge, log *slog.Logger) *http.Server {
 	mux := http.NewServeMux()
 	answer := func(w http.ResponseWriter, status int, v map[string]any) {
@@ -286,9 +287,9 @@ func adminServer(cfg *Config, e *edge.Edge, log *slog.Logger) *http.Server {
 		WriteTimeout: 5 * time.Second, IdleTimeout: cfg.IdleTimeout.Duration, MaxHeaderBytes: 16 << 10}
 }
 
-// lifecycleServer serves /livez, /readyz and /metrics on their own listener (Release It B4, H2). Readiness is
-// "serving and not stopping or draining": an agent's outage never pulls the edge from its load balancer
-// (Release It C5).
+// lifecycleServer serves /livez, /readyz and /metrics on their own listener, so health never queues behind
+// client traffic. Readiness is "serving and not stopping or draining": an agent's outage never pulls the edge
+// from its load balancer.
 func lifecycleServer(cfg *Config, e *edge.Edge, reg *metrics.Registry, stopping *atomic.Bool) *http.Server {
 	mux := http.NewServeMux()
 	status := func(w http.ResponseWriter, code int, s string) {

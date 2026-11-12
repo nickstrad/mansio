@@ -18,7 +18,7 @@ import (
 )
 
 // s3Transient is the S3 breaker classifier: only Transient errors (timeouts, connection errors, 5xx, 429)
-// are system failures (Release It C2).
+// are system failures; only those count against the breaker.
 func s3Transient(err error) bool { return objstore.Classify(err) == objstore.Transient }
 
 // faultRig is a durable host over the real S3 adapter, reaching the in-process misbehaving S3 (s3test)
@@ -81,10 +81,10 @@ func (r *faultRig) seed(t *testing.T, key string) {
 	}
 }
 
-// Guide H4 rows "half-open" and "headers, then stall" for activation: a cold Get fails by the activation
-// deadline (not later) as unavailable (ErrBusy, or ErrUnavailable when objstore's own stall timeout fires
-// first), leaves no file, and the key activates once the network heals and its backoff ends (plan RI-02,
-// RI-03). faultnet's Frozen also freezes the pooled connection the seed step left open.
+// The faults "half-open" and "headers, then stall" for activation: a cold Get fails by the activation deadline (not
+// later) as unavailable (ErrBusy, or ErrUnavailable when objstore's own stall timeout fires first), leaves no file,
+// and the key activates once the network heals and its backoff ends. faultnet's Frozen also freezes the pooled
+// connection the seed step left open.
 func TestActivationDeadlineThroughS3Faults(t *testing.T) {
 	const timeout = 300 * time.Millisecond
 	for _, tc := range []struct {

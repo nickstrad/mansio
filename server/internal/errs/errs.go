@@ -1,4 +1,5 @@
-// Package errs is the well-formed error type (Cox-Buday, Concurrency in Go, ch. 5).
+// Package errs is the well-formed error type: the module that wrapped it, a message, the cause, when, where (a
+// stack), and context.
 //
 // Every error leaving a package's public API is wrapped once, at that boundary, with the package's module
 // name and a one-line message a user can act on. The cause stays reachable through Unwrap, so errors.Is and

@@ -15,39 +15,38 @@ import (
 
 const module = "placement"
 
-// Config is the adapter's configuration. The zero value of every field but DSN takes the Release It §P
-// Postgres defaults.
+// Config is the adapter's configuration. The zero value of every field but DSN takes the defaults below.
 type Config struct {
 	// DSN is a postgres:// URL or key=value string. It holds credentials: load it from the secrets file, not
 	// the config file.
 	DSN string
-	// AppName is the session's application_name (SQL G-5), e.g. "controld/placement". Default "placement".
+	// AppName is the session's application_name, e.g. "controld/placement". Default "placement".
 	AppName string
 	// Schema, if set, is the session's search_path: the schema the tables live in. Tests use a fresh schema
 	// each; production leaves it empty (the server default).
 	Schema string
-	// MaxConns is the pool size = reconcile workers + lifecycle concurrency (RI §P, RI B2). Default 20
-	// (owner.ReconcileOptions' 16 workers + 4).
+	// MaxConns is the pool size = reconcile workers + lifecycle concurrency (the authority's own concurrency limit).
+	// Default 20 (owner.ReconcileOptions' 16 workers + 4).
 	MaxConns int32
 
 	ConnectTimeout   time.Duration // default 3 s
 	StatementTimeout time.Duration // server-side, per statement; default 2 s
 	LockTimeout      time.Duration // server-side, per lock wait; default 1 s
 	IdleInTxTimeout  time.Duration // idle_in_transaction_session_timeout; default 5 s
-	// CallTimeout bounds each call client-side (acquire + connect + round trip) when the network, not the
-	// server, is what hangs (RI T1). Default StatementTimeout + 500 ms; must be > StatementTimeout so the
-	// server's own timeout answers first when it can.
+	// CallTimeout bounds each call client-side (acquire + connect + round trip) when the network, not the server, is
+	// what hangs. Default StatementTimeout + 500 ms; must be > StatementTimeout so the server's own timeout answers
+	// first when it can.
 	CallTimeout time.Duration
-	// MaxConnIdleTime closes idle connections before any NAT/LB idle timeout drops them silently (RI §P,
-	// "5 a.m. problem"). Default 60 s.
+	// MaxConnIdleTime closes idle connections before any NAT/LB idle timeout drops them silently (a connection that
+	// sat idle overnight then hangs on first use). Default 60 s.
 	MaxConnIdleTime time.Duration
 	MaxConnLifetime time.Duration // default 30 min
 	// KeepAlive is the TCP keepalive idle time and probe interval; default 15 s (3 probes), so a dead peer
 	// on an idle pooled connection is found in about 45 s.
 	KeepAlive time.Duration
 
-	// Breaker configures the pool's circuit breaker (zero value: RI §P defaults). Set Breaker.OnChange to
-	// log and expose transitions as "placement" (RI C4).
+	// Breaker configures the pool's circuit breaker (zero value: the breaker package's defaults). Set
+	// Breaker.OnChange to log and expose transitions as "placement".
 	Breaker breaker.Config
 	// Now is the breaker's clock; nil means time.Now.
 	Now func() time.Time
@@ -101,7 +100,7 @@ func (c *Config) Normalize() error {
 	return nil
 }
 
-// poolConfig is the one place the connection settings are built (SQL G-5, G-6).
+// poolConfig is the one place the connection settings are built; every pool gets timeouts and full durability.
 //
 //	pre: c was normalized
 func (c *Config) poolConfig() (*pgxpool.Config, error) {
@@ -111,7 +110,7 @@ func (c *Config) poolConfig() (*pgxpool.Config, error) {
 		return nil, errs.Wrap(module, nil, "invalid placement config: dsn does not parse")
 	}
 	pc.MaxConns = c.MaxConns
-	pc.MinConns = 0 // connect lazily: startup must not block on the authority (RI H1)
+	pc.MinConns = 0 // connect lazily: startup must not block on the authority
 	pc.MaxConnIdleTime = c.MaxConnIdleTime
 	pc.MaxConnLifetime = c.MaxConnLifetime
 	pc.HealthCheckPeriod = min(c.MaxConnIdleTime/2, 30*time.Second)
@@ -119,7 +118,7 @@ func (c *Config) poolConfig() (*pgxpool.Config, error) {
 	cc.ConnectTimeout = c.ConnectTimeout
 	d := &net.Dialer{KeepAliveConfig: net.KeepAliveConfig{Enable: c.KeepAlive > 0, Idle: c.KeepAlive, Interval: c.KeepAlive, Count: 3}}
 	cc.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		// pgx's cancel request dials with a 15 s budget of its own; ours is the connect timeout (RI T4).
+		// pgx's cancel request dials with a 15 s budget of its own; ours is the shorter connect timeout.
 		ctx, cancel := context.WithTimeout(ctx, c.ConnectTimeout)
 		defer cancel()
 		conn, err := d.DialContext(ctx, network, addr)
@@ -134,7 +133,7 @@ func (c *Config) poolConfig() (*pgxpool.Config, error) {
 	rp["statement_timeout"] = ms(c.StatementTimeout)
 	rp["lock_timeout"] = ms(c.LockTimeout)
 	rp["idle_in_transaction_session_timeout"] = ms(c.IdleInTxTimeout)
-	rp["default_transaction_isolation"] = "read committed" // SQL G-9: a racing CAS re-checks and updates 0 rows
+	rp["default_transaction_isolation"] = "read committed" // a racing CAS re-checks and updates 0 rows
 	rp["synchronous_commit"] = "on"                        // never lowered on the safety path, whatever the DSN or role says
 	if c.Schema != "" {
 		rp["search_path"] = c.Schema

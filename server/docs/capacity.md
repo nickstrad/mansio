@@ -1,10 +1,9 @@
 # Capacity table: every bound on a request's path
 
-What is bounded, what is refused, and which metric proves it, per boundary (*Backpressure in Microservices*
-ch. 7 "Capacity Review", ch. 8 "Runbook Template" and "Service Owner Handoff Checklist"; finding B11). The
-three sections between the markers are **generated from each daemon's config defaults**: a `TestCapacityTable`
-in `cmd/agentd`, `cmd/controld` and `cmd/edge` fails when a default and this document disagree. After changing
-a default or a bound, regenerate:
+What is bounded, what is refused, and which metric proves it, per boundary: one page to review capacity and, for
+each queue, a runbook entry an operator can act on when it fills. The three sections between the markers are
+**generated from each daemon's config defaults**: a `TestCapacityTable` in `cmd/agentd`, `cmd/controld` and
+`cmd/edge` fails when a default and this document disagree. After changing a default or a bound, regenerate:
 
 ```sh
 go test ./cmd/agentd ./cmd/controld ./cmd/edge -run TestCapacityTable -update
@@ -408,9 +407,9 @@ is refused otherwise).
 
 ## Alerts
 
-[`deploy/prometheus/backpressure.rules.yml`](../deploy/prometheus/backpressure.rules.yml) holds the book's four
-rules (ch. 8 "Prometheus Alerts") and its two "alert on broken protection, not merely active protection" rules
-(ch. 4 "Useful Alerts"), written against the series above:
+[`deploy/prometheus/backpressure.rules.yml`](../deploy/prometheus/backpressure.rules.yml) holds four
+saturation and failure rules and two "alert on broken protection, not merely active protection" rules, written
+against the series above:
 
 | Alert | Fires when | Severity | Start with |
 |---|---|---|---|

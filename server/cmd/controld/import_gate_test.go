@@ -13,7 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The IR-5 import path onto Postgres placement (replace-platform plan §4.3): `dbtool import` without
+// The import path onto Postgres placement: `dbtool import` without
 // -placement-dir writes generation 1 and the manifest only; registering the app's schema and creating the
 // database at controld places it at generation 0, and the owner's claim adopts the imported manifest. The
 // imported documents are then served (with their versions) and the database takes writes. The source file is a

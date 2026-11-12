@@ -1,5 +1,5 @@
 /**
- * Schema lookup, dialect-specific value access, and the read-plan compiler (plan item 09).
+ * Schema lookup, dialect-specific value access, and the read-plan compiler.
  *
  * PURE: `effect`, `../errors.ts`, `../schema.ts`, `../plan.ts` and `./dialect.ts` only. Nothing in
  * here raises. Every rejection is a `CompileError` (the plan is not compilable against this schema)
@@ -7,7 +7,7 @@
  * the left channel of an `Either`.
  *
  * The SQL this module emits is byte-for-byte what the pre-port compiler (the Deno platform's
- * `compiler.ts`) emitted, with one intentional exception (plan item 30): SQLite reads a
+ * `compiler.ts`) emitted, with one intentional exception: SQLite reads a
  * `json`-layout `number` field through `CAST(... AS REAL)` (see `expression`). `deno task explain`
  * regenerating `core/compile/GENERATED_SQL.txt` is the safety net for the rest. The order in which it checks
  * things is also preserved, so a plan that was wrong in two ways still reports the same failure first.
@@ -81,7 +81,7 @@ export function scalar(table: Table, name: string): Either.Either<Node, CompileE
  *
  * The same expression serves filters, ordering, `countBy` group keys and (via `core/compile/ddl.ts`)
  * index keys, so an index on a `json`-layout field matches the expression a query compares. A
- * database created before item 30 keeps its old bare `json_extract` index on a `json`-layout
+ * database created before that cast was added keeps its old bare `json_extract` index on a `json`-layout
  * `number` field (`CREATE INDEX IF NOT EXISTS` reuses the name), which queries no longer use:
  * results stay correct, but drop and recreate that `idx_*` to get indexed reads back.
  */

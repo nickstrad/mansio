@@ -18,7 +18,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-// FuzzDocExecModel (plan §6.3): bytes become a script of requests (selects, gets, inserts with and without
+// FuzzDocExecModel: bytes become a script of requests (selects, gets, inserts with and without
 // client ids, patches and deletes with and without expect, asserts, $refs, duplicate request ids, wrong
 // fingerprints, injected statement failures, groups of mutations submitted together so they share a
 // group-commit batch). Each runs on a real actor and on a pure model (tables of documents in maps). After every
@@ -89,7 +89,7 @@ func runModel(t *testing.T, data []byte) {
 		g := &gen{src: data, m: m}
 		for reqNo := 1; !g.done() && reqNo <= 40; reqNo++ {
 			d.at(int64(reqNo) * 1000)
-			if durable { // passivation, write-back and crashes between requests (plan §6.3)
+			if durable { // passivation, write-back and crashes between requests
 				switch g.byte() % 8 {
 				case 0: // write back: publish what is there
 					if _, err := d.h.WriteBack(context.Background(), durableKey); err != nil {

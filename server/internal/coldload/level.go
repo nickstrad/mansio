@@ -34,10 +34,10 @@ type LevelResult struct {
 	Wall       time.Duration
 }
 
-// RunLevel calls g.Get for every key of lv with lv.Conc in flight and hands each Record to sink (from the
-// worker goroutines: sink must be safe for concurrent use and must not block). It stops dispatching when
-// ctx ends. Workers send their outcome to the parent and decide nothing (Cox-Buday ch. 4); a panic in a
-// worker is forwarded and re-raised here.
+// RunLevel calls g.Get for every key of lv with lv.Conc in flight and hands each Record to sink (from the worker
+// goroutines: sink must be safe for concurrent use and must not block). It stops dispatching when ctx ends. Workers
+// send their outcome to the parent and decide nothing (the parent owns every decision); a panic in a worker is
+// forwarded and re-raised here.
 //
 //	pre:  lv.Conc ≥ 1
 //	post: Dispatched = OK + Failed; Dispatched = len(lv.Keys) unless ctx ended

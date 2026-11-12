@@ -20,8 +20,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// The control-plane endpoints (control-plane plan CP-1; option 4 §2), durable mode only, on the lifecycle
-// listener so they never queue behind queries (Release It B4):
+// The control-plane endpoints, durable mode only, on the lifecycle listener so they never queue behind
+// queries (control keeps reserved capacity):
 //
 //	POST /v1/lifecycle/claim   {"db": "..."[, "create": true]} → {"code":"ok","db","state","epoch","gen"}
 //	POST /v1/lifecycle/fence   {"db": "..."}                   → {"code":"ok","db","epoch","gen"} (the fence ack)
@@ -30,7 +30,7 @@ import (
 //
 // Every call needs "Authorization: Bearer <control_token>" (the secrets file): control-plane identity only.
 // Each runs under lifecycle_timeout, shortened by an X-Timeout-Ms header, and at most lifecycle_concurrency
-// run at once; more are refused 503 at once, never queued (Release It T1, B1). Fence is idempotent; a Claim of
+// run at once; more are refused 503 at once, never queued (a full queue sheds, it never blocks). Fence is idempotent; a Claim of
 // the epoch already held only re-reads the authority. Errors answer {"code", "message"[, "log_id"]}:
 //
 //	code         | status | meaning
@@ -45,9 +45,9 @@ import (
 //	timeout      | 504    | the deadline passed; for fence: admission stays stopped, call it again
 //	internal     | 500    | a bug; report the log_id
 //
-// "create" is the single-node stand-in for the control plane's create (flow B): with no placement row, the
+// "create" is the single-node stand-in for the control plane's create: with no placement row, the
 // agent writes ACTIVE(self, epoch 1, gen 0) first. Only with -dev (tests and single-node local runs); without
-// it a claim with create answers bad_request: creating databases is the control plane's job (controld, CP-4),
+// it a claim with create answers bad_request: creating databases is the control plane's job (controld),
 // which writes the placement row itself and then calls a plain claim.
 const (
 	claimPath  = "/v1/lifecycle/claim"
@@ -143,7 +143,8 @@ func (c *control) claim(ctx context.Context, r *http.Request) (any, error) {
 	return lifecycleOK{"ok", req.DB, l.State.String(), uint64(l.Epoch), uint64(l.Gen)}, nil
 }
 
-// create writes ACTIVE(self, 1, 0) if the key has no placement row (the single-node stand-in for flow B).
+// create writes ACTIVE(self, 1, 0) if the key has no placement row (the single-node stand-in for the control
+// plane creating a database).
 func (c *control) create(ctx context.Context, key string) error {
 	_, err := c.d.place.Get(ctx, key)
 	if !errors.Is(err, owner.ErrNotFound) {

@@ -1,5 +1,5 @@
 /**
- * fast-check generators for the schema layer (plan item 12), plus **the** seed harness for every
+ * fast-check generators for the schema layer, plus **the** seed harness for every
  * property suite under `tests/property/`.
  *
  * ## Seed harness

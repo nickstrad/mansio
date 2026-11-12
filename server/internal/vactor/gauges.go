@@ -1,6 +1,6 @@
 package vactor
 
-// Gauges are the host's levels at one instant, for the agent's /metrics (Release It O1: per pool or queue,
+// Gauges are the host's levels at one instant, for the agent's /metrics (per pool or queue,
 // in use and queued). Counters since NewHost are in Stats; oldest_dirty_age is in each TickReport.
 type Gauges struct {
 	Active             int   // keys active or activating

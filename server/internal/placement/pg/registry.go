@@ -12,14 +12,14 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
-// The control plane's registries (schema 0002, CP-4): tenants, databases and the VM registry's heartbeats.
-// Every method is one statement under the same breaker and deadlines as the placement port.
+// The control plane's registries (schema 0002): tenants, databases and the VM registry's heartbeats. Every method is
+// one statement under the same breaker and deadlines as the placement port.
 
 // VM is one row of the VM registry.
 type VM struct {
 	ID             string
 	Endpoint       string
-	Dead           bool // an operator attested it dead (M5)
+	Dead           bool // an operator attested it dead
 	DeadAttestedBy string
 	Bytes          int64
 	HeartbeatAge   float64 // seconds since its last heartbeat
@@ -37,8 +37,8 @@ func (p *Placement) Heartbeat(ctx context.Context, vm string, bytes int64) error
 	})
 }
 
-// AttestDead records an operator's attestation that vm is dead (M5). Idempotent: the first attestation
-// stays. Unknown vm ⇒ ErrUnknownVM.
+// AttestDead records an operator's attestation that vm is dead. Idempotent: the first attestation stays. Unknown vm ⇒
+// ErrUnknownVM.
 func (p *Placement) AttestDead(ctx context.Context, vm, by string) error {
 	if by == "" {
 		return errs.Wrap(module, owner.ErrInvalid, "cannot attest vm %q dead: the attester is required; nothing sent", vm)

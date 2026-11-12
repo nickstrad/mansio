@@ -32,7 +32,7 @@ type loader func(ctx context.Context, db string, minEpoch uint64) (Route, error)
 // resolve in flight per database (single-flight). A load runs under its own deadline (timeout, derived from
 // root), so a caller that gives up does not cancel it for the others, and it cannot outlive timeout.
 //
-// Bounded: at most max databases; inserting past that drops an idle entry (Release It B6).
+// Bounded: at most max databases; inserting past that drops an idle entry.
 type routes struct {
 	load    loader
 	root    context.Context

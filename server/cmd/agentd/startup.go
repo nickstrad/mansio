@@ -18,7 +18,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
-// startup opens the databases while the agent already serves (Release It H1): each database is served the
+// startup opens the databases while the agent already serves: each database is served the
 // moment it is open; until then the host refuses it unavailable (503 + Retry-After; StaticHost.Expect). Static mode
 // only; durable mode reconciles with owner.Table.ReconcileUntilDone instead (durable.go).
 type startup struct {
@@ -26,7 +26,7 @@ type startup struct {
 	firstDone atomic.Bool // every database was tried once
 }
 
-// startupAdmitter refuses databases that are not open yet, before admission (fail fast, Release It F1).
+// startupAdmitter refuses databases that are not open yet, before admission (fail fast: check what is needed before doing expensive work).
 type startupAdmitter struct {
 	front.Admitter
 	host *front.StaticHost

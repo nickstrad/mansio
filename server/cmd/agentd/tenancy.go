@@ -32,13 +32,13 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 )
 
-// Single-node tenancy (IR-4a, ADR 0012): with a "tenancy" section, /v1/ops also accepts credentials that are
+// Single-node tenancy (ADR 0012): with a "tenancy" section, /v1/ops also accepts credentials that are
 // not tickets (the auth port, front.Credentials: off mode's app tokens, api-key mode's tenant keys, session
 // mode's keys and sessions), the query listener serves the admin API (/admin/tenants…) and, in session mode,
 // /api/auth sign-up and sign-in (tenancyhttp). Keys, users and sessions live in Postgres (the control plane's
 // schema, migrated here at start in the background: the "tenancy" readiness check passes once it is done).
 // Single node only. Static mode: a credential's database is <tenant>:<app> at default_epoch; create_dbs makes
-// those files on first use. Durable mode with placement_dir (IR-5): the database runs at its owner-table epoch;
+// those files on first use. Durable mode with placement_dir: the database runs at its owner-table epoch;
 // one not held here is claimed first, and with create_dbs one with no placement row is created by the claim
 // path (claimingPlace). With placement_pg the section is refused: controld authenticates and creates.
 
@@ -188,8 +188,8 @@ func newTenancy(cfg *Config, log *slog.Logger, schemas front.SchemaSource) (*ten
 	return part, nil
 }
 
-// migrate applies the schema, retrying with jittered backoff until it succeeds or ctx ends (Release It H1:
-// the agent serves meanwhile; credentials are unavailable until then).
+// migrate applies the schema, retrying with jittered backoff until it succeeds or ctx ends (the
+// agent serves meanwhile; credentials are unavailable until then).
 func migrate(ctx context.Context, p *pg.Placement, done *atomic.Bool, log *slog.Logger) {
 	backoff := retry.Policy{Backoff: retry.Exponential, Jitter: retry.Equal, Base: 100 * time.Millisecond, Max: 5 * time.Second}
 	_ = backoff.Normalize()
@@ -233,7 +233,7 @@ func (c credentials) Authenticate(ctx context.Context, token, app string) (strin
 // and opened on its first admitted request; the first request then creates its tables (front initDB).
 // Creations are serialized (one at a time per agent: they are rare and fast), never under the host's lock.
 //
-// Creation is capped (Release It S, B6): at most max_dbs databases on the agent and max_dbs_per_tenant per
+// Creation is capped, so nothing accumulates without bound: at most max_dbs databases on the agent and max_dbs_per_tenant per
 // tenant (the part of the id before ':'), counting those found at start. Past a cap the request fails
 // QuotaExceeded (429) and nothing is created.
 type creatingHost struct {

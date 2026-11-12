@@ -1,4 +1,4 @@
-// Golden tests for the DuckDB reports (SQL G-20): each .sql file runs against the fixture run in
+// Golden tests for the DuckDB reports: each .sql file runs against the fixture run in
 // testdata/run and must print exactly testdata/<name>.expected. Rewrite the expected files with
 //
 //	go test ./queries -update

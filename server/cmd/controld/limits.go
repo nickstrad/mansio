@@ -11,8 +11,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/slots"
 )
 
-// The runtime levers (Backpressure in Microservices ch. 4 "Incident Actions": they must exist before the
-// incident). POST /v1/limits/{queue} {"limit": N} sets, from now on and until the process restarts, the limit
+// The runtime levers (they must exist before the incident that needs them). POST /v1/limits/{queue} {"limit": N} sets, from now on and until the process restarts, the limit
 // of one of the slot pools that stand in front of Postgres and the agents:
 //
 //	resolve_load     the locator's store reads and the agents' schema reads (locator.load_concurrency)

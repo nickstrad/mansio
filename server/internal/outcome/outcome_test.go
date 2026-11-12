@@ -23,7 +23,7 @@ func TestParse(t *testing.T) {
 		{"ok", OK, true},
 		{"STMT_TIMEOUT", StmtTimeout, true}, // case-insensitive
 		{"error", Error, true},
-		{"unavailable", Unavailable, true}, // last code: on point (a wire code, RI-10)
+		{"unavailable", Unavailable, true}, // last code: on point (a wire code)
 		{"", 0, false},
 		{"any", 0, false}, // "any" is a set name, not a code
 		{"timeout", 0, false},

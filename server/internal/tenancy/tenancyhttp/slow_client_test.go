@@ -55,7 +55,7 @@ func TestStalledBodiesHoldNoSlot(t *testing.T) {
 	}
 }
 
-// A full pool still refuses at once, and the refusal is counted (B1) against its own pool.
+// A full pool still refuses at once, and the refusal is counted against its own pool.
 func TestFullPoolRefusesAndCounts(t *testing.T) {
 	var pools tenancyhttp.Pools
 	srv, f := rig(t, tenancy.Sessions, func(c *tenancyhttp.Config) { c.Concurrency, c.Pools = 1, &pools })

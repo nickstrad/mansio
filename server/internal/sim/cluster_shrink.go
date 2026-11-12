@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ShrinkCluster looks for a smaller cluster run that still fails (DST-3): the drawn nemesis schedule becomes
+// ShrinkCluster looks for a smaller cluster run that still fails: the drawn nemesis schedule becomes
 // an explicit op script; the duration is cut to just past the first violation (ops after it dropped); the
 // script is cut down by delta debugging (halves, then smaller chunks, then single ops); then each fault class
 // is turned off, the clients and boot databases reduced. Each change is kept while the run still fails. Every

@@ -13,7 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
-// ReconcileOptions bound a reconcile round (Release It H1: startup reconciles with bounded concurrency and a
+// ReconcileOptions bound a reconcile round (startup reconciles with bounded concurrency and a
 // per-key timeout, so one slow authority row cannot delay every key). Zero fields take the defaults.
 type ReconcileOptions struct {
 	Workers int           // keys reconciled at once; default 16
@@ -87,7 +87,7 @@ func (t *Table) ReconcileAll(ctx context.Context, o ReconcileOptions) (Reconcile
 }
 
 // ReconcileUntilDone runs ReconcileAll rounds until one leaves no key closed, waiting a jittered, growing
-// backoff between rounds (Release It H1: retried in the background; the agent serves meanwhile). report, if
+// backoff between rounds (retried in the background; the agent serves meanwhile). report, if
 // set, gets every round's report and error on this goroutine.
 //
 //	post: err == nil ⇒ the last round reconciled every key; otherwise err wraps ctx.Err()

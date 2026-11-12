@@ -27,8 +27,8 @@ type Placement struct {
 
 var _ owner.Placement = (*Placement)(nil)
 
-// Open validates cfg and builds the pool. It does not connect: the first call does, so a process starts
-// even while the authority is down (RI H1). Call Migrate before serving; Close when done.
+// Open validates cfg and builds the pool. It does not connect: the first call does, so a process starts even while
+// the authority is down. Call Migrate before serving; Close when done.
 func Open(cfg Config) (*Placement, error) {
 	if err := cfg.Normalize(); err != nil {
 		return nil, err
@@ -58,15 +58,14 @@ func (p *Placement) Breaker() *breaker.Breaker { return p.b }
 // Stat is the pool's counters (acquires, waits, idle, total).
 func (p *Placement) Stat() *pgxpool.Stat { return p.pool.Stat() }
 
-// Retry hints for system failures (Release It R2: say whether a retry is safe).
+// Retry hints for system failures: every error says whether a retry is safe.
 const (
 	retryRead  = "nothing changed, safe to retry"
 	retryWrite = "it may have applied: Get before retrying"
 )
 
-// call runs fn once under the breaker and a per-call deadline (RI T1, C1). Errors read "cannot <what>
-// <key>" (key may be empty), built only on failure; retry says whether a retry is safe after a system
-// failure.
+// call runs fn once under the breaker and a per-call deadline. Errors read "cannot <what> <key>" (key may be empty),
+// built only on failure; retry says whether a retry is safe after a system failure.
 func (p *Placement) call(ctx context.Context, what, key, retry string, fn func(ctx context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return errs.Wrap(module, err, "cannot %s: the caller gave up; nothing sent", subject(what, key))

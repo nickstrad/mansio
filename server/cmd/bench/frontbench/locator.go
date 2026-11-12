@@ -26,7 +26,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tlsx"
 )
 
-// frontbench locator (control-plane plan CP-6 gate): closed-loop clients that know only controld. Every
+// frontbench locator: closed-loop clients that know only controld. Every
 // request goes through internal/client: a route from the locator (cached, refreshed ahead of the ticket TTL),
 // the query at the owner, re-resolves after wrong_owner/fenced, retries with Retry-After and a budget. With
 // -move-every, a mover moves a random database to another VM on that period through controld's admin API, and

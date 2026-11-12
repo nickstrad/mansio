@@ -10,7 +10,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 )
 
-// PlanGC spec table (OS-06 acceptance): on and off points at K and at both grace bounds.
+// PlanGC spec table: on and off points at K and at both grace bounds.
 func TestPlanGC(t *testing.T) {
 	const key = "t/a"
 	const grace = 10 * time.Minute

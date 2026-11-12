@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// B5: at shutdown controld fails /readyz and keeps serving for drain_delay, then stops accepting; a call
+// At shutdown controld fails /readyz and keeps serving for drain_delay, then stops accepting; a call
 // still in flight when shutdown_budget ends is cut (the listener's connections are closed), so the process
 // ends inside its budget. Postgres is unreachable here: the API answers unavailable, which is all this needs.
 func TestShutdownDrainDelayAndBudget(t *testing.T) {

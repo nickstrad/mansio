@@ -30,7 +30,7 @@ import (
 // codes and statuses below to it.
 //
 // The control API (Authorization: Bearer <admin_token>). Every call runs under api_timeout, at most
-// api_concurrency at once (more are refused 503 at once, never queued; Release It T1, B1). Answers are JSON:
+// api_concurrency at once (more are refused 503 at once, never queued). Answers are JSON:
 // the database or VM report on success, {"code", "message"[, "log_id"]} otherwise:
 //
 // GET /v1/agents (Bearer <edge_token>, only when the secrets set one) answers {"code":"ok","agents":{vm: endpoint}}
@@ -56,7 +56,7 @@ import (
 //	internal     | 500    | a bug; report the log_id
 const maxBody = 4 << 10
 
-// maxAgents bounds GET /v1/agents (Release It B6): more VMs than any deployment of this design.
+// maxAgents bounds GET /v1/agents (every listing is bounded): more VMs than any deployment of this design.
 const maxAgents = 10_000
 
 func (d *daemon) routes(reg *metrics.Registry) (http.Handler, error) {
@@ -188,7 +188,7 @@ func (d *daemon) handleAs(tokens []string, who, action string, fn func(ctx conte
 }
 
 // handleIn is handleAs in the bulkhead pool under timeout: data-path reads (schema fetches) use the locator's
-// load slots, so they never queue behind admin moves (Release It B1).
+// load slots, so they never queue behind admin moves.
 func (d *daemon) handleIn(pool *slots.Pool, timeout time.Duration, tokens []string, who, action string,
 	fn func(ctx context.Context, r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +208,7 @@ func (d *daemon) handleIn(pool *slots.Pool, timeout time.Duration, tokens []stri
 }
 
 // call is every API call's pipeline after authentication: refused until startup is done, one slot of pool
-// (refused at once when full, and counted; never queued, Release It B1), fn under timeout (T1), the answer
+// (refused at once when full, and counted; never queued), fn under timeout, the answer
 // written.
 func (d *daemon) call(w http.ResponseWriter, r *http.Request, pool *slots.Pool, timeout time.Duration,
 	fn func(ctx context.Context, r *http.Request) (any, error)) {

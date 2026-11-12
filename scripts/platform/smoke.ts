@@ -3,9 +3,9 @@
  * tic-tac-toe schema at controld, creates a tenant and an API key through controld's tenancy admin API, then
  * does one SDK write (`createGame`) and one SDK read (`getGame`) on the locator route — resolve at controld,
  * every request through the edge with the ticket — and checks the document read back is the one written.
- * Then it plays four moves and counts the `/v1/ops` requests each `makeMove` cost (the read path,
- * `docs/programmatic-schema-platform-survey.md` §3.2): one when the client's cache holds the game, two when it
- * does not, two when the cache is stale, and the game must end at the version four moves make.
+ * Then it plays four moves and counts the `/v1/ops` requests each `makeMove` cost (the read path): one when
+ * the client's cache holds the game, two when it does not, two when the cache is stale, and the game must end
+ * at the version four moves make.
  *
  * Input: PLATFORM_DIR/smoke.json ({api, edge, admin_token}); the dev CA through DENO_CERT. Exit 0 and one
  * `platform smoke OK` line on success; nonzero with the reason otherwise. Same calls as

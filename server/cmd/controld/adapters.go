@@ -85,7 +85,7 @@ func (r registry) Pending(ctx context.Context, olderThan time.Duration, limit in
 }
 
 // objects deletes a database's prefix: root + durable.KeyPrefix(key), which ends in "/", so it never
-// reaches another key's objects (object-storage guide K1, GC).
+// reaches another key's objects: no database's prefix contains another's.
 type objects struct {
 	s    *objstore.Store
 	root string

@@ -155,7 +155,7 @@ func TestCreatingHostCleansUpAFailedOpen(t *testing.T) {
 	}
 }
 
-// IR-5: tenancy in single-node durable mode. A credential request runs at its database's owner-table epoch;
+// Tenancy in single-node durable mode. A credential request runs at its database's owner-table epoch;
 // with create_dbs the claim path creates a missing database (placement row, then claim), within the caps;
 // after a restart the same credential reaches the same data (the key reconciles or is claimed again). With
 // placement_pg the section is refused: multi-node authenticates at controld.
@@ -229,7 +229,7 @@ func newClaims(t *testing.T, cfg Config) (*claimingPlace, *ownertest.Placement) 
 	return newClaimingPlace(&durableAgent{cfg: &cfg, tab: tab, place: pl}), pl
 }
 
-// B6's overload scenario for the claim path: a first-use storm against a slow placement store. Before, every
+// An overload scenario for the claim path: a first-use storm against a slow placement store. Before, every
 // credential request for a database not yet active queued on one process-wide mutex, held across the authority
 // calls: unbounded in number, outside every limit, and deaf to the request's deadline. Now each database has
 // one flight, at most lifecycle_concurrency flights run, other databases are shed at once, and a waiter leaves

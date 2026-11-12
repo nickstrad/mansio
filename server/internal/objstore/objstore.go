@@ -2,9 +2,9 @@
 // (SeaweedFS in the coldload test). Errors leaving it are errs.Error with module "objstore", carrying the
 // Classify kind as Misc "s3_kind"; a missing object matches ErrNotFound.
 //
-// It owns the S3 call budget (Release It T1–T4, R1–R2): minio-go's retries are off, idempotent requests (GET,
-// HEAD, LIST, DELETE) are retried here with jittered backoff, writes are sent once, every request has a
-// deadline, and bodies have a stall timeout plus a size-derived deadline.
+// It owns the S3 call budget: minio-go's retries are off, idempotent requests (GET, HEAD, LIST, DELETE) are retried
+// here with jittered backoff, writes are sent once, every request has a deadline, and bodies have a stall timeout
+// plus a size-derived deadline.
 package objstore
 
 import (
@@ -34,15 +34,14 @@ const module = "objstore"
 // ErrNotFound matches (errors.Is) a GET of an object that does not exist.
 var ErrNotFound = errors.New("objstore: object not found")
 
-// Config says where the store is. Endpoint, AccessKey, SecretKey and Bucket are required; the rest have
-// defaults (Release It guide §P, S3 sheet).
+// Config says where the store is. Endpoint, AccessKey, SecretKey and Bucket are required; the rest have defaults.
 type Config struct {
 	Endpoint  string // host:port, e.g. localhost:8333
 	AccessKey string
 	SecretKey string
 	Bucket    string
-	// Secure speaks HTTPS to the endpoint (object-storage guide S2: TLS outside a developer laptop). Off is for
-	// local development only; agentd refuses it without -dev.
+	// Secure speaks HTTPS to the endpoint (use TLS everywhere but a developer laptop). Off is for local development
+	// only; agentd refuses it without -dev.
 	Secure bool
 	// CAFile, if set, is a PEM bundle of the CAs that sign the endpoint's certificate (a private CA); the
 	// system roots are used otherwise. Requires Secure.

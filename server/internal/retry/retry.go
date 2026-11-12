@@ -1,9 +1,9 @@
 // Package retry implements client retry policies: backoff, jitter, which outcomes to retry, a total-time limit
 // and a retry budget. Policy, Delay and Decide are pure; Budget is the only shared state.
 //
-// The zero Policy is safe to reuse in a production client (Release It R3): 3 attempts, exponential backoff from
-// 50 ms capped at 5 s, full jitter, and the server's Retry-After honored. The "none" backoff and jitter modes
-// exist for the benchmark's badly behaved profiles, which must ask for them explicitly.
+// The zero Policy is safe to reuse in a production client: 3 attempts, exponential backoff from 50 ms capped at 5 s,
+// full jitter, and the server's Retry-After honored. The "none" backoff and jitter modes exist for the benchmark's
+// badly behaved profiles, which must ask for them explicitly.
 //
 // The benchmark runs several client profiles at once to compare well-behaved clients (capped exponential
 // backoff with jitter, retry only retryable outcomes, a budget) with badly behaved ones (immediate retries, no
@@ -54,7 +54,7 @@ type Policy struct {
 	TotalTimeout time.Duration // no retry may start later than this after the first attempt; 0 = never
 }
 
-// Safe defaults (Release It R3, guide §P "Client").
+// Safe defaults for a production client.
 const (
 	DefaultMaxAttempts = 3
 	DefaultBase        = 50 * time.Millisecond
@@ -158,8 +158,8 @@ func HintOf(err error) time.Duration {
 // MaxAttemptsCap bounds attempts regardless of policy (records store the attempt number in a byte).
 const MaxAttemptsCap = 255
 
-// Decide says whether to retry after a, and after what delay: the jittered backoff, or the server's hint if that
-// is longer (Release It R3: max(serverHint, jitteredDelay)). It ignores the budget, which is shared state.
+// Decide says whether to retry after a, and after what delay: the jittered backoff, or the server's hint if that is
+// longer: max(serverHint, jitteredDelay). It ignores the budget, which is shared state.
 //
 //	post: retry ⇒ delay >= a.ServerHint, and a.Elapsed + delay <= TotalTimeout when TotalTimeout > 0
 func (p *Policy) Decide(rng *rand.Rand, a Attempt) (delay time.Duration, retry bool) {
@@ -175,10 +175,9 @@ func (p *Policy) Decide(rng *rand.Rand, a Attempt) (delay time.Duration, retry b
 }
 
 // Budget caps retries at Ratio per first attempt with a token bucket: each first attempt adds Ratio tokens, each
-// retry takes one, and the bucket holds at most Burst (default BudgetAllowance). Credit therefore expires: a
-// quiet hour banks at most Burst retries for the storm that follows (Release It R4), so over any window
-// retries <= Burst + Ratio × first attempts in that window. The zero bucket is full, so a cold start can retry.
-// Safe for concurrent use.
+// retry takes one, and the bucket holds at most Burst (default BudgetAllowance). Credit therefore expires: a quiet
+// hour banks at most Burst retries for the storm that follows, so over any window retries <= Burst + Ratio × first
+// attempts in that window. The zero bucket is full, so a cold start can retry. Safe for concurrent use.
 type Budget struct {
 	Ratio float64
 	Burst int // bucket size in retries; 0 = BudgetAllowance

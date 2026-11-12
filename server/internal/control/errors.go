@@ -9,7 +9,7 @@ var (
 	ErrExists = errors.New("control: database name was used by a dropped database")
 	// ErrState: the operation is not allowed in the database's current lifecycle state.
 	ErrState = errors.New("control: not allowed in the database's state")
-	// ErrNotDead: a restore needs an operator's attestation that the VM is dead (M5).
+	// ErrNotDead: a restore needs an operator's attestation that the VM is dead.
 	ErrNotDead = errors.New("control: vm not attested dead")
 	// ErrNoAgent: the VM has no lifecycle endpoint configured.
 	ErrNoAgent = errors.New("control: no agent for vm")

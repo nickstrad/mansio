@@ -59,8 +59,8 @@ func (r *s3Rig) write(t *testing.T, key string, epoch uint64, v string) {
 	}
 }
 
-// RI-14 / OS-02 through the real adapter: a stamp's manifest PUT applies but its reply is dropped, or the
-// server answers 412 after applying it (what a client-side re-send of a lost reply gets, G2c). Warm and cold
+// Through the real adapter: a stamp's manifest PUT applies but its reply is dropped, or the
+// server answers 412 after applying it (what a client-side re-send of a lost reply gets). Warm and cold
 // Stamp both re-read, succeed, and the owner can still write back.
 func TestStampLostReplyThroughS3(t *testing.T) {
 	for _, mode := range []s3test.Mode{s3test.ApplyThenDropReply, s3test.ApplyThenPreconditionFailed} {
@@ -90,7 +90,7 @@ func TestStampLostReplyThroughS3(t *testing.T) {
 	}
 }
 
-// OS-02 through the real adapter: the generation PUT applies but its reply is lost. The HEAD's sha256
+// Through the real adapter: the generation PUT applies but its reply is lost. The HEAD's sha256
 // metadata shows it is ours, so it is published without a second upload.
 func TestLostUploadReplyThroughS3(t *testing.T) {
 	r := newS3Rig(t)
@@ -121,7 +121,7 @@ func TestLostUploadReplyThroughS3(t *testing.T) {
 	}
 }
 
-// OS-06 "bucket bytes flat": through the real adapter, 30 write-backs of a 64 KiB database leave the key's
+// Bucket bytes stay flat: through the real adapter, 30 write-backs of a 64 KiB database leave the key's
 // prefix at (K+1) × 64 KiB plus the manifest after every one. Against the in-process S3 always, and against
 // SeaweedFS when COLDLOAD_S3 is set.
 func TestBucketBytesFlatThroughS3(t *testing.T) {
@@ -175,7 +175,7 @@ func TestBucketBytesFlatThroughS3(t *testing.T) {
 	})
 }
 
-// OS-10 measurement against SeaweedFS (COLDLOAD_S3): the cold activation of a 256 MiB generation (manifest
+// Generation cache measurement against SeaweedFS (COLDLOAD_S3): the cold activation of a 256 MiB generation (manifest
 // GET + download) against a re-warm from the generation cache (manifest GET + rename). Logs both; fails only
 // if the re-warm downloads or takes over 100 ms.
 func TestGenCacheRewarmLatencyS3(t *testing.T) {

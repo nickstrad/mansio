@@ -70,7 +70,7 @@ func TestDrainRateWindows(t *testing.T) {
 	}
 }
 
-// RI-10's deferred estimate: a shed answer's Retry-After is the VM queue's drain time at the measured rate.
+// A shed answer's Retry-After is the VM queue's drain time at the measured rate.
 func TestShedRetryAfterIsQueueDrain(t *testing.T) {
 	now := time.Unix(2000, 0)
 	a := NewAdmission(AdmissionLimits{TenantInFlight: 1, TenantQueue: 1, DBInFlight: 1, DBQueue: 1, VMInFlight: 1, VMQueue: 1})

@@ -47,7 +47,8 @@ func (k *keyDir) Remove(kid string) error {
 	return nil
 }
 
-// Load reads every key file, refusing a directory or file others can read (object-storage guide S2).
+// Load reads every key file, refusing a directory or file others can read: signing keys stay
+// private to this process's user.
 func (k *keyDir) Load() (map[string]ed25519.PrivateKey, []ticket.KeyAge, error) {
 	if err := os.MkdirAll(k.dir, 0o700); err != nil {
 		return nil, nil, errs.Wrap(module, err, "cannot create ticket_keys.dir").With("path", k.dir)

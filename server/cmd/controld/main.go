@@ -1,5 +1,5 @@
-// Command controld is the control plane (control-plane plan CP-4): the registries (tenants, databases, VMs
-// and their heartbeats) and the database lifecycle (create, move, suspend/resume, drop, and the M5 restore
+// Command controld is the control plane: the registries (tenants, databases, VMs
+// and their heartbeats) and the database lifecycle (create, move, suspend/resume, drop, and the restore
 // of a VM an operator attested dead) over the Postgres placement authority. It reaches agents only through
 // their lifecycle endpoints, each with a deadline and its own breaker, and finishes stuck flows from table
 // scans (internal/control).
@@ -14,7 +14,7 @@
 // | drop -db K | attest-dead -vm VM -by WHO | restore -vm VM | vms | create-key -tenant T -principal P [-perms P]
 // | revoke-key -id ID.
 //
-// The locator and ticket issuer (CP-5, locator.go) serve on the same listener: POST /v1/resolve (an API key)
+// The locator and ticket issuer (locator.go) serve on the same listener: POST /v1/resolve (an API key)
 // and GET /v1/keys (the ticket public keys agents fetch).
 //
 // Exit codes: 0 ok, 1 failed (an error answer, or a startup error with its log ID), 2 usage, 70 bug,

@@ -14,8 +14,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
-// backupAnswer is POST /admin/backup's answer (replace-platform plan phase 4: the Deno platform's
-// /admin/backup/:appId over generations): the manifest that now names the key's durable copy (contract 1,
+// backupAnswer is POST /admin/backup's answer (it replaces the Deno platform's /admin/backup/:appId, now over
+// generations): the manifest that now names the key's durable copy (the manifest format is in
 // internal/durable), its version, and whether this call uploaded a generation. Restore a backup with
 // `dbtool restore -gen <generation> <key> <path>`.
 type backupAnswer struct {
@@ -59,7 +59,7 @@ func (d *durableAgent) backup(ctx context.Context, key string) (backupAnswer, er
 }
 
 // classifyBackup gives a backup failure the answer classifyControl has no rule for: a higher epoch owns the
-// key (stale) or S3 failed transiently (unavailable, not a bug: Release It F2).
+// key (stale) or S3 failed transiently (unavailable: a dependency outage, not a bug).
 func classifyBackup(err error) error {
 	switch {
 	case errors.Is(err, durable.ErrStale):

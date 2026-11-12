@@ -1,5 +1,5 @@
 /**
- * Boundary tests (plan item 26): the architectural layering rules, asserted by scanning source
+ * Boundary tests: the architectural layering rules, asserted by scanning source
  * text so the boundaries cannot rot silently.
  *
  * Rules:
@@ -8,7 +8,7 @@
  * - no `Deno.env` in the shipped library outside `eventlog/config.ts`;
  * - no `throw new Error` in `core/` or `eventlog/` (errors go through the tagged channel).
  *
- * Until IR-6 these rules covered the Deno platform too, and a second group kept `node:sqlite`
+ * Before the Deno platform was removed (ADR 0013) these rules covered it too, and a second group kept `node:sqlite`
  * out of the processes that opened files through the FFI SQLite binding (one SQLite copy per process).
  * The platform and the binding are gone, so that group went with them.
  *
