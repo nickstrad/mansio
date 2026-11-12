@@ -14,13 +14,12 @@ Module: `github.com/nickstrad/mansio/server`. Go 1.26 or newer.
 | `agentd`    | The data plane, one per VM: serves `POST /v1/ops`, one actor (goroutine + SQLite file) per database.     |
 | `controld`  | The control plane: tenant, database and VM registries, placement in Postgres, the locator, tickets.     |
 | `edge`      | A stateless TLS proxy in front of the agents: verifies the ticket and routes by VM.                     |
-| `mansioctl` | The platform admin CLI over the admin API: tenants and their API keys ([README](cmd/mansioctl/README.md)). |
-| `agentctl`  | Operator CLI for one agent's admin listener: drain, backup, passivate, limits, breakers, log level.     |
+| `mansioctl` | The admin CLI for a running platform: tenants, databases, VMs, keys, limits, one agent's controls.     |
 | `dbtool`    | Operator CLI for the durable copies in object storage: inspect, verify, restore, import, gc.            |
 | `bench/`    | Load tests, not part of the platform: `sqlbench`, `frontbench`, `wbbench`, `coldload`.                  |
 
-`controld` is also its own admin CLI (`controld create`, `move`, `attest-dead`, ...; see `cmd/controld/cli.go`).
-Each daemon reads one JSON config; the reference is its `Config` type (`cmd/<name>/config.go`) and the samples
+[`cmd/mansioctl/README.md`](cmd/mansioctl/README.md) says which tool to use when. `controld` keeps two local
+commands, `keygen` and `import-mansio`. Each daemon reads one JSON config; the reference is its `Config` type (`cmd/<name>/config.go`) and the samples
 in `configs/`.
 
 ## Packages (`internal/`)

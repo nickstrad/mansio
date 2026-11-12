@@ -138,7 +138,7 @@ if !b.Allow(now) {
 
 **C4. Breakers are visible and operable.** Log every transition with a message code. Expose state and the
 transition count. Ops can trip and reset them (RI-11, RI-16): `breaker.Trip` holds a breaker
-open until `Reset`; `agentctl breaker s3 trip|reset` through agentd's admin listener.
+open until `Reset`; `mansioctl agent breaker s3 trip|reset` through agentd's admin listener.
 
 **C5. Open-circuit behavior is a product decision, written down.** Decided (2026-11-05): S3 open → cold
 activations `503`, warm traffic unaffected, write-backs deferred (RPO grows, alert on `oldest_dirty_age`), and

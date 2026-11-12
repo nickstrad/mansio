@@ -60,9 +60,9 @@ scripts/dev/e2e-linux.sh --filter documents    # deno test args pass through
 ```
 
 The suite needs Linux (process groups, `setsid`, `/proc`), so the script runs it in `denoland/deno:2.9.5` with
-a sibling Postgres and SeaweedFS, and cross-compiles agentd, dbtool, controld and the edge on the host. It
-runs eight seeded scenarios (`tests/e2e/platform/seed.ts`): documents, queries, backup/restore, tenant
-isolation, auth, log analysis, admin lifecycle and scale-out. Each starts its own agents with scratch
+a sibling Postgres and SeaweedFS, and cross-compiles agentd, dbtool, controld, the edge and mansioctl on the
+host. It runs eight seeded scenarios (`tests/e2e/platform/seed.ts`): documents, queries, backup/restore,
+tenant isolation, auth, log analysis, admin lifecycle and scale-out. Each starts its own agents with scratch
 directories and ephemeral ports; the run verifies cleanup and an unchanged `git status`, and fails if its
 runtime bound is exceeded. `BACKEND=deno` is gone; the script still accepts a leading `go` and refuses `deno`.
 

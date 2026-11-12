@@ -37,7 +37,8 @@ The Go binaries:
 - **`controld`** is the control plane for multi-node deployments: placement, the locator, the ticket issuer.
 - **`edge`** is the front door that forwards to agents.
 - **`dbtool`** inspects, verifies, restores and imports the durable copies in S3.
-- **`mansioctl`** is the admin CLI: tenants and their API keys over the admin API (`/admin/tenants*`).
+- **`mansioctl`** is the admin CLI for a running platform: tenants and keys, database and VM lifecycle,
+  limits, and one agent's runtime controls.
 
 The config reference for each is its Go config type (`server/cmd/agentd/config.go`, with one comment per
 field) and the sample configs in `server/configs/`. [server/README.md](server/README.md) describes the

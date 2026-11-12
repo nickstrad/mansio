@@ -6,7 +6,7 @@ try, with one to three sentences on why each step matters. Work a path top to bo
 | Path                         | For                                                                | You will touch                                                                     |
 | ---------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | [customer.md](customer.md)   | Someone building an application on the platform                    | `examples/tic-tac-toe/`, the SDK's public API, `docs/guide.md`                     |
-| [operator.md](operator.md)   | Someone running the platform                                       | configs, `controld`/`agentctl`/`dbtool`, metrics                                   |
+| [operator.md](operator.md)   | Someone running the platform                                       | configs, `mansioctl`, `dbtool`, metrics                                            |
 | [developer.md](developer.md) | Someone who wants to understand the platform in order to extend it | the SDK internals, the intermediate representation (IR) spec, the Go server, tests |
 
 Suggested order if you want all three: customer, then developer, then operator. The customer path explains

@@ -267,8 +267,9 @@ single-node durable config; `server/configs/agentd/durable-local.json` is anothe
 
 In durable mode each database is a chain of immutable generations in S3. agentd writes a dirty database back
 every `maintenance.write_back_every` (default 10 s), when it passivates an idle database, and on clean
-shutdown. `POST /admin/backup?key=<tenant>:<app>` on the admin listener (`admin_listen`, loopback only) writes
-the database back now and answers the manifest of the generation that holds it.
+shutdown. `POST /admin/backup?key=<tenant>:<app>` on the admin listener (`admin_listen`, loopback only;
+`mansioctl agent backup <tenant>:<app>` sends it) writes the database back now and answers the manifest of the
+generation that holds it.
 
 **This is asynchronous write-back, not replication.** A mutation acknowledges the local SQLite commit; a host
 loss can lose acknowledged writes newer than the last write-back: about 11 s of them with the defaults (the 10
