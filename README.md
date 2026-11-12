@@ -13,19 +13,19 @@ Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 
 ## Repository layout
 
-| Path                                       | What it is                                                                                                                                                                                                                                   |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `examples/tic-tac-toe/`                    | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.                                                                                                                       |
-| `sdk/`                                     | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`).                                                                                                                     |
-| `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types, event records.                                                                                                                          |
-| `intermediate-representation/`             | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
-| `eventlog/`, `scripts/logs.ts`             | The offline event-log CLI: JSONL → DuckDB ingest, retention sweep, the named analysis catalog.                                                                                                                                               |
-| `scripts/tenants.ts`, `scripts/explain.ts` | Tenant admin CLI against agentd's `/admin/tenants*`; the compiler's SQL for both layouts (`core/compile/GENERATED_SQL.txt`).                                                                                                                 |
-| `server/`                                  | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool` and their tests.                                                                                                                         |
-| `tests/`                                   | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.                                                                                                                                |
-| `perf/`                                    | k6 load scripts against agentd's `/v1/ops`. See [perf/README.md](perf/README.md).                                                                                                                                                            |
-| `docs/`                                    | The [user guide](docs/guide.md), [learning paths](docs/learning/README.md), ADRs, testing and observability references, design notes, and the architecture diagram site (`docs/pages/`, published at <https://nickstrad.github.io/mansio/>). |
-| `scripts/dev/`                             | Scripts that run the CI gate and the e2e suite in Linux containers.                                                                                                                                                                          |
+| Path                           | What it is                                                                                                                                                                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `examples/tic-tac-toe/`        | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.                                                                                                                       |
+| `sdk/`                         | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`).                                                                                                                     |
+| `core/`                        | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types, event records.                                                                                                                          |
+| `intermediate-representation/` | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
+| `eventlog/`, `scripts/logs.ts` | The offline event-log CLI: JSONL → DuckDB ingest, retention sweep, the named analysis catalog.                                                                                                                                               |
+| `scripts/explain.ts`           | The compiler's SQL for both layouts (`core/compile/GENERATED_SQL.txt`).                                                                                                                                                                      |
+| `server/`                      | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool`, `mansioctl` and their tests.                                                                                                            |
+| `tests/`                       | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.                                                                                                                                |
+| `perf/`                        | k6 load scripts against agentd's `/v1/ops`. See [perf/README.md](perf/README.md).                                                                                                                                                            |
+| `docs/`                        | The [user guide](docs/guide.md), [learning paths](docs/learning/README.md), ADRs, testing and observability references, design notes, and the architecture diagram site (`docs/pages/`, published at <https://nickstrad.github.io/mansio/>). |
+| `scripts/dev/`                 | Scripts that run the CI gate and the e2e suite in Linux containers.                                                                                                                                                                          |
 
 The Go binaries:
 
@@ -37,6 +37,7 @@ The Go binaries:
 - **`controld`** is the control plane for multi-node deployments: placement, the locator, the ticket issuer.
 - **`edge`** is the front door that forwards to agents.
 - **`dbtool`** inspects, verifies, restores and imports the durable copies in S3.
+- **`mansioctl`** is the admin CLI: tenants and their API keys over the admin API (`/admin/tenants*`).
 
 The config reference for each is its Go config type (`server/cmd/agentd/config.go`, with one comment per
 field) and the sample configs in `server/configs/`. [server/README.md](server/README.md) describes the
@@ -52,9 +53,9 @@ deno task explain > core/compile/GENERATED_SQL.txt            # regenerate the c
 ```
 
 Run `deno task ci` on Linux: the DuckDB event-log suites hang on macOS. `deno-linux.sh` runs a command in a
-Linux container with this checkout mounted. `e2e-linux.sh` cross-compiles `agentd`, `dbtool`, `controld` and
-`edge`, starts Postgres and SeaweedFS sibling containers, and runs `tests/e2e/platform/` in a Deno container.
-[docs/testing.md](docs/testing.md) describes the suites.
+Linux container with this checkout mounted. `e2e-linux.sh` cross-compiles `agentd`, `dbtool`, `controld`,
+`edge` and `mansioctl`, starts Postgres and SeaweedFS sibling containers, and runs `tests/e2e/platform/` in a
+Deno container. [docs/testing.md](docs/testing.md) describes the suites.
 
 ## App-facing client
 

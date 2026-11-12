@@ -11,7 +11,7 @@ flowchart TB
     end
         developer["App developer<br/>[Person]<br/>app/; sdk/<br/>Declares schemas and Effect handlers; the handlers run in the SDK"]
         caller["Application caller<br/>[Person]<br/>sdk/client.ts<br/>Players and authenticated tenant users"]
-        operator["Operator<br/>[Person]<br/>scripts/tenants.ts; server/cmd/dbtool<br/>Tenants, keys, placement, backups and log analysis"]
+        operator["Operator<br/>[Person]<br/>server/cmd/mansioctl; server/cmd/dbtool<br/>Tenants, keys, placement, backups and log analysis"]
         objects["Object storage<br/>[External system]<br/>S3 (SeaweedFS in dev)<br/>SQLite generations and manifests (durable mode)"]
         analytics["Analytics consumer<br/>[External system]<br/>scripts/logs.ts; scripts/duckdb/<br/>Offline DuckDB event log: named catalog or SQL"]
         k6["k6 load generator<br/>[External system]<br/>perf/*.js<br/>IR load over /v1/ops; raw metric points"]

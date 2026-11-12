@@ -47,8 +47,8 @@ Every drill from Phase 3 on uses that cluster.
    There is no separate config manual: the field comments are the reference. Compare each sample with the file
    `platform-up` generated for the same process.
 
-7. Read "Authentication and tenancy" in `docs/guide.md`, then run `scripts/tenants.ts` without arguments to
-   see its commands.
+7. Read "Authentication and tenancy" in `docs/guide.md`, then build `server/cmd/mansioctl` and run
+   `mansioctl -h` to see its commands.
 
    Single-node agentd can authenticate with app tokens, tenant API keys or sessions; multi-node deployments
    authenticate at controld. This decides where tenants and keys live and which tool manages them.
@@ -78,7 +78,7 @@ Every drill from Phase 3 on uses that cluster.
 11. Create a database and an API key with `create -tenant <tenant id> -name drill1` and
     `create-key -tenant <tenant id> -principal <you>`, then `get -db "<tenant id>:drill1"`. The tenant id is a
     UUID: list tenants with
-    `DENO_CERT=.platform/tls/ca.pem BASE_URL=https://127.0.0.1:27080 ADMIN_TOKEN=<admin_token from .platform/controld/secrets.json> deno run -A scripts/tenants.ts list`.
+    `mansioctl -addr https://127.0.0.1:27080 -ca .platform/tls/ca.pem -token-file .platform/controld/secrets.json -format table tenants list`.
     Then read the placement row in Postgres:
     `docker exec <postgres container> psql -U mansio -d mansio -c 'select database_id,owner_vm,epoch,generation,state from control.placement'`.
 

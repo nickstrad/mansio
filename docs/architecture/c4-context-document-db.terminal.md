@@ -32,7 +32,7 @@ and the server is the Go server in `server/`. Both formats are generated from
    ┌──────────────────────────────┐   ┌──────────────────────────────┐
    │ Operator                     │   │ Object storage               │
    │ [Person]                     │   │ [External system]            │
-   │ scripts/tenants.ts;          │   │ S3 (SeaweedFS in dev)        │
+   │ server/cmd/mansioctl;        │   │ S3 (SeaweedFS in dev)        │
    │ server/cmd/dbtool            │   │ SQLite generations and       │
    │ Tenants, keys, placement,    │   │ manifests (durable mode)     │
    │ backups and log analysis     │   └──────────────────────────────┘
