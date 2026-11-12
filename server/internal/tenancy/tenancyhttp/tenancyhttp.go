@@ -1,4 +1,4 @@
-// Package tenancyhttp is package tenancy's HTTP adapter (IR-4a, ADR 0012): the admin API scripts/tenants.ts
+// Package tenancyhttp is package tenancy's HTTP adapter (IR-4a, ADR 0012): the admin API mansioctl
 // speaks (/admin/tenants…, plus POST /admin/users/link for scripts/auth.ts users link) and Better Auth's
 // email/password endpoints (/api/auth/sign-up/email, /api/auth/sign-in/email), with the Deno platform's
 // shapes, so the CLIs and clients work against either backend.

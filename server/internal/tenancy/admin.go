@@ -10,7 +10,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// The admin operations behind /admin/tenants (scripts/tenants.ts's API). Each validates its input, then makes
+// The admin operations behind /admin/tenants (mansioctl tenants). Each validates its input, then makes
 // one Store call; every change clears the credential cache, whatever its outcome.
 
 // IssuedKey is a new key: its metadata and its plaintext, returned once and never stored.
@@ -97,7 +97,7 @@ func (s *Service) IssueKey(ctx context.Context, tenant, name string) (IssuedKey,
 }
 
 // RevokeKey revokes key id if it belongs to tenant. Idempotent: a key of another tenant, or none, is left as is,
-// so a caller that does not know the key's tenant may try each (scripts/tenants.ts revoke-key).
+// so a caller that does not know the key's tenant may try each (mansioctl tenants revoke-key).
 func (s *Service) RevokeKey(ctx context.Context, tenant, id string) error {
 	if err := checkTenantID(tenant); err != nil {
 		return err
