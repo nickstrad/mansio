@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "mansio-go-platform",
-  "title": "mansio Go platform (main 6330c9f; S3 work paused)",
-  "revision": "main-6330c9f-go-platform",
+  "title": "mansio on main (bffb5e9; S3 work paused)",
+  "revision": "main-bffb5e9-go-platform",
   "defaultDiagramId": "context",
   "model": {
     "elements": [
@@ -82,7 +82,7 @@
         "id": "sdk",
         "kind": "component",
         "name": "TypeScript SDK",
-        "description": "Records reads, buffers writes and derives asserts. Re-runs handlers on eligible conflicts; find reads are unguarded in v1.",
+        "description": "Records reads, buffers writes and derives asserts. Batches reads into one snapshot per run and guards finds with a table assert. Re-runs handlers on eligible conflicts from the state the conflict returns.",
         "status": "existing",
         "tags": [
           "external"
@@ -92,7 +92,26 @@
         ],
         "sourceIds": [
           "src-recording",
-          "src-transport"
+          "src-transport",
+          "src-read-path",
+          "src-retry"
+        ],
+        "parentId": "caller-process",
+        "technology": "TypeScript"
+      },
+      {
+        "id": "read-cache",
+        "kind": "component",
+        "name": "Read cache",
+        "description": "Documents by id with the version they were read at. Answers a mutation's get without a round trip; never trusted: the SDK asserts every cached version before or in the commit.",
+        "status": "existing",
+        "tags": [],
+        "docIds": [
+          "doc-element-read-cache"
+        ],
+        "sourceIds": [
+          "src-cache",
+          "src-read-path"
         ],
         "parentId": "caller-process",
         "technology": "TypeScript"
@@ -140,7 +159,7 @@
         "id": "edge",
         "kind": "container",
         "name": "edge / TLS proxy",
-        "description": "Separate stateless proxy; verifies tickets and routes by VM to private agentd. No compiler or database engine.",
+        "description": "Separate stateless proxy; verifies tickets and routes by VM to private agentd. Refuses before reading the body (max_in_flight, agent bulkhead, breaker). No compiler or database engine.",
         "status": "existing",
         "tags": [
           "external"
@@ -149,7 +168,8 @@
           "doc-element-edge"
         ],
         "sourceIds": [
-          "src-edge"
+          "src-edge",
+          "src-edge-proxy"
         ],
         "parentId": "platform",
         "technology": "Go / TLS"
@@ -178,7 +198,7 @@
         "id": "files",
         "kind": "container",
         "name": "SQLite files",
-        "description": "One file per database; many databases per tenant. Local WAL and request-id records; database is the isolation unit.",
+        "description": "One file per database; many databases per tenant. Local WAL, request-id records and the commit sequence (_mansio_changes); database is the isolation unit.",
         "status": "existing",
         "tags": [
           "external"
@@ -189,7 +209,8 @@
         "sourceIds": [
           "src-actor",
           "src-reqid",
-          "src-control"
+          "src-control",
+          "src-seq"
         ],
         "parentId": "platform",
         "technology": "SQLite / modernc.org/sqlite"
@@ -217,7 +238,7 @@
         "id": "jsonl",
         "kind": "container",
         "name": "Canonical JSONL",
-        "description": "Canonical persisted events. Bounded logging reports drops; canonical does not mean lossless.",
+        "description": "Canonical persisted events, bounded by the writer's own retention. Bounded logging reports drops; canonical does not mean lossless.",
         "status": "existing",
         "tags": [
           "external"
@@ -228,7 +249,8 @@
         "sourceIds": [
           "src-events",
           "src-adr",
-          "src-log-adr"
+          "src-log-adr",
+          "src-retention"
         ],
         "parentId": "platform",
         "technology": "JSON Lines files"
@@ -269,7 +291,7 @@
         "id": "admission",
         "kind": "component",
         "name": "Ticket admission",
-        "description": "Verifies signed claims offline and checks VM, database, permission and locally ACTIVE epoch.",
+        "description": "Verifies signed claims offline and checks VM, database, permission and locally ACTIVE epoch. Caps in-flight work per database, tenant and VM; sheds a request that would expire in its queue.",
         "status": "existing",
         "tags": [],
         "docIds": [
@@ -278,7 +300,8 @@
         "sourceIds": [
           "src-agent",
           "src-ops",
-          "src-owner"
+          "src-owner",
+          "src-admission"
         ],
         "parentId": "agentd",
         "technology": "Go"
@@ -287,7 +310,7 @@
         "id": "ir",
         "kind": "component",
         "name": "IR executor",
-        "description": "Validates document IR, dispatches actor closures and checks fingerprint and preconditions. Never runs application TypeScript.",
+        "description": "Validates document IR, dispatches actor closures and checks fingerprint and preconditions (including table asserts). Conflict answers carry seq and current state. Never runs application TypeScript.",
         "status": "existing",
         "tags": [],
         "docIds": [
@@ -295,7 +318,9 @@
         ],
         "sourceIds": [
           "src-ops",
-          "src-exec"
+          "src-exec",
+          "src-witness",
+          "src-read-path"
         ],
         "parentId": "agentd",
         "technology": "Go / IR v1"
@@ -333,7 +358,7 @@
         "id": "actor",
         "kind": "component",
         "name": "Database actor",
-        "description": "One goroutine per database; runs closures on its connection. Optional read pool provides concurrent read snapshots.",
+        "description": "One goroutine per database; runs closures on its connection. Each run reads one snapshot; optional read pool provides concurrent read snapshots.",
         "status": "existing",
         "tags": [],
         "docIds": [
@@ -341,7 +366,8 @@
         ],
         "sourceIds": [
           "src-actor",
-          "src-exec"
+          "src-exec",
+          "src-read-path"
         ],
         "parentId": "agentd",
         "technology": "Go goroutine"
@@ -350,14 +376,17 @@
         "id": "writer",
         "kind": "component",
         "name": "Group commit",
-        "description": "One write connection per actor. Batch transaction, individual write savepoints; replies follow commit.",
+        "description": "One write connection per actor. Batch transaction, individual write savepoints; _version and commit sequence never fall below the incarnation floor. Replies follow commit.",
         "status": "existing",
         "tags": [],
         "docIds": [
           "doc-element-writer"
         ],
         "sourceIds": [
-          "src-actor"
+          "src-actor",
+          "src-version",
+          "src-seq",
+          "src-version-floor"
         ],
         "parentId": "agentd",
         "technology": "Go / SQLite"
@@ -383,7 +412,7 @@
         "id": "storage",
         "kind": "component",
         "name": "Write-back — paused",
-        "description": "Implemented snapshots, restore and epoch-stamped manifests. S3 work paused 2026-11-06 pending LiteFS; no WAL shipping.",
+        "description": "Implemented snapshots, restore and epoch-stamped manifests; the manifest seal is the incarnation behind the version floor. S3 work paused 2026-11-06 pending LiteFS; no WAL shipping.",
         "status": "existing",
         "tags": [
           "implemented-paused"
@@ -394,7 +423,8 @@
         "sourceIds": [
           "src-writeback",
           "src-durable",
-          "src-paused"
+          "src-paused",
+          "src-version-floor"
         ],
         "parentId": "agentd",
         "technology": "Go / S3"
@@ -403,12 +433,13 @@
         "id": "events",
         "kind": "component",
         "name": "Structured event sink",
-        "description": "Nonblocking bounded queue and writer goroutine; flushes rolled JSONL, counts drops.",
+        "description": "Nonblocking bounded queue and writer goroutine; flushes rolled JSONL, counts drops and losses, and retires its oldest files past max_total_bytes / max_age.",
         "status": "existing",
         "tags": [],
         "docIds": [],
         "sourceIds": [
-          "src-events"
+          "src-events",
+          "src-retention"
         ],
         "parentId": "agentd",
         "technology": "Go"
@@ -417,14 +448,15 @@
         "id": "locator",
         "kind": "component",
         "name": "Locator",
-        "description": "Authenticates API key; returns endpoint, epoch, generation and signed ticket. Refreshes stale placement from primary.",
+        "description": "Authenticates API key; returns endpoint, epoch, generation and signed ticket. Refreshes stale placement from primary. Store loads and creates take narrow slots below the Postgres pool.",
         "status": "existing",
         "tags": [],
         "docIds": [
           "doc-element-locator"
         ],
         "sourceIds": [
-          "src-locator"
+          "src-locator",
+          "src-locator-gates"
         ],
         "parentId": "controld",
         "technology": "Go"
@@ -588,6 +620,20 @@
         "docIds": [],
         "sourceIds": [
           "src-recording"
+        ]
+      },
+      {
+        "id": "sdk-cache",
+        "sourceId": "sdk",
+        "targetId": "read-cache",
+        "label": "Answer mutation gets; fill from answers; evict on conflict",
+        "status": "existing",
+        "technology": "In-process call",
+        "plannedNotes": [],
+        "docIds": [],
+        "sourceIds": [
+          "src-cache",
+          "src-read-path"
         ]
       },
       {
@@ -1591,6 +1637,9 @@
           "elementId": "sdk"
         },
         {
+          "elementId": "read-cache"
+        },
+        {
           "elementId": "controld"
         },
         {
@@ -1609,6 +1658,10 @@
         {
           "relationshipId": "sdk-edge",
           "displayNumber": 3
+        },
+        {
+          "relationshipId": "sdk-cache",
+          "displayNumber": 4
         }
       ],
       "docIds": [
@@ -1621,7 +1674,9 @@
         "src-locator",
         "src-ops",
         "src-recording",
-        "src-transport"
+        "src-transport",
+        "src-cache",
+        "src-read-path"
       ],
       "layout": {
         "mode": "auto",
@@ -1798,7 +1853,10 @@
         "src-exec",
         "src-ops",
         "src-owner",
-        "src-reqid"
+        "src-reqid",
+        "src-admission",
+        "src-witness",
+        "src-queues"
       ],
       "layout": {
         "mode": "auto",
@@ -1940,7 +1998,9 @@
         "src-ops",
         "src-paused",
         "src-reqid",
-        "src-writeback"
+        "src-writeback",
+        "src-retention",
+        "src-version-floor"
       ],
       "layout": {
         "mode": "auto",
@@ -2099,7 +2159,8 @@
         "src-owner",
         "src-placement",
         "src-recording",
-        "src-transport"
+        "src-transport",
+        "src-locator-gates"
       ],
       "layout": {
         "mode": "auto",
@@ -2249,7 +2310,10 @@
         "src-ingest",
         "src-locator",
         "src-log-adr",
-        "src-owner"
+        "src-owner",
+        "src-retention",
+        "src-queues",
+        "src-capacity"
       ],
       "layout": {
         "mode": "auto",
@@ -2422,7 +2486,10 @@
         "src-owner",
         "src-recording",
         "src-reqid",
-        "src-transport"
+        "src-transport",
+        "src-read-path",
+        "src-edge-proxy",
+        "src-admission"
       ],
       "layout": {
         "mode": "auto",
@@ -2936,9 +3003,9 @@
     {
       "id": "doc-caller-components",
       "title": "Caller process: in-process SDK and handler retries",
-      "plain": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions and sends IR. Eligible conflicts re-run the handler in this same process. Route and signed-ticket caching avoid a control-plane lookup for every query.",
+      "plain": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions, including table asserts for finds, and sends IR. A mutation's get can come from the read cache; the cached version is asserted before or in the commit, so a stale entry costs one round trip, never a commit on old data. Eligible conflicts re-run the handler in this same process from the state the conflict answer carries. Route and signed-ticket caching avoid a control-plane lookup for every query.",
       "ste": {
-        "text": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions and sends IR. Eligible conflicts re-run the handler in this same process. Route and signed-ticket caching avoid a control-plane lookup for every query.",
+        "text": "The SDK records handler reads and buffered writes in the caller process. It derives preconditions, including table asserts for finds, and sends IR. A mutation's get can come from the read cache; the cached version is asserted before or in the commit, so a stale entry costs one round trip, never a commit on old data. Eligible conflicts re-run the handler in this same process from the state the conflict answer carries. Route and signed-ticket caching avoid a control-plane lookup for every query.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -2950,15 +3017,17 @@
         "src-locator",
         "src-ops",
         "src-recording",
-        "src-transport"
+        "src-transport",
+        "src-cache",
+        "src-read-path"
       ]
     },
     {
       "id": "doc-components",
       "title": "agentd: admission, IR and per-database execution",
-      "plain": "Admission verifies the ticket and local epoch. The IR adapter queues a closure; an actor executes it, checking preconditions and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Reads run in a snapshot, optionally on a read pool. A conflict can cause the SDK to re-run a handler; no application handler runs here.",
+      "plain": "Admission verifies the ticket and local epoch, caps in-flight work per database, tenant and VM, and sheds what would expire in its queue. The IR adapter queues a closure; an actor executes it, checking preconditions (document and table asserts) and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Each run reads one snapshot, optionally on a read pool. A conflict answer carries the current state, from which the SDK re-runs a handler; no application handler runs here. Every bounded queue reports depth, capacity and refusals on /metrics (mansio_queue_*).",
       "ste": {
-        "text": "Admission verifies the ticket and local epoch. The IR adapter queues a closure; an actor executes it, checking preconditions and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Reads run in a snapshot, optionally on a read pool. A conflict can cause the SDK to re-run a handler; no application handler runs here.",
+        "text": "Admission verifies the ticket and local epoch, caps in-flight work per database, tenant and VM, and sheds what would expire in its queue. The IR adapter queues a closure; an actor executes it, checking preconditions (document and table asserts) and compiling SQL. Each database has a bounded mailbox, goroutine and write connection. Writes share a batch transaction but have individual savepoints. Request-id claim, mutation and recorded result commit together; retained duplicate results replay. Each run reads one snapshot, optionally on a read pool. A conflict answer carries the current state, from which the SDK re-runs a handler; no application handler runs here. Every bounded queue reports depth, capacity and refusals on /metrics (mansio_queue_*).",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -2972,15 +3041,18 @@
         "src-exec",
         "src-ops",
         "src-owner",
-        "src-reqid"
+        "src-reqid",
+        "src-admission",
+        "src-witness",
+        "src-queues"
       ]
     },
     {
       "id": "doc-storage-events",
       "title": "agentd: paused durability and canonical events",
-      "plain": "The event sink writes canonical JSONL through a bounded queue; drops are counted, so canonical does not mean lossless. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. Default periodic backup is 10 seconds plus scheduling and upload time; acknowledged writes may be lost on crash. Version reuse after rollback is an open issue. WAL shipping and LiteFS replacement are not built.",
+      "plain": "The event sink writes canonical JSONL through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
       "ste": {
-        "text": "The event sink writes canonical JSONL through a bounded queue; drops are counted, so canonical does not mean lossless. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. Default periodic backup is 10 seconds plus scheduling and upload time; acknowledged writes may be lost on crash. Version reuse after rollback is an open issue. WAL shipping and LiteFS replacement are not built.",
+        "text": "The event sink writes canonical JSONL through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -2996,15 +3068,17 @@
         "src-ops",
         "src-paused",
         "src-reqid",
-        "src-writeback"
+        "src-writeback",
+        "src-retention",
+        "src-version-floor"
       ]
     },
     {
       "id": "doc-control-plane",
       "title": "controld: locator, signer and epoch authority",
-      "plain": "The locator authenticates an API key, reads placement and signs a ticket. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+      "plain": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
       "ste": {
-        "text": "The locator authenticates an API key, reads placement and signs a ticket. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
+        "text": "The locator authenticates an API key, reads placement and signs a ticket. Store loads and creates take narrow slots kept below the Postgres pool budget. The authority adapter uses Postgres CAS. The lifecycle controller moves databases and records operator attest-dead decisions; restore then asks live target agents to claim last published generations. Attest-dead belongs to controld, not to the edge or agentd. Durable restore depends on the implemented but paused S3 path.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3019,15 +3093,16 @@
         "src-owner",
         "src-placement",
         "src-recording",
-        "src-transport"
+        "src-transport",
+        "src-locator-gates"
       ]
     },
     {
       "id": "doc-observability",
       "title": "Canonical JSONL → offline DuckDB analysis",
-      "plain": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Retention can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately.",
+      "plain": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Both the writer's own retention (by size and age) and the offline sweep can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately. Live overload signals are Prometheus metrics, not events: agentd, the edge and controld export mansio_queue_* families, and deploy/prometheus/backpressure.rules.yml ships the alert rules (no Prometheus server is part of the platform).",
       "ste": {
-        "text": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Retention can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately.",
+        "text": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Both the writer's own retention (by size and age) and the offline sweep can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately. Live overload signals are Prometheus metrics, not events: agentd, the edge and controld export mansio_queue_* families, and deploy/prometheus/backpressure.rules.yml ships the alert rules (no Prometheus server is part of the platform).",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3041,15 +3116,18 @@
         "src-ingest",
         "src-locator",
         "src-log-adr",
-        "src-owner"
+        "src-owner",
+        "src-retention",
+        "src-queues",
+        "src-capacity"
       ]
     },
     {
       "id": "doc-query-flow",
       "title": "Query: resolve once, then cached-ticket data path",
-      "plain": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld. Ticket validation occurs again in agentd. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
+      "plain": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld; it and admission refuse overload before work is queued. Ticket validation occurs again in agentd. Reads asked for together travel as one request and answer at one snapshot. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
       "ste": {
-        "text": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld. Ticket validation occurs again in agentd. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
+        "text": "This successful first-query scenario resolves once. Subsequent calls reuse the cached ticket, subject to TTL refresh or stale-owner invalidation. The edge is a direct data-plane proxy, not another call through controld; it and admission refuse overload before work is queued. Ticket validation occurs again in agentd. Reads asked for together travel as one request and answer at one snapshot. Compilation and SQLite execution run within the actor closure. Return steps are numbered explicitly.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3067,7 +3145,10 @@
         "src-owner",
         "src-recording",
         "src-reqid",
-        "src-transport"
+        "src-transport",
+        "src-read-path",
+        "src-edge-proxy",
+        "src-admission"
       ]
     },
     {
@@ -3110,16 +3191,33 @@
     {
       "id": "doc-element-sdk",
       "title": "TypeScript SDK",
-      "plain": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. find is unguarded in v1.",
+      "plain": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. Reads asked for together are one request, and each run reads at one snapshot (seq). A find is guarded by a table assert (unchangedSince); find(...).unguarded() opts out. Retries follow the shared retry contract: expired is final.",
       "ste": {
-        "text": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. find is unguarded in v1.",
+        "text": "Records gets and buffered writes, derives version/existence asserts, and re-runs the handler on eligible conflicts. Reads asked for together are one request, and each run reads at one snapshot (seq). A find is guarded by a table assert (unchangedSince); find(...).unguarded() opts out. Retries follow the shared retry contract: expired is final.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
         "src-recording",
-        "src-transport"
+        "src-transport",
+        "src-read-path",
+        "src-retry"
+      ]
+    },
+    {
+      "id": "doc-element-read-cache",
+      "title": "Read cache",
+      "plain": "In-memory LRU (1024 documents by default) of documents with the version they were read at. Only a mutation's get reads it; queries fill it. The SDK asserts the version of every cached document a handler read in the run's next request or its commit, so a stale entry costs one round trip and never a commit on old data. A conflict without current state evicts every asserted document.",
+      "ste": {
+        "text": "In-memory LRU (1024 documents by default) of documents with the version they were read at. Only a mutation's get reads it; queries fill it. The SDK asserts the version of every cached document a handler read in the run's next request or its commit, so a stale entry costs one round trip and never a commit on old data. A conflict without current state evicts every asserted document.",
+        "issue": "ASD-STE100 Issue 9",
+        "reviewStatus": "draft"
+      },
+      "termIds": [],
+      "sourceIds": [
+        "src-cache",
+        "src-read-path"
       ]
     },
     {
@@ -3156,15 +3254,16 @@
     {
       "id": "doc-element-edge",
       "title": "edge / TLS proxy",
-      "plain": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. No compiler or database engine here.",
+      "plain": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. Before it reads a body it checks draining, its own max_in_flight, the ticket, the route, the agent's bulkhead and breaker. No compiler or database engine here.",
       "ste": {
-        "text": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. No compiler or database engine here.",
+        "text": "Separate stateless process; verifies tickets, routes on VM claim and forwards to private agentd. Before it reads a body it checks draining, its own max_in_flight, the ticket, the route, the agent's bulkhead and breaker. No compiler or database engine here.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
-        "src-edge"
+        "src-edge",
+        "src-edge-proxy"
       ]
     },
     {
@@ -3186,9 +3285,9 @@
     {
       "id": "doc-element-files",
       "title": "SQLite files",
-      "plain": "One file per database, not per tenant; each tenant can own many. Local WAL and request-id records travel with snapshots.",
+      "plain": "One file per database, not per tenant; each tenant can own many. Local WAL, request-id records and _mansio_changes (the commit sequence and each table's last change) travel with snapshots.",
       "ste": {
-        "text": "One file per database, not per tenant; each tenant can own many. Local WAL and request-id records travel with snapshots.",
+        "text": "One file per database, not per tenant; each tenant can own many. Local WAL, request-id records and _mansio_changes (the commit sequence and each table's last change) travel with snapshots.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3196,7 +3295,8 @@
       "sourceIds": [
         "src-actor",
         "src-reqid",
-        "src-control"
+        "src-control",
+        "src-seq"
       ]
     },
     {
@@ -3217,9 +3317,9 @@
     {
       "id": "doc-element-jsonl",
       "title": "Canonical JSONL",
-      "plain": "Canonical emitted event record; bounded logging can drop records and reports drops. DuckDB is derived, not the request-path authority.",
+      "plain": "Canonical emitted event record; bounded logging can drop records and reports drops. The writer deletes its oldest files past max_total_bytes (4 GiB) or max_age (45 days) and counts what it retires. DuckDB is derived, not the request-path authority.",
       "ste": {
-        "text": "Canonical emitted event record; bounded logging can drop records and reports drops. DuckDB is derived, not the request-path authority.",
+        "text": "Canonical emitted event record; bounded logging can drop records and reports drops. The writer deletes its oldest files past max_total_bytes (4 GiB) or max_age (45 days) and counts what it retires. DuckDB is derived, not the request-path authority.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3227,7 +3327,8 @@
       "sourceIds": [
         "src-events",
         "src-adr",
-        "src-log-adr"
+        "src-log-adr",
+        "src-retention"
       ]
     },
     {
@@ -3248,9 +3349,9 @@
     {
       "id": "doc-element-admission",
       "title": "Ticket admission",
-      "plain": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch.",
+      "plain": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch. In-flight caps per database, tenant and VM; a request that would not finish before its deadline is shed at once (503 with Retry-After) instead of queuing until it expires.",
       "ste": {
-        "text": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch.",
+        "text": "Verifies signed claims offline; admits only the matching database, permissions, VM and locally ACTIVE epoch. In-flight caps per database, tenant and VM; a request that would not finish before its deadline is shed at once (503 with Retry-After) instead of queuing until it expires.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3258,22 +3359,25 @@
       "sourceIds": [
         "src-agent",
         "src-ops",
-        "src-owner"
+        "src-owner",
+        "src-admission"
       ]
     },
     {
       "id": "doc-element-ir",
       "title": "IR executor",
-      "plain": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions; runs IR, never application TypeScript.",
+      "plain": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions, including table asserts (unchangedSince); runs IR, never application TypeScript. Every non-duplicate answer carries the commit sequence; a conflict answer carries seq and the current documents.",
       "ste": {
-        "text": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions; runs IR, never application TypeScript.",
+        "text": "POST /v1/ops decodes IR and dispatches an actor closure. Checks fingerprint, bodies and preconditions, including table asserts (unchangedSince); runs IR, never application TypeScript. Every non-duplicate answer carries the commit sequence; a conflict answer carries seq and the current documents.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
         "src-ops",
-        "src-exec"
+        "src-exec",
+        "src-witness",
+        "src-read-path"
       ]
     },
     {
@@ -3294,15 +3398,18 @@
     {
       "id": "doc-element-writer",
       "title": "Group commit",
-      "plain": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. Replies follow commit.",
+      "plain": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. A write sets _version and the commit sequence at or above the incarnation floor (manifest seal << 32), so neither repeats after a rollback; in durable mode both start at 2^32. Replies follow commit.",
       "ste": {
-        "text": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. Replies follow commit.",
+        "text": "One write connection per actor; queued writes share BEGIN IMMEDIATE / COMMIT, each with its own savepoint. A write sets _version and the commit sequence at or above the incarnation floor (manifest seal << 32), so neither repeats after a rollback; in durable mode both start at 2^32. Replies follow commit.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
-        "src-actor"
+        "src-actor",
+        "src-version",
+        "src-seq",
+        "src-version-floor"
       ]
     },
     {
@@ -3323,9 +3430,9 @@
     {
       "id": "doc-element-storage",
       "title": "Write-back — paused",
-      "plain": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. No incremental WAL shipping.",
+      "plain": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. The manifest seal counts activations and is the incarnation behind the version and sequence floor. No incremental WAL shipping.",
       "ste": {
-        "text": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. No incremental WAL shipping.",
+        "text": "IMPLEMENTED BUT PAUSED: virtual-actor snapshots and restore use immutable S3 generations; conditional manifest publish and epoch stamp fence stale publishers. The manifest seal counts activations and is the incarnation behind the version and sequence floor. No incremental WAL shipping.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3333,21 +3440,23 @@
       "sourceIds": [
         "src-writeback",
         "src-durable",
-        "src-paused"
+        "src-paused",
+        "src-version-floor"
       ]
     },
     {
       "id": "doc-element-locator",
       "title": "Locator",
-      "plain": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary.",
+      "plain": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary. Resolves pass a wide gate; store loads and creates on first use take narrow gates budgeted below the Postgres pool, and a full narrow gate sheds at once.",
       "ste": {
-        "text": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary.",
+        "text": "Authenticates API key and resolves database owner; returns endpoint, epoch, generation and ticket. Refreshes stale routes using the primary. Resolves pass a wide gate; store loads and creates on first use take narrow gates budgeted below the Postgres pool, and a full narrow gate sheds at once.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
-        "src-locator"
+        "src-locator",
+        "src-locator-gates"
       ]
     },
     {
@@ -3433,208 +3542,312 @@
       "id": "src-adr",
       "title": "Go-only backend and offline analysis",
       "path": "docs/adr/0013-go-server-replaces-deno-platform.md",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/adr/0013-go-server-replaces-deno-platform.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0013-go-server-replaces-deno-platform.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-recording",
       "title": "Caller-side handler recording",
       "path": "sdk/recording.ts",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/sdk/recording.ts",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/recording.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-transport",
       "title": "Cached locator routes and retries",
       "path": "sdk/transport.ts",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/sdk/transport.ts",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/transport.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-agent",
       "title": "Agent daemon and server wiring",
       "path": "server/cmd/agentd/main.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/main.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-edge",
       "title": "Separate TLS edge process",
       "path": "server/cmd/edge/main.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/edge/main.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/edge/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-controld",
       "title": "Control daemon and operator commands",
       "path": "server/cmd/controld/main.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/controld/main.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/controld/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-locator",
       "title": "Routing and signed tickets",
       "path": "server/internal/control/locator/doc.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/locator/doc.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/locator/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-control",
       "title": "Database lifecycle and attest-dead recovery",
       "path": "server/internal/control/controller.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/controller.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/controller.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-placement",
       "title": "Postgres epoch authority",
       "path": "server/internal/placement/pg/doc.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/placement/pg/doc.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/placement/pg/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-move",
       "title": "Four-step move protocol",
       "path": "server/internal/owner/move.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/owner/move.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/owner/move.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-owner",
       "title": "Admission, fencing and storage epochs",
       "path": "server/internal/owner/state.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/owner/state.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/owner/state.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-actor",
       "title": "Mailbox, single writer and group commit",
       "path": "server/internal/actor/actor.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/actor/actor.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/actor/actor.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-reqid",
       "title": "Request-id savepoint claims",
       "path": "server/internal/actor/reqid.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/actor/reqid.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/actor/reqid.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-ops",
       "title": "IR HTTP validation and actor dispatch",
       "path": "server/internal/front/ops.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/front/ops.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/front/ops.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-exec",
       "title": "IR execution on the actor connection",
       "path": "server/internal/docexec/doc.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/docexec/doc.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-compile",
       "title": "Document SQL compiler",
       "path": "server/internal/doccompile/doc.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/doccompile/doc.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/doccompile/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-writeback",
       "title": "Snapshot write-back and epoch stamps",
       "path": "server/internal/vactor/writeback.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/vactor/writeback.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/vactor/writeback.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-durable",
       "title": "Immutable generations and conditional manifest",
       "path": "server/internal/durable/durable.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/durable/durable.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/durable/durable.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-paused",
       "title": "Built S3 work paused on 2026-11-06",
       "path": "server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-events",
       "title": "Nonblocking structured JSONL sink",
       "path": "server/internal/eventlog/log.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/eventlog/log.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/eventlog/log.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-ingest",
       "title": "Offline DuckDB ingest",
       "path": "eventlog/ingest.ts",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/eventlog/ingest.ts",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/eventlog/ingest.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-log-adr",
       "title": "JSONL authority and rebuildable analysis",
       "path": "docs/adr/0004-eventlog-duckdb-in-reader-only.md",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/adr/0004-eventlog-duckdb-in-reader-only.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0004-eventlog-duckdb-in-reader-only.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-topics",
       "title": "Current platform survey and implementation caveats",
       "path": "docs/cache-dividend-topics.md",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/docs/cache-dividend-topics.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/cache-dividend-topics.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-observer",
       "title": "Agentd IR event observer wiring",
       "path": "server/cmd/agentd/events.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/events.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/events.go",
       "notes": "Maps completed IR requests to structured event records; emits through the bounded sink."
     },
     {
       "id": "src-agent-durable",
       "title": "Agentd durable mode: S3 host and placement authority",
       "path": "server/cmd/agentd/durable.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/cmd/agentd/durable.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/cmd/agentd/durable.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-control-ports",
       "title": "Controller ports: drop deletes database objects",
       "path": "server/internal/control/ports.go",
-      "revision": "6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc",
-      "url": "https://github.com/nickstrad/mansio/blob/6330c9f4fb4fc2be5ee28caa6bb27209dc85ddcc/server/internal/control/ports.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/ports.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-cache",
+      "title": "Version-checked client read cache",
+      "path": "sdk/cache.ts",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/sdk/cache.ts",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-read-path",
+      "title": "Read path after survey changes 1-4",
+      "path": "docs/knowledge/ir/2026-11-10-read-path.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/knowledge/ir/2026-11-10-read-path.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-retry",
+      "title": "One retry contract for both clients",
+      "path": "docs/retry-contract.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/retry-contract.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-admission",
+      "title": "Admission caps and would-expire shedding",
+      "path": "server/internal/front/admission.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/front/admission.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-edge-proxy",
+      "title": "Edge refusals before the body is read",
+      "path": "server/internal/edge/proxy.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/edge/proxy.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-locator-gates",
+      "title": "Locator resolve, load and create gates",
+      "path": "server/internal/control/locator/locator.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/control/locator/locator.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-seq",
+      "title": "Commit sequence and its floor",
+      "path": "server/internal/docexec/seq.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/seq.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-version",
+      "title": "Version floor per incarnation",
+      "path": "server/internal/docexec/version.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/version.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-witness",
+      "title": "Conflict answers carry current state",
+      "path": "server/internal/docexec/witness.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/docexec/witness.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-version-floor",
+      "title": "Version and sequence floor after rollback",
+      "path": "server/knowledge/writeback/2026-11-10-version-floor.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/knowledge/writeback/2026-11-10-version-floor.md",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-retention",
+      "title": "Event-log retention in the writer",
+      "path": "server/internal/eventlog/retention.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/eventlog/retention.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-queues",
+      "title": "Per-queue metric families",
+      "path": "server/internal/metrics/queue.go",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/metrics/queue.go",
+      "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
+    },
+    {
+      "id": "src-capacity",
+      "title": "Capacity table, alerts and levers",
+      "path": "server/docs/capacity.md",
+      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
+      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/docs/capacity.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     }
   ],
