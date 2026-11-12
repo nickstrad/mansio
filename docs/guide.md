@@ -186,12 +186,12 @@ creates a game, reads it, makes a move, and then deliberately breaks a rule. The
 `query`/`mutation` is the call's trace id.
 
 ```ts
-import { Effect } from "effect";
-import { createClient } from "./sdk/client.ts";
+import { RemoteError } from "./core/errors.ts";
+import { createPromiseClient } from "./sdk/client.ts";
 import { functions } from "./examples/tic-tac-toe/functions.ts";
 import { schema } from "./examples/tic-tac-toe/schema.ts";
 
-const client = createClient({
+const client = createPromiseClient({
   functions,
   schema,
   tenant: "default",
@@ -199,33 +199,27 @@ const client = createClient({
   endpoint: "http://127.0.0.1:7070",
   token: Deno.env.get("COLUMN_APP_TOKEN")!,
 });
-const program = Effect.gen(function* () {
-  const { gameId } = yield* client.mutation(
-    "createGame",
-    { xPlayer: "alice", oPlayer: "bob" },
-    "guide-create",
-  );
-  const game = yield* client.query("getGame", { gameId }, "guide-read");
-  console.log(game);
-  yield* client.mutation("makeMove", { gameId, playerId: "alice", cell: 4, expectedVersion: game!._version });
-  yield* client.mutation("createGame", { xPlayer: "alice", oPlayer: "alice" }).pipe(
-    Effect.catchTag("RemoteError", (error) =>
-      Effect.sync(() => {
-        if (error.remoteTag !== "RuleError") throw error;
-        console.log(`Expected rejection: ${error.status} ${error.remoteTag}`);
-      })),
-  );
-});
-await Effect.runPromise(program);
+
+const { gameId } = await client.mutation("createGame", { xPlayer: "alice", oPlayer: "bob" }, "guide-create");
+const game = await client.query("getGame", { gameId }, "guide-read");
+console.log(game);
+await client.mutation("makeMove", { gameId, playerId: "alice", cell: 4, expectedVersion: game!._version });
+
+try {
+  await client.mutation("createGame", { xPlayer: "alice", oPlayer: "alice" });
+} catch (error) {
+  if (!(error instanceof RemoteError) || error.remoteTag !== "RuleError") throw error;
+  console.log(`Expected rejection: ${error.status} ${error.remoteTag}`);
+}
 ```
 
-Calls return Effects; run them at your program's boundary (`createPromiseClient` returns promises instead).
-Failures are typed. `RemoteError` carries the error's `status` and `remoteTag`; an app-raised `RuleError` or
-`ConflictError` fails locally, with the status the server would have used. `Unavailable` means the server
-could not be reached, or kept answering "retry later", past the retry policy and budget, or that a request
-`expired` (not retried: its deadline is spent). The statuses and tags are the table in
-[ir/spec/v1.md](../ir/spec/v1.md) §8; what the client does by itself after each answer (retry, re-resolve or
-fail, and what it charges to its retry budget) is the one table in
+Calls return promises and reject with a typed error. (`createClient` takes the same options and returns
+Effects instead, for programs written with Effect.) `RemoteError` carries the error's `status` and
+`remoteTag`; an app-raised `RuleError` or `ConflictError` fails locally, with the status the server would have
+used. `Unavailable` means the server could not be reached, or kept answering "retry later", past the retry
+policy and budget, or that a request `expired` (not retried: its deadline is spent). The statuses and tags are
+the table in [ir/spec/v1.md](../ir/spec/v1.md) §8; what the client does by itself after each answer (retry,
+re-resolve or fail, and what it charges to its retry budget) is the one table in
 [docs/retry-contract.md](retry-contract.md), which the Go client follows too.
 
 For `tic-tac-toe-json`, use `withStorage(schema, "json")` from `sdk/schema.ts` as the schema and

@@ -60,12 +60,11 @@ The client takes the functions object and the schema as values, runs a handler l
 work to agentd as IR requests.
 
 ```ts
-import { Effect } from "effect";
-import { createClient } from "./sdk/client.ts";
+import { createPromiseClient } from "./sdk/client.ts";
 import { functions } from "./examples/tic-tac-toe/functions.ts";
 import { schema } from "./examples/tic-tac-toe/schema.ts";
 
-const client = createClient({
+const client = createPromiseClient({
   functions,
   schema, // in the database's layout: withStorage(schema, "json") for tic-tac-toe-json
   tenant: "local",
@@ -74,17 +73,14 @@ const client = createClient({
   token: ticketOrToken, // a string, or a function asked per request kind (a ticket minter)
   // Multi-node instead of endpoint/token: locator: { url: "http://controld:7080", apiKey: "mansio_…" },
 });
-const { gameId } = await Effect.runPromise(
-  client.mutation("createGame", { xPlayer: "alice", oPlayer: "bob" }),
-);
-const game = await Effect.runPromise(client.query("getGame", { gameId }));
-await Effect.runPromise(
-  client.mutation("makeMove", { gameId, playerId: "alice", cell: 0, expectedVersion: game!._version }),
-);
+const { gameId } = await client.mutation("createGame", { xPlayer: "alice", oPlayer: "bob" });
+const game = await client.query("getGame", { gameId });
+await client.mutation("makeMove", { gameId, playerId: "alice", cell: 0, expectedVersion: game!._version });
 ```
 
-Names, argument and result types are inferred from the functions object. `createPromiseClient` takes the same
-options and returns promises. With a `tenancy` section on agentd, the credential decides the tenant.
+Names, argument and result types are inferred from the functions object. Calls return promises; `createClient`
+takes the same options and returns Effects, for programs written with Effect. With a `tenancy` section on
+agentd, the credential decides the tenant.
 
 How a handler runs: reads asked for together (`db.getMany`, `Effect.all([...], { batching: true })`) are one
 query request, and every later read request carries the preconditions of what the run has read so far, so all
