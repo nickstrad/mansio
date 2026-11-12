@@ -154,7 +154,7 @@ func parseConfig(r io.Reader, dir string) (*Config, error) {
 	var problems []error
 	bad := func(format string, args ...any) { problems = append(problems, fmt.Errorf(format, args...)) }
 	if c.Listen == "" || c.HealthListen == "" {
-		bad("listen and health_listen are required (health never shares the client listener: Release It B4)")
+		bad("listen and health_listen are required (health never shares the client listener)")
 	}
 	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		bad("tls: cert_file and key_file are both required")

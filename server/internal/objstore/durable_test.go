@@ -120,7 +120,7 @@ func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 					t.Errorf("an unconditional PUT was sent: %v", r.Header)
 				}
 				if r.Header.Get("Content-Md5") == "" {
-					t.Errorf("a PUT without Content-MD5 (OS-07): %v", r.Header)
+					t.Errorf("a PUT without Content-MD5: %v", r.Header)
 				}
 				if r.Header.Get("Content-Type") == "application/vnd.sqlite3" && r.Header.Get("X-Amz-Meta-Sha256") == "" {
 					t.Errorf("a generation PUT without x-amz-meta-sha256: %v", r.Header)

@@ -395,7 +395,7 @@ func (c *Controller) Restore(ctx context.Context, vm string, perKey time.Duratio
 		return rep, err
 	}
 	if !dead {
-		return rep, errs.Wrap(module, ErrNotDead, "cannot restore the databases of vm %s: attest it dead first (M5)", vm)
+		return rep, errs.Wrap(module, ErrNotDead, "cannot restore the databases of vm %s: attest it dead first", vm)
 	}
 	const page = 100
 	after := ""

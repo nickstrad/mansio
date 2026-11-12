@@ -39,7 +39,7 @@ SELECT
   round(quantile_cont(total_ms / (bytes / 1048576), 0.5), 3) AS ready_ms_per_mib_p50
 FROM own WHERE concurrency = 1 AND NOT local_hit AND fetch_ms > 0 GROUP BY ALL ORDER BY file_mib;
 
-.print '== 4. Process sanity check after each level (per-database cost belongs to sqlbench, see STATE.md) =='
+.print '== 4. Process sanity check after each level (per-database cost belongs to sqlbench) =='
 SELECT
   level, size_class, n,
   round((rss_mb_after - rss_mb_before) * 1024 / n, 1) AS rss_kib_per_db,

@@ -37,7 +37,7 @@ func TestDurableConfig(t *testing.T) {
 		{"schema registry not a url", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"controld:7443"`, "schemas_url"},
 		{"schema cache 0 (off point)", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_url":"https://c","schema_cache":0`, "schema_cache"},
 		{"local schema registry", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_dir":"schemas"`, ""},
-		{"tenancy, single node (IR-5)", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_dir":"schemas","create_dbs":true,"tenancy":{"mode":"off","secrets_file":"t"}`, ""},
+		{"tenancy, single node", `"s3":{"endpoint":"e:1","bucket":"b"},"schemas_dir":"schemas","create_dbs":true,"tenancy":{"mode":"off","secrets_file":"t"}`, ""},
 		{"tenancy with postgres placement", `"s3":{"endpoint":"e:1","bucket":"b"},"placement_dir":"","placement_pg":{},"tenancy":{"mode":"off","secrets_file":"t"}`,
 			"controld's resolve"},
 		{"create_dbs with postgres placement", `"s3":{"endpoint":"e:1","bucket":"b"},"placement_dir":"","placement_pg":{},"schemas_dir":"s","create_dbs":true`,

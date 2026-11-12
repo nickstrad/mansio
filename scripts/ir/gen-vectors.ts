@@ -1356,7 +1356,7 @@ const COMPILE: CompileCase[] = [
   },
   {
     name: "gt number",
-    why: "json layout reads numbers through CAST AS REAL (item 30)",
+    why: "json layout reads numbers through CAST AS REAL",
     kind: "select",
     plan: p({ filters: [f("score", "gt", 0.5)] }),
   },
@@ -1714,7 +1714,7 @@ const SCENARIOS: Scenario[] = [
   },
   {
     name: "number beyond 2^53",
-    why: "an integral double above 2^53 round-trips and matches eq in both layouts (item 30)",
+    why: "an integral double above 2^53 round-trips and matches eq in both layouts",
     ...single(
       {
         serverIds: ["s1"],

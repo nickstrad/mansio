@@ -1,9 +1,10 @@
 # Capacity table: every bound on a request's path
 
-What is bounded, what is refused, and which metric proves it, per boundary: one page to review capacity and, for
-each queue, a runbook entry an operator can act on when it fills. The three sections between the markers are
-**generated from each daemon's config defaults**: a `TestCapacityTable` in `cmd/agentd`, `cmd/controld` and
-`cmd/edge` fails when a default and this document disagree. After changing a default or a bound, regenerate:
+What is bounded, what is refused, and which metric proves it, per boundary: one page to review capacity and,
+for each queue, a runbook entry an operator can act on when it fills. The three sections between the markers
+are **generated from each daemon's config defaults**: a `TestCapacityTable` in `cmd/agentd`, `cmd/controld`
+and `cmd/edge` fails when a default and this document disagree. After changing a default or a bound,
+regenerate:
 
 ```sh
 go test ./cmd/agentd ./cmd/controld ./cmd/edge -run TestCapacityTable -update
@@ -14,9 +15,10 @@ config key that sets it. **Workers** is what drains it. **When full** is what th
 library then does by itself is the [retry contract](../../docs/retry-contract.md). **Lives under** is the
 deadline that ends work in it. **Metric**: every queue reports `mansio_queue_depth`, `mansio_queue_capacity`
 and `mansio_queue_rejected_total{reason}` under its `queue` label (`mansio_queue_wait_seconds` for `admission`
-and `mailbox`); alert rules over them are in [`deploy/prometheus/backpressure.rules.yml`](../deploy/prometheus/backpressure.rules.yml).
-**Runtime lever** is how an operator changes the bound without a restart; a lever lasts until the process
-restarts, when the config file's value applies again.
+and `mailbox`); alert rules over them are in
+[`deploy/prometheus/backpressure.rules.yml`](../deploy/prometheus/backpressure.rules.yml). **Runtime lever**
+is how an operator changes the bound without a restart; a lever lasts until the process restarts, when the
+config file's value applies again.
 
 ## One request, outermost bound first
 
@@ -35,6 +37,7 @@ is refused otherwise).
 
 ## agentd
 
+<!-- deno-fmt-ignore-start -->
 <!-- capacity:agentd:begin -->
 | Queue              | Protects                                                                                              | Capacity (config)                                                                                                        | Workers                                                                                                                                     | When full                                                                                                                                                          | Lives under                                                                                  | Metric                                                                                                                                          | Runtime lever                                                                                                    |
 | ------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -221,9 +224,11 @@ is refused otherwise).
 - Rollback or feature flag: none (config, restart)
 - First look: a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files are deleted at the writer's size or age limit, before a collector shipped them
 <!-- capacity:agentd:end -->
+<!-- deno-fmt-ignore-end -->
 
 ## controld
 
+<!-- deno-fmt-ignore-start -->
 <!-- capacity:controld:begin -->
 | Queue            | Protects                                                                              | Capacity (config)                                                                        | Workers         | When full                                                                                                            | Lives under                                                          | Metric                                                                                                            | Runtime lever                                                                           |
 | ---------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -335,9 +340,11 @@ is refused otherwise).
 - Rollback or feature flag: `mansioctl limits set -queue tenancy_auth -n N` (`POST /v1/limits/tenancy_auth`)
 - First look: a sign-in flood or slow password hashing
 <!-- capacity:controld:end -->
+<!-- deno-fmt-ignore-end -->
 
 ## edge
 
+<!-- deno-fmt-ignore-start -->
 <!-- capacity:edge:begin -->
 | Queue              | Protects                                                                   | Capacity (config)                                                                               | Workers                   | When full                                                                                                                                    | Lives under                                                                                    | Metric                                                                                            | Runtime lever                                              |
 | ------------------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
@@ -404,6 +411,7 @@ is refused otherwise).
 - Rollback or feature flag: `POST /admin/agent:limit?n=N` on `admin_listen` (loopback)
 - First look: that agent's own admission and latency; lower the limit to take load off agents that are struggling
 <!-- capacity:edge:end -->
+<!-- deno-fmt-ignore-end -->
 
 ## Alerts
 
@@ -411,15 +419,15 @@ is refused otherwise).
 saturation and failure rules and two "alert on broken protection, not merely active protection" rules, written
 against the series above:
 
-| Alert | Fires when | Severity | Start with |
-|---|---|---|---|
-| `MansioQueueNearCapacity` | a queue's depth is over 80 % of its capacity for 10 min | warning | that queue's runbook |
-| `MansioQueueNearCapacityAndRejecting` | the same, and it is refusing work | warning | that queue's runbook |
-| `MansioUnexpectedDrops` | the event log dropped or lost records for 5 min | warning | the `events` runbook |
-| `MansioFailuresHigh` | 5xx answers, failed write-backs or failed activations are sustained | critical | the agent's log (`log_id`), the S3 breaker |
-| `MansioQueueAgeTooHigh` | p95 wait in `admission` or `mailbox` is over 1 s (half the default 2 s deadline) | critical | `admission` runbook |
-| `MansioSheddingButDependencySlow` | refusals are active and S3 p99 is still over 1 s | critical | lower `fetch`, trip the S3 breaker |
-| `MansioUnpublishedWritesOld` | the oldest acknowledged write not yet in S3 is older than 60 s (healthy: about 11 s) | critical | the `write_back` runbook |
+| Alert                                 | Fires when                                                                           | Severity | Start with                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------ | -------- | ------------------------------------------ |
+| `MansioQueueNearCapacity`             | a queue's depth is over 80 % of its capacity for 10 min                              | warning  | that queue's runbook                       |
+| `MansioQueueNearCapacityAndRejecting` | the same, and it is refusing work                                                    | warning  | that queue's runbook                       |
+| `MansioUnexpectedDrops`               | the event log dropped or lost records for 5 min                                      | warning  | the `events` runbook                       |
+| `MansioFailuresHigh`                  | 5xx answers, failed write-backs or failed activations are sustained                  | critical | the agent's log (`log_id`), the S3 breaker |
+| `MansioQueueAgeTooHigh`               | p95 wait in `admission` or `mailbox` is over 1 s (half the default 2 s deadline)     | critical | `admission` runbook                        |
+| `MansioSheddingButDependencySlow`     | refusals are active and S3 p99 is still over 1 s                                     | critical | lower `fetch`, trip the S3 breaker         |
+| `MansioUnpublishedWritesOld`          | the oldest acknowledged write not yet in S3 is older than 60 s (healthy: about 11 s) | critical | the `write_back` runbook                   |
 
 Shedding by itself does not page: a queue that refuses work while its dependency recovers is protection
 working. The pages are for protection that is not enough (the dependency is still slow, the wait is past the

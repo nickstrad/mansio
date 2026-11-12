@@ -888,7 +888,7 @@
     },
     {
       "name": "gt number [columns]",
-      "why": "json layout reads numbers through CAST AS REAL (item 30)",
+      "why": "json layout reads numbers through CAST AS REAL",
       "schema": {
         "notes": {
           "fields": {
@@ -5360,7 +5360,7 @@
     },
     {
       "name": "gt number [json]",
-      "why": "json layout reads numbers through CAST AS REAL (item 30)",
+      "why": "json layout reads numbers through CAST AS REAL",
       "schema": {
         "notes": {
           "fields": {

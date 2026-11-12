@@ -83,7 +83,7 @@ type agentProc struct {
 func newCluster(t *testing.T) *cluster {
 	dsn, s3 := os.Getenv("MANSIO_PG_URL"), os.Getenv("COLDLOAD_S3")
 	if dsn == "" || s3 == "" {
-		t.Skip("set MANSIO_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs) to run the CP-4 gate")
+		t.Skip("set MANSIO_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs) to run the control-plane gate")
 	}
 	b := make([]byte, 5)
 	rand.Read(b)

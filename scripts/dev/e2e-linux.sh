@@ -14,7 +14,7 @@
 set -eu
 case ${1:-} in
 go) shift ;;
-deno) echo "BACKEND=deno is gone (IR-6): the e2e suite runs on the Go server only" >&2; exit 2 ;;
+deno) echo "BACKEND=deno is gone: the e2e suite runs on the Go server only" >&2; exit 2 ;;
 esac
 root=$(git rev-parse --show-toplevel)
 common=$(cd "$root" && cd "$(git rev-parse --git-common-dir)" && pwd)

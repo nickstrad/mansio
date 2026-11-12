@@ -2642,7 +2642,7 @@
     },
     {
       "name": "number beyond 2^53 [columns]",
-      "why": "an integral double above 2^53 round-trips and matches eq in both layouts (item 30)",
+      "why": "an integral double above 2^53 round-trips and matches eq in both layouts",
       "schema": {
         "notes": {
           "fields": {
@@ -25118,7 +25118,7 @@
     },
     {
       "name": "number beyond 2^53 [json]",
-      "why": "an integral double above 2^53 round-trips and matches eq in both layouts (item 30)",
+      "why": "an integral double above 2^53 round-trips and matches eq in both layouts",
       "schema": {
         "notes": {
           "fields": {
