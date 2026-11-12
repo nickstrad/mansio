@@ -106,9 +106,7 @@ test("scale_out", () =>
         const from = (await ownerOf()).vm;
         phase(`move ${move} from ${from}; ${ledger.acked.size} acked`);
         const before = ledger.acked.size;
-        const moved = await cluster.must("POST", `/v1/databases/${encodeURIComponent(key)}/move`, {
-          to: other(from),
-        });
+        const moved = await cluster.mustCtl(["databases", "move", "-db", key, "-to", other(from)]);
         assert.equal(moved.State ?? moved.state, "active", `move ${move}: ${JSON.stringify(moved)}`);
         const now = await ownerOf();
         assert.equal(now.vm, other(from), `move ${move}: owner`);
@@ -151,9 +149,11 @@ test("scale_out", () =>
       await cluster.agents.get(dead)!.process.kill();
       phase(`killed ${dead}`);
       // Without an attestation nothing moves.
-      assert.equal((await cluster.call("POST", `/v1/vms/${dead}/restore`, {})).status, 409);
-      await cluster.must("POST", `/v1/vms/${dead}/attest-dead`, { by: "e2e operator" });
-      const rep = await cluster.must("POST", `/v1/vms/${dead}/restore`, {});
+      const refused = await cluster.mansioctl(["vms", "restore", "-vm", dead]);
+      assert.equal(refused.code, 1, `restore before attest-dead: ${refused.stdout}`);
+      assert.match(refused.stderr, /HTTP 409/);
+      await cluster.mustCtl(["vms", "attest-dead", "-vm", dead, "-by", "e2e operator"]);
+      const rep = await cluster.mustCtl(["vms", "restore", "-vm", dead]);
       assert.deepEqual(rep.moved, { [key]: live }, `restore: ${JSON.stringify(rep)}`);
       assert.equal((await ownerOf()).vm, live);
       // The same client: its route names the dead VM until the edge's registry drops it (then wrong_owner →

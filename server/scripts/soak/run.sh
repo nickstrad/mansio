@@ -36,7 +36,7 @@ printf 't\tkind\twhat\n' > "$out/marks.tsv"
 
 cd "$root"
 log "building into $out/bin"
-for c in agentd controld edge frontbench agentctl; do go build -o "$out/bin/$c" "./cmd/$c"; done
+for c in agentd controld edge frontbench mansioctl; do go build -o "$out/bin/$c" "./cmd/$c"; done
 bin="$out/bin"
 
 # --- TLS: one throwaway CA, one server certificate for 127.0.0.1/localhost (every daemon here). -----------
@@ -130,9 +130,9 @@ fault_windows() {
   at() { local s=$(( t0 + $1 - $(date +%s) )); [ "$s" -gt 0 ] && sleep "$s"; return 0; }
   act() { "$@" >> "$out/faults.log" 2>&1 || log "fault action failed: $*"; }
   at "$F_BREAKER_AT"; mark fault_start s3_breaker_vm-a
-  act "$bin/agentctl" -addr 127.0.0.1:17072 breaker s3 trip
+  act "$bin/mansioctl" -agent 127.0.0.1:17072 agent breaker s3 trip
   at $(( F_BREAKER_AT + F_BREAKER_FOR ))
-  act "$bin/agentctl" -addr 127.0.0.1:17072 breaker s3 reset; mark fault_end s3_breaker_vm-a
+  act "$bin/mansioctl" -agent 127.0.0.1:17072 agent breaker s3 reset; mark fault_end s3_breaker_vm-a
   # S3 silent: the container is paused (accepts nothing, answers nothing: RI H4 "accept, no reply" at the
   # client's view of a hung server). Pause, not stop: a stopped container that compose created from a
   # worktree since removed cannot start again (its bind mount is gone).
@@ -144,9 +144,9 @@ fault_windows() {
   stop_proc vm-b; start_agent vm-b
   wait_ready http://127.0.0.1:17074/readyz || true; mark fault_end restart_vm-b
   at "$F_PG_AT"; mark fault_start pg_breaker_vm-b
-  act "$bin/agentctl" -addr 127.0.0.1:17075 breaker placement trip
+  act "$bin/mansioctl" -agent 127.0.0.1:17075 agent breaker placement trip
   at $(( F_PG_AT + F_PG_FOR ))
-  act "$bin/agentctl" -addr 127.0.0.1:17075 breaker placement reset; mark fault_end pg_breaker_vm-b
+  act "$bin/mansioctl" -agent 127.0.0.1:17075 agent breaker placement reset; mark fault_end pg_breaker_vm-b
 }
 
 phase() { # NAME SECONDS RATE CONC MOVE (0 seconds: skipped)

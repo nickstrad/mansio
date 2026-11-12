@@ -8,7 +8,7 @@ results-*.log
 
 # binaries from `go build ./cmd/<name>` at the repo root
 /agentd
-/agentctl
+/mansioctl
 /controld
 /edge
 /coldload
