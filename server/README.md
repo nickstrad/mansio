@@ -1,7 +1,7 @@
 # mansio server
 
 The Go half of mansio: the processes that store and serve documents. The TypeScript SDK sends them requests
-of the intermediate representation (IR) protocol ([spec](../intermediate-representation/spec/v1.md)); the
+of the intermediate representation (IR) protocol ([spec](../ir/spec/v1.md)); the
 server validates each request, compiles it to SQLite SQL and runs it on the database's own goroutine. No
 application code runs here.
 

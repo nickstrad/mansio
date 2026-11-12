@@ -1,14 +1,14 @@
 /**
- * `core/intermediate-representation/`: the strict parser agrees with `JSON.parse` wherever it accepts, the canonical encoding
+ * `core/ir/`: the strict parser agrees with `JSON.parse` wherever it accepts, the canonical encoding
  * is RFC 8785-shaped, and the wire error form hides 5xx detail. The protocol's behaviour as a whole is
- * `intermediate_representation_vectors_test.ts`'s job; these pin the pieces the vectors cannot see.
+ * `ir_vectors_test.ts`'s job; these pin the pieces the vectors cannot see.
  */
 import assert from "node:assert/strict";
 import fc from "fast-check";
 import { Either } from "effect";
 import { StorageError } from "../../core/errors.ts";
-import { IrFailure, toWireError } from "../../core/intermediate-representation/errors.ts";
-import { canonical, parseStrict } from "../../core/intermediate-representation/json.ts";
+import { IrFailure, toWireError } from "../../core/ir/errors.ts";
+import { canonical, parseStrict } from "../../core/ir/json.ts";
 
 Deno.test("parseStrict equals JSON.parse on JSON without duplicate members", () => {
   fc.assert(

@@ -139,7 +139,7 @@ statement timeout. Every outcome maps through one table to the [wire codes](wire
   [durable mode](durable-mode.md).
 - **Document operations**: closure calls (`Call.Fn`, `Call.Check`) on the same executor, from `POST /v1/ops`;
   see [actor closures](actor-closures-and-schema-registry.md) and
-  [docexec and the ops route](../intermediate-representation/docexec-and-ops-route.md).
+  [docexec and the ops route](../ir/docexec-and-ops-route.md).
 
 ## Risks
 

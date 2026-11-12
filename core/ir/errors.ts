@@ -1,5 +1,5 @@
 /**
- * IR failures and their wire form (`intermediate-representation/spec/v1.md` §8).
+ * IR failures and their wire form (`ir/spec/v1.md` §8).
  *
  * PURE: `effect` and `../errors.ts` only.
  *

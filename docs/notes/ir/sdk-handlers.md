@@ -91,9 +91,9 @@ layouts: the scenarios loop over `tic-tac-toe` (columns) and `tic-tac-toe-json` 
   model with the writes applied, committed state = the handler's view; concurrent increments under faults
   converge (`ok ≤ n ≤ ok + ambiguous`, exact without faults). Mutation-checked: dropping the overlay, guarding
   after a write, and changing the body between retries are each caught.
-- `intermediate-representation/vectors/execute.json`: 4 SDK-generated scenarios × 2 layouts (`sdk: …`, from
-  `scripts/intermediate-representation/gen-vectors.ts` `recordSdk`): what the SDK sends for
-  createGame/makeMove/deleteGame and a derived-assert conflict, run by Go docexec (`TestExecuteVectors`).
+- `ir/vectors/execute.json`: 4 SDK-generated scenarios × 2 layouts (`sdk: …`, from `scripts/ir/gen-vectors.ts`
+  `recordSdk`): what the SDK sends for createGame/makeMove/deleteGame and a derived-assert conflict, run by Go
+  docexec (`TestExecuteVectors`).
 
 ## Traps
 

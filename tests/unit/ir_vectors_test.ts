@@ -1,17 +1,17 @@
 /**
- * The TS runner for the shared IR vectors (`intermediate-representation/vectors/*.json`, format in `intermediate-representation/vectors/README.md`).
+ * The TS runner for the shared IR vectors (`ir/vectors/*.json`, format in `ir/vectors/README.md`).
  *
  * The decode, validation, schema and compile vectors run against the TS implementation, which is the
- * SDK's and the oracle's (ADR 0010): `core/intermediate-representation/decode.ts` for decode, `core/intermediate-representation/semantics.ts`'s `body` for
- * validation, `core/intermediate-representation/schema.ts` (+ `compileDDL`) for schema declarations, `core/compile` for compile.
+ * SDK's and the oracle's (ADR 0010): `core/ir/decode.ts` for decode, `core/ir/semantics.ts`'s `body` for
+ * validation, `core/ir/schema.ts` (+ `compileDDL`) for schema declarations, `core/compile` for compile.
  * The Go runner (`server/`) reads the same files and must reach the same outcomes.
  *
  * `execute.json` runs only in Go (`server/internal/docexec`). Its TS run went with the Deno platform's
  * reference executor and SQLite binding (ADR 0013); its expectations are hand-written in the generator, not
  * produced by an executor, so the staleness check below still covers the file.
  *
- * The last two tests regenerate the corpus from `scripts/intermediate-representation/gen-vectors.ts` and the compile corpus from
- * `scripts/intermediate-representation/gen-compile-corpus.ts` in memory and require the committed files to match, so the JSON cannot drift from its source (or from `core/compile`).
+ * The last two tests regenerate the corpus from `scripts/ir/gen-vectors.ts` and the compile corpus from
+ * `scripts/ir/gen-compile-corpus.ts` in memory and require the committed files to match, so the JSON cannot drift from its source (or from `core/compile`).
  */
 import assert from "node:assert/strict";
 import { Either } from "effect";
@@ -20,18 +20,18 @@ import { compileDDL } from "../../core/compile/ddl.ts";
 import { compileSelect } from "../../core/compile/select.ts";
 import { compileDelete, compileInsert, compileReplace } from "../../core/compile/write.ts";
 import type { SelectPlan } from "../../core/plan.ts";
-import { decodeBody } from "../../core/intermediate-representation/decode.ts";
-import { type IrCause, IrFailure, toWireError } from "../../core/intermediate-representation/errors.ts";
-import { canonical } from "../../core/intermediate-representation/json.ts";
-import { decodeSchema, fingerprintText } from "../../core/intermediate-representation/schema.ts";
-import { body } from "../../core/intermediate-representation/semantics.ts";
+import { decodeBody } from "../../core/ir/decode.ts";
+import { type IrCause, IrFailure, toWireError } from "../../core/ir/errors.ts";
+import { canonical } from "../../core/ir/json.ts";
+import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
+import { body } from "../../core/ir/semantics.ts";
 import { fingerprintOfText } from "../../sdk/fingerprint.ts";
-import { buildVectors } from "../../scripts/intermediate-representation/gen-vectors.ts";
-import { corpus } from "../../scripts/intermediate-representation/gen-compile-corpus.ts";
+import { buildVectors } from "../../scripts/ir/gen-vectors.ts";
+import { corpus } from "../../scripts/ir/gen-compile-corpus.ts";
 
 type J = Record<string, unknown>;
 type Vector = J & { name: string };
-const DIR = new URL("../../intermediate-representation/vectors/", import.meta.url);
+const DIR = new URL("../../ir/vectors/", import.meta.url);
 const FILES = ["decode.json", "validation.json", "schema.json", "compile.json", "execute.json"];
 
 async function load(name: string): Promise<Vector[]> {
@@ -143,7 +143,7 @@ Deno.test("ir vectors: compile", async () => {
   }
 });
 
-Deno.test("ir vectors: committed files match scripts/intermediate-representation/gen-vectors.ts", async () => {
+Deno.test("ir vectors: committed files match scripts/ir/gen-vectors.ts", async () => {
   const built = await buildVectors();
   assert.deepEqual(Object.keys(built).sort(), [...FILES].sort());
   for (const name of FILES) {
@@ -151,7 +151,7 @@ Deno.test("ir vectors: committed files match scripts/intermediate-representation
     assert.deepEqual(
       committed,
       JSON.parse(JSON.stringify(built[name])),
-      `${name} is stale: run scripts/intermediate-representation/gen-vectors.ts`,
+      `${name} is stale: run scripts/ir/gen-vectors.ts`,
     );
   }
 });
@@ -164,6 +164,6 @@ Deno.test("ir vectors: generated compile corpus matches core/compile", async () 
   assert.deepEqual(
     corpus(count, seed),
     lines,
-    "compile-corpus.jsonl is stale: run scripts/intermediate-representation/gen-compile-corpus.ts",
+    "compile-corpus.jsonl is stale: run scripts/ir/gen-compile-corpus.ts",
   );
 });

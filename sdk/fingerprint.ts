@@ -1,9 +1,9 @@
 /**
- * Schema fingerprints (`intermediate-representation/spec/v1.md` §2): `sha256:` + lowercase hex SHA-256 of the fingerprint text.
+ * Schema fingerprints (`ir/spec/v1.md` §2): `sha256:` + lowercase hex SHA-256 of the fingerprint text.
  * One implementation for the SDK (the `schema` field of every request) and the platform (the Deno
  * writer's check, the reference executor, the vector generator). WebCrypto, so not in `core/`.
  */
-import { fingerprintText } from "../core/intermediate-representation/schema.ts";
+import { fingerprintText } from "../core/ir/schema.ts";
 import type { Schema } from "../core/schema.ts";
 
 /** `sha256:` + hex SHA-256 over the UTF-8 bytes of `text`. */

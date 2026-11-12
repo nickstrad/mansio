@@ -18,7 +18,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ticket"
 )
 
-// The document protocol (IR, intermediate-representation/spec/v1.md): POST /v1/ops carries decoded-and-validated document operations
+// The document protocol (IR, ir/spec/v1.md): POST /v1/ops carries decoded-and-validated document operations
 // instead of SQL. It shares the pipeline's ticket check, ownership, admission, deadlines and executor with
 // /v1/query; what differs is the body (ir.DecodeBody), the work (a docexec closure on the actor) and the
 // answer: {"result": […], "seq": n} or the spec's {"error": {tag, message, op?, fields?}}, written with ir's encoder.

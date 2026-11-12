@@ -1,12 +1,12 @@
 // Package ir is the wire model of the intermediate representation (IR) protocol, version 1: the small set of
 // document operations (select, get, insert, patch, delete, assert) that the TypeScript SDK sends to the
-// server instead of SQL. The spec is intermediate-representation/spec/v1.md at the repository root. This
+// server instead of SQL. The spec is ir/spec/v1.md at the repository root. This
 // package holds the JSON value model, the strict request decoder, the canonical encoding, the limits and the
 // protocol's error values.
 //
 // Role: domain, pure. No I/O, no logging, no clock, no randomness. It is a port of the TypeScript reference
-// (core/intermediate-representation/{json,decode,types,errors}.ts); where the two could differ, it reproduces the TypeScript
-// behaviour, because the shared vectors (intermediate-representation/vectors/) and the TS compiler are the oracle (ADR 0010).
+// (core/ir/{json,decode,types,errors}.ts); where the two could differ, it reproduces the TypeScript
+// behaviour, because the shared vectors (ir/vectors/) and the TS compiler are the oracle (ADR 0010).
 //
 // JSON values are the Go values nil, bool, float64, string, []any and *Object. An *Object keeps
 // ECMAScript own-property order (array-index names first, ascending; then insertion order), because the

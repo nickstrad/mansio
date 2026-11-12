@@ -102,9 +102,8 @@ export function tableFor(schema: Schema, name: string): Either.Either<Table, Com
 
 `compileSelect` in the same file normalizes the plan and returns `Either<SQL, CompileError | SchemaError>`.
 The compiler returns SQL text with bound values. It is the oracle for the Go server's port
-(`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in
-`intermediate-representation/vectors/`. `core/compile/GENERATED_SQL.txt` shows actual output for both layouts
-and dialects.
+(`server/internal/doccompile`, ADR 0010): both are checked against the shared vectors in `ir/vectors/`.
+`core/compile/GENERATED_SQL.txt` shows actual output for both layouts and dialects.
 
 ## A handler run is recorded, then committed once
 

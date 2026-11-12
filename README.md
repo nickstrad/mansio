@@ -2,11 +2,9 @@
 
 **Application authors write schemas and document handlers, not SQL.** Handlers run in the caller's process, in
 the TypeScript SDK. The SDK turns their database work into requests of a small, versioned protocol (the
-intermediate representation, or IR,
-[`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md)) and sends them to the Go
-server, which validates them, compiles them to SQLite SQL and runs them with one goroutine per database. The
-server writes a structured request log (JSON lines) and Prometheus metrics for the deployment's own logging
-and metrics stack.
+intermediate representation, or IR, [`ir/spec/v1.md`](ir/spec/v1.md)) and sends them to the Go server, which
+validates them, compiles them to SQLite SQL and runs them with one goroutine per database. The server writes a
+structured request log (JSON lines) and Prometheus metrics for the deployment's own logging and metrics stack.
 
 Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 [docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
@@ -19,7 +17,7 @@ Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 | `examples/tic-tac-toe/`                    | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.                                                                                                                       |
 | `sdk/`                                     | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`).                                                                                                                     |
 | `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types.                                                                                                                                         |
-| `intermediate-representation/`             | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
+| `ir/`                                      | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
 | `scripts/tenants.ts`, `scripts/explain.ts` | Tenant admin CLI against agentd's `/admin/tenants*`; the compiler's SQL for both layouts (`core/compile/GENERATED_SQL.txt`).                                                                                                                 |
 | `server/`                                  | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool` and their tests.                                                                                                                         |
 | `tests/`                                   | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.                                                                                                                                |
@@ -141,7 +139,7 @@ validated recursively and stored as JSON text. Optional fields, nested-object sc
 predicates, projection, cursors and search are not implemented. Collection reads default to 100 results and
 are capped at 1000. `count` counts all matching documents regardless of limit; `countBy` groups all matches
 and caps returned groups. Sorting adds `_id` as a stable tie-breaker and spells out null ordering. The
-normative rules are in [`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md) §5.
+normative rules are in [`ir/spec/v1.md`](ir/spec/v1.md) §5.
 
 `_id`, `_creationTime` and `_version` are server-owned metadata; each patch increments `_version`. Typed
 clients cannot patch metadata. Arguments and writes also receive runtime validation.
@@ -178,11 +176,11 @@ Each database stores its schema. A request carries the schema's fingerprint; a m
 
 A request runs in one transaction on its database's actor (inside the actor's group-commit batch, as a
 savepoint): a mutation's operations apply atomically and in order, or none do; a query sees one consistent
-snapshot and never writes ([`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md)
-§6). Mutations carry a `requestId`; a retry of an applied mutation with the same id answers the original
-result with `"duplicate": true` (§7). Concurrency control is optimistic: the SDK's derived preconditions make
-a handler that read stale state fail with `ConflictError` and re-run. A statement that runs past agentd's
-`statement_timeout` is interrupted and the request fails with `StatementDeadlineError` (504); nothing changed.
+snapshot and never writes ([`ir/spec/v1.md`](ir/spec/v1.md) §6). Mutations carry a `requestId`; a retry of an
+applied mutation with the same id answers the original result with `"duplicate": true` (§7). Concurrency
+control is optimistic: the SDK's derived preconditions make a handler that read stale state fail with
+`ConflictError` and re-run. A statement that runs past agentd's `statement_timeout` is interrupted and the
+request fails with `StatementDeadlineError` (504); nothing changed.
 
 A successful mutation acknowledges the local SQLite commit, not a durable copy. In durable mode the S3 copy
 follows on the write-back schedule (`maintenance.write_back_every`, default 10 s) and on clean shutdown, so a
@@ -197,13 +195,12 @@ replicated database.
 ## Errors
 
 Failures are `{ "error": { "tag", "message", "op"?, "fields"? } }` with the status from the table in
-[`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md) §8: 400
-`SchemaError`/`CompileError`, 401 `AuthError`/`ticket_invalid`, 404 `NotFoundError`, 409
-`ConflictError`/`SchemaDriftError`/`aborted`, 413 `RequestTooLarge`, 421 `wrong_owner`/`fenced`, 429
-`QuotaExceeded`, 503 `shed`/`unavailable`, 504 `StatementDeadlineError`/`expired`, 500 for server faults. The
-SDK retries or reroutes the transient ones itself. Handler-side failures (`RuleError`, an app's
-`ConflictError`) never reach the server; the client reports them with the status the server would have used
-(`core/errors.ts:toHttpStatus`).
+[`ir/spec/v1.md`](ir/spec/v1.md) §8: 400 `SchemaError`/`CompileError`, 401 `AuthError`/`ticket_invalid`, 404
+`NotFoundError`, 409 `ConflictError`/`SchemaDriftError`/`aborted`, 413 `RequestTooLarge`, 421
+`wrong_owner`/`fenced`, 429 `QuotaExceeded`, 503 `shed`/`unavailable`, 504 `StatementDeadlineError`/`expired`,
+500 for server faults. The SDK retries or reroutes the transient ones itself. Handler-side failures
+(`RuleError`, an app's `ConflictError`) never reach the server; the client reports them with the status the
+server would have used (`core/errors.ts:toHttpStatus`).
 
 ## Observability: the request log and metrics
 

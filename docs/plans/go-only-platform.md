@@ -9,15 +9,15 @@ the tests of those. Today other TypeScript sits beside them at the repository ro
 to read. This plan removes it in phases, each of which leaves every gate green.
 
 What the SDK and the examples import from `core/` today (computed from their imports): `errors.ts`, `plan.ts`,
-`schema.ts`, and `intermediate-representation/{json,schema,types}.ts`. Everything else in `core/` exists for
-something that is not the SDK.
+`schema.ts`, and `ir/{json,schema,types}.ts`. Everything else in `core/` exists for something that is not the
+SDK.
 
 | TypeScript today                                                                                                                            | Why it exists                                                                                                     | Phase |
 | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----- |
 | `eventlog/`, `scripts/logs.ts`, `core/events.ts`, `core/eventlog/`, `core/logging/`, `perf/ingest_k6.ts`, `scripts/duckdb/` and their tests | The offline event-log tool: removed, not ported                                                                   | 1     |
 | `scripts/tenants.ts`                                                                                                                        | Tenant admin CLI against agentd's admin API                                                                       | 2     |
 | `core/compile/`, `scripts/explain.ts`, `core/compile/GENERATED_SQL.txt`, the compile vectors' generator and their tests                     | The TypeScript SQL compiler: the reference the Go compiler is checked against (ADR 0010); the SDK does not use it | 3     |
-| `core/intermediate-representation/{decode,errors,semantics}.ts`, `scripts/intermediate-representation/gen-vectors.ts`                       | The TypeScript reference decoder and the generator of the shared vectors                                          | 3     |
+| `core/ir/{decode,errors,semantics}.ts`, `scripts/ir/gen-vectors.ts`                                                                         | The TypeScript reference decoder and the generator of the shared vectors                                          | 3     |
 | `sdk/`, the rest of `core/`, `examples/`, `tests/` for them, `tests/e2e/`                                                                   | The client, and the suite that drives the Go binaries through it                                                  | stays |
 
 `tests/e2e/` stays TypeScript on purpose: it is the only suite that runs the real SDK against the real server.
@@ -103,8 +103,8 @@ tool used go too. Nothing replaces them in Go. The rest of `tests/` is left as i
   `server/docs/capacity.md` runbook line ("before the offline ingest took them", from
   `server/cmd/agentd/capacity_test.go`). They were left to the agent rewriting Go comments, to keep the merge
   simple; they should be fixed when that lands.
-- **perf.** `perf/lib/api.js` imported `./ir.js`, renamed earlier to `intermediate-representation.js`, so
-  every k6 scenario failed to load; the import is fixed. The k6 tasks are unchanged apart from `perf:ingest`.
+- **perf.** `perf/lib/api.js` imported `./ir.js`, renamed earlier to `ir.js`, so every k6 scenario failed to
+  load; the import is fixed. The k6 tasks are unchanged apart from `perf:ingest`.
 - **Diagrams.** The Markdown C4 pairs in `docs/architecture/` (context and observability) were redrawn as well
   as the site dataset: the operator reads or ships the request log and scrapes `/metrics`; no log store or
   Prometheus server is drawn, because none is part of the platform.
@@ -130,5 +130,4 @@ generator, or hand-written cases).
 
 After phases 1 to 3 the root holds only client code and neutral material. Fold what is left of `core/` into
 `sdk/` (for example `sdk/core/`), move `tests/unit` and `tests/property` beside it, and leave at the root:
-`sdk/`, `examples/`, `server/`, `intermediate-representation/` (spec and vectors), `tests/e2e/`, `docs/`,
-`scripts/`, `perf/`.
+`sdk/`, `examples/`, `server/`, `ir/` (spec and vectors), `tests/e2e/`, `docs/`, `scripts/`, `perf/`.

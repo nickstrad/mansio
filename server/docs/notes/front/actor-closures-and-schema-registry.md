@@ -2,7 +2,7 @@
 
 How the actor runs a Go closure inside a transaction, how app schemas are registered and fetched, and how a
 (tenant, app) pair names a database. These are the pieces `POST /v1/ops` runs on (see
-[docexec and the ops route](../intermediate-representation/docexec-and-ops-route.md)).
+[docexec and the ops route](../ir/docexec-and-ops-route.md)).
 
 ## Actor closures (`internal/actor/fn.go`)
 

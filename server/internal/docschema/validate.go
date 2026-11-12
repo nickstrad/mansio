@@ -119,7 +119,7 @@ func ParseObject(t *Table, input any, partial bool) (*ir.Object, *ir.Error) {
 }
 
 // Body is a document body for an insert (partial false) or a patch (partial true): ParseObject, then the
-// storage contract (core/intermediate-representation/semantics.ts body).
+// storage contract (core/ir/semantics.ts body).
 func Body(t *Table, value any, partial bool) (*ir.Object, *ir.Error) {
 	parsed, err := ParseObject(t, value, partial)
 	if err != nil {

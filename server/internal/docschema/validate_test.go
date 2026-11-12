@@ -91,7 +91,7 @@ func TestStorableProperty(t *testing.T) {
 	}
 }
 
-// TestProtoName: __proto__ is an ordinary name (Deno disables the accessor, so core/intermediate-representation/schema.ts stores it as
+// TestProtoName: __proto__ is an ordinary name (Deno disables the accessor, so core/ir/schema.ts stores it as
 // an own property), and so reserved like any other _-prefixed name.
 func TestProtoName(t *testing.T) {
 	for text, want := range map[string]string{

@@ -1,5 +1,5 @@
 /**
- * Strict decode of an IR request (`intermediate-representation/spec/v1.md` §3–§5): untrusted bytes or JSON in, a `Request` or
+ * Strict decode of an IR request (`ir/spec/v1.md` §3–§5): untrusted bytes or JSON in, a `Request` or
  * an `IrFailure` out.
  *
  * PURE: nothing in here raises. Decode checks everything that does not need the schema: the

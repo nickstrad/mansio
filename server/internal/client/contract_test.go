@@ -9,11 +9,11 @@ import (
 	"github.com/nickstrad/mansio/server/internal/retry"
 )
 
-// B8: the client is held to the caller contract by the shared vectors (intermediate-representation/vectors/retry.json, generated from
+// B8: the client is held to the caller contract by the shared vectors (ir/vectors/retry.json, generated from
 // front.Contract; the TypeScript SDK runs the same file). For each answer: the step the loop takes under the
 // default policy, and whether a write that ends there may have applied.
 func TestRetryContractVectors(t *testing.T) {
-	raw, err := os.ReadFile("../../../intermediate-representation/vectors/retry.json")
+	raw, err := os.ReadFile("../../../ir/vectors/retry.json")
 	if err != nil {
 		t.Fatal(err)
 	}

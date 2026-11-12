@@ -43,7 +43,7 @@ EDGES = [('developer', 'db', 'Registered schema JSON; handlers stay in the app (
  ('operator', 'db', 'Admin HTTP and CLIs; tenants, keys, moves, backups; request log (JSONL) and /metrics'),
  ('db', 'objects', 'S3 HTTP; write-back of SQLite generations, restore'),
  ('k6', 'db', 'IR scenarios over /v1/ops and trace headers')]
-NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired. The request log and the metrics are\nfor the deployment\'s own log collector and Prometheus, which are not part of mansio (ADR 0014).'
+NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired. The request log and the metrics are\nfor the deployment\'s own log collector and Prometheus, which are not part of mansio (ADR 0014).'
 NAME = 'c4-context-document-db'
 
 

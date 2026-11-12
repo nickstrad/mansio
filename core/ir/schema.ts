@@ -1,5 +1,5 @@
 /**
- * The schema on the wire (`intermediate-representation/spec/v1.md` §2): the registered JSON form of a `defineSchema` value,
+ * The schema on the wire (`ir/spec/v1.md` §2): the registered JSON form of a `defineSchema` value,
  * decoded back into `Table`s, and its fingerprint text.
  *
  * PURE. The JSON form is exactly `JSON.stringify(schema)` of a `core/schema.ts` schema:

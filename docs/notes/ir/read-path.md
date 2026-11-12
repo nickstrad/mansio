@@ -1,9 +1,8 @@
 # The read path: one snapshot, guarded finds, conflict state, cached reads
 
 How one handler run reads and commits, what IR revisions 1.1 (`seq`, table asserts) and 1.3 (the sequence
-after a server restore) added, and the traps. Spec:
-[`intermediate-representation/spec/v1.md`](../../../intermediate-representation/spec/v1.md) §5.5, §6.5, §8.1,
-§12, §14. What may come next:
+after a server restore) added, and the traps. Spec: [`ir/spec/v1.md`](../../../ir/spec/v1.md) §5.5, §6.5,
+§8.1, §12, §14. What may come next:
 [`docs/plans/colocated-runner-explainer.md`](../../plans/colocated-runner-explainer.md).
 
 ## What a run does

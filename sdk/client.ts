@@ -53,12 +53,7 @@ import {
   Unavailable,
 } from "../core/errors.ts";
 import { schemaFingerprint } from "./fingerprint.ts";
-import {
-  type Kind as IrKind,
-  MAX_OPS,
-  type Op,
-  type Request,
-} from "../core/intermediate-representation/types.ts";
+import { type Kind as IrKind, MAX_OPS, type Op, type Request } from "../core/ir/types.ts";
 import type { AnyDefinition, ArgsOf, Functions, Kind, Names, ResultOf } from "./functions.ts";
 import { type IdSource, uuidv7 } from "./ids.ts";
 import { memoryCache, type ReadCache } from "./cache.ts";

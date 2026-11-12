@@ -51,7 +51,7 @@ const sweepBatch = 1000
 // errBadPriorResult: the stored result of an applied request cannot be decoded (a bug or a damaged file).
 var errBadPriorResult = errors.New("actor: request id was applied but its stored result is unreadable")
 
-// Stored result encodings: one version byte, then the payload (intermediate-representation/spec/v1.md §7).
+// Stored result encodings: one version byte, then the payload (ir/spec/v1.md §7).
 const (
 	outcomeV1 = 1 // a SQL write: the rows it affected, as a varint
 	outcomeV2 = 2 // a closure write: its Output.Body as is (for the IR, the canonical JSON of the result array)

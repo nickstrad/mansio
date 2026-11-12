@@ -2,9 +2,9 @@
 
 Write TypeScript schemas and named document handlers; the SDK runs the handlers in your process and sends
 their reads and writes to the Go server, `agentd`, as intermediate representation (IR) requests
-(`POST /v1/ops`, [intermediate-representation/spec/v1.md](../intermediate-representation/spec/v1.md)). This
-guide runs one local agentd for the two tic-tac-toe sample apps, drives it with the SDK, and reads its request
-log. Read the README's [Deliberate limits](../README.md#deliberate-limits) before using it for anything real.
+(`POST /v1/ops`, [ir/spec/v1.md](../ir/spec/v1.md)). This guide runs one local agentd for the two tic-tac-toe
+sample apps, drives it with the SDK, and reads its request log. Read the README's
+[Deliberate limits](../README.md#deliberate-limits) before using it for anything real.
 
 ```text
 Your program (SDK + handlers)
@@ -224,9 +224,9 @@ Failures are typed. `RemoteError` carries the error's `status` and `remoteTag`; 
 `ConflictError` fails locally, with the status the server would have used. `Unavailable` means the server
 could not be reached, or kept answering "retry later", past the retry policy and budget, or that a request
 `expired` (not retried: its deadline is spent). The statuses and tags are the table in
-[intermediate-representation/spec/v1.md](../intermediate-representation/spec/v1.md) §8; what the client does
-by itself after each answer (retry, re-resolve or fail, and what it charges to its retry budget) is the one
-table in [docs/retry-contract.md](retry-contract.md), which the Go client follows too.
+[ir/spec/v1.md](../ir/spec/v1.md) §8; what the client does by itself after each answer (retry, re-resolve or
+fail, and what it charges to its retry budget) is the one table in
+[docs/retry-contract.md](retry-contract.md), which the Go client follows too.
 
 For `tic-tac-toe-json`, use `withStorage(schema, "json")` from `sdk/schema.ts` as the schema and
 `JSON_APP_TOKEN` as the token.

@@ -20,8 +20,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor/actordb"
 )
 
-// vectorDir is the shared corpus at the repo root (intermediate-representation/vectors/README.md).
-var vectorDir = filepath.Join("..", "..", "..", "intermediate-representation", "vectors")
+// vectorDir is the shared corpus at the repo root (ir/vectors/README.md).
+var vectorDir = filepath.Join("..", "..", "..", "ir", "vectors")
 
 func loadVectors(t testing.TB, name string) []*ir.Object {
 	t.Helper()

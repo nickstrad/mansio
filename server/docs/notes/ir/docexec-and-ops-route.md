@@ -3,7 +3,7 @@
 The Go executor for IR requests and the agent route that serves them: request flow, database creation from the
 schema registry, error mapping, test results, and known limits.
 
-Spec: [`intermediate-representation/spec/v1.md`](../../../../intermediate-representation/spec/v1.md) §6–§8.
+Spec: [`ir/spec/v1.md`](../../../../ir/spec/v1.md) §6–§8.
 The actor closures and schema registry it runs on:
 [actor closures](../front/actor-closures-and-schema-registry.md).
 
@@ -15,7 +15,7 @@ The actor closures and schema registry it runs on:
 | Actor glue | `internal/docexec/docactor`                                 | `Call` (an `ir.Request` as `actor.Request{Check, Fn}`, `Wrap` for tests), `InitFn`, `InitRequest`, `Tx` (adapts `*actor.Tx`). Adapter.                                                                                                                                                                                                                                                                                                |
 | Route      | `internal/front/ops.go`, `http.go`                          | `Server.EnableOps(OpsConfig)`, `HandleOps`, `OpsPath = "/v1/ops"`; `Call.Fn/Check`, `Reply.Body/Value`; port `SchemaSource` (+ `ErrSchemaUnknown`). Headers `X-Timeout-Ms`, `X-Trace-Id` (logged), `X-Log-Id` (answer of an internal failure).                                                                                                                                                                                        |
 | Wiring     | `cmd/agentd/schemas.go`                                     | durable: `registrySchemas` over `schemareg.Client` (Validate = `CanonicalText`); static: `schemas_dir` (`<app>/<name>.json`). controld `checkSchema = canonicalSchema`.                                                                                                                                                                                                                                                               |
-| Decode     | `core/intermediate-representation/decode.ts`, `internal/ir` | `db.tenant` / `db.app` use the registry domains; 9 new decode vectors (104).                                                                                                                                                                                                                                                                                                                                                          |
+| Decode     | `core/ir/decode.ts`, `internal/ir` | `db.tenant` / `db.app` use the registry domains; 9 new decode vectors (104).                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Request flow
 

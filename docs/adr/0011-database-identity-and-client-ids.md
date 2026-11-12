@@ -2,11 +2,9 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-05
-- **Deciders:** `docs/plans/completed/intermediate-representation-protocol.md` (removed; see git history) §9;
-  recorded by IR-0
-- **Related:** [ADR 0009](0009-intermediate-representation-is-the-app-wire.md)
-- **Implements:** `intermediate-representation/spec/v1.md` §4 and §5.3,
-  `core/intermediate-representation/decode.ts`
+- **Deciders:** `docs/plans/completed/ir-protocol.md` (removed; see git history) §9; recorded by IR-0
+- **Related:** [ADR 0009](0009-ir-is-the-app-wire.md)
+- **Implements:** `ir/spec/v1.md` §4 and §5.3, `core/ir/decode.ts`
 
 ## Decision
 
@@ -29,8 +27,8 @@
 
 - The database key is derived, not mapped: `(tenant, app)` is the control plane's registry row
   `tenant ":" app` (mansio-server CP-4), so `tenant` and `app` are the registry's lowercase domains
-  (`intermediate-representation/spec/v1.md` §4), narrower than wire ids. Resolving `{"tenant", "app"}` and the
-  raw `{"tenant", "db"}` reach the same key space.
+  (`ir/spec/v1.md` §4), narrower than wire ids. Resolving `{"tenant", "app"}` and the raw `{"tenant", "db"}`
+  reach the same key space.
 - Ids issued by the server before this decision (UUIDv4 from `IdGenLive`, `id-N` in tests) stay valid ids: the
   UUIDv7 rule applies to client-supplied insert ids only. Every other id position accepts any non-empty string
   without U+0000.

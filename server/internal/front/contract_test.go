@@ -11,15 +11,15 @@ import (
 	"testing"
 )
 
-var updateContract = flag.Bool("update", false, "rewrite intermediate-representation/vectors/retry.json and docs/retry-contract.md from Contract()")
+var updateContract = flag.Bool("update", false, "rewrite ir/vectors/retry.json and docs/retry-contract.md from Contract()")
 
 // The files generated from Contract, relative to this package.
 const (
-	retryVectorsFile = "../../../intermediate-representation/vectors/retry.json"
+	retryVectorsFile = "../../../ir/vectors/retry.json"
 	retryDocFile     = "../../../docs/retry-contract.md"
 )
 
-// retryVectors is intermediate-representation/vectors/retry.json: the caller contract as shared test vectors. The Go client
+// retryVectors is ir/vectors/retry.json: the caller contract as shared test vectors. The Go client
 // (internal/client) and the TypeScript SDK (tests/unit/sdk_retry_contract_test.ts) both run them.
 func retryVectors() []byte {
 	type vector struct {
@@ -87,8 +87,7 @@ func retryDoc() []byte {
 <!-- (cd server && go test ./internal/front -run TestContractFiles -update). -->
 
 What a mansio client library does by itself after each answer. The TypeScript SDK and the Go client follow
-this one table; both run it as test vectors
-([`+"`intermediate-representation/vectors/retry.json`"+`](../intermediate-representation/vectors/retry.json)).
+this one table; both run it as test vectors ([`+"`ir/vectors/retry.json`"+`](../ir/vectors/retry.json)).
 
 - **done**: the answer is returned.
 - **retry**: the same request again on the same route, after the larger of `+"`Retry-After`"+` and a jittered

@@ -22,7 +22,7 @@ import (
 //     there is one, so every statement sees one snapshot of committed state, and it can never write: Tx.Exec is
 //     refused, the connection is query_only, and the transaction is rolled back, never committed.
 //
-// A write's request id records the closure's Output.Body as version 0x02 followed by the bytes (intermediate-representation/spec/v1.md
+// A write's request id records the closure's Output.Body as version 0x02 followed by the bytes (ir/spec/v1.md
 // §7: canonical JSON of the result array); a retry with the same id does not run Fn and is answered with that
 // Body and Duplicate set.
 
@@ -36,7 +36,7 @@ import (
 //	     slow I/O: a write holds the database's write lock for its whole batch
 //	pre: Fn is deterministic given the database state and tx.Now(): it reads no other clock and no randomness
 //	     (request ids replay the stored Body, and a retry after RequestTTL runs Fn again)
-//	pre: with a request id, Output.Body is the canonical JSON of the result (intermediate-representation/spec/v1.md §9)
+//	pre: with a request id, Output.Body is the canonical JSON of the result (ir/spec/v1.md §9)
 //	pre: Fn creates no TEMP objects (refused when the guard sees TEMP/TEMPORARY in a CREATE): a temp trigger or
 //	     table would outlive the closure on the long-lived connection
 //	post (actor): Fn's transaction-control statements are refused (ErrTxControl), so Fn cannot leave or end its
@@ -99,7 +99,7 @@ type Tx struct {
 func (tx *Tx) Incarnation() uint64 { return tx.inc }
 
 // Now is the request's one clock reading (the actor's Config.Clock): for a write, the batch's time, which is
-// also the request id's applied_ms; for a read, when it started. Use it for _creationTime (intermediate-representation/spec/v1.md §6.3).
+// also the request id's applied_ms; for a read, when it started. Use it for _creationTime (ir/spec/v1.md §6.3).
 func (tx *Tx) Now() time.Time { return tx.now }
 
 // ReadOnly reports whether this is a read closure (Exec is refused).

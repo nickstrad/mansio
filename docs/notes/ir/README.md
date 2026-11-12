@@ -2,11 +2,10 @@
 
 The intermediate representation (IR) protocol is the app wire: `POST /v1/ops` requests (queries and atomic
 mutations with preconditions) that the SDK sends and the Go server executes. Spec:
-[`intermediate-representation/spec/v1.md`](../../../intermediate-representation/spec/v1.md); shared vectors:
-[`intermediate-representation/vectors/`](../../../intermediate-representation/vectors/README.md). Code:
-`core/intermediate-representation/` (decode, canonical JSON, wire errors, execution rules), `sdk/` (the client
-that runs handlers), and on the server `server/internal/docexec` (execution) and `server/internal/front` (the
-`/v1/ops` route). The Go server runs every execute vector
+[`ir/spec/v1.md`](../../../ir/spec/v1.md); shared vectors: [`ir/vectors/`](../../../ir/vectors/README.md).
+Code: `core/ir/` (decode, canonical JSON, wire errors, execution rules), `sdk/` (the client that runs
+handlers), and on the server `server/internal/docexec` (execution) and `server/internal/front` (the `/v1/ops`
+route). The Go server runs every execute vector
 ([ADR 0013](../../adr/0013-go-server-replaces-deno-platform.md)).
 
 - [The SDK runs handlers and talks `/v1/ops`](sdk-handlers.md): the recording executor, derived preconditions

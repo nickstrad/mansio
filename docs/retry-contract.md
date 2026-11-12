@@ -4,8 +4,7 @@
 <!-- (cd server && go test ./internal/front -run TestContractFiles -update). -->
 
 What a mansio client library does by itself after each answer. The TypeScript SDK and the Go client follow
-this one table; both run it as test vectors
-([`intermediate-representation/vectors/retry.json`](../intermediate-representation/vectors/retry.json)).
+this one table; both run it as test vectors ([`ir/vectors/retry.json`](../ir/vectors/retry.json)).
 
 - **done**: the answer is returned.
 - **retry**: the same request again on the same route, after the larger of `Retry-After` and a jittered

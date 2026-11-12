@@ -1,16 +1,16 @@
 /**
- * The source of the shared IR test vectors (`intermediate-representation/vectors/*.json`, format in `intermediate-representation/vectors/README.md`).
+ * The source of the shared IR test vectors (`ir/vectors/*.json`, format in `ir/vectors/README.md`).
  *
  * Vectors are authored here, in TypeScript, because a few hundred hand-written JSON documents drift
  * and typo; the JSON files are the artifact both runners read. Every expectation below is written by
  * hand, except two kinds of golden output that the TS implementation is the oracle for by decision
  * (ADR 0010): compiled SQL (`compile.json`) and schema fingerprints (`schema.json`, and the request
- * `schema` field of `execute.json`). Those are computed from `core/compile` and `core/intermediate-representation/schema.ts`
- * when the files are generated, and `tests/unit/intermediate_representation_vectors_test.ts` fails if a committed file no
+ * `schema` field of `execute.json`). Those are computed from `core/compile` and `core/ir/schema.ts`
+ * when the files are generated, and `tests/unit/ir_vectors_test.ts` fails if a committed file no
  * longer matches this source.
  *
  * ```sh
- * deno run -A scripts/intermediate-representation/gen-vectors.ts      # rewrite intermediate-representation/vectors/*.json, then `deno fmt ir/`
+ * deno run -A scripts/ir/gen-vectors.ts      # rewrite ir/vectors/*.json, then `deno fmt ir/`
  * ```
  */
 import { Effect, Either } from "effect";
@@ -19,11 +19,11 @@ import { compileDDL } from "../../core/compile/ddl.ts";
 import { compileSelect } from "../../core/compile/select.ts";
 import { compileDelete, compileInsert, compileReplace } from "../../core/compile/write.ts";
 import type { SelectPlan } from "../../core/plan.ts";
-import { decodeValue } from "../../core/intermediate-representation/decode.ts";
-import { canonical } from "../../core/intermediate-representation/json.ts";
-import { decodeSchema, fingerprintText } from "../../core/intermediate-representation/schema.ts";
+import { decodeValue } from "../../core/ir/decode.ts";
+import { canonical } from "../../core/ir/json.ts";
+import { decodeSchema, fingerprintText } from "../../core/ir/schema.ts";
 import { fingerprintOfText } from "../../sdk/fingerprint.ts";
-import type { Request as IrRequest, SelectOp } from "../../core/intermediate-representation/types.ts";
+import type { Request as IrRequest, SelectOp } from "../../core/ir/types.ts";
 import { createClient } from "../../sdk/client.ts";
 import { withStorage } from "../../sdk/schema.ts";
 import { functions as appFunctions } from "../../examples/tic-tac-toe/functions.ts";
@@ -2859,7 +2859,7 @@ export async function buildVectors(): Promise<Record<string, VectorFile>> {
 }
 
 if (import.meta.main) {
-  const dir = new URL("../../intermediate-representation/vectors/", import.meta.url);
+  const dir = new URL("../../ir/vectors/", import.meta.url);
   await Deno.mkdir(dir, { recursive: true });
   for (const [name, file] of Object.entries(await buildVectors())) {
     await Deno.writeTextFile(new URL(name, dir), JSON.stringify(file, null, 2) + "\n");

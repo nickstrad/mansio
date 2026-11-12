@@ -1,5 +1,5 @@
 /**
- * Strict JSON for the IR wire (`intermediate-representation/spec/v1.md` §3): a parser that rejects what `JSON.parse` silently
+ * Strict JSON for the IR wire (`ir/spec/v1.md` §3): a parser that rejects what `JSON.parse` silently
  * accepts, and the canonical encoding.
  *
  * PURE: `effect` and `../errors.ts` only; nothing in here raises. A rejection is a `SchemaError`

@@ -1,5 +1,5 @@
 /**
- * The intermediate representation (IR) protocol v1 data model (`intermediate-representation/spec/v1.md`): what a decoded `/v1/ops` request is.
+ * The intermediate representation (IR) protocol v1 data model (`ir/spec/v1.md`): what a decoded `/v1/ops` request is.
  *
  * PURE: types and constants only. The wire form and this form are the same shape; `decode.ts` is
  * what turns untrusted JSON into one of these, and `json.ts`'s `canonical` turns one back into text.

@@ -17,7 +17,7 @@ import (
 
 var (
 	repoRoot  = filepath.Join("..", "..", "..")
-	vectorDir = filepath.Join(repoRoot, "intermediate-representation", "vectors")
+	vectorDir = filepath.Join(repoRoot, "ir", "vectors")
 )
 
 func parseFile(t testing.TB, path string) any {
@@ -117,7 +117,7 @@ func TestCompileVectors(t *testing.T) {
 }
 
 // corpusLine recompiles one corpus case and returns the line Go would write: the case's own members with
-// select and ddl replaced by the Go compiler's outputs (intermediate-representation/vectors/README.md).
+// select and ddl replaced by the Go compiler's outputs (ir/vectors/README.md).
 func corpusLine(line string) (string, *ir.Error) {
 	v, err := ir.Parse(line)
 	if err != nil {
@@ -188,7 +188,7 @@ func runCorpus(t *testing.T, path string) int {
 }
 
 // TestCompileCorpus runs the committed differential corpus. MANSIO_IR_CORPUS, a comma-separated list of
-// corpus files, replaces it for larger local runs (scripts/dev/intermediate-representation-differential.sh).
+// corpus files, replaces it for larger local runs (scripts/dev/ir-differential.sh).
 func TestCompileCorpus(t *testing.T) {
 	paths := []string{filepath.Join(vectorDir, "generated", "compile-corpus.jsonl")}
 	if env := os.Getenv("MANSIO_IR_CORPUS"); env != "" {

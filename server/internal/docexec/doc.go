@@ -1,5 +1,5 @@
-// Package docexec executes decoded IR requests (intermediate-representation/spec/v1.md §6–§7) on a database actor's connection: a
-// port of platform/ir/executor.ts and the execution rules of core/intermediate-representation/semantics.ts ($ref resolution, bodies,
+// Package docexec executes decoded IR requests (ir/spec/v1.md §6–§7) on a database actor's connection: a
+// port of platform/ir/executor.ts and the execution rules of core/ir/semantics.ts ($ref resolution, bodies,
 // expect). It is the oracle's twin: the shared execute vectors run against it on a real actor.
 //
 // What it decides, per request (spec §6.1): the fingerprint check against _platform_schema (Check, before the

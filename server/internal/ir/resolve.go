@@ -1,6 +1,6 @@
 package ir
 
-// Resolve returns value with every {"$ref": i} replaced by ids[i], the _id insert i produced (core/intermediate-representation/
+// Resolve returns value with every {"$ref": i} replaced by ids[i], the _id insert i produced (core/ir/
 // semantics.ts resolve). Unlike decode, it walks every object, so a $ref nested in a plain object is
 // replaced too; validation rejects that object anyway. Decode has checked each i, so the lookup hits.
 //

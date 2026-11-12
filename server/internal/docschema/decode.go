@@ -90,7 +90,7 @@ func decodeNode(value any, path string) (*Node, *ir.Error) {
 	return out, nil
 }
 
-// Decode reads the registered schema JSON (spec §2, core/intermediate-representation/schema.ts decodeSchema): strict shapes, then
+// Decode reads the registered schema JSON (spec §2, core/ir/schema.ts decodeSchema): strict shapes, then
 // the declaration rules of defineTable, addIndex and defineSchema, in the TypeScript order (each table's
 // nodes, then its fields' rules, its storage and its indexes; table names last). DDL rules (an empty
 // enum) are doccompile.DDL's.
@@ -179,7 +179,7 @@ func stringList(v any) ([]string, bool) {
 }
 
 // Load is for the differential corpus and fuzzing only; a server never loads a schema with it (use Decode).
-// It reads schema JSON into tables without any declaration check, as scripts/intermediate-representation/gen-compile-corpus.ts's
+// It reads schema JSON into tables without any declaration check, as scripts/ir/gen-compile-corpus.ts's
 // tablesOf does (new Table(fields, storage, indexes)): illegal names, empty enums, itemless arrays and odd
 // lengths all load, and the compiler must be total over them. Shapes the TypeScript would crash on (a
 // table that is not an object, a field without a node) are skipped; their behaviour is not specified.

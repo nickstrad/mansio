@@ -1,5 +1,5 @@
 /**
- * B8: the SDK is held to the caller contract by the shared vectors (`intermediate-representation/vectors/retry.json`, generated from
+ * B8: the SDK is held to the caller contract by the shared vectors (`ir/vectors/retry.json`, generated from
  * mansio-server's `front.Contract`; the Go client runs the same file in `internal/client`). For each answer
  * from an agent or from controld's resolve: the step the SDK takes, whether a mutation that ends there may
  * have applied, and the default limits. Then, through the real transport: a reroute after a call's first
@@ -34,7 +34,7 @@ interface Vector {
 }
 
 const file = JSON.parse(
-  await Deno.readTextFile(new URL("../../intermediate-representation/vectors/retry.json", import.meta.url)),
+  await Deno.readTextFile(new URL("../../ir/vectors/retry.json", import.meta.url)),
 ) as {
   readonly policy: Record<string, number>;
   readonly vectors: readonly Vector[];

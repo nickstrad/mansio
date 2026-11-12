@@ -25,7 +25,7 @@ import (
 //
 // A database is (tenant, app): the registry's database tenant ":" app, so an app is named by the database-name
 // domain (pg.ValidName) and every existing path (move, drop, the agents, durable.KeyPrefix) works on it
-// unchanged; resolve's {"tenant": T, "app": X} and raw {"tenant": T, "db": X} name the same database T:X. "schema" is the fingerprint text (intermediate-representation/spec/v1.md §2): either the JSON object itself, whose bytes are
+// unchanged; resolve's {"tenant": T, "app": X} and raw {"tenant": T, "db": X} name the same database T:X. "schema" is the fingerprint text (ir/spec/v1.md §2): either the JSON object itself, whose bytes are
 // taken exactly as sent (a TS client's JSON.stringify({fingerprint, schema}) embeds JSON.stringify(schema)), or a
 // JSON string holding that text. Either way the fingerprint must be SHA-256 of those exact bytes.
 // Registration is idempotent: created is false when the app already registered that fingerprint.

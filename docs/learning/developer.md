@@ -60,7 +60,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    `db.ts` is the API handlers call, `recording.ts` turns one handler run into reads plus one commit, and
    `client.ts` is the loop that re-runs on conflict. This is the most important TypeScript in the repo.
 
-10. Read `sdk/cache.ts` and `docs/notes/intermediate-representation/read-path.md`.
+10. Read `sdk/cache.ts` and `docs/notes/ir/read-path.md`.
 
     The cache is why a warm mutation is one round trip, and the note lists the traps (for example, a cached
     read is never trusted, only asserted). Read the note's "Traps" section twice.
@@ -72,7 +72,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 3: The wire (the IR protocol)
 
-12. Read `intermediate-representation/spec/v1.md` sections 1 to 6.
+12. Read `ir/spec/v1.md` sections 1 to 6.
 
     The IR is the only thing that crosses between TypeScript and Go, so it is the true interface of the
     platform. Sections 5 (operations) and 6 (execution order, atomicity) are the core.
@@ -82,8 +82,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     These explain how a retry is safe and how the SDK knows what changed. Most "what happens if…" questions
     are answered here.
 
-14. Open `intermediate-representation/vectors/README.md` and look at a few cases in
-    `intermediate-representation/vectors/execute.json`.
+14. Open `ir/vectors/README.md` and look at a few cases in `ir/vectors/execute.json`.
 
     The vectors are shared test cases both the TypeScript and Go sides must pass, which is what keeps two
     implementations agreeing. Reading three or four vectors makes the spec concrete.

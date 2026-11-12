@@ -61,7 +61,7 @@ and the server is the Go server in `server/`. Both formats are generated from
 ## Runtime notes
 
 Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers run
-in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application
-SQL crosses the client boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres
-is inside the system, shown at Level 2. No external identity provider is wired. The request log and the
-metrics are for the deployment's own log collector and Prometheus, which are not part of mansio (ADR 0014).
+in the client SDK and reach the server as IR requests (ir/spec/v1.md); no application SQL crosses the client
+boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the system,
+shown at Level 2. No external identity provider is wired. The request log and the metrics are for the
+deployment's own log collector and Prometheus, which are not part of mansio (ADR 0014).

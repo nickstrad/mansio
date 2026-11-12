@@ -27,7 +27,7 @@ func Member(path, name string) string {
 // Element is path extended by an array index (a[3]).
 func Element(path string, i int) string { return path + "[" + strconv.Itoa(i) + "]" }
 
-// Parse reads text as one strict JSON value (spec §3 step 3, core/intermediate-representation/json.ts parseStrict). Beyond the RFC
+// Parse reads text as one strict JSON value (spec §3 step 3, core/ir/json.ts parseStrict). Beyond the RFC
 // 8259 grammar it refuses a duplicate member name (after unescaping), a number that is not a finite double,
 // a string holding a lone surrogate, and nesting deeper than MaxDepth. A refusal is a SchemaError
 // type-mismatch whose path names where the parser stopped (body for the top level).
@@ -291,7 +291,7 @@ func writeWTF8(b *strings.Builder, r rune) {
 	b.WriteByte(byte(0x80 | r&0x3F))
 }
 
-// number reads /-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/ at p.at, as core/intermediate-representation/json.ts's sticky
+// number reads /-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/ at p.at, as core/ir/json.ts's sticky
 // regex does (each optional part is taken only when complete), and converts it as Number(text) would.
 func (p *parser) number(path string) (any, *stop) {
 	t, i := p.text, p.at
@@ -535,7 +535,7 @@ func quote(b *strings.Builder, s string) {
 	b.WriteByte('"')
 }
 
-// Canonical is the RFC 8785 (JCS) encoding of v (spec §9, core/intermediate-representation/json.ts canonical): no whitespace,
+// Canonical is the RFC 8785 (JCS) encoding of v (spec §9, core/ir/json.ts canonical): no whitespace,
 // object members sorted by the UTF-16 code units of their names, numbers and strings as JSON.stringify
 // writes them, Undefined members dropped.
 func Canonical(v any) string {

@@ -17,12 +17,11 @@ Pinned version: **v0.56.0**, source URL above. This recipe is also recorded in t
 
 ## How the scripts reach agentd
 
-k6 cannot run the TypeScript SDK, so `perf/lib/intermediate-representation.js` sends each tic-tac-toe handler
-to agentd's `POST /v1/ops` the way `sdk/client.ts` does: a read is one query request; `makeMove` reads the
-game, applies the rules locally and commits `[assert, patch, insert]`. A rule failure or a stale
-`expectedVersion` fails locally, as in the SDK, without a request. Every request carries
-`X-Trace-Id: <vu>-<iter>-<run-id>`, `X-Mansio-Handler` and a ticket. `perf/lib/api.js` is the only module the
-scenarios call.
+k6 cannot run the TypeScript SDK, so `perf/lib/ir.js` sends each tic-tac-toe handler to agentd's
+`POST /v1/ops` the way `sdk/client.ts` does: a read is one query request; `makeMove` reads the game, applies
+the rules locally and commits `[assert, patch, insert]`. A rule failure or a stale `expectedVersion` fails
+locally, as in the SDK, without a request. Every request carries `X-Trace-Id: <vu>-<iter>-<run-id>`,
+`X-Mansio-Handler` and a ticket. `perf/lib/api.js` is the only module the scenarios call.
 
 A run needs a running agentd that serves `local:tic-tac-toe` (static mode) and these environment variables:
 

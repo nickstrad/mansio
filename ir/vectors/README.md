@@ -1,22 +1,21 @@
 # Intermediate representation (IR) test vectors
 
 The cross-language contract for [IR protocol v1](../spec/v1.md) (ADR 0010). TypeScript runs them in
-`tests/unit/intermediate_representation_vectors_test.ts` (`deno task test`); the Go runner (mansio-server
-IR-1/IR-2) reads the same files. Every bug fix in either implementation adds a vector.
+`tests/unit/ir_vectors_test.ts` (`deno task test`); the Go runner (mansio-server IR-1/IR-2) reads the same
+files. Every bug fix in either implementation adds a vector.
 
-**Do not edit the JSON by hand.** The source is `scripts/intermediate-representation/gen-vectors.ts`;
-regenerate with
+**Do not edit the JSON by hand.** The source is `scripts/ir/gen-vectors.ts`; regenerate with
 
 ```sh
-deno run -A scripts/intermediate-representation/gen-vectors.ts && deno fmt ir/
-deno run -A scripts/intermediate-representation/gen-compile-corpus.ts          # generated/compile-corpus.jsonl
+deno run -A scripts/ir/gen-vectors.ts && deno fmt ir/
+deno run -A scripts/ir/gen-compile-corpus.ts          # generated/compile-corpus.jsonl
 ```
 
-The TS runner fails if a committed file differs from its generator.
-`intermediate-representation/spec/v1.schema.json` is informative only: it is not run against the vectors, and
-cannot express several decode rules (see its description). Expectations are hand-written in the source, except
-compiled SQL (`compile.json`, the corpus) and schema fingerprints (`schema.json`, `execute.json`'s
-`fingerprint`), which are golden output of `core/` — the oracle by decision.
+The TS runner fails if a committed file differs from its generator. `ir/spec/v1.schema.json` is informative
+only: it is not run against the vectors, and cannot express several decode rules (see its description).
+Expectations are hand-written in the source, except compiled SQL (`compile.json`, the corpus) and schema
+fingerprints (`schema.json`, `execute.json`'s `fingerprint`), which are golden output of `core/` — the oracle
+by decision.
 
 ## Files
 
@@ -151,5 +150,4 @@ Every other line is one case:
 - Inputs were JSON round-tripped before compiling, so the expectation is about exactly these bytes.
 
 The case list is a pure function of `(count, seed)`; the TS runner regenerates it and requires the file to
-match. For larger local runs:
-`deno run -A scripts/intermediate-representation/gen-compile-corpus.ts 1000000 <seed> /tmp/corpus.jsonl`.
+match. For larger local runs: `deno run -A scripts/ir/gen-compile-corpus.ts 1000000 <seed> /tmp/corpus.jsonl`.

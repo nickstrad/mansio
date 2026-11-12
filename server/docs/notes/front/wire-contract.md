@@ -8,7 +8,7 @@ Code: `internal/front/codes.go` (`Spec`, `Classify`, `Unavailable`, `ErrUnavaila
 `TestPipelineWireCodes`, `TestHTTPStatusesAndHeaders`, `TestHTTPUnavailableLogsSampledWarn`,
 `internal/agentglue/unavailable_test.go`. Write retries and duplicates: [request ids](request-ids.md). The
 document protocol `POST /v1/ops` runs through the same pipeline:
-[docexec and the ops route](../intermediate-representation/docexec-and-ops-route.md).
+[docexec and the ops route](../ir/docexec-and-ops-route.md).
 
 **This is an INTERNAL, TRUSTED-CALLER protocol.** Requests carry parameterized SQL. In production clients
 never send SQL: the trusted front compiles document requests, and only the compiled form reaches an

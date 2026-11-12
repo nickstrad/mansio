@@ -6,13 +6,13 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-// conflict is a failed precondition (core/intermediate-representation/errors.ts PreconditionConflict under the ConflictError tag).
+// conflict is a failed precondition (core/ir/errors.ts PreconditionConflict under the ConflictError tag).
 func conflict(table, id, check string, expected, actual any) *ir.Error {
 	return ir.NewError(ir.TagConflict, "table", table, "id", id, "check", check, "expected", expected, "actual", actual)
 }
 
 // CheckExpect evaluates expect against the current document (nil when it does not exist), in the order
-// existence, version, fields (core/intermediate-representation/semantics.ts checkExpect, spec §5.4). expect.fields names declared
+// existence, version, fields (core/ir/semantics.ts checkExpect, spec §5.4). expect.fields names declared
 // scalar fields only, and each value is validated against its node and the storage contract before anything
 // is compared, whether or not the document exists, so a malformed precondition fails the same way every time.
 //

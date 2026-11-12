@@ -3,9 +3,9 @@
 Since IR-6 (the cut-over item of the intermediate representation, or IR, plan) the server is the Go server in
 `server/`; the Deno platform and its tests are gone (ADR 0013). The TypeScript tests cover what is left in TS:
 the SDK (`sdk/`), the sample app (`examples/tic-tac-toe/`), `core/` (schema, plan, errors, the compiler that
-is the oracle for Go, the IR decode/validation rules) and the shared IR vectors
-(`intermediate-representation/`). The e2e suite is the Go server's conformance suite. agentd's request log is
-Go's: its record format and writer are tested in `server/internal/eventlog`.
+is the oracle for Go, the IR decode/validation rules) and the shared IR vectors (`ir/`). The e2e suite is the
+Go server's conformance suite. agentd's request log is Go's: its record format and writer are tested in
+`server/internal/eventlog`.
 
 | Tier                   | What it proves                                                                                                                     | Runner                                                                                            |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
@@ -44,14 +44,11 @@ range.
 
 ## IR vectors
 
-`tests/unit/intermediate_representation_vectors_test.ts` runs `decode.json`, `validation.json`, `schema.json`
-and `compile.json` against the TS implementation, and checks that every committed vector file (`execute.json`
-included) and the compile corpus still match their generators
-(`scripts/intermediate-representation/gen-vectors.ts`,
-`scripts/intermediate-representation/gen-compile-corpus.ts`). `execute.json` runs only in Go
-(`server/internal/docexec`); its TS run went with the Deno platform's reference executor at IR-6.
-`scripts/dev/intermediate-representation-differential.sh` runs the compile corpus at scale against the Go
-compiler.
+`tests/unit/ir_vectors_test.ts` runs `decode.json`, `validation.json`, `schema.json` and `compile.json`
+against the TS implementation, and checks that every committed vector file (`execute.json` included) and the
+compile corpus still match their generators (`scripts/ir/gen-vectors.ts`, `scripts/ir/gen-compile-corpus.ts`).
+`execute.json` runs only in Go (`server/internal/docexec`); its TS run went with the Deno platform's reference
+executor at IR-6. `scripts/dev/ir-differential.sh` runs the compile corpus at scale against the Go compiler.
 
 ## End to end
 

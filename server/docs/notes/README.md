@@ -7,7 +7,7 @@ are in [`docs/notes/`](../../../docs/notes/README.md).
 - [front/](front/README.md): how a request reaches the actor that owns its database: agentd's network front
   (tickets, admission, wire codes, request ids, metrics), durable mode and admin controls, controld, the
   locator, the edge and the Go client.
-- [intermediate-representation/](intermediate-representation/README.md): the IR protocol in Go: decoding,
+- [ir/](ir/README.md): the IR protocol in Go: decoding,
   document schemas, the SQL compiler and the executor behind `POST /v1/ops`.
 - [backpressure/](backpressure/README.md): how every queue is bounded and what is refused when it is full:
   admission, the edge, controld's pool budget, shutdown, the retry contract and the capacity table.

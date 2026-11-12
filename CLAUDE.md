@@ -6,12 +6,11 @@ files and their event log live under [`agent-work/`](agent-work/AGENTS.md); this
 ## What this repo is
 
 A document database. A TypeScript SDK (`sdk/`) runs application handlers in the caller's process and speaks
-the intermediate representation (IR) protocol (`intermediate-representation/spec/v1.md`, `POST /v1/ops`) to
-the Go server (`server/`: agentd, controld, the edge, agentctl, dbtool). Also here: the shared core (`core/`:
-schema, plan, errors, the TypeScript compiler that is the oracle for the Go one, IR rules), the shared IR test
-vectors (`intermediate-representation/vectors/`), a sample app (`examples/tic-tac-toe/`), tests, and the docs
-(`docs/`, with the architecture diagram site in `docs/pages/`). agentd's request log format belongs to
-`server/internal/eventlog`.
+the intermediate representation (IR) protocol (`ir/spec/v1.md`, `POST /v1/ops`) to the Go server (`server/`:
+agentd, controld, the edge, agentctl, dbtool). Also here: the shared core (`core/`: schema, plan, errors, the
+TypeScript compiler that is the oracle for the Go one, IR rules), the shared IR test vectors (`ir/vectors/`),
+a sample app (`examples/tic-tac-toe/`), tests, and the docs (`docs/`, with the architecture diagram site in
+`docs/pages/`). agentd's request log format belongs to `server/internal/eventlog`.
 
 ## Environment
 

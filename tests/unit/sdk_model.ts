@@ -1,5 +1,5 @@
 /**
- * A pure in-memory `/v1/ops` server for the SDK's tests: enough of `intermediate-representation/spec/v1.md` §5–§8 to run
+ * A pure in-memory `/v1/ops` server for the SDK's tests: enough of `ir/spec/v1.md` §5–§8 to run
  * what the recording executor sends — `get`, `select` (eq/gt filters, order with the `_id` tie-break,
  * nulls first ascending, `limit`, `count`, `countBy`), `insert` with a client id, `patch`, `delete`,
  * `assert` with `expect.version`/`exists` or, without an id, `expect.unchangedSince`, the commit sequence,
@@ -9,7 +9,7 @@
  *
  * `fetch` serves it over a fake HTTP surface, with `faults` to inject transport and server failures.
  */
-import type { Op, Request, SelectOp } from "../../core/intermediate-representation/types.ts";
+import type { Op, Request, SelectOp } from "../../core/ir/types.ts";
 
 export type Doc = Record<string, unknown> & { _id: string; _creationTime: number; _version: number };
 type Wire = { status: number; body: unknown; headers?: Record<string, string> };

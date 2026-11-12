@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mansio.dev/ir/v1/request.schema.json",
   "title": "mansio IR protocol v1 request",
-  "description": "The /v1/ops request envelope (intermediate-representation/spec/v1.md §4-§5). Structural only: JSON Schema cannot express duplicate-member refusal, lone surrogates, the byte cap, $ref targets (earlier inserts only), query ops being select/get/assert only, or the exists:false combinations; intermediate-representation/spec/v1.md and the decode vectors are normative for those.",
+  "description": "The /v1/ops request envelope (ir/spec/v1.md §4-§5). Structural only: JSON Schema cannot express duplicate-member refusal, lone surrogates, the byte cap, $ref targets (earlier inserts only), query ops being select/get/assert only, or the exists:false combinations; ir/spec/v1.md and the decode vectors are normative for those.",
   "type": "object",
   "additionalProperties": false,
   "required": ["v", "db", "kind", "schema", "ops"],
@@ -166,7 +166,7 @@
           "additionalProperties": false
         },
         {
-          "description": "A table precondition (intermediate-representation/spec/v1.md §5.5): an assert without an id.",
+          "description": "A table precondition (ir/spec/v1.md §5.5): an assert without an id.",
           "properties": {
             "op": { "const": "assert" },
             "table": { "type": "string" },

@@ -10,7 +10,7 @@
 import { Effect, Exit } from "effect";
 import postgres from "npm:postgres@3.4.9";
 import { schema } from "../../../examples/tic-tac-toe/schema.ts";
-import { fingerprintText } from "../../../core/intermediate-representation/schema.ts";
+import { fingerprintText } from "../../../core/ir/schema.ts";
 import { createClient } from "../../../sdk/client.ts";
 import { schemaFingerprint } from "../../../sdk/fingerprint.ts";
 import type { Functions } from "../../../sdk/functions.ts";

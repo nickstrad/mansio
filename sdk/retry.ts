@@ -11,7 +11,7 @@
  *   call of one client.
  * - **What an answer means** (`decide`, `resolveStep`): the caller contract in `docs/retry-contract.md`,
  *   generated from mansio-server's `front.Contract` and shared with the Go client as test vectors
- *   (`intermediate-representation/vectors/retry.json`, run by `tests/unit/sdk_retry_contract_test.ts`). `ok` done; `shed`,
+ *   (`ir/vectors/retry.json`, run by `tests/unit/sdk_retry_contract_test.ts`). `ok` done; `shed`,
  *   `unavailable`, `aborted` retry (with the same request body, so a mutation keeps its `requestId`);
  *   `wrong_owner`, `fenced`, `ticket_invalid` and no answer at all reroute (re-resolve, or fetch a fresh
  *   ticket) when the client can, else fail; everything else is final. `expired` is final too: its deadline

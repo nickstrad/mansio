@@ -1,5 +1,5 @@
 /**
- * The schema-dependent rules of execution (`intermediate-representation/spec/v1.md` §6), as pure functions the executor
+ * The schema-dependent rules of execution (`ir/spec/v1.md` §6), as pure functions the executor
  * composes with storage: `$ref` resolution, document-body validation, and `expect` evaluation.
  *
  * PURE: no I/O. The executor loads the current document and hands it in; these functions decide.

@@ -1,6 +1,6 @@
 /**
  * The differential compile corpus for the Go compiler port (ADR 0010;
- * `intermediate-representation/vectors/README.md`, "Generated compile corpus").
+ * `ir/vectors/README.md`, "Generated compile corpus").
  *
  * Draws schemas and select plans from the fast-check arbitraries of `tests/property/` — valid plans,
  * plans with exactly one defect, and junk that ignores every builder invariant — compiles each with
@@ -12,7 +12,7 @@
  * vanished, `-0` became `0`).
  *
  * ```sh
- * deno run -A scripts/intermediate-representation/gen-compile-corpus.ts [count=2000] [seed=20261105] [out=intermediate-representation/vectors/generated/compile-corpus.jsonl]
+ * deno run -A scripts/ir/gen-compile-corpus.ts [count=2000] [seed=20261105] [out=ir/vectors/generated/compile-corpus.jsonl]
  * ```
  */
 import fc from "fast-check";
@@ -84,7 +84,7 @@ if (import.meta.main) {
   const [
     count = "2000",
     seed = "20261105",
-    out = "intermediate-representation/vectors/generated/compile-corpus.jsonl",
+    out = "ir/vectors/generated/compile-corpus.jsonl",
   ] = Deno.args;
   const lines = corpus(Number(count), Number(seed));
   await Deno.mkdir(new URL(".", new URL(out, `file://${Deno.cwd()}/`)), { recursive: true });

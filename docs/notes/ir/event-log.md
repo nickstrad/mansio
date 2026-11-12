@@ -6,14 +6,14 @@ writer behaves under load. Code: `server/internal/eventlog`, `server/internal/fr
 
 ## The pieces
 
-| File                                                         | Role                                                                                   |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `server/internal/eventlog/record.go`                         | the envelope and the 7 kinds, the record key order, redaction (byte goldens)           |
-| `server/internal/eventlog/log.go`                            | `Log`: bounded queue, one writer, file layout and rolls, drop reports, `Stats`         |
-| `server/internal/front/opstrace.go`                          | `OpsObserver`/`OpsTrace`: the adapter's trace id, handler name, sizes; tx + statements |
-| `server/cmd/agentd/events.go`                                | `event_log` config, OpsEvent → http/handler/tx/sql records, lifecycle, metrics         |
-| `sdk/transport.ts`, `sdk/client.ts`                          | `X-Mansio-Handler: <handler name>` on every request of a call                          |
-| `perf/lib/intermediate-representation.js`, `perf/lib/api.js` | k6 on `/v1/ops`: the handlers as the SDK sends them                                    |
+| File                                 | Role                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `server/internal/eventlog/record.go` | the envelope and the 7 kinds, the record key order, redaction (byte goldens)           |
+| `server/internal/eventlog/log.go`    | `Log`: bounded queue, one writer, file layout and rolls, drop reports, `Stats`         |
+| `server/internal/front/opstrace.go`  | `OpsObserver`/`OpsTrace`: the adapter's trace id, handler name, sizes; tx + statements |
+| `server/cmd/agentd/events.go`        | `event_log` config, OpsEvent → http/handler/tx/sql records, lifecycle, metrics         |
+| `sdk/transport.ts`, `sdk/client.ts`  | `X-Mansio-Handler: <handler name>` on every request of a call                          |
+| `perf/lib/ir.js`, `perf/lib/api.js`  | k6 on `/v1/ops`: the handlers as the SDK sends them                                    |
 
 ## Decisions
 

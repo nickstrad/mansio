@@ -2,14 +2,10 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-05
-- **Deciders:** `docs/plans/completed/intermediate-representation-protocol.md` (removed; see git history) §9;
-  recorded by IR-0
-- **Related:** [ADR 0009](0009-intermediate-representation-is-the-app-wire.md),
-  [ADR 0005](0005-text-storage-contract.md)
-- **Implements:** `intermediate-representation/vectors/`,
-  `scripts/intermediate-representation/gen-vectors.ts`,
-  `scripts/intermediate-representation/gen-compile-corpus.ts`,
-  `tests/unit/intermediate_representation_vectors_test.ts`
+- **Deciders:** `docs/plans/completed/ir-protocol.md` (removed; see git history) §9; recorded by IR-0
+- **Related:** [ADR 0009](0009-ir-is-the-app-wire.md), [ADR 0005](0005-text-storage-contract.md)
+- **Implements:** `ir/vectors/`, `scripts/ir/gen-vectors.ts`, `scripts/ir/gen-compile-corpus.ts`,
+  `tests/unit/ir_vectors_test.ts`
 
 ## Context
 
@@ -22,11 +18,10 @@ keep opening (same DDL, same `_platform_schema` fingerprint).
 - Go gets its own port (`internal/docschema`, `internal/doccompile`, SQLite only). It does not call TypeScript
   at run time.
 - `core/` stays the **oracle**. Where the two disagree, TS is right until a vector says otherwise.
-- The contract between them is data, not code: the shared vectors in
-  `intermediate-representation/vectors/*.json` (decode, validation, schema, compile, execute) and the
-  generated differential corpus `intermediate-representation/vectors/generated/compile-corpus.jsonl`. Compile
-  SQL and schema fingerprints in the vectors are golden output of `core/`; every other expectation is written
-  by hand. The TS runner fails if a committed file no longer matches its generator.
+- The contract between them is data, not code: the shared vectors in `ir/vectors/*.json` (decode, validation,
+  schema, compile, execute) and the generated differential corpus `ir/vectors/generated/compile-corpus.jsonl`.
+  Compile SQL and schema fingerprints in the vectors are golden output of `core/`; every other expectation is
+  written by hand. The TS runner fails if a committed file no longer matches its generator.
 - Every bug fix in either language adds a vector.
 
 ## Consequences

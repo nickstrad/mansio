@@ -63,7 +63,7 @@ import {
   type Op,
   type SelectOp,
   type TableAssertOp,
-} from "../core/intermediate-representation/types.ts";
+} from "../core/ir/types.ts";
 import { type Equality, type Execute, Find, type Operation, type SelectPlan, type WriteDB } from "./db.ts";
 import type { Body, Document, Schema } from "./schema.ts";
 import type { ReadCache } from "./cache.ts";
