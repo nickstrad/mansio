@@ -12,8 +12,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// The issuer's side of key rotation (control-plane plan CP-5). The issuer holds a ring of Ed25519 signing
-// keys; agents fetch the public half (PublicKeyFile) and replace their KeyRing with it. A key goes through
+// The issuer's side of key rotation. The issuer holds a ring of Ed25519 signing keys; agents fetch the public half
+// (PublicKeyFile) and replace their KeyRing with it. A key goes through
 //
 //	published, not signing  (age < Activate: agents fetch it before any ticket needs it)
 //	signing                 (the newest key at least Activate old)

@@ -47,12 +47,12 @@ func (d *db) refused(when, table string, since int64) {
 	}
 }
 
-// The open finding of the version-floor note (2026-11-10): a database rolled back by a kill -9 must not issue
-// the lost mutations' sequences again, and a table precondition taken on the lost state must not hold against
-// the restored one. A client that ran a find before the crash holds a sequence of a table that no longer
-// exists in that form; its assert {unchangedSince} must conflict: before anything is written again (the
-// database never reached that sequence), after a write to that table (which must not land on the lost
-// sequence), and after a write to another table only (the guarded table's own last change is old and low).
+// The commit sequence has the version floor's rule (server/docs/notes/writeback/version-and-sequence-floor.md): a
+// database rolled back by a kill -9 must not issue the lost mutations' sequences again, and a table precondition
+// taken on the lost state must not hold against the restored one. A client that ran a find before the crash holds a
+// sequence of a table that no longer exists in that form; its assert {unchangedSince} must conflict: before anything
+// is written again (the database never reached that sequence), after a write to that table (which must not land on
+// the lost sequence), and after a write to another table only (the guarded table's own last change is old and low).
 //
 // As in TestVersionIsNotReissuedAfterARollback, the database is published between the crashes.
 func TestSequenceIsNotReissuedAfterARollback(t *testing.T) {

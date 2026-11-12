@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tenancy/tenancyhttp"
 )
 
-// Multi-node tenancy (IR-5; ADR 0012's multi-node half): controld authenticates once per resolve and issues
+// Multi-node tenancy (ADR 0012's multi-node half): controld authenticates once per resolve and issues
 // the ticket; agents only verify tickets. New API keys ("mansio_<id>_<secret>") go through the locator's own
 // path (their rows carry a principal and permissions); with a "tenancy" section, every other bearer of an app
 // resolve goes to the same internal/tenancy service agentd uses single-node: legacy Deno-platform keys and, in

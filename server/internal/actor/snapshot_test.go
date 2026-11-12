@@ -13,8 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 )
 
-// Commits and Snapshot are the additive hooks vactor's write-back uses (posted in shared_state.md by the
-// writeback agent, 2026-11-05).
+// Commits and Snapshot are the additive hooks vactor's write-back uses.
 
 func TestCommitsCountsOnlyCommittedWriteTransactions(t *testing.T) {
 	for _, tc := range []struct {
@@ -73,7 +72,7 @@ func snapshotActor(t *testing.T, cfg Config, w, r executor) *Actor {
 }
 
 // In WAL mode with a read pool the snapshot runs on a reader, so a write commits while the copy is in progress
-// (CP-8: VACUUM INTO on the writer made every write wait for the whole copy).
+// (VACUUM INTO on the writer made every write wait for the whole copy).
 func TestSnapshotOnAReaderDoesNotBlockWrites(t *testing.T) {
 	w := &faultExec{}
 	r := &blockingBackup{started: make(chan struct{}), release: make(chan struct{})}

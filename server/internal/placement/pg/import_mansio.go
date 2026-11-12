@@ -14,10 +14,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// The Deno platform's tenancy import (replace-platform plan §4.3; IR-4a): its Postgres tables (migrations 001
-// tenants/api_keys and 002 Better Auth user/account/session/memberships) into this schema's (0007). Legacy keys
-// keep working (their whole-key hash is kept), passwords verify unchanged (tenancy's Better Auth scrypt), and
-// unexpired sessions move by SHA-256 of their token. Rows already present are skipped, so a re-run is safe.
+// The Deno platform's tenancy import: its Postgres tables (migrations 001 tenants/api_keys and 002 Better Auth
+// user/account/session/memberships) into this schema's (0007). Legacy keys keep working (their whole-key hash is
+// kept), passwords verify unchanged (tenancy's Better Auth scrypt), and unexpired sessions move by SHA-256 of their
+// token. Rows already present are skipped, so a re-run is safe.
 
 // MansioTenancy is what ReadMansio read: one JSON document (import_mansio_core.sql merged with
 // import_mansio_auth.sql). It holds hashes, never a key, token or password.

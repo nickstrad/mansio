@@ -15,7 +15,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
-// The event log (IR-4c; docs/observability.md): agentd writes mansio's event envelope as JSONL under
+// The event log (docs/observability.md): agentd writes mansio's event envelope as JSONL under
 // event_log.dir with role "server", so `deno task logs:ingest` / `logs:query` (LOG_DIR = event_log.dir) and the
 // analysis catalog work on it unchanged. Per /v1/ops request:
 //

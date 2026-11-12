@@ -24,7 +24,7 @@ type Config struct {
 	// RPO is the stated loss window the checker allows (see Model): a write acknowledged at Ta and lost at a
 	// crash at Tc is a violation iff [Ta, Tc] holds a fault-free stretch at least RPO long. 0: the bound
 	// docs/notes/writeback states, Policy.WriteBackEvery + Tick, plus 1 s of slack for same-instant ordering.
-	// What the agent should promise while S3 is down is an open decision (control-plane plan); here a
+	// What the agent should promise while S3 is down is an open decision; here a
 	// faulty stretch simply does not count.
 	RPO time.Duration
 	// KeepGoing runs to the end after a violation (default: stop at the first one).

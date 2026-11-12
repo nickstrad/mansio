@@ -61,7 +61,7 @@ func (d *db) versionOf(id string) float64 {
 	return 0
 }
 
-// The open finding of 2026-11-06 (sim swarm seed 2761; the cluster vector is
+// A bug the sim swarm found (seed 2761; the cluster vector is
 // internal/sim/testdata/cluster/version-reuse-after-rollback.json): a database rolled back by a kill -9 must
 // not issue the lost writes' versions again. A client that read a document before the crash holds a version of
 // contents that no longer exist; its expect must fail against whatever the restored database writes instead.

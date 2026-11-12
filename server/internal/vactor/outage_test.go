@@ -30,7 +30,7 @@ func (c *countingStore) FetchGeneration(ctx context.Context, m durable.Manifest,
 	return c.Store.FetchGeneration(ctx, m, path)
 }
 
-// TestS3OutageCallsBounded (plan RI-03): the store is down for 10 s while 100 cold keys get 1,000 req/s.
+// TestS3OutageCallsBounded: the store is down for 10 s while 100 cold keys get 1,000 req/s.
 // Without protection that is 10,000 store calls. With the breaker and per-key tombstones the store sees at
 // most one call per key before the breaker opens plus one probe per cool-down; with tombstones alone, at
 // most one call per key per backoff step. With the breaker, every failure is ErrUnavailable (503 on the

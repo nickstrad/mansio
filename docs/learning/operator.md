@@ -59,7 +59,7 @@ Every drill from Phase 3 on uses that cluster.
    Tickets are how agents trust a request without calling controld: controld signs them and agents verify them
    offline with the public keys. Losing or mixing key rings is a full outage, so know where they live.
 
-9. Read `server/docs/notes/front/2026-11-05-controld.md`.
+9. Read `server/docs/notes/front/controld.md`.
 
    It describes what controld owns: the VM registry, database placement, the locator, and the lifecycle flows
    with what to do when each one stops halfway. It is the control plane's operating manual.
@@ -123,13 +123,12 @@ Every drill from Phase 3 on uses that cluster.
     and a host loss can lose about 11 seconds of acknowledged writes with the defaults, or the whole outage
     while S3 is unreachable. You must know this number before you promise anything to a customer.
 
-17. Read `server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md`.
+17. Read `server/docs/notes/writeback/backup-open-issues.md`.
 
     The S3 work is built but paused pending a decision on LiteFS. This note lists what is and is not
     guaranteed today, so you know which gaps are known and which would be new bugs.
 
-18. Read `server/docs/notes/writeback/2026-11-05-storage-runbook.md`, then run `dbtool` without a command for
-    its usage.
+18. Read `server/docs/notes/writeback/storage-runbook.md`, then run `dbtool` without a command for its usage.
 
     This is the storage runbook: `inspect`, `verify`, `orphans`, `gc`, `rebuild-manifest`, `restore` and
     `import`. `restore` never overwrites a file, and `verify` checks size, checksum and SQLite integrity.
@@ -213,7 +212,7 @@ Every drill from Phase 3 on uses that cluster.
     Each entry is symptom, cause, fix, for the errors callers report most: `ticket_invalid`, `wrong_owner`,
     `SchemaDriftError`, `shed`, `expired`. This is your first-line support sheet.
 
-30. Read `server/docs/notes/fencing/2026-11-05-safety-argument.md`.
+30. Read `server/docs/notes/fencing/safety-argument.md`.
 
     It explains why two agents can never both serve one database: epochs in Postgres, fencing on the agent,
     stamps in S3. You do not need the proof, only the rule it gives you: never bypass the epoch by hand.
@@ -230,11 +229,11 @@ Every drill from Phase 3 on uses that cluster.
     The k6 scripts are how you measure a deployment before trusting it with load. The numbers in the capacity
     table are defaults, not measurements of your machines.
 
-33. Read `server/docs/control-plane-plan.md` (skim for the decisions) and `agent-work/server/shared_state.md`
-    from the bottom up (its newest entry is last).
+33. Read `server/docs/control-plane-plan.md` (skim for the decisions), then the merge messages since the
+    version you run: `git log --first-parent <your version>..main`.
 
-    The plan records what the control plane promises and what was left out; `shared_state.md` records every
-    behaviour change since. Read the new entries after each upgrade.
+    The plan records what the control plane promises and what was left out; the merge messages record each
+    behaviour change since. Read the new ones before each upgrade.
 
 ## Phase 7: Check yourself
 

@@ -77,8 +77,8 @@ export function playNext(game, cells) {
   return r;
 }
 
-// True for a stale-version rejection: 409 once the server maps ConflictError (plan item 22), or the
-// 400 `{"error":"ConflictError"}` it returns before then.
+// True for a stale-version rejection: 409 from a server that maps ConflictError, or the
+// 400 `{"error":"ConflictError"}` a server that does not map it returns.
 function isConflict(r) {
   if (r.res.status === 409) return true;
   return r.res.status === 400 && String(r.body?.error?.tag ?? r.body?.error).includes("ConflictError");
@@ -122,7 +122,7 @@ export function seedGames(count) {
   return seeded;
 }
 
-// Read mix weighted 4:2:2:1 (getGame, listGames, moveHistory, winsByMark), as the plan specifies.
+// Read mix weighted 4:2:2:1 (getGame, listGames, moveHistory, winsByMark).
 const READ_MIX = [
   ["getGame", 4],
   ["listGames", 2],

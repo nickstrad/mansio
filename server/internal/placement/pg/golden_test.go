@@ -13,10 +13,10 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
-// TestConstraintsGolden runs schema/test/constraints.sql in a fresh migrated schema and diffs the output
-// with constraints.expected (SQL G-20, G-21): every constraint rejects its off point. Each statement is
-// echoed with its preceding comments, then its result: a command tag, rows, or the error's message,
-// SQLSTATE and constraint name (no DETAIL: it quotes timestamps).
+// TestConstraintsGolden runs schema/test/constraints.sql in a fresh migrated schema and diffs the output with
+// constraints.expected: every constraint rejects its off point. Each statement is echoed with its preceding comments,
+// then its result: a command tag, rows, or the error's message, SQLSTATE and constraint name (no DETAIL: it quotes
+// timestamps).
 func TestConstraintsGolden(t *testing.T) {
 	_, schema := newPlacement(t, nil)
 	c := adminConn(t, schema)

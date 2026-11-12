@@ -422,9 +422,9 @@ func TestOpsDecodeVectors(t *testing.T) {
 	}
 }
 
-// FuzzOpsRoute is FuzzDecodeRequest on the live route (plan §6.6 IR-2): any body, with a valid ticket for a
-// real database holding the vector schema, answers a well-formed envelope and never a 5xx or a panic. Seeds
-// are the decode vectors and every execute vector's requests, so the fuzzer starts from bodies that run.
+// FuzzOpsRoute is FuzzDecodeRequest on the live route: any body, with a valid ticket for a real database holding the
+// vector schema, answers a well-formed envelope and never a 5xx or a panic. Seeds are the decode vectors and every
+// execute vector's requests, so the fuzzer starts from bodies that run.
 func FuzzOpsRoute(f *testing.F) {
 	r := newOpsRig(f, front.Config{}, "acme:notes")
 	h := front.NewHandler(r.s, logx.New(io.Discard, slog.LevelError))

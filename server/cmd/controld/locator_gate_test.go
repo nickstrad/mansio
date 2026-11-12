@@ -21,7 +21,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
-// The CP-5 gate (control-plane plan §3, PG-10): two agentd processes that fetch their ticket keys from controld,
+// The locator: two agentd processes that fetch their ticket keys from controld,
 // and clients that only know controld's resolve API. Gated on MANSIO_PG_URL and COLDLOAD_S3.
 //
 //	MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable' COLDLOAD_S3=localhost:8333 \

@@ -1,0 +1,53 @@
+# Write-back cost by size
+
+What a write-back, a passivation and a maintenance tick cost per database size, measured with `wbbench`
+(`cmd/bench/wbbench`), when the snapshot still used `VACUUM INTO` on the writer.
+
+Measured 2026-11-05 on an Apple M5 Max, 128 GiB, macOS 27.0, Go 1.26.4, modernc.org/sqlite v1.61.1 (SQLite
+3.54.1), GOMAXPROCS=18. Command (under `scripts/lock.sh results/.bench-lock`):
+
+```sh
+go run ./cmd/bench/wbbench -sizes 64K,1M,16M,128M,512M -reps 3 -tick-dbs 1000 -out docs/notes/writeback/writeback-cost.csv
+```
+
+Raw: [writeback-cost.txt](writeback-cost.txt), [CSV](writeback-cost.csv). **Store = in-memory fake** (Docker
+down), so `upload` is a memory copy and says nothing about S3; coldload measured ~250 MB/s against local
+SeaweedFS (`../coldload/`). Databases: WAL, `ReadConns: 2`, rows of 4000-byte random blobs.
+
+## Median of 3 (ms)
+
+|    size | snapshot (VACUUM INTO) | sha256 | upload (fake) | publish | warm write-back | max write stall | passivate (close+hash+upload file) |
+| ------: | ---------------------: | -----: | ------------: | ------: | --------------: | --------------: | ---------------------------------: |
+|  64 KiB |                   0.77 |   0.09 |          0.06 |   0.001 |            0.99 |            0.61 |                               0.62 |
+|   1 MiB |                   2.28 |   0.43 |          0.59 |   0.002 |            3.36 |            2.03 |                               1.34 |
+|  16 MiB |                   23.9 |    6.3 |           6.4 |   0.002 |            37.2 |            23.7 |                               13.7 |
+| 128 MiB |                  169.6 |   46.0 |          47.5 |   0.002 |           262.4 |           169.5 |                               94.9 |
+| 512 MiB |                  640.8 |  182.7 |         186.3 |   0.002 |            1013 |           640.6 |                                352 |
+
+Per database, 1000 warm clean databases:
+
+| what                                                                 | cost                              |
+| -------------------------------------------------------------------- | --------------------------------- |
+| dirty check (`actor.Commits`, one atomic load)                       | 0.28 ns                           |
+| `Host.WriteBack` on a clean db (map lookup, entry lock, dirty check) | 15.7 ns                           |
+| `Host.Tick` that plans nothing (2 `stat`s per db + `PlanTick`)       | 2.35 ms per 1000 dbs = 2.35 µs/db |
+
+## What it says
+
+- **The snapshot is the cost, and it blocks writes.** VACUUM INTO runs on the actor's write connection (it
+  must: it fails on a `query_only` reader), at ~0.8 GB/s. Writes to that database queue for the whole
+  snapshot: the max write stall equals the snapshot time (640 ms at 512 MiB). Reads on the read pool go on.
+  Other databases are unaffected (one actor each).
+- **Passivation is ~2× cheaper than a warm write-back**: it closes the database (SQLite checkpoints the WAL
+  into the file) and uploads the file itself, with no VACUUM.
+- **Hash ≈ upload-to-memory ≈ 2.9 GB/s**; against S3 the upload (~250 MB/s) will dominate: estimate 512 MiB ≈
+  2 s upload + 0.65 s snapshot (guess, not measured).
+- **The dirty check is free** and a tick costs ~2.4 µs per warm database, almost all of it the two `stat`
+  calls for the byte budget: 10k warm dbs → ~24 ms per tick.
+
+## Next steps
+
+- Done since: the snapshot uses the SQLite online backup API on a read connection, so writes no longer stall
+  ([snapshot with the backup API](backup-api-snapshot.md)).
+- Not done: hash while uploading (one pass) in the S3 adapter instead of hashing first.
+- Not done: incremental shipping, see the [WAL shipping design](wal-shipping-design.md).

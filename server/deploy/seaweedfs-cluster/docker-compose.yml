@@ -1,4 +1,4 @@
-# Multi-node SeaweedFS for TestS3Compat (CP-8, OS X): 1 master, 3 volume servers, 2 filers sharing one
+# Multi-node SeaweedFS for TestS3Compat (the S3 compatibility checks): 1 master, 3 volume servers, 2 filers sharing one
 # Postgres filer store, and one S3 gateway per filer. Conditional PUTs through the two gateways race on the
 # shared store, which is the multi-node case the single container cannot show.
 #   docker compose -f deploy/seaweedfs-cluster/docker-compose.yml up -d
@@ -12,7 +12,7 @@ services:
       POSTGRES_USER: seaweed
       POSTGRES_PASSWORD: seaweed-dev
       POSTGRES_DB: seaweed
-      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8" # byte-ordered names: S3 LIST order (X9)
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8" # byte-ordered names: S3 LIST returns keys in byte order
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "seaweed"]
       interval: 1s

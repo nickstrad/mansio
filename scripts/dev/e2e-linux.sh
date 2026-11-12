@@ -10,7 +10,7 @@
 # directory mounted at their host paths (main.ts checks `git status` before and after).
 #
 # usage: scripts/dev/e2e-linux.sh [go] [deno test args, e.g. --filter documents]
-# (`go`, the only backend since IR-6, is accepted for old command lines.)
+# (`go`, the only backend since the Deno platform was removed, is accepted for old command lines.)
 set -eu
 case ${1:-} in
 go) shift ;;

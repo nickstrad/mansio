@@ -13,8 +13,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/tenancy"
 )
 
-// The tenancy store (schema 0007; IR-4a): tenancy.Store over the control plane's tables. Errors match the
-// tenancy sentinels: an unavailable authority is tenancy.ErrUnavailable (and still ErrUnavailable).
+// The tenancy store (schema 0007): tenancy.Store over the control plane's tables. Errors match the tenancy sentinels:
+// an unavailable authority is tenancy.ErrUnavailable (and still ErrUnavailable).
 
 // Tenancy adapts p to tenancy.Store.
 func (p *Placement) Tenancy() tenancy.Store { return tenancyStore{p} }

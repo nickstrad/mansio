@@ -74,7 +74,7 @@ func TestAPIKeyRegistry(t *testing.T) {
 		t.Fatalf("revoke missing key: %v", err)
 	}
 
-	// A deactivated tenant gets no new key (IR-5; tenancy_create_key.sql has the same rule).
+	// A deactivated tenant gets no new key (tenancy_create_key.sql has the same rule).
 	if _, err := p.Tenancy().DeactivateTenant(ctx, "acme"); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func startListener(t *testing.T, p *Placement, r *recorder) {
 	t.Cleanup(func() { cancel(); <-done })
 }
 
-// PG-10: every committed change to a row notifies key:epoch, insert and delete included.
+// Every committed change to a row notifies key:epoch, insert and delete included.
 func TestListenNotifiesEveryChange(t *testing.T) {
 	p, _ := newPlacement(t, nil)
 	r := &recorder{prefix: "n" + uniq() + "-"}
@@ -211,7 +211,7 @@ func TestListenNotifiesRegistryStateChanges(t *testing.T) {
 	}
 }
 
-// PG-10: killing the listener's connection → Lost, reconnect, Ready again, and later changes arrive.
+// Killing the listener's connection → Lost, reconnect, Ready again, and later changes arrive.
 func TestListenReconnectsAfterTheConnectionIsKilled(t *testing.T) {
 	app := "test/listen-" + uniq()
 	p, _ := newPlacement(t, func(c *Config) { c.AppName = app })

@@ -8,7 +8,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/durable/durabletest"
 )
 
-// genCache spec (OS-10): hit, miss, a different hash or size is a miss, eviction at the budget's on/off
+// genCache spec: hit, miss, a different hash or size is a miss, eviction at the budget's on/off
 // points, and a file over the budget is never cached.
 func TestGenCache(t *testing.T) {
 	dir := t.TempDir()

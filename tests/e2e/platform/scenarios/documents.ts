@@ -18,7 +18,7 @@ test("e2e/1-documents: typed CRUD, versions and argument errors in both layouts 
   Effect.gen(function* () {
     const dir = yield* scenarioDir("documents");
     const url = yield* database("documents");
-    // The tickets half runs on a static agent with minted tickets, the api-key half on tenant keys (IR-4a).
+    // The tickets half runs on a static agent with minted tickets, the api-key half on tenant keys (ADR 0012).
     for (const mode of ["tickets", "api-key"] as const) {
       yield* Effect.scoped(Effect.gen(function* () {
         const server = yield* startBackend(`${dir}/${mode}`, url, mode === "api-key" ? mode : undefined);

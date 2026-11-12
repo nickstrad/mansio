@@ -1,5 +1,5 @@
 /**
- * Property tests for `examples/tic-tac-toe/rules.ts` (plan item 12, work 3).
+ * Property tests for `examples/tic-tac-toe/rules.ts`.
  *
  * States are *reached by play*, never fabricated: a game is built by applying a generated move order
  * through `applyMove`, so "reachable board" means what it says. The win oracle (`holdsLine`) spells the
@@ -79,7 +79,7 @@ const orderArb = fc.shuffledSubarray(CELLS, { minLength: 0, maxLength: 9 }).chai
 const reachableArb = fc.tuple(playersArb, orderArb).map(([[x, o], order]) => play(newGame(x, o), order));
 const boardArb = fc.array(fc.constantFrom<Mark | null>("X", "O", null), { minLength: 9, maxLength: 9 });
 
-// Draw reachability must not depend on sampling rare full orders (sq-11 review, P7).
+// Draw reachability must not depend on sampling rare full orders.
 test("a full-board draw is reachable by legal moves", () => {
   const { game, history } = play(newGame("x", "o"), [0, 1, 2, 4, 3, 5, 7, 6, 8]);
   assert.equal(history.length, 10, "all nine moves were applied");

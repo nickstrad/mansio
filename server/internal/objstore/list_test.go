@@ -11,10 +11,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
-// A 10k-object prefix is listed one page (≤ 1000 entries) at a time, and a Transient failure retries only
-// the page it hit (RI-05 / OS-06: bounded listings).
+// A 10k-object prefix is listed one page (≤ 1000 entries) at a time, and a Transient failure retries only the page it
+// hit.
 func TestEachPageIsBoundedAndRetriesOnePage(t *testing.T) {
-	// LIST now obeys OpTimeout (B5); the fake sorts 10k keys per page, which under -race can pass the rig's 300 ms.
+	// LIST now obeys OpTimeout; the fake sorts 10k keys per page, which under -race can pass the rig's 300 ms.
 	r := newRig(t, objstore.Config{OpTimeout: 10 * time.Second})
 	const n = 10_000
 	for i := range n {
@@ -77,7 +77,7 @@ func TestListPageDelimiter(t *testing.T) {
 // Delete sends batches of at most 1000 keys; missing keys are fine; DeletePrefix empties a prefix of more
 // than one page and leaves its neighbours alone.
 func TestDeleteBatchesAndDeletePrefix(t *testing.T) {
-	r := newRig(t, objstore.Config{OpTimeout: 10 * time.Second}) // LIST obeys OpTimeout (B5); see TestEachPage…
+	r := newRig(t, objstore.Config{OpTimeout: 10 * time.Second}) // LIST obeys OpTimeout; see TestEachPage…
 	var names []string
 	for i := range 2500 {
 		k := fmt.Sprintf("d/%05d", i)

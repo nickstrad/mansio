@@ -52,9 +52,9 @@ func clusterReplay(seed uint64, swarm bool) string {
 	return fmt.Sprintf("%sMANSIO_SIM_SEED=%d MANSIO_SIM_TRACE=1 go test ./internal/sim -run 'TestClusterSeeds' -v", env, seed)
 }
 
-// TestClusterSeeds is DST-2: each seed is one simulated cluster run (agents, controld, the edge, clients) under
-// network, storage and process faults, checked for split brain, lost or duplicated writes and
-// linearizability. MANSIO_SIM_SWARM=1 varies the fault rates per seed (DST-3's swarm).
+// TestClusterSeeds runs the cluster simulation: each seed is one simulated cluster run (agents, controld, the edge,
+// clients) under network, storage and process faults, checked for split brain, lost or duplicated writes and
+// linearizability. MANSIO_SIM_SWARM=1 varies the fault rates per seed (swarm mode).
 func TestClusterSeeds(t *testing.T) {
 	swarm := os.Getenv("MANSIO_SIM_SWARM") != ""
 	for _, seed := range seedsN(t, defaultClusterSeeds) {

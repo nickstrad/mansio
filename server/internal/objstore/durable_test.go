@@ -131,8 +131,7 @@ func TestDurableStoreContractAgainstFakeS3(t *testing.T) {
 	})
 }
 
-// The inventory contract (OS-06: paged listing, shard listing with a delimiter, batch delete) against the
-// in-process S3.
+// The inventory contract (paged listing, shard listing with a delimiter, batch delete) against the in-process S3.
 func TestDurableGCStoreContractAgainstFakeS3(t *testing.T) {
 	durabletest.RunGCStoreSuite(t, func(t *testing.T) durable.GCStore {
 		fake := s3test.New()
@@ -141,8 +140,8 @@ func TestDurableGCStoreContractAgainstFakeS3(t *testing.T) {
 	})
 }
 
-// The same suite through a faultnet proxy with every fault off: the harness itself must be transparent
-// before any fault test through it means something (RI-13).
+// The same suite through a faultnet proxy with every fault off: the harness itself must be transparent before any
+// fault test through it means something.
 func TestDurableStoreContractThroughHealthyProxy(t *testing.T) {
 	durabletest.RunStoreSuite(t, func(t *testing.T) durable.Store {
 		fake := s3test.New()

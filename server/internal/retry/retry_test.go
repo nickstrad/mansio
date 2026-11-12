@@ -23,8 +23,8 @@ func policy(t testing.TB, p Policy) Policy {
 
 func rng() *rand.Rand { return rand.New(rand.NewPCG(1, 1)) }
 
-// The zero policy is the safe one (RI-10): 3 attempts, exponential from 50 ms to 5 s, full jitter. "none" modes
-// must be asked for, and then they stay.
+// The zero policy is the safe one: 3 attempts, exponential from 50 ms to 5 s, full jitter. "none" modes must be asked
+// for, and then they stay.
 func TestNormalizeDefaults(t *testing.T) {
 	p := policy(t, Policy{})
 	if p.MaxAttempts != 3 || p.Backoff != Exponential || p.Jitter != Full || p.Base != 50*ms || p.Max != 5*time.Second {
@@ -184,9 +184,9 @@ func TestBudget(t *testing.T) {
 	}
 }
 
-// Property (RI-10 "windowed budget"): for any interleaving of first attempts and retries, every window of the
-// history spends at most Burst + Ratio × (first attempts in the window) retries. A cumulative budget fails this:
-// a quiet stretch would pay for a later storm.
+// Property (windowed budget): for any interleaving of first attempts and retries, every window of the history spends
+// at most Burst + Ratio × (first attempts in the window) retries. A cumulative budget fails this: a quiet stretch
+// would pay for a later storm.
 func FuzzBudgetWindow(f *testing.F) {
 	f.Add(uint8(10), uint8(0), []byte{0, 0, 0, 1, 1, 1, 1, 1})
 	f.Add(uint8(50), uint8(3), []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1})
@@ -220,8 +220,8 @@ func FuzzBudgetWindow(f *testing.F) {
 	})
 }
 
-// The server's Retry-After wins when it is longer than the backoff (Release It R3), and still respects
-// TotalTimeout. Policy: fixed 100 ms, total 1 s.
+// The server's Retry-After wins when it is longer than the backoff, and still respects TotalTimeout. Policy: fixed
+// 100 ms, total 1 s.
 func TestDecideHonorsServerHint(t *testing.T) {
 	p := policy(t, Policy{MaxAttempts: 3, Backoff: Fixed, Base: 100 * ms, Jitter: NoJitter, Max: 100 * ms,
 		TotalTimeout: time.Second, RetryOn: outcome.SetOf(outcome.Shed)})

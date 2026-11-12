@@ -1,5 +1,5 @@
 /**
- * Schema descriptors -> SQLite DDL (plan item 09).
+ * Schema descriptors -> SQLite DDL.
  *
  * PURE: nothing in here raises; a bad identifier comes back as a `SchemaError` and an unindexable
  * field as a `CompileError`.

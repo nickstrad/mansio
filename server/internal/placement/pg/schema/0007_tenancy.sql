@@ -1,5 +1,5 @@
--- 0007_tenancy.sql — mansio's tenancy and auth in the control plane's schema (replace-platform plan §4.3, §4.4,
--- IR-4a). Applied once by Migrate; never edit after it is applied.
+-- 0007_tenancy.sql — mansio's tenancy and auth in the control plane's schema. Applied once by Migrate; never
+-- edit after it is applied.
 -- Tenants gain mansio's admin fields (slug, name, status). API keys gain a name and the legacy format: mansio's
 -- Deno platform issued "mansio_<base64url>" keys and stored SHA-256 of the whole key, under a uuid id; those rows
 -- are kept as they are (legacy = true, key_id the uuid, secret_sha256 the whole key's hash) so issued keys keep
@@ -56,7 +56,7 @@ create table auth_sessions (
   created_at   timestamptz not null default now(),
   constraint auth_sessions_expiry_check check (expires_at > created_at)
 );
--- "sessions of user u" and the FK on user_id (SQL G-12).
+-- "sessions of user u" and the FK on user_id.
 create index auth_sessions_user on auth_sessions (user_id);
 
 -- A session's tenant is its user's only membership (none or several: refused).
@@ -66,7 +66,7 @@ create table memberships (
   role      text not null default 'member' constraint memberships_role_check check (role in ('member', 'admin')),
   primary key (user_id, tenant_id)
 );
--- The FK on tenant_id (SQL G-12).
+-- The FK on tenant_id.
 create index memberships_tenant on memberships (tenant_id);
 
 insert into schema_version (version) values (7);

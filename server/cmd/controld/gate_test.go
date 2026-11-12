@@ -28,7 +28,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ticket/tickettest"
 )
 
-// The CP-4 gate (control-plane plan §3): two agentd processes on one host and controld, over Postgres and a
+// The control-plane end to end: two agentd processes on one host and controld, over Postgres and a
 // real S3. Gated on MANSIO_PG_URL and COLDLOAD_S3 (deploy/postgres, deploy/seaweedfs).
 //
 //	MANSIO_PG_URL='postgres://mansio:mansio-dev@localhost:5433/mansio?sslmode=disable' COLDLOAD_S3=localhost:8333 \
@@ -56,7 +56,7 @@ type cluster struct {
 	pl       *pg.Placement
 	secrets  string // controld's secrets file
 
-	// The CP-5 gate: agents fetch ticket keys from controld (keys_url) at a fixed address, chosen before the
+	// With locator set, agents fetch ticket keys from controld (keys_url) at a fixed address, chosen before the
 	// agents start; extra is added to controld's config.
 	locator      bool
 	controldAddr string
@@ -302,7 +302,7 @@ func (c *cluster) query(db string, kind front.Kind, id, sql string, args ...any)
 }
 
 // mustWrite retries one write with the same request id, re-resolving after every non-ok answer, until ok
-// (Release It R2: the id makes the retry safe across a move).
+// (the id makes the retry safe across a move: the owner applies it at most once).
 func (c *cluster) mustWrite(db, id, sql string, args ...any) front.Response {
 	c.t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -435,7 +435,7 @@ func TestGate(t *testing.T) {
 	}
 	t.Logf("move under load: %v; %d writes acknowledged (%d before the move started), all present once", moveTook, n, before)
 
-	// 3. Kill vm-b; restore its databases on vm-a after an operator attests it dead (M5).
+	// 3. Kill vm-b; restore its databases on vm-a after an operator attests it dead.
 	var onB []string
 	for i := range 100 {
 		k := fmt.Sprintf("gate:db%03d", i)

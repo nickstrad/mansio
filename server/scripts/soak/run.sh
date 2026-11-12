@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: scripts/soak/run.sh [out-dir]
 #
-# The CP-4b soak (control-plane plan, Release It RI-15, guide §S, §H5, §O). Starts, all over TLS from a
-# throwaway private CA:
+# The soak: the whole system under load, faults and idle hours over time, checked for steady state. Starts,
+# all over TLS from a throwaway private CA:
 #   controld (Postgres :5433, a fresh schema) — locator, issuer, VM registry
 #   two agentd (vm-a, vm-b) in S3 durable mode on SeaweedFS :8333 (the agent identity, a fresh prefix)
 #   the edge (routes from controld's VM registry)
@@ -133,7 +133,7 @@ fault_windows() {
   act "$bin/agentctl" -addr 127.0.0.1:17072 breaker s3 trip
   at $(( F_BREAKER_AT + F_BREAKER_FOR ))
   act "$bin/agentctl" -addr 127.0.0.1:17072 breaker s3 reset; mark fault_end s3_breaker_vm-a
-  # S3 silent: the container is paused (accepts nothing, answers nothing: RI H4 "accept, no reply" at the
+  # S3 silent: the container is paused (accepts nothing, answers nothing: "accept, no reply" from the
   # client's view of a hung server). Pause, not stop: a stopped container that compose created from a
   # worktree since removed cannot start again (its bind mount is gone).
   at "$F_S3_AT"; mark fault_start s3_paused

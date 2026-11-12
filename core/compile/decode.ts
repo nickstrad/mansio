@@ -1,5 +1,5 @@
 /**
- * Engine rows -> documents (plan item 09).
+ * Engine rows -> documents.
  *
  * PURE: nothing in here raises, including on malformed stored JSON — `JSON.parse` is wrapped in
  * `Either.try`, so a corrupt `doc` column is a `DecodeError` value rather than a `SyntaxError`

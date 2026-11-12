@@ -1,10 +1,11 @@
 /**
- * Unit tests for `examples/tic-tac-toe/rules.ts` (plan item 10).
+ * Unit tests for `examples/tic-tac-toe/rules.ts`.
  *
  * The point of these is that the game is now testable without a database: no `SQLiteWriter`, no
  * temp directory, no transaction. Every case the pre-port handler covered by raising is asserted
  * here on the returned `RuleError` instead, plus the win/draw detection that `tests/core_test.ts`
- * could only observe through a committed game. The property-based version lands in item 12.
+ * could only observe through a committed game. The property-based version is
+ * `tests/property/rules_test.ts`.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -156,9 +156,9 @@ for `smoke.js`.
 ### What these numbers mean
 
 The thresholds and the numbers they produce are for **regression detection** — compare a run to an earlier run
-of the same scenario on the same machine — not capacity claims. The reference numbers recorded before IR-6
-(2026-10-10: `perf:load` p(95) 162 ms, `perf:query` 31 ms, `perf:mixed` 57 ms) were measured against the
-removed Deno platform and are not comparable with agentd runs.
+of the same scenario on the same machine — not capacity claims. The reference numbers recorded on 2026-10-10
+(`perf:load` p(95) 162 ms, `perf:query` 31 ms, `perf:mixed` 57 ms) were measured against the removed Deno
+platform (ADR 0013) and are not comparable with agentd runs.
 
 ## Not a benchmark
 

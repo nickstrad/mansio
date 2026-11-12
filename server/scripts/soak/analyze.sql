@@ -24,7 +24,7 @@ create or replace table faults as
 select '1. phases' as section;
 select phase, t0, t1, round(epoch(t1) - epoch(t0)) as seconds from phases order by t0;
 
--- Gauges that must be flat at steady state (Release It §S). Window: load2 after its first WARMUP_S.
+-- Gauges that must be flat at steady state (anything that accumulates needs a reaper that keeps up). Window: load2 after its first WARMUP_S.
 create or replace table steady as
   select s.*, epoch(s.t) - epoch(p.t0) as x
   from s, phases p

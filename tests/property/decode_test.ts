@@ -1,5 +1,5 @@
 /**
- * Property tests for `core/compile/decode.ts` (plan item 13, work 3): what the write path encodes, the
+ * Property tests for `core/compile/decode.ts`: what the write path encodes, the
  * read path decodes back to the same document, whatever form the driver hands each value back in.
  *
  * The rows are built from `compileInsert`'s bound values — the exact bytes the writer stores — and

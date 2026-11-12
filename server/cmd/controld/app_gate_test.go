@@ -12,7 +12,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The IR-2 identity gate (ADR 0011): an app registers its schema; a client that knows only (tenant, app) and an
+// App identity (ADR 0011): an app registers its schema; a client that knows only (tenant, app) and an
 // API key resolves it, creating the database on first use, and writes through the ticket; an agent fetches the
 // schema by fingerprint with the control token. Gated on MANSIO_PG_URL and COLDLOAD_S3, like TestLocatorGate.
 //

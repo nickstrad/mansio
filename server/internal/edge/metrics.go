@@ -9,10 +9,9 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
-// Register exposes the edge on reg (Release It O1): its own answers by outcome class and code, the agents'
-// answers by status class, latency and in-flight (point="edge"), the ticket filter, and per agent its in-flight
-// count and breaker (the shared mansio_breaker_* families, dep="agent:<vm>"). Catalog:
-// docs/notes/front/2026-11-05-edge.md.
+// Register exposes the edge on reg: its own answers by outcome class and code, the agents' answers by status class,
+// latency and in-flight (point="edge"), the ticket filter, and per agent its in-flight count and breaker (the shared
+// mansio_breaker_* families, dep="agent:<vm>"). Catalog: docs/notes/front/edge.md.
 func (e *Edge) Register(reg *metrics.Registry) {
 	var agents map[string]int // vm → requests in flight
 	reg.OnScrape(func() {

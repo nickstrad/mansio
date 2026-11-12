@@ -1,4 +1,4 @@
--- attest_dead.sql — an operator attests that VM $1 is dead (M5): the precondition for restoring its
+-- attest_dead.sql — an operator attests that VM $1 is dead: the precondition for restoring its
 -- databases elsewhere without its fence. Idempotent: the first attestation (time and attester) stays.
 -- No row ⇒ pg.ErrUnknownVM.
    update vms

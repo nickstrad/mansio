@@ -11,7 +11,7 @@ function unwrap<A, E>(either: Either.Either<A, E>): A {
   return either.right;
 }
 let plan: SelectPlan;
-// `Execute` is Effect-shaped since item 10, so the plan is captured by running the effect.
+// `Execute` is Effect-shaped, so the plan is captured by running the effect.
 const db = new Documents<typeof schema>((op) =>
   Effect.sync(() => {
     plan = op as SelectPlan;

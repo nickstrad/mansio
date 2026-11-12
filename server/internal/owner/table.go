@@ -13,7 +13,7 @@ import (
 
 // Config wires a Table to its ports.
 type Config struct {
-	Self      string // this process's owner id, as the authority names it (option 4: the VM id)
+	Self      string // this process's owner id, as the authority names it (the VM id)
 	Store     LocalStore
 	Placement Placement
 	WriteBack WriteBack
@@ -21,8 +21,8 @@ type Config struct {
 	StampRetries int
 	// OnChange, if set, is called after a key's state, epoch or superseded flag changes (not on generation-only
 	// updates, nor for the states Open loads), on the goroutine that made the change. It must be fast and must
-	// not call into the Table. The agent logs and counts transitions with it (OWNER.SUPERSEDED etc.; Release It
-	// O3); the table itself does not log.
+	// not call into the Table. The agent logs and counts transitions with it (OWNER.SUPERSEDED
+	// etc.); the table itself does not log.
 	OnChange func(key string, from, to Local)
 }
 
@@ -614,9 +614,9 @@ func (t *Table) Reconcile(ctx context.Context, key string) error {
 		// Re-stamp at our own epoch before admitting anything: the stamp is a new manifest version, so every
 		// publish the crashed incarnation still has in flight (conditional on an older version) fails, and one
 		// that landed already is the generation we start from. Without it such a publish could land after we
-		// read the manifest, and our next publish would take it for another writer's (DST-1, zombie
-		// publishes). Conditional and fenced like any stamp: its Head is also the defense-in-depth check, so a
-		// higher stored epoch (a stale or broken authority read) supersedes the key instead.
+		// read the manifest, and our next publish would take it for another writer's (a zombie publish the
+		// cluster simulation found). Conditional and fenced like any stamp: its Head is also the defense-in-depth
+		// check, so a higher stored epoch (a stale or broken authority read) supersedes the key instead.
 		// The stamped generation (>= l.Gen, checked) is not recorded: l.Gen stays the floor CheckActivation
 		// enforces, and the host activates from the manifest itself.
 		_, err := t.stamp(ctx, key, Place{Owner: t.cfg.Self, Epoch: l.Epoch, Gen: l.Gen, State: PlaceActive})

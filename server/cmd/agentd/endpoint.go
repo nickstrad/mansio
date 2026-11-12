@@ -55,7 +55,9 @@ func (e *jsonEndpoints) handle(fn func(ctx context.Context, r *http.Request) (an
 	}
 }
 
-// write answers one call (Release It F2, O3).
+// write answers one call. A classified error (bad input, an unavailable dependency) gets its code, status and
+// a Retry-After on 503, logged as a refusal at WARN; anything else is a bug: internal, logged at ERROR with a
+// log id.
 func (e *jsonEndpoints) write(w http.ResponseWriter, r *http.Request, out any, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err == nil {

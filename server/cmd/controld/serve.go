@@ -62,7 +62,7 @@ type daemon struct {
 	resumed    atomic.Int64
 	resumeFail atomic.Int64 // keys that failed in the last pass
 
-	// The locator and issuer (CP-5, locator.go).
+	// The locator and issuer (locator.go).
 	replica *pg.Placement // the locator's placement reads; == pg without pg_replica_dsn
 	loc     *locator.Locator
 	signer  *ticket.Signer
@@ -74,7 +74,7 @@ type daemon struct {
 	// The app schema registry (schemas.go).
 	schemas schemaStore
 	control string // the agents' control token: it may read schemas
-	// checkSchema, if set, validates a schema text before it is registered: IR-2b's docschema check (a valid
+	// checkSchema, if set, validates a schema text before it is registered: the docschema check (a valid
 	// schema in fingerprint form). nil = schemareg.Check only (fingerprint, size, one JSON object).
 	checkSchema func(fingerprint string, text []byte) error
 }
@@ -205,7 +205,7 @@ func (d *daemon) close() {
 }
 
 // serve runs the API until ctx ends, with the startup job (migrate, register agents), the heartbeat poller
-// and the resumer in the background (Release It H1: serve first, become ready when startup is done).
+// and the resumer in the background: serve first, become ready when startup is done.
 func (d *daemon) serve(ctx context.Context, addrFile string, rep logx.Reporter, stderr io.Writer) int {
 	var tc *tls.Config // loaded before the socket exists: a bad certificate fails without one
 	if d.cfg.TLS != nil {
@@ -324,7 +324,7 @@ func (d *daemon) startOnce(ctx context.Context) error {
 	return nil
 }
 
-// every runs fn now and then every period until ctx ends; a run never overlaps the next (Release It S1).
+// every runs fn now and then every period until ctx ends; a run never overlaps the next.
 func (d *daemon) every(ctx context.Context, period time.Duration, fn func(context.Context)) {
 	t := time.NewTicker(period)
 	defer t.Stop()

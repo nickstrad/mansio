@@ -10,17 +10,16 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// ErrUnavailable: the store cannot serve now. Either its circuit breaker is open (nothing was sent; the error
-// carries a RetryAfter hint), or the call hit a system failure (timeout, connection error, 5xx; for a write
-// the outcome may be ambiguous, as the cause says). Not an answer about the data: retry later (Release It
-// C3, F2). agentd answers it 503 unavailable.
+// ErrUnavailable: the store cannot serve now. Either its circuit breaker is open (nothing was sent; the error carries
+// a RetryAfter hint), or the call hit a system failure (timeout, connection error, 5xx; for a write the outcome may
+// be ambiguous, as the cause says). Not an answer about the data: retry later. agentd answers it 503 unavailable.
 var ErrUnavailable = errors.New("durable: storage unavailable")
 
-// IsSystemFailure is the default breaker classifier for WithBreaker: an error that says the store is failing,
-// not an answer about the data (Release It C2): anything but the store's answers (ErrStale, ErrExists,
-// ErrNoManifest, ErrNotFound, ErrCorrupt, ErrBadManifest). A timeout counts; a call whose caller's ctx ended
-// is ignored by WithBreaker before any classifier runs. Adapters with a finer classification pass their own;
-// the S3 one is objstore.Classify(err) == objstore.Transient.
+// IsSystemFailure is the default breaker classifier for WithBreaker: an error that says the store is failing, not an
+// answer about the data: anything but the store's answers (ErrStale, ErrExists, ErrNoManifest, ErrNotFound,
+// ErrCorrupt, ErrBadManifest). A timeout counts; a call whose caller's ctx ended is ignored by WithBreaker before any
+// classifier runs. Adapters with a finer classification pass their own; the S3 one is objstore.Classify(err) ==
+// objstore.Transient.
 func IsSystemFailure(err error) bool {
 	if err == nil {
 		return false

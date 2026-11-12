@@ -9,7 +9,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// phase is one step of the shutdown sequence (Release It H3: shutdown has one budget).
+// phase is one step of the shutdown sequence (shutdown has one time budget for all phases).
 type phase struct {
 	name string
 	max  time.Duration // cap on this phase; 0 = whatever is left of the budget

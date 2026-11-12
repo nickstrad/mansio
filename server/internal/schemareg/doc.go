@@ -1,7 +1,7 @@
-// Package schemareg is the app schema registry's shared rules (IR protocol plan §2.4, IR-2) and agentd's client
-// for it. controld stores schemas (PUT /v1/apps/{app}/schema, Postgres 0006_app_schemas.sql); agentd fetches
-// one by fingerprint (GET /v1/apps/{app}/schemas/{fingerprint}) when a request names it, through Client: a
-// bounded cache, single-flight loads, a deadline per fetch and a circuit breaker (Release It T1, B6, C1).
+// Package schemareg is the app schema registry's shared rules and agentd's client for it. controld stores schemas
+// (PUT /v1/apps/{app}/schema, Postgres 0006_app_schemas.sql); agentd fetches one by fingerprint (GET
+// /v1/apps/{app}/schemas/{fingerprint}) when a request names it, through Client: a bounded cache, single-flight
+// loads, a deadline per fetch and a circuit breaker.
 //
 // A schema is opaque text here: the fingerprint text of intermediate-representation/spec/v1.md §2 (JSON.stringify of the defineSchema
 // value), and its fingerprint is "sha256:" + the lowercase hex SHA-256 of exactly those bytes. Check verifies

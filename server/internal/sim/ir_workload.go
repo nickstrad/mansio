@@ -15,13 +15,12 @@ import (
 	"github.com/nickstrad/mansio/server/internal/sqlitedsn"
 )
 
-// IR is the document-protocol workload for the single-node sim (the DST-1 "IR hook", IR-2b): requests go to
-// /v1/ops (front.Server.HandleOps) and run through docexec on the actor. A write inserts one log document
-// {n, rid} (n: the database's write sequence, which is commit order with one sequential client; rid: the
-// request id, the mark); a bad write inserts a document that fails validation (SchemaError, nothing ran); a
-// read selects every log document in pages of 1000 in one snapshot. A database starts empty: its first
-// request creates the tables from the registered schema (front's initDB). IR implements front.SchemaSource,
-// which newAgent uses to enable /v1/ops.
+// IR is the document-protocol workload for the single-node sim: requests go to /v1/ops (front.Server.HandleOps) and
+// run through docexec on the actor. A write inserts one log document {n, rid} (n: the database's write sequence,
+// which is commit order with one sequential client; rid: the request id, the mark); a bad write inserts a document
+// that fails validation (SchemaError, nothing ran); a read selects every log document in pages of 1000 in one
+// snapshot. A database starts empty: its first request creates the tables from the registered schema (front's
+// initDB). IR implements front.SchemaSource, which newAgent uses to enable /v1/ops.
 type IR struct {
 	Timeout time.Duration // each request's deadline; default 2 s
 

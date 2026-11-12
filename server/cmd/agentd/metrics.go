@@ -17,8 +17,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// The metric catalog (Release It O1, O2) is documented in docs/notes/front/2026-11-05-metrics.md; the per-queue
-// families (B1) in docs/notes/backpressure/2026-11-10-queue-metrics.md. Every
+// The metric catalog is documented in docs/notes/front/metrics.md; the per-queue
+// families (capacity, refusals, waits) in docs/notes/backpressure/queue-metrics.md. Every
 // family pulls from a component's own counters at scrape time; thresholds and alerts live in the monitoring
 // config, never here. Integration points share one family per kind, labeled point="front|s3|...", and the
 // six outcome classes of front.OutcomeClass.
@@ -43,7 +43,7 @@ func frontMetrics(reg *metrics.Registry, srv *front.Server, cfg *Config) {
 				Wait: q.MailboxWait()},
 			{Queue: "read", Capacity: mailbox, Depth: metrics.NoDepth, Rejected: map[string]int64{metrics.ReasonFull: q.ReadFull()}},
 		}
-		if v := srv.OpsVerify(); v != nil { // the credential path's pre-admission slots (B6)
+		if v := srv.OpsVerify(); v != nil { // the credential path's pre-admission slots
 			qs = append(qs, v.Stat("verify"))
 		}
 		return qs
@@ -101,7 +101,7 @@ func actorMetrics(reg *metrics.Registry, depths func() []int) {
 	})
 }
 
-// lifecycleMetrics exposes startup and readiness (Release It S3: the oldest unfinished thing). pending counts
+// lifecycleMetrics exposes startup and readiness (including the age of the oldest unfinished work). pending counts
 // the databases not served yet since start: unopened (static mode) or unreconciled (durable mode).
 func lifecycleMetrics(reg *metrics.Registry, pending func() int, ready *front.Readiness, started time.Time) {
 	var n int
@@ -180,7 +180,7 @@ func toUint(c []int64) []uint64 {
 }
 
 // vactorMetrics exposes a virtual-actor host: Stats counters, Gauges, and the last maintenance tick (its
-// oldest_dirty_age is the RPO gauge, Release It S3). tickLog is the tick reporter.
+// oldest_dirty_age is the RPO gauge). tickLog is the tick reporter.
 func vactorMetrics(reg *metrics.Registry, h *vactor.Host, lastTick func() vactor.TickReport) {
 	var st vactor.Stats
 	var tick vactor.TickReport
@@ -259,7 +259,7 @@ type ownerEvents struct {
 	to  [5]atomic.Int64 // by owner.State
 }
 
-// ownerCode names an ownership transition (Release It O3).
+// ownerCode names an ownership transition: one stable log code per event, and the level it logs at.
 func ownerCode(from, to owner.Local) (code string, level slog.Level) {
 	switch to.State {
 	case owner.Active:
@@ -298,7 +298,7 @@ func (o *ownerEvents) register(reg *metrics.Registry) {
 }
 
 // reconcileLog logs each reconcile round: OWNER.RECONCILE_DONE (INFO) once nothing stays closed,
-// OWNER.RECONCILE_PARTIAL (WARN) otherwise. For owner.Table.ReconcileUntilDone at CP-1.
+// OWNER.RECONCILE_PARTIAL (WARN) otherwise. For owner.Table.ReconcileUntilDone in durable mode.
 func reconcileLog(log *slog.Logger) func(owner.ReconcileReport, error) {
 	return func(r owner.ReconcileReport, err error) {
 		attrs := []any{"round", r.Round, "tried", r.Tried, "failed", r.Failed, "took_ms", r.Took.Milliseconds()}

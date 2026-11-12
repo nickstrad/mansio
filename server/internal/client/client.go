@@ -25,7 +25,7 @@ import (
 
 const module = "client"
 
-// Defaults (Release It §P "Client").
+// Defaults.
 const (
 	DefaultTimeout        = 5 * time.Second  // a call's deadline when its ctx has none
 	DefaultResolveTimeout = 3 * time.Second  // one resolve (the locator's own deadline)
@@ -42,14 +42,14 @@ const (
 // Config configures a Client. Locator, APIKey and Tenant are required; zero fields take the defaults above.
 type Config struct {
 	Locator string // controld's base URL, e.g. http://10.0.0.2:7080
-	APIKey  string // mansio_<id>_<secret> (CP-5)
+	APIKey  string // mansio_<id>_<secret>
 	Tenant  string // every database this client names belongs to this tenant (an API key covers one tenant)
 
 	// Scheme is used for endpoints the locator returns as host:port: "http" (default) or "https" (TLS agents
 	// or an edge). Endpoints that already carry a scheme are used as they are.
 	Scheme string
-	// Edge, if set, is the base URL every query is sent to instead of the route's endpoint (option 4 §3.6: the
-	// edge routes on the ticket's vm claim, so agents stay private). Resolves still go to Locator; a route's VM
+	// Edge, if set, is the base URL every query is sent to instead of the route's endpoint (the edge routes on
+	// the ticket's vm claim, so agents stay private). Resolves still go to Locator; a route's VM
 	// and epoch are used as without it.
 	Edge string
 	// CAFile is a PEM CA to trust for https endpoints and the locator (a private CA, e.g. the edge's); empty =
@@ -106,8 +106,8 @@ type Request struct {
 	Kind front.Kind
 	SQL  string
 	Args []any // nil, int64, float64, string, []byte (sent as a blob), or front.Blob
-	// RequestID makes a write apply at most once (CP-2). Empty: the client makes a unique one. Every attempt of
-	// the call sends the same id, so a retried write that already applied answers ok + duplicate.
+	// RequestID makes a write apply at most once. Empty: the client makes a unique one. Every attempt of the call
+	// sends the same id, so a retried write that already applied answers ok + duplicate.
 	RequestID string
 }
 
@@ -263,7 +263,7 @@ func (c *Client) Close() {
 // Budget is the retry budget the client spends.
 func (c *Client) Budget() *retry.Budget { return c.budget }
 
-// Do runs req at the database's owner and returns the final answer. The loop (control-plane plan §2):
+// Do runs req at the database's owner and returns the final answer. The loop:
 //
 //	route (cached; resolved single-flight) → POST /v1/query with the route's ticket and X-Timeout-Ms
 //	ok → done · wrong_owner / fenced → drop the route, re-resolve with min_epoch = epoch+1 (after Retry-After)
@@ -382,7 +382,7 @@ func (c *Client) Do(ctx context.Context, req Request) (Result, error) {
 			retries++
 		}
 		if !c.cfg.Clock.Now().Add(d).Before(deadline) {
-			return fail(last) // the wait would end past the call's deadline (RI T4)
+			return fail(last) // the wait would end past the call's deadline
 		}
 		if h := c.cfg.Hooks.Retry; h != nil {
 			h(RetryEvent{DB: req.DB, Attempt: res.Attempts, Code: last.Code, Reroute: st == stepReroute, Hint: a.RetryAfter, Delay: d})
@@ -418,7 +418,7 @@ func encode(db string, req Request) ([]byte, error) {
 }
 
 // timeoutHeader is the X-Timeout-Ms to send with remaining time left: a little less than remaining, so the
-// agent answers expired before this client stops listening (RI T4: inner deadlines are shorter).
+// agent answers expired before this client stops listening (inner deadlines are shorter).
 //
 //	post: 1 <= result, and result ms <= remaining when remaining >= 1 ms
 func timeoutHeader(remaining time.Duration) int64 {
@@ -488,7 +488,7 @@ func (e *resolveError) Error() string {
 
 func (e *resolveError) Unwrap() error { return e.err }
 
-// resolve is POST /v1/resolve (CP-5). It runs in the route cache's goroutine under ctx's deadline.
+// resolve is POST /v1/resolve. It runs in the route cache's goroutine under ctx's deadline.
 func (c *Client) resolve(ctx context.Context, db string, minEpoch uint64) (Route, error) {
 	b, _ := json.Marshal(struct {
 		Tenant   string `json:"tenant"`

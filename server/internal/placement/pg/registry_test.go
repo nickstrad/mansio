@@ -148,8 +148,8 @@ func TestRegistries(t *testing.T) {
 	}
 }
 
-// Concurrent first creates for a new tenant all race for its default database: every create succeeds (the
-// losers of databases_one_default are re-run), exactly one database is the default. The TestGate flake (IR-5).
+// Concurrent first creates for a new tenant all race for its default database: every create succeeds (the losers of
+// databases_one_default are re-run), exactly one database is the default. This race once made TestGate flaky.
 func TestConcurrentFirstCreatesOfATenant(t *testing.T) {
 	p, _ := newPlacement(t, nil)
 	for round := range 5 {

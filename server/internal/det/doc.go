@@ -1,7 +1,7 @@
-// Package det holds the determinism seams (IR protocol plan §6.4, DST-0): Clock, Rand and IDGen. Every package
-// that decides state from time, randomness or generated ids takes them from here instead of calling time.Now,
-// time.After, context.WithTimeout, math/rand's package-level functions or crypto/rand directly, so a
-// deterministic simulation (DST-1, DST-2) can drive the whole system from one seed with simulated time.
+// Package det holds the determinism seams: Clock, Rand and IDGen. Every package that decides state from time,
+// randomness or generated ids takes them from here instead of calling time.Now, time.After, context.WithTimeout,
+// math/rand's package-level functions or crypto/rand directly, so a deterministic simulation (internal/sim,
+// single-node and cluster) can drive the whole system from one seed with simulated time.
 //
 // Real implementations: System (the wall clock and runtime timers), SystemRand (the runtime's generator) and
 // SystemIDs (a random process prefix plus a counter). Seeded and simulated ones: NewRand (a seeded PCG) and

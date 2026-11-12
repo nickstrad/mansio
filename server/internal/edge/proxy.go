@@ -31,18 +31,18 @@ import (
 
 const module = "edge"
 
-// Config wires an Edge. Durations follow the agent's inbound sheet (Release It §P) so the edge never cuts a
-// request off before the agent would.
+// Config wires an Edge. Durations follow the agent's inbound HTTP defaults so the edge never cuts a request off
+// before the agent would.
 type Config struct {
 	Resolver Resolver
 	Gate     *Gate
 	Limiter  *ratelimit.SourceLimiter
-	// Transport carries requests to the agents: one per process (it pools connections), TLS to the agents'
-	// private CA outside development. It must bound dialing and the TLS handshake; each request's ctx bounds
-	// the rest. The edge never retries (Release It R1: the client is the one retry layer).
+	// Transport carries requests to the agents: one per process (it pools connections), TLS to the agents' private CA
+	// outside development. It must bound dialing and the TLS handshake; each request's ctx bounds the rest. The edge
+	// never retries: the client is the one retry layer.
 	Transport http.RoundTripper
 	// VerifySlots bounds full ticket verifies running at once (default 2 × GOMAXPROCS). A miss that finds no
-	// free slot is shed at once, so a many-source flood costs at most this much CPU (Release It B1, B2).
+	// free slot is shed at once, so a many-source flood costs at most this much CPU.
 	VerifySlots int
 	// AgentInFlight bounds requests in flight to one agent (default 4096; at least the agent's vm_in_flight +
 	// vm_queue so the agent, not the edge, decides admission). A full bulkhead sheds. SetAgentInFlight changes
@@ -52,9 +52,9 @@ type Config struct {
 	// are shed before their body is read. It is the edge's memory ceiling: MaxInFlight × MaxBody of request
 	// bodies (8 GiB with the defaults; size it to the machine).
 	MaxInFlight int
-	// Breaker is each agent's breaker (zero value: Release It §P). Only transport failures count: an agent
-	// that answers, whatever the code, is reachable (an agent's own S3 outage must not stop its warm traffic,
-	// Release It C5). OnBreaker, if set, gives each agent's breaker its OnChange (log transitions).
+	// Breaker is each agent's breaker (zero value: the breaker package's defaults). Only transport failures
+	// count: an agent that answers, whatever the code, is reachable (an agent's own S3 outage must not stop its
+	// warm traffic). OnBreaker, if set, gives each agent's breaker its OnChange (log transitions).
 	Breaker   breaker.Config
 	OnBreaker func(vm string) func(breaker.Transition)
 
@@ -68,8 +68,8 @@ type Config struct {
 	Clock det.Clock    // deadlines, breaker time, latency; default det.System()
 }
 
-// Edge is the proxy: an http.Handler for POST /v1/query and POST /v1/ops (the document protocol, IR-5): the
-// same pipeline for both, the path kept upstream; the edge's own answers take each path's wire format.
+// Edge is the proxy: an http.Handler for POST /v1/query and POST /v1/ops (the document protocol): the same pipeline
+// for both, the path kept upstream; the edge's own answers take each path's wire format.
 type Edge struct {
 	cfg    Config
 	verify *slots.Pool // verify slots
@@ -353,8 +353,8 @@ func (e *Edge) breakerOpen(wait time.Duration) answer {
 // copyBufs are relay buffers: the h2 ResponseWriter has no ReadFrom, so io.Copy would allocate 32 KiB per answer.
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
 
-// forwardHeaders are the client request headers the edge passes on besides Authorization and its own
-// X-Timeout-Ms: the document protocol's trace id and handler name (event log, IR-4c).
+// forwardHeaders are the client request headers the edge passes on besides Authorization and its own X-Timeout-Ms:
+// the document protocol's trace id and handler name (for the agent's event log).
 var forwardHeaders = []string{"X-Trace-Id", front.HandlerHeader}
 
 // relayHeaders are the agent response headers the edge passes on (an allowlist: nothing else of the agent's

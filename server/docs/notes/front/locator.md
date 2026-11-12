@@ -1,0 +1,79 @@
+# Locator and ticket issuer
+
+How clients resolve a database to its VM and get a ticket: the resolve API, the notified cache, API keys, the
+rotating signing keys, and how agentd fetches the public keys.
+
+Code: `internal/control/locator` (domain: resolve, cache, single-flight, API keys),
+`internal/ticket/signing.go` (rotating signing ring), `internal/placement/pg` (`0003_notify.sql`,
+`0004_api_keys.sql`, `locate.sql`, `Listen`), `cmd/controld/locator.go` + `signing.go` (wiring),
+`cmd/agentd/keys.go` (key fetch).
+
+## What runs
+
+```
+client ── POST /v1/resolve {tenant, db[, min_epoch]}  (Bearer mansio_<id>_<secret>) ──► controld
+          ◄── {code:ok, db, vm, endpoint, epoch, gen, ticket, perms, ttl_ms, expires_at}
+              | 401 unauthorized | 403 forbidden | 404 not_found | 409 suspended
+              | 503 moving + Retry-After | 503 unavailable | 504 timeout | 400 bad_request
+agentd ── GET /v1/keys (every keys_refresh) ──► controld   (ticket.PublicKeyFile; cached in keys_file)
+controld ── LISTEN placement (dedicated conn) ◄── pg_notify('placement', key:epoch) on every placement change
+```
+
+## Decisions
+
+- **Where it lives:** inside controld, on its listener, but with its own bulkhead and deadline
+  (`locator.concurrency`, `locator.timeout`): resolves never queue behind a restore. The domain package has no
+  controld dependency, so it can move to its own binary later.
+- **Cache trust follows the listener.** The cache is empty and bypassed until the first LISTEN succeeds; every
+  (re)connect drops it (LISTEN first, then reload, then apply); a lost connection drops it and bypasses it
+  until the next connect. Loads in flight across an invalidation or reset return to their callers (stale is
+  safe) but are not cached. A notified key is replaced by a tombstone whose next load reads the primary (a
+  replica may lag the notification). A notification older than the cached epoch is ignored.
+- **Payload** `database_id:epoch` (split at the last colon). Trigger on insert, update and delete (creates and
+  drops of a cached key must invalidate too, not only updates). Migration `0003_notify.sql`.
+- **Answers by state.** placement ACTIVE → route (but `moving` while the registry still says `creating`, or
+  `moving` with the target as owner, until the claim lands; see
+  [locator, controld and edge fixes](locator-controld-edge-fixes.md)); MOVING or no row yet while `creating` →
+  `moving` 503 + Retry-After (`moving_retry`, 1 s); registry `suspended` → 409; `dropping`/`dropped`/nothing
+  → 404. A placement row with no registry row (agentd `-dev` create) is served.
+- **Replica seam:** `pg_replica_dsn` in controld's secrets opens a second pool (`placement-replica` breaker);
+  without it the "replica" is the primary pool. `min_epoch` and tombstoned keys read the primary. API keys
+  always read the primary (a key created a moment ago must work).
+- **API keys** (`0004_api_keys.sql`): `mansio_<16 hex id>_<base64url 32-byte secret>`; only SHA-256(secret) is
+  stored (256-bit secrets need no slow hash). Each has tenant, principal (the ticket `sub`) and perms. Checked
+  once per resolve (= per ticket), rows cached `auth_ttl` (10 s), positive answers only. Revocation takes
+  `auth_ttl` + `ticket_ttl`. Admin: `POST /v1/tenants/{t}/api-keys`, `POST /v1/api-keys/{id}/revoke`, CLI
+  `controld create-key` / `revoke-key`. No grants per database yet: a key covers every database of its tenant.
+- **Signing ring** (`ticket_keys.dir`, 0700, one 0600 JSON file per key): `ticket.PlanRotation` creates a key
+  every `rotate` (24 h), publishes it at once, signs with it after `activate` (5 min ≥ 2 × agents'
+  `keys_refresh`), and deletes the old key `ticket_ttl + 2 min` after its successor began signing. A fresh
+  ring signs with its only key at once. One controld per key directory. Private keys never go to Postgres
+  (agents have Postgres credentials for placement CAS).
+- **agentd keys:** `keys_url` (controld's `/v1/keys`) or the static `keys_file` (dev, benches). With
+  `keys_url`, `keys_file` caches the last set so a restart without controld still verifies; a failed fetch
+  keeps the ring. Plain-HTTP `keys_url` needs `-dev` (whoever controls the answer can mint tickets).
+
+## Gate results (2026-11-05, M5 Max, Postgres 17 + SeaweedFS 4.47 in Docker; `TestLocatorGate`, `-race`, 3 runs)
+
+| Gate                                                         | Result                                                                                                                 |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| After a move, clients reach the new VM within one re-resolve | old route answers `fenced`; one resolve with `min_epoch = old + 1` returns the new VM at epoch + 1; the write succeeds |
+| A cached locator sees a move before TTL (cache_ttl 10 min)   | new epoch visible 1.1–2.5 ms after the move call returned                                                              |
+| 64 concurrent re-resolves after a move                       | ≤ 4 store loads (single-flight)                                                                                        |
+| LISTEN connection killed 20× during a move                   | 2 reconnects; resolve returns the new owner and epoch; the read there succeeds                                         |
+| Locator stopped                                              | 51–61 writes served on the cached ticket (ttl 4 s) until it expired, then `ticket_invalid`                             |
+| Resolve latency over HTTP loopback, p50                      | cache hit 134 µs; primary read 192 µs                                                                                  |
+
+Also: `internal/placement/pg` `TestListenNotifiesEveryChange` (insert/flip/delete, rolled-back change silent)
+and `TestListenReconnectsAfterTheConnectionIsKilled`; `internal/ticket`
+`TestRotationKeepsEveryLiveTicketVerifiable` (3 simulated days of rotation, every live ticket verifies at an
+agent that fetches each minute).
+
+## Not implemented
+
+- Per-database grants and grant versions / revocation floors (§3.2 of
+  [scale-out with direct actors](../../../../docs/architecture/scale-out-direct-actors.md)); a key covers its
+  whole tenant.
+- Unknown API key ids are not cached and cost one primary read each; they are rate-limited per source, and
+  controld serves TLS (see [locator, controld and edge fixes](locator-controld-edge-fixes.md)).
+- Two controlds sharing a key directory, and a locator as its own binary.

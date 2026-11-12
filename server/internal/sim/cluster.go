@@ -342,8 +342,8 @@ func (w *cworld) settle() {
 	w.tr.flush()
 }
 
-// loop is DST-1's event loop with doors: settle; let one waiting statement through, or fire the earliest
-// timer alone, or run the earliest sim event (timers first on a tie); until end.
+// loop is the single-node sim's event loop with doors: settle; let one waiting statement through, or fire the
+// earliest timer alone, or run the earliest sim event (timers first on a tie); until end.
 func (w *cworld) loop(end time.Time) {
 	for {
 		w.settle()
@@ -504,7 +504,7 @@ func (w *cworld) setup(ctx context.Context, db *cdb) bool {
 	}
 }
 
-// --- S3 faults (as DST-1's callFaults) ---------------------------------------------------------------------------
+// --- S3 faults (as the single-node sim's callFaults) -------------------------------------------------------------
 
 func (w *cworld) callFaults(op, key string, f durabletest.Faults) durabletest.Faults {
 	if !w.faultsOn.Load() {
@@ -816,7 +816,7 @@ func (w *cworld) restart(vm string) {
 	w.tr.add("sim", "restart %s: incarnation %d", vm, a.n)
 }
 
-// attest has an operator attest vm dead and restore its databases elsewhere (M5), if it is down and at least
+// attest has an operator attest vm dead and restore its databases elsewhere, if it is down and at least
 // two VMs would remain; otherwise it restarts it.
 func (w *cworld) attest(vm string) {
 	w.mu.Lock()

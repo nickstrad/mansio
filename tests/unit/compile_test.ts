@@ -1,11 +1,11 @@
 /**
- * Unit tests for `core/compile/*` and `core/plan.ts` (plan item 09).
+ * Unit tests for `core/compile/*` and `core/plan.ts`.
  *
  * The compiler is now *total*: every rejection is a `CompileError`, `DecodeError` or `SchemaError`
  * value, and nothing in `core/compile/` raises. So the assertions below check tags and reasons, not
  * messages — except in the last section, which pins `sdk/schema.ts`'s `formatSchemaError` rendering:
  * those strings are the pre-port `Error` messages the SDK's compatibility boundary still throws. (The
- * Deno platform's `formatCompileError`/`formatDecodeError` went with it at IR-6.)
+ * Deno platform's `formatCompileError`/`formatDecodeError` went with it, ADR 0013.)
  *
  * The matrix that matters most is `expression`: each node kind x each physical layout x each
  * dialect. That function decides whether `moveNumber > 3` compares numbers or strings, and it is

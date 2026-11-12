@@ -8,7 +8,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/actor"
 )
 
-// Admitter is the ownership port (contract 2; fencing's internal/owner implements it through an adapter).
+// Admitter is the ownership port: internal/owner implements it through an adapter.
 type Admitter interface {
 	// Admit lets one request for db at the ticket's epoch in, or refuses it.
 	//
@@ -62,15 +62,15 @@ type Reply struct {
 	Rows    [][]any // reads: the rows; writes: nil
 	Count   int64   // reads: len(Rows); writes: rows affected
 	// Duplicate: a write whose RequestID this database already applied. It did not run again; Count is the
-	// original's. The wire answers ok with "duplicate": true (docs/notes/front/2026-11-05-request-ids.md).
+	// original's. The wire answers ok with "duplicate": true (docs/notes/front/request-ids.md).
 	Duplicate bool
 	// Closure calls: Fn's Output.Body (or, on a Duplicate, the stored one) and Output.Value (nil on a Duplicate).
 	Body  []byte
 	Value any
 }
 
-// Executor runs calls. Today: one statement on the database's actor (ActorExecutor). Later: a handler executor
-// that runs a TypeScript handler inside the actor's write transaction (docs/notes/front/…-handler-executor.md).
+// Executor runs calls: one statement on the database's actor (ActorExecutor). Handlers do not run here; the SDK
+// runs them and sends their reads and writes as IR operations (POST /v1/ops, internal/docexec).
 //
 // Contract (fronttest.RunExecutorSuite checks it against every implementation):
 //
@@ -98,9 +98,9 @@ type Host interface {
 	Lookup(ctx context.Context, db string) (*actor.Actor, error)
 }
 
-// Credentials is the single-node auth port for /v1/ops (replace-platform plan §4.4; ADR 0012): a bearer that is
-// not a ticket (an app token, a tenant API key, a session) is checked here. The tenant comes from the
-// credential; the request body's db.tenant is ignored.
+// Credentials is the single-node auth port for /v1/ops (ADR 0012): a bearer that is not a ticket (an app token, a
+// tenant API key, a session) is checked here. The tenant comes from the credential; the request body's db.tenant is
+// ignored.
 type Credentials interface {
 	// Authenticate returns the tenant and a log subject for token used with app.
 	//

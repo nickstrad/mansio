@@ -20,7 +20,7 @@ func TestConfigNormalize(t *testing.T) {
 	if err := c.Normalize(); err != nil {
 		t.Fatal(err)
 	}
-	// RI §P Postgres sheet.
+	// The Postgres defaults.
 	if c.ConnectTimeout != 3*time.Second || c.StatementTimeout != 2*time.Second || c.LockTimeout != time.Second ||
 		c.IdleInTxTimeout != 5*time.Second || c.CallTimeout != 2500*time.Millisecond || c.MaxConns != 20 || c.AppName != "placement" {
 		t.Fatalf("defaults = %+v", c)
@@ -103,7 +103,7 @@ func TestMigrationsAreNumberedWithoutGaps(t *testing.T) {
 	}
 }
 
-// The pool's sessions carry the RI §P settings (SQL G-5, G-6).
+// The pool's sessions carry the configured timeouts and settings.
 func TestSessionSettings(t *testing.T) {
 	p, _ := newPlacement(t, func(c *Config) { c.AppName = "controld/placement" })
 	for name, want := range map[string]string{

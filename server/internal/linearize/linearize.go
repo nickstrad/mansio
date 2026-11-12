@@ -1,7 +1,7 @@
 // Package linearize checks a concurrent history against a sequential model: is there an order of the
 // operations, consistent with real time, in which every operation's output is what the model answers? It is
-// the Wing–Gong algorithm with Lowe's memoization (as Porcupine), small enough to read: the IR-5 Jepsen-style
-// run (cmd/controld, plan §6.5) checks each database's client history with it.
+// the Wing–Gong algorithm with Lowe's memoization (as Porcupine), small enough to read: the Jepsen-style
+// cluster run (cmd/controld) checks each database's client history with it.
 //
 // An operation whose outcome the client never learned (no answer to a mutation) has Return = Unknown: it may
 // have taken effect at any time after its call, or never, and its output is ignored. Pure and deterministic;

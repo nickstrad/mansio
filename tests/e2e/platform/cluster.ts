@@ -1,5 +1,5 @@
 /**
- * IR-5: a multi-node Go cluster for `scale_out` — controld (Postgres placement, the locator and ticket issuer,
+ * A multi-node Go cluster for `scale_out` — controld (Postgres placement, the locator and ticket issuer,
  * tenancy in api-key mode), two agentd in durable mode (S3 generations; ticket keys and app schemas fetched
  * from controld), and the edge (routes from controld's VM registry). Clients use the SDK's locator route:
  * resolve at controld, every request through the edge with the ticket.

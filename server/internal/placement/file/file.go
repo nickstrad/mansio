@@ -1,9 +1,9 @@
 //go:build darwin || linux
 
-// Package file is a single-node owner.Placement (the authority that hands out epochs): one small JSON file per
-// key in a directory, and every CAS under an exclusive flock on <dir>/.lock. Processes on one host (agentd, an
-// operator, a test acting as the control plane) can share one authority. It stands in for the Postgres adapter
-// (internal/placement/pg, CP-3) on a single node: it has no replication and no reaper, and Get reads local disk.
+// Package file is a single-node owner.Placement (the authority that hands out epochs): one small JSON file per key in
+// a directory, and every CAS under an exclusive flock on <dir>/.lock. Processes on one host (agentd, an operator, a
+// test acting as the control plane) can share one authority. It stands in for the Postgres adapter
+// (internal/placement/pg) on a single node: it has no replication and no reaper, and Get reads local disk.
 //
 // It is an adapter: it validates, translates and wraps errors (module "placement"); it does not log.
 //
@@ -37,8 +37,8 @@ const (
 	rowFormat = 1
 )
 
-// errInvariant marks a CAS that would break the authority's invariants. It is deliberately neither
-// owner.ErrConflict nor owner.ErrNotFound: the caller has a bug, nobody else won (art-of-postgresql plan PG-03).
+// errInvariant marks a CAS that would break the authority's invariants. It is deliberately neither owner.ErrConflict
+// nor owner.ErrNotFound: the caller has a bug, nobody else won.
 var errInvariant = errors.New("placement: CAS breaks the authority's invariants")
 
 // Placement implements owner.Placement over a directory. Safe for concurrent use, also across processes on

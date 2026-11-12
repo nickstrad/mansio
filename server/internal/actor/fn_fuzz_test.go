@@ -24,7 +24,7 @@ var errInjected = errors.New("injected closure failure")
 //
 //	kind%5 == 0  closure write: k1 = v, k2 = v+1, then count(*); Body {"n":count,"v":v}. b&7 injects a
 //	             failure after the writes: 3 returns an error, 4 runs a failing statement (NOT NULL), 5 panics,
-//	             6 runs INSERT OR ROLLBACK (ends the batch transaction, PG-01), 7 does that too but ignores the
+//	             6 runs INSERT OR ROLLBACK (ends the batch transaction), 7 does that too but ignores the
 //	             error, writes again and returns success (the poisoned Tx must refuse the write and fail the
 //	             request; nothing may autocommit); 0–2 succeed. Bit 3 first
 //	             tries COMMIT, which must be refused (ErrTxControl) without harm.
@@ -34,7 +34,7 @@ var errInjected = errors.New("injected closure failure")
 //	kind%5 == 3  SQL write k1 = v (the raw path, record version 0x01)
 //	kind%5 == 4  closure delete of k1; Body {"d":rows affected}
 //
-// The model holds the PG-01 property (a write answered without error committed, one answered with an error did
+// The model holds the batch property (a write answered without error committed, one answered with an error did
 // not), so at each flush it applies, in queue order, exactly the writes that reported success; a closure's
 // Body must equal what the model computes at that point. Request ids: an id applied by the same kind answers
 // Duplicate with the first answer (Body byte for byte, or rows) and changes nothing; an id applied by the other

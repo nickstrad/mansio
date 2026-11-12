@@ -6,8 +6,8 @@ import (
 	"runtime/metrics"
 )
 
-// Process exposes the process's own steady-state gauges (Release It S, RI-15 soak): goroutines, open file
-// descriptors and Go heap bytes. Every daemon registers it so a soak can check that each one is flat.
+// Process exposes the process's own steady-state gauges (for soak tests): goroutines, open file descriptors and Go
+// heap bytes. Every daemon registers it so a soak can check that each one is flat.
 func Process(reg *Registry) {
 	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}, {Name: "/memory/classes/total:bytes"}}
 	reg.Add("mansio_process", "Process levels: goroutines, open_fds (-1 if unknown), heap_bytes (live objects), go_bytes (all memory the Go runtime mapped).",

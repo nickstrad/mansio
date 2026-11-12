@@ -90,9 +90,9 @@ Rationale: direct hand-written SQL is tunable and has no hidden query generation
 
 ## 2026-10-11 — Knowledge lives in plain markdown, no `kb` CLI
 
-Human decision: `docs/notes/` is markdown with `index.md`, deliberately not the nickstrad/kb full-text store
-that `vm-agent` and `perpetual` use. Rationale: zero tooling means any agent (or the human in a text editor)
-can read and update entries; nothing to build, index, or reindex.
+Human decision: `docs/notes/` is markdown with `README.md` indexes, deliberately not the nickstrad/kb
+full-text store that `vm-agent` and `perpetual` use. Rationale: zero tooling means any agent (or the human in
+a text editor) can read and update entries; nothing to build, index, or reindex.
 
 ## 2026-10-11 — Model tier mapping (dual-company)
 

@@ -1,21 +1,20 @@
-// Package locator is the control plane's locator and ticket issuer (control-plane plan CP-5; scale-out option 4
-// §2, §3.3): resolve(tenant, database, principal) → {endpoint, epoch, gen, ticket, TTL}. Domain code: no I/O
-// and no logging. It reaches the world through the ports in ports.go: the placement store (Postgres, a replica
-// or the primary), the API-key store, and the ticket signer.
+// Package locator is the control plane's locator and ticket issuer: resolve(tenant, database, principal) → {endpoint,
+// epoch, gen, ticket, TTL}. Domain code: no I/O and no logging. It reaches the world through the ports in ports.go:
+// the placement store (Postgres, a replica or the primary), the API-key store, and the ticket signer.
 //
 // Resolve authenticates the API key (hashed at rest; checked once per ticket, cached briefly), checks the
 // key's tenant, reads the placement through a bounded cache, and mints a ticket for the owner VM at the row's
 // epoch and generation.
 //
-// # Staleness is safe; the cache only saves work (SQL G-11)
+// # Staleness is safe; the cache only saves work
 //
 // A stale answer names an old VM or epoch: the agent there refuses it (wrong_owner / fenced) and the client
 // re-resolves with min_epoch = last seen + 1, which bypasses the cache and reads the primary. The cache is
-// invalidated by placement notifications (PG-10): Invalidate for one key, Reset when the listener (re)connects
-// (LISTEN first, then drop everything cached, then apply what arrives), Untrust when it is lost (the cache is
-// bypassed until the next Reset). A lost notification costs one wrong_owner and one re-resolve.
-// InvalidateState applies a registry state notification (a create or move finished): it tombstones the key
-// whatever its epoch, since that flip does not change the epoch.
+// invalidated by placement notifications: Invalidate for one key, Reset when the listener (re)connects (LISTEN first,
+// then drop everything cached, then apply what arrives), Untrust when it is lost (the cache is bypassed until the
+// next Reset). A lost notification costs one wrong_owner and one re-resolve. InvalidateState applies a registry state
+// notification (a create or move finished): it tombstones the key whatever its epoch, since that flip does not change
+// the epoch.
 //
 // # Load
 //

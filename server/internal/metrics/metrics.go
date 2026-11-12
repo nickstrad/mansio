@@ -1,7 +1,8 @@
-// Package metrics is a small, dependency-free metrics exposition (Release It O1, O2): counters, gauges and
-// latency histograms written in the Prometheus text format (version 0.0.4) for scraping from the lifecycle
-// listener. Values are pulled at scrape time from the components' own Stats (collect funcs), so the hot paths
-// keep their atomics and import nothing from here; LatencyHistogram is the one primitive a component may embed. Thresholds and alert rules live in the monitoring config, never here.
+// Package metrics is a small, dependency-free metrics exposition: counters, gauges and latency histograms written in
+// the Prometheus text format (version 0.0.4) for scraping from the lifecycle listener. Values are pulled at scrape
+// time from the components' own Stats (collect funcs), so the hot paths keep their atomics and import nothing from
+// here; LatencyHistogram is the one primitive a component may embed. Thresholds and alert rules live in the
+// monitoring config, never here.
 //
 // Error module: none; misuse (a bad metric name, a duplicate family) is a bug and panics at registration.
 package metrics

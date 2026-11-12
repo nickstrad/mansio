@@ -1,7 +1,8 @@
 // Package owner makes sure at most one process admits writes for a database key at a time.
 //
-// Object storage lets any process download any database, and routes are allowed to be stale (mansio option 4
-// §3.3). So the guarantee lives in the process that hosts the database, in three layers:
+// Object storage lets any process download any database, and routes are allowed to be stale
+// (docs/architecture/scale-out-direct-actors.md §3.3). So the guarantee lives in the process that hosts the
+// database, in three layers:
 //
 //  1. An authority (the Placement port; the control plane later) hands out an epoch per (key, owner). It
 //     changes the owner only by bumping the epoch, and a move flips only after the source's fence
@@ -11,8 +12,8 @@
 //     reconciled with the authority. Fence stops admission, drains in-flight work, runs the final write-back
 //     and records FENCED durably before it acknowledges.
 //  3. Storage is the backstop: every manifest publish carries the epoch and fails with ErrStale if a higher
-//     epoch has published (contract 1). A new owner stamps the manifest with its epoch before it admits
-//     anything, so a zombie owner's next publish fails and the zombie fences itself.
+//     epoch has published (durable.Store's conditional publish). A new owner stamps the manifest with its
+//     epoch before it admits anything, so a zombie owner's next publish fails and the zombie fences itself.
 //
 // This file is the pure core: the local states, the transition table (Step), the admission table (decide)
 // and the reconcile table (reconcileEvent). No I/O happens here. The safety argument is written out in
@@ -25,7 +26,7 @@ import "fmt"
 // new owner always gets a higher epoch. 0 means "none".
 type Epoch uint64
 
-// Generation numbers the immutable snapshots of one key in object storage (contract 1). 0 means "no snapshot
+// Generation numbers the immutable snapshots of one key in object storage. 0 means "no snapshot
 // yet" (a new, empty database).
 type Generation uint64
 
@@ -36,7 +37,7 @@ const (
 	// Absent: this process holds nothing for the key.
 	Absent State = iota
 	// Closed: durably ACTIVE, but not reconciled with the authority since this process started. Admits
-	// nothing (option 4 §3.2 "Agent restart: stay closed").
+	// nothing: after a restart a key stays closed until the authority confirms this process still owns it.
 	Closed
 	// Active: admits requests at exactly its epoch.
 	Active
@@ -213,7 +214,7 @@ func Step(l Local, ev Event) (next Local, err error) {
 	return illegal()
 }
 
-// decide is the admission table (option 4 §3.2), for a request carrying epoch.
+// decide is the admission table, for a request carrying epoch.
 //
 //	local        | admission
 //	-------------+------------------------------------------------------------------

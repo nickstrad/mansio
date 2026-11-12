@@ -23,7 +23,7 @@ import (
 )
 
 // wbLock serializes an entry's write-backs, passivation and stamps. It is held across store calls, so a caller
-// waiting for it must be able to give up (Release It: waiting is not working): lockCtx honours ctx. A channel,
+// waiting for it must be able to give up (waiting is not working): lockCtx honours ctx. A channel,
 // not a sync.Mutex, also lets a simulation see a waiter as blocked (synctest). The zero value is unlocked.
 type wbLock struct {
 	once sync.Once
@@ -87,13 +87,13 @@ type durableState struct {
 	// while the file does: a later stamp of the warm key raises man.Seal, not this.
 	incarnation uint64
 	// published are the generation objects this entry saw published, oldest first: the current one and the
-	// ones owner-side retention has not deleted yet (guide GC2).
+	// ones owner-side retention has not deleted yet.
 	published []string
 
 	epoch      atomic.Uint64
 	pubCommits atomic.Uint64
 	forceDirty atomic.Bool // the db was reopened after a failed passivation: its commit counter restarted
-	stale      atomic.Bool // a re-read after a failed publish or stamp showed another writer (guide R4)
+	stale      atomic.Bool // a re-read after a failed publish or stamp showed another writer
 	lastUsed   atomic.Int64
 	lastWB     atomic.Int64
 }
@@ -283,7 +283,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	t = h.opts.Clock.Now()
 	var next durable.Manifest
 	// The object is named by the epoch we upload at, so no other owner can collide with it; the loop on
-	// ErrExists is only a defence against our own orphans (guide I2).
+	// ErrExists is only a defence against our own orphans.
 	for try := 0; ; try++ {
 		gen := max(e.man.Generation, e.lastGen) + 1
 		e.lastGen = gen // never reuse a number we tried: its object may exist (orphan)
@@ -297,7 +297,7 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 		}
 		// Taken by an orphan we did not upload: a crashed incarnation of ours tried it (lastGen restarts at the
 		// manifest's generation) and may have tried the next ones too. Skip past them with HEADs, doubling the
-		// stride, rather than one upload per taken number (guide I2: any number above every tried one will do).
+		// stride, rather than one upload per taken number (any number above every tried one will do).
 		if err = h.skipTaken(ctx, key, e, gen, try); err != nil {
 			break
 		}
@@ -336,12 +336,12 @@ func (h *Host) upload(ctx context.Context, key string, e *entry, path string, co
 	return res, nil
 }
 
-// skipTaken raises e.lastGen past a run of taken generation numbers starting at gen (taken: its object
-// exists), probing gen+1, gen+2, gen+4, ... with StatGeneration (HEAD, not LIST: guide K2), so the next try
-// uses the first number found free. Numbers in between may stay unused: generations need only rise (W3).
-// A HEAD that neither finds the object nor says it is missing (S3 answers 403, not 404, for a missing object
-// when the identity lacks s3:ListBucket; or a failed call) proves nothing: the next try then probes with the
-// create-only PUT itself (safe: guide I1) at a stride that doubles with each try (try is the upload loop's).
+// skipTaken raises e.lastGen past a run of taken generation numbers starting at gen (taken: its object exists),
+// probing gen+1, gen+2, gen+4, ... with StatGeneration (HEAD, not LIST: no LIST on a request path), so the next try
+// uses the first number found free. Numbers in between may stay unused: generations need only rise. A HEAD that
+// neither finds the object nor says it is missing (S3 answers 403, not 404, for a missing object when the identity
+// lacks s3:ListBucket; or a failed call) proves nothing: the next try then probes with the create-only PUT itself
+// (safe: it never overwrites) at a stride that doubles with each try (try is the upload loop's).
 //
 //	pre: e.wb is held; the object of gen exists
 func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64, try int) error {
@@ -363,7 +363,7 @@ func (h *Host) skipTaken(ctx context.Context, key string, e *entry, gen uint64, 
 	return fmt.Errorf("vactor: generation %d of %s: no free number found", gen, key)
 }
 
-// retain is owner-side retention (object-storage guide GC2), right after obj was published: it deletes the
+// retain is owner-side retention, right after obj was published: it deletes the
 // generations this entry published more than K publishes ago (durable.PlanRetention), by computed name with no
 // LIST. It runs under e.wb, the publish serialization, so it never races a publish of the key and a fence
 // drains it like one; the cost is one DELETE (a batch of K+1's leftovers, usually 1 name) on the write-back's
@@ -388,16 +388,16 @@ func (h *Host) retain(ctx context.Context, key string, e *entry, obj string) {
 }
 
 // holds reports whether the stored object name holds exactly the snapshot d: the re-read that settles an
-// upload whose outcome is unclear (object-storage guide R3). A failed HEAD says nothing: false.
+// upload whose outcome is unclear. A failed HEAD says nothing: false.
 func (h *Host) holds(ctx context.Context, name string, d durable.Digest) bool {
 	info, err := h.opts.Store.StatGeneration(ctx, name)
 	return err == nil && info.Holds(d)
 }
 
-// maxPending bounds e.pending (S1: everything that accumulates has a reaper). A pending publish leaves it only
+// maxPending bounds e.pending (everything that accumulates has a reaper). A pending publish leaves it only
 // when it can no longer apply: a publish of ours conditional on e.ver succeeded or one of them was adopted
 // (the version moved: every other one is refused), or it was sent more than Options.GC.Grace ago (the bound on
-// delayed requests the orphan sweeper also relies on, guide GC3). A re-read that still shows e.ver proves
+// delayed requests the orphan sweeper also relies on). A re-read that still shows e.ver proves
 // nothing: a request in flight may land after it. With maxPending in doubt, publish first re-reads (one of them
 // may have applied: adopt it), then drops the ones older than the grace window; if it is still full, it sends
 // nothing and fails, safe to retry (at the latest once the oldest is past the grace window).
@@ -410,7 +410,7 @@ const MaxPendingPublishes = maxPending
 // version, and records it in e. build also decides whether the publish is allowed (durable.CheckPublish,
 // durable.CheckStamp); a refusal returns its error. Write-back and Stamp both go through here, so they settle
 // an unclear outcome (an error, or ErrStale that our own earlier publish may have caused) the same way, by
-// re-reading the manifest (object-storage guide R3, R4):
+// re-reading the manifest:
 //
 //   - the stored manifest is the one we sent: the publish did apply;
 //
@@ -425,12 +425,12 @@ const MaxPendingPublishes = maxPending
 //
 //   - the re-read failed: ours joins e.pending, and a 412 does NOT come back as ErrStale: an earlier
 //     pending publish of ours, or a re-send of this one (ApplyThenStale), may have caused it. ErrStale means
-//     a re-read showed another writer (guide R4; the owner.WriteBack contract: owner fences a key superseded
+//     a re-read showed another writer (the owner.WriteBack contract: owner fences a key superseded
 //     on it, and a superseded key's unpublished writes are discarded). Safety does not need the eager answer:
 //     every later publish is conditional, so another writer is still refused, and found by the next re-read.
 //
 // A pending publish is never dropped by a later one: every one of ours is conditional on e.ver, so any of them
-// may be the one that applied, or lands late (found by the DST-1 sim and its review). A successful
+// may be the one that applied, or lands late (the single-node simulation found both). A successful
 // conditional publish proves none did, nor can. A publish the breaker refused was never sent: not pending.
 // Whatever the re-read, a failed publish never returns ErrStale unless the re-read showed another writer.
 //
@@ -512,7 +512,7 @@ func (h *Host) settlePending(ctx context.Context, key string, e *entry) error {
 			key, len(e.pending))
 	case rerr == nil && e.adoptPending(stored, sv):
 	case !e.otherWriter(stored, sv, rerr):
-		// None applied yet, but any may still land: keep each until the grace window bounds it (guide GC3).
+		// None applied yet, but any may still land: keep each until the grace window bounds it.
 		horizon := h.opts.Clock.Now().Add(-h.opts.GC.Grace)
 		e.pending = slices.DeleteFunc(e.pending, func(p pendingPub) bool { return p.sent.Before(horizon) })
 		if len(e.pending) >= maxPending {
@@ -612,7 +612,7 @@ func (h *Host) release(ctx context.Context, key string, e *entry) error {
 }
 
 // keepGeneration moves a passivated key's closed file into the generation cache if it holds exactly the
-// generation e.man names (guide CA1): known when the file itself was just uploaded, otherwise checked by
+// generation e.man names: known when the file itself was just uploaded, otherwise checked by
 // hashing it (SQLite may have rewritten its header). Not while the host is closing: Close deletes the cache.
 //
 //	pre: the key's write-back on passivation succeeded, so e.man is the published manifest and e is clean
@@ -797,7 +797,7 @@ func (h *Host) Discard(key string) (lostWrites bool) {
 // here the stamp is conditional on the manifest this host last saw, and the entry adopts the new epoch.
 //
 // A warm stamp goes through publish, so an unclear outcome is settled by a re-read like a write-back's
-// (object-storage guide R3, R4): a stamp that applied succeeds, and the key is marked stale only if the
+// (see publish): a stamp that applied succeeds, and the key is marked stale only if the
 // re-read shows another writer.
 func (h *Host) Stamp(ctx context.Context, key string, epoch, gen uint64) (durable.Manifest, error) {
 	if h.opts.Store == nil {
@@ -853,7 +853,7 @@ func (h *Host) PassivateAll(workers int) error {
 }
 
 // parallel runs fn over keys, at most workers at a time, and returns the non-nil errors. A panic in fn is
-// re-raised in the caller once every worker has stopped (Cox-Buday: panics do not cross goroutines).
+// re-raised in the caller once every worker has stopped (panics do not cross goroutines on their own).
 func (h *Host) parallel(keys []string, workers int, fn func(string) error) []error {
 	sem := make(chan struct{}, max(1, workers))
 	var (

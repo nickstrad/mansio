@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// RI-08: a caller's ctx deadline bounds the statement, not only the wait (waiting is not working).
+// A caller's ctx deadline bounds the statement, not only the wait (waiting is not working).
 func TestDoWithDeadlineInterruptsStatement(t *testing.T) {
 	a := startedKV(t, Config{}, 10)
 	c, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

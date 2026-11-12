@@ -14,8 +14,7 @@ import (
 )
 
 // A store slower than the activation deadline: Get fails with ErrBusy within the deadline (+ε), leaves
-// nothing behind, and the next Get starts a fresh activation that succeeds once the store is fast again
-// (Release It T1, plan RI-02).
+// nothing behind, and the next Get starts a fresh activation that succeeds once the store is fast again.
 func TestActivationTimesOutAndIsRetryable(t *testing.T) {
 	const timeout = 100 * time.Millisecond
 	r := newDurableRealTime(t, func(o *vactor.Options) { o.ActivationTimeout = timeout })
@@ -68,8 +67,7 @@ func TestActivationDeadlineAllowsForSize(t *testing.T) {
 }
 
 // With one fetch slot and a queue of one, a third cold key is shed at once with ErrBusy while the first is
-// fetching and the second waits; nothing is started for it, and both others finish once the fetch is let go
-// (Release It B1, B2; plan RI-02).
+// fetching and the second waits; nothing is started for it, and both others finish once the fetch is let go.
 func TestFetchBulkheadShedsBeyondQueue(t *testing.T) {
 	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
 	for _, k := range []string{"a", "b", "c"} {
@@ -180,7 +178,7 @@ func TestQueryTimeoutIsNotActivationTimeout(t *testing.T) {
 // A plain Fetcher that is a Sizer is bounded by bytes too, like durable mode: with 100-byte objects and
 // MaxFetchBytes 250 (on point: 2 fit, the third would make 300), only 2 of 8 cold keys fetch at once, though
 // MaxFetches would allow 16. This is what keeps many large plain fetches inside objstore's per-transfer
-// deadline (docs/notes/coldload 2026-11-05 RI-02 note).
+// deadline (server/docs/notes/coldload/fetch-bulkhead.md).
 func TestFetchBulkheadBoundsPlainFetchesByBytesWithSizer(t *testing.T) {
 	const keys = 8
 	f, o := vactortest.NewFetcher(), &vactortest.Opener{}
@@ -234,7 +232,7 @@ func TestSizerGrowsDeadlineAndReportsMissing(t *testing.T) {
 	}
 }
 
-// RI-16: SetFetchLimit at run time. With 4 slots and 2 cold fetches held in flight, lowering the limit to 1
+// SetFetchLimit at run time. With 4 slots and 2 cold fetches held in flight, lowering the limit to 1
 // lets both finish but holds the next 2 cold keys queued until fewer than 1 run; then they fetch one at a
 // time. Raising it back lets queued keys start together.
 func TestSetFetchLimitAppliesToTheNextFetches(t *testing.T) {

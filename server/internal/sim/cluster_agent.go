@@ -145,7 +145,8 @@ func (w *cworld) startAgent(v *cvm) (*cinc, error) {
 	return a, nil
 }
 
-// kill crashes the incarnation (as DST-1's agent.kill): cut the gate, cancel its work, tear the host down.
+// kill crashes the incarnation (as the single-node sim's agent.kill): cut the gate, cancel its work, tear the host
+// down.
 func (a *cinc) kill() <-chan struct{} {
 	a.g.kill()
 	a.cancel()
@@ -184,8 +185,8 @@ func (w *cworld) fetchKeys(ctx context.Context, r *rand.Rand, from string, ring 
 	}
 }
 
-// ticked records a maintenance tick (as DST-1's world.ticked): what it published is durable as of the tick's
-// start.
+// ticked records a maintenance tick (as the single-node sim's world.ticked): what it published is durable as of the
+// tick's start.
 func (w *cworld) ticked(a *cinc, r vactor.TickReport) {
 	if !a.g.alive() {
 		return

@@ -1,8 +1,8 @@
 package durable
 
-// Request accounting (OS-08): a Store that can count the requests it sends implements RequestCounter, and
-// RequestCost turns the counts into dollars at S3 list prices (object-storage guide: report cost with
-// performance). The counts are attempts, retries included: what the provider bills.
+// Request accounting: a Store that can count the requests it sends implements RequestCounter, and RequestCost turns
+// the counts into dollars at S3 list prices, so benchmarks report cost alongside performance. The counts are
+// attempts, retries included: what the provider bills.
 
 // Operation names every counting Store uses. One name per kind of request; a write-back is
 // OpPutGen + OpHead + OpGetManifest + OpPublish (four requests).

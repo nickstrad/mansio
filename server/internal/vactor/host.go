@@ -7,17 +7,17 @@
 // writes back before it deletes anything, and a failed write-back leaves the database warm. See writeback.go
 // and maintain.go.
 //
-// Get(key) returns the key's open database. If it is not active, the first caller starts an activation:
-// fetch the object to a local file, open it, run the first query, then optional warm-up queries. Callers
-// that ask for the same key meanwhile wait for that one activation. A failed activation is forgotten, but the
-// key keeps a short, jittered tombstone (Options.FailBackoff, doubling per failure in a row up to
-// MaxFailBackoff): until it ends, Gets fail fast with the same cause instead of hitting storage again
-// (Release It R6); the first Get after it tries again. Passivate closes the database and deletes the local copy; a Get that arrives while a
-// key is passivating waits for it to finish, then activates afresh.
+// Get(key) returns the key's open database. If it is not active, the first caller starts an activation: fetch the
+// object to a local file, open it, run the first query, then optional warm-up queries. Callers that ask for the same
+// key meanwhile wait for that one activation. A failed activation is forgotten, but the key keeps a short, jittered
+// tombstone (Options.FailBackoff, doubling per failure in a row up to MaxFailBackoff): until it ends, Gets fail fast
+// with the same cause instead of hitting storage again; the first Get after it tries again. Passivate closes the
+// database and deletes the local copy; a Get that arrives while a key is passivating waits for it to finish, then
+// activates afresh.
 //
 // Every activation has a deadline (Options.ActivationTimeout, grown by size/MinThroughput once the size is
 // known) and goes through a fetch bulkhead (Options.MaxFetches, MaxFetchBytes, MaxFetchQueue): a full queue
-// sheds with ErrBusy instead of waiting (Release It T1, B1, B2).
+// sheds with ErrBusy instead of waiting.
 //
 // The host reaches storage and SQLite only through two ports, Fetcher and Opener, so it can be tested with
 // fakes (see vactortest). It owns its cache directory: NewHost empties it and Close removes it.
@@ -53,7 +53,7 @@ var (
 	ErrNotFound = errors.New("vactor: object not found")
 	// ErrBusy: the host cannot take this activation now. Either the fetch queue is full (Options.MaxFetchQueue;
 	// Get fails at once), or the activation did not finish within its deadline (Options.ActivationTimeout).
-	// Nothing was cached; retry later. agentd answers it 503 unavailable (Release It B1, F2).
+	// Nothing was cached; retry later. agentd answers it 503 unavailable.
 	ErrBusy = errors.New("vactor: busy")
 	// ErrInDoubt: a write-back sent nothing because maxPending publishes of ours are in doubt and may still
 	// land (none is older than Options.GC.Grace yet). Safe to retry; the database stays warm.
@@ -142,23 +142,23 @@ type Options struct {
 	// ActivationTimeout bounds one activation as a whole: manifest read, the wait for a fetch slot, the fetch,
 	// open, first and warm queries. Once the manifest gives the generation's size, the bound grows by
 	// size/MinThroughput, so a large database is not cut off for being large. An activation that hits it fails
-	// with ErrBusy (Release It T1). Default 30 s.
+	// with ErrBusy. Default 30 s.
 	ActivationTimeout time.Duration
 	// MinThroughput (bytes/s) is the slowest fetch rate the activation deadline allows for. Default 32 MiB/s.
 	MinThroughput int64
 	// MaxFetches and MaxFetchBytes bound fetches in flight, by count and by bytes (the bytes are known in
 	// durable mode, and in plain mode when the Fetcher is a Sizer; otherwise a plain Fetch counts 0 bytes).
-	// One fetch larger than MaxFetchBytes runs alone. Defaults 16 and 1 GiB: the measured coldload knee
-	// (Release It B2).
+	// One fetch larger than MaxFetchBytes runs alone. Defaults 16 and 1 GiB: the measured coldload knee.
 	//
 	// The byte bound is what keeps the bulkhead consistent with a store's per-transfer deadline (objstore:
 	// OpTimeout + size/MinThroughput): the fetches in flight share the link, so each must still finish in
 	// time when MaxFetchBytes moves at the link's rate. At ~260 MB/s, 1 GiB in flight takes ~4.1 s, inside
-	// the 5 s OpTimeout alone; 16 × 128 MiB counted as 0 bytes did not (docs/notes/coldload RI-02 note).
+	// the 5 s OpTimeout alone; 16 × 128 MiB counted as 0 bytes did not
+	// (server/docs/notes/coldload/fetch-bulkhead.md).
 	MaxFetches    int
 	MaxFetchBytes int64
 	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with
-	// ErrBusy instead of queueing (Release It B1). Default 256; negative: no queue.
+	// ErrBusy instead of queueing. Default 256; negative: no queue.
 	MaxFetchQueue int
 	// FailBackoff is how long a key fails fast after a failed activation; it doubles with each failure in a
 	// row up to MaxFailBackoff, jittered to [d/2, d]. Not after shedding (ErrBusy without a timeout), an open
@@ -170,10 +170,10 @@ type Options struct {
 	// Store turns on durable mode (the Fetcher is then unused and may be nil). Not with KeepLocal: a kept
 	// copy may be older than the manifest; use GenCacheBytes.
 	Store durable.Store
-	// GenCacheBytes turns on the local generation cache in durable mode (object-storage guide CA1, plan
-	// OS-10): a clean passivation keeps the database file as <CacheDir>/gen/<sha256>.db, and an activation
-	// whose manifest names that exact sha256 and size moves it back instead of downloading (1 GET in all).
-	// The cache holds at most this many bytes, least recently cached evicted first. 0: off.
+	// GenCacheBytes turns on the local generation cache in durable mode: a clean passivation keeps the database
+	// file as <CacheDir>/gen/<sha256>.db, and an activation whose manifest names that exact sha256 and size moves
+	// it back instead of downloading (1 GET in all). The cache holds at most this many bytes, least recently
+	// cached evicted first. 0: off.
 	GenCacheBytes int64
 	// CreateMissing: activating a key with no manifest starts an empty database (first write-back creates
 	// the manifest). Otherwise such a Get fails with ErrNotFound.
@@ -183,7 +183,7 @@ type Options struct {
 	// WriteBackTimeout bounds each write-back that has no caller context (PassivateAll, Close) and each job of
 	// a maintenance tick. Default 5 min.
 	WriteBackTimeout time.Duration
-	// GC is owner-side retention (object-storage guide GC1, GC2): after each publish the host deletes the
+	// GC is owner-side retention: after each publish the host deletes the
 	// generations it published more than GC.Keep publishes ago (default 2; negative: keep none but the
 	// current). GC.Grace also bounds how long a publish whose outcome is unknown may still land: the host keeps it
 	// pending that long (maxPending). It must not exceed the sweeper's (durable.Sweep, dbtool -grace); agentd
@@ -244,7 +244,7 @@ type Stats struct {
 	// LastWriteBackOK is when a write-back last published (the gauge last_writeback_ok); zero if none yet.
 	LastWriteBackOK time.Time
 
-	// GenerationsDeleted counts generations deleted by owner-side retention (guide GC2, GC5);
+	// GenerationsDeleted counts generations deleted by owner-side retention;
 	// RetentionFailures counts failed retention deletes (those objects are left to the orphan sweeper).
 	GenerationsDeleted int64
 	RetentionFailures  int64
@@ -430,7 +430,7 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 				return Result{}, errs.Wrap(module, &hinted{t.err, wait},
 					"cannot activate %s: its last %d activation(s) failed; failing fast for %v, nothing started", key, t.n, wait)
 			}
-			if h.gate.shedding() { // fail fast before any storage call (guide F1)
+			if h.gate.shedding() { // fail fast before any storage call
 				h.mu.Unlock()
 				h.fetchShed.Add(1)
 				return Result{}, errs.Wrap(module, errShed, "cannot activate %s: %d fetches are already queued; nothing started, retry later",
@@ -468,7 +468,7 @@ func (h *Host) GetAt(ctx context.Context, key string, epoch uint64) (Result, err
 
 func (e *entry) result(act *Activation, waited bool) (Result, error) {
 	if e.panic != nil {
-		panic(e.panic) // forward the activation goroutine's panic to the caller (Cox-Buday ch. 4)
+		panic(e.panic) // forward the activation goroutine's panic to the caller: panics do not cross goroutines
 	}
 	assert.That(e.err != nil || e.db != nil, "Get: nil DB without an error")
 	assert.That(act == nil || !waited, "Get: both owner and waiter")
@@ -526,9 +526,9 @@ func (h *Host) forget(key string, e *entry) {
 }
 
 // load runs one activation from start under a ctx whose deadline is start + ActivationTimeout, grown by
-// size/MinThroughput once the size is known (guide T3). No step uses h.ctx alone (Release It T2): Close
-// cancels them all through ctx. Hitting that deadline fails with ErrBusy; the context's cause, not the
-// error chain, tells it apart from a query's own QueryTimeout.
+// size/MinThroughput once the size is known (bodies are bounded by time as well as size). No step uses h.ctx alone:
+// Close cancels them all through ctx. Hitting that deadline fails with ErrBusy; the context's cause, not the error
+// chain, tells it apart from a query's own QueryTimeout.
 func (h *Host) load(start time.Time, key string, e *entry) (_ DB, err error) {
 	ctx, cancel := h.activationCtx(start, 0)
 	defer func() {
@@ -658,7 +658,7 @@ func (h *Host) tombstoned(key string) (tomb, time.Duration, bool) {
 	return t, wait, wait > 0
 }
 
-// pruneTombs drops tombstones whose backoff ended long enough ago that a new failure starts over (S1: every
+// pruneTombs drops tombstones whose backoff ended long enough ago that a new failure starts over (every
 // map that grows has a reaper). Tick calls it.
 func (h *Host) pruneTombs(now time.Time) {
 	h.mu.Lock()
@@ -714,7 +714,7 @@ func (h *Host) query(ctx context.Context, db DB, q string) error {
 	return db.Query(ctx, q)
 }
 
-// SetFetchLimit changes Options.MaxFetches at run time (an operator's control, Release It C4, plan RI-16).
+// SetFetchLimit changes Options.MaxFetches at run time (an operator's control).
 // Fetches already running finish; the next ones respect n: none starts while n or more run. Raising it lets
 // queued activations start at once. The byte bound and the queue bound are unchanged. It returns the previous
 // limit.

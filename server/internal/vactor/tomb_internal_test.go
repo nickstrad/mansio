@@ -35,7 +35,7 @@ func TestTombstoneBackoff(t *testing.T) {
 }
 
 // A tombstone counts failures in a row, starts over once its backoff is long past, and Tick's reaper drops it
-// then (Release It S1).
+// then, so tombstones never accumulate.
 func TestTombstoneCountsResetsAndIsReaped(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 	clk := dettest.NewClock(now)

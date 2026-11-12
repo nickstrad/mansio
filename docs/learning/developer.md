@@ -60,7 +60,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
    `db.ts` is the API handlers call, `recording.ts` turns one handler run into reads plus one commit, and
    `client.ts` is the loop that re-runs on conflict. This is the most important TypeScript in the repo.
 
-10. Read `sdk/cache.ts` and `docs/notes/intermediate-representation/2026-11-10-read-path.md`.
+10. Read `sdk/cache.ts` and `docs/notes/intermediate-representation/read-path.md`.
 
     The cache is why a warm mutation is one round trip, and the note lists the traps (for example, a cached
     read is never trusted, only asserted). Read the note's "Traps" section twice.
@@ -160,7 +160,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 6: Durability and what is paused
 
-28. Read `server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md`.
+28. Read `server/docs/notes/writeback/backup-open-issues.md`.
 
     It says plainly what the S3 write-back does and does not guarantee, and why the work is paused. This is
     the most important "known limits" document in the repo.
@@ -171,7 +171,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     Durable mode stores each database as immutable generations in S3 with a manifest. The key fact to keep:
     the acknowledgement is the local commit, so a crash can lose the last seconds of writes.
 
-30. Read `server/docs/notes/writeback/2026-11-10-version-floor.md`.
+30. Read `server/docs/notes/writeback/version-and-sequence-floor.md`.
 
     It is a worked example of a real bug (versions repeating after a rollback) and its fix. It also shows how
     the simulator found it, which leads into the next phase.
@@ -227,15 +227,16 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     with a TypeScript oracle, and the Go server replacing the Deno platform. They explain leftovers you will
     see in older docs.
 
-39. Skim `docs/notes/index.md`, `docs/notes/gotchas.md` and `server/docs/notes/index.md`.
+39. Skim `docs/notes/README.md`, `docs/notes/gotchas.md` and `server/docs/notes/README.md`.
 
     These are the running notes of decisions and traps. You do not need to read them all, only to know they
     exist and how they are organised.
 
-40. Read the last two weeks of `agent-work/STATE.md` (newest first) and `agent-work/server/shared_state.md`
-    (newest at the bottom): the logs the build agents kept.
+40. Read the merge messages of the last two weeks on `main`: `git log --first-parent --since=2.weeks main`,
+    then `git show --stat <merge>` for the ones that touch the part you work on.
 
-    This is the record of what changed most recently and why. It is the best way to catch up after time away.
+    Each merge message says what landed and why. It is the best way to catch up after time away, and the notes
+    indexes from step 39 point at the longer write-ups.
 
 ## Phase 9: Prove you understand it, then change it
 
@@ -258,10 +259,10 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     A full answer covers fencing, the epoch flip, `wrong_owner`, the SDK re-resolving, and the retry contract.
     This is the test for phases 5 and 7.
 
-44. Read `CLAUDE.md`, `server/docs/coding-style.md` and, for the agent workflow, `agent-work/AGENTS.md`.
+44. Read `CLAUDE.md`, `server/docs/coding-style.md` and `docs/testing.md`.
 
     These are the working rules: commit style, branches, the gates, and how the Go code is expected to look.
-    Most of the code was written by agents following these files, so they explain its habits.
+    They explain the habits you see in the code.
 
 45. Trace one existing feature end to end through git: `git log --oneline 8fa7779^1..8fa7779^2`, then read the
     commit `2868127` ("guard find with a table precondition").
@@ -276,8 +277,8 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     A change that passes the gates proves you can extend the platform, not only read it. Start with something
     that needs no protocol change.
 
-47. Record what you learned as a dated note under `docs/notes/` or `server/docs/notes/` (rules:
-    `agent-work/docs-knowledge/AGENTS.md`).
+47. Record what you learned in the topic doc for that area under `docs/notes/` or `server/docs/notes/` (or a
+    new topic doc, listed in its folder's `README.md`).
 
-    The notes folders are how understanding survives between sessions. Writing a note is also the best check
-    that you understood the thing.
+    The notes folders are how understanding survives between contributors. Writing it down is also the best
+    check that you understood the thing.

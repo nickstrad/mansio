@@ -8,7 +8,7 @@ async function checksum(path: string) {
 }
 
 /**
- * Backups over generations (IR-4b): `/admin/backup?key=` forces a write-back and answers the manifest; the
+ * Backups over generations: `/admin/backup?key=` forces a write-back and answers the manifest; the
  * shutdown writes back what came after; `dbtool restore -gen` brings the backup's generation back (its
  * sha256), without `-gen` the newer one; `dbtool import` makes the restored file a new agent's database,
  * which opens with no schema drift and serves the snapshot.

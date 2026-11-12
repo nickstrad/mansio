@@ -1,17 +1,15 @@
 /**
  * The two SQL dialects this repo generates, and the two primitives that put untrusted names and
- * strings into generated SQL safely (plan item 09).
+ * strings into generated SQL safely.
  *
  * PURE, per the `core/` rule in `docs/adr/0001-effect-port.md`: `effect`, `../errors.ts` and
- * `../schema.ts` only. Nothing in `core/compile/` raises — item 09's acceptance criteria grep this
- * directory for raise sites and expect none — so `quote` returns an `Either` rather than rejecting
+ * `../schema.ts` only. Nothing in `core/compile/` raises, so `quote` returns an `Either` rather than rejecting
  * a bad identifier the way the pre-port compiler (the Deno platform's `compiler.ts`) did. Callers that
- * need the legacy `Error` render it from the tagged error; item 26 deleted the throwing compatibility
- * wrappers.
+ * need a plain `Error` render it from the tagged error; there are no throwing wrappers.
  *
- * Deviation from the plan's suggested layout, which has `quote` "total, no Either needed": `quote`
- * cannot be both total and identifier-checking, and dropping the check is exactly the injection bug
- * this item is meant to make impossible. So `literal` is total and `quote` is an `Either`.
+ * `quote` cannot be both total and identifier-checking, and dropping the check is exactly the
+ * injection bug this module exists to make impossible. So `literal` is total and `quote` is an
+ * `Either`.
  */
 import { Either } from "effect";
 import type { SchemaError } from "../errors.ts";

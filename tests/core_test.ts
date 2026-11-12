@@ -1,10 +1,10 @@
 /**
- * The pure compiler regressions from the original 20 tests (plan item 20): one logical plan through both
+ * The pure compiler regressions from the original 20 tests: one logical plan through both
  * dialects and both storage layouts, typed rejections instead of JS-scan fallbacks, numeric casts in the
  * JSON layout, BIGINT decoding and the DDL's indexes.
  *
  * The storage-dependent originals and the `StorageLive`/`StorageTest` conformance suite ran against the
- * Deno platform's SQLite writer and were removed with it (IR-6); the Go server's conformance is the e2e
+ * Deno platform's SQLite writer and were removed with it (ADR 0013); the Go server's conformance is the e2e
  * suite and `server/`'s own tests.
  */
 import assert from "node:assert/strict";

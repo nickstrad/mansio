@@ -95,7 +95,7 @@ func TestHelperAgentd(t *testing.T) {
 	os.Exit(code)
 }
 
-// RI-06 e2e: SIGTERM with a request that will not finish. The drain is cut at drain_timeout, the databases
+// End to end: SIGTERM with a request that will not finish. The drain is cut at drain_timeout, the databases
 // close with what is left, and the process exits (1, reported) within shutdown_budget.
 func TestSIGTERMMeetsBudget(t *testing.T) {
 	if testing.Short() {

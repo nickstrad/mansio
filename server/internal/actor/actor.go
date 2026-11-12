@@ -14,7 +14,7 @@
 // thread, and the Go scheduler can preempt it: a slow query on one database cannot stall the others.
 //
 // A write with a request id applies at most once per database: the id is claimed in _mansio_requests inside the
-// write's savepoint, and a retry is answered from the record without running (reqid.go, CP-2).
+// write's savepoint, and a retry is answered from the record without running (reqid.go).
 //
 // A closure write (Request.Fn) runs in the same savepoint slot as a SQL write; a closure read runs in one read
 // transaction and cannot write (fn.go).
@@ -70,7 +70,7 @@ type Request struct {
 	// copied values (int64, float64, string, []byte or nil) in Result.Values. A read producing more rows stops
 	// and fails with ErrTooManyRows. 0 = count rows only (Result.Rows, Result.First). Writes ignore it.
 	MaxRows int
-	// RequestID, on a write, makes it apply at most once per database (CP-2): a write whose id this database
+	// RequestID, on a write, makes it apply at most once per database (reqid.go): a write whose id this database
 	// already applied does not run and is answered with the original's Rows and Duplicate set. Ids are scoped
 	// to the database and remembered for Config.RequestTTL. "" = no deduplication. Reads ignore it. A closure
 	// write's record is its Output.Body (version 0x02), answered in Result.Body; SQL writes and closures share
@@ -201,10 +201,10 @@ func (a *Actor) Submit(r *Request) error {
 	}
 }
 
-// Do submits one statement and waits for its result or ctx. ctx's deadline also bounds the work, not only the
-// wait (waiting is not working, Release It T5): it becomes the request's Deadline (still queued then → ErrExpired,
-// never run) and its StmtTimeout (SQLite is interrupted when it passes), so a caller that gives up does not leave
-// the statement running and holding the connection.
+// Do submits one statement and waits for its result or ctx. ctx's deadline also bounds the work, not only the wait
+// (a caller that gave up must not leave work running): it becomes the request's Deadline (still queued then →
+// ErrExpired, never run) and its StmtTimeout (SQLite is interrupted when it passes), so a caller that gives up does
+// not leave the statement running and holding the connection.
 //
 //	post: ctx has a deadline d ⇒ the statement is not running after about d (plus the interrupt latency)
 func (a *Actor) Do(ctx context.Context, sql string, write bool, args ...any) Result {
@@ -253,7 +253,7 @@ func (a *Actor) Commits() uint64 { return a.commits.Load() }
 
 // Snapshot writes a consistent copy of the database to path (which must not exist) with SQLite's online backup
 // API, from one read transaction. In WAL mode with a read pool it runs on a reader, so writes go on meanwhile
-// (CP-8; VACUUM INTO on the writer stalled them for the whole copy). Otherwise (no read pool, or a rollback
+// (VACUUM INTO on the writer stalled them for the whole copy). Otherwise (no read pool, or a rollback
 // journal, where a long reader would block the writer's commit) it runs on the write connection between
 // batches, and writes queued meanwhile wait in the mailbox; none are lost. A ctx deadline bounds it as in Do: the
 // copy checks it between steps. With a read pool it can be shed (ErrMailboxFull) like any read.
@@ -381,7 +381,7 @@ func (a *Actor) process(batch []*Request) {
 	}
 }
 
-// writeBatch runs writes in one transaction, each inside its own savepoint (SQL G-8, psql's ON_ERROR_ROLLBACK).
+// writeBatch runs writes in one transaction, each inside its own savepoint (as psql's ON_ERROR_ROLLBACK does).
 // A write that fails is rolled back to its savepoint, so its error stays its own and its batch-mates commit.
 // A write can also end the whole transaction under us (a statement timeout interrupts it; INSERT OR ROLLBACK,
 // a RAISE(ROLLBACK) trigger, or an I/O error rolls it back): the next ROLLBACK TO or RELEASE then finds no

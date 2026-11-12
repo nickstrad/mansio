@@ -21,7 +21,7 @@ type Config struct {
 	CacheKiB    int           // SQLite page cache per connection; default 256
 	BusyTimeout time.Duration // default 5s
 	StmtCache   int           // prepared statements kept per connection (least recently used evicted); default 64
-	// RequestTTL is how long a database remembers an applied request id (CP-2): a retry within it is answered
+	// RequestTTL is how long a database remembers an applied request id (reqid.go): a retry within it is answered
 	// from the record, a retry after it applies again. Default 24h. It must exceed the longest client retry
 	// window, including a move.
 	RequestTTL time.Duration

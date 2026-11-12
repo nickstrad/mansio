@@ -438,9 +438,8 @@ func TestNewValidates(t *testing.T) {
 	}
 }
 
-// IR-5: POST /v1/ops takes the same pipeline to the same agent path, with the trace and handler headers; the
-// edge's own answers there are in the document protocol's envelope ({"error": {"tag", ...}}), which the SDK
-// reads.
+// POST /v1/ops takes the same pipeline to the same agent path, with the trace and handler headers; the edge's own
+// answers there are in the document protocol's envelope ({"error": {"tag", ...}}), which the SDK reads.
 func TestOpsPathForwardedWithItsEnvelope(t *testing.T) {
 	a := newFakeAgent(t, "a", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

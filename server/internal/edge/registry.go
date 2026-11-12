@@ -32,7 +32,7 @@ type RegistryConfig struct {
 	Clock                  det.Clock // poll cadence, fetch deadlines, breaker time; default det.System()
 }
 
-// MaxRegistryBody bounds GET /v1/agents' answer (Release It B6).
+// MaxRegistryBody bounds GET /v1/agents' answer, so a bad answer cannot exhaust memory.
 const MaxRegistryBody = 4 << 20
 
 // RegistryRoutes is a Resolver that answers from the last VM → endpoint map fetched from controld. Run polls it
@@ -98,8 +98,8 @@ func (r *RegistryRoutes) Len() int {
 	return 0
 }
 
-// Run fetches every Every, or sooner when Agent missed (but never within MinGap of the last fetch), until ctx
-// ends; a fetch never overlaps the next (Release It S1). Failures are counted and logged on the transition only.
+// Run fetches every Every, or sooner when Agent missed (but never within MinGap of the last fetch), until ctx ends; a
+// fetch never overlaps the next. Failures are counted and logged on the transition only.
 func (r *RegistryRoutes) Run(ctx context.Context) {
 	clk := r.cfg.Clock
 	t := clk.NewTicker(r.cfg.Every)

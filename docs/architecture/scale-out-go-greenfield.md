@@ -52,8 +52,8 @@ Hotspots from option 4 §5.1, once the Go agent exists:
   change.
 - The TS SDK: `sdk/client.ts`, `sdk/schema.ts`, and the handler API (`sdk/db.ts`, `sdk/functions.ts`), which
   runs inside the engine.
-- Compiler semantics. Port the pure `core/compile/` (624 lines, SQLite only, see
-  [knowledge entry](../notes/compiler/2026-11-05-sqlite-only-simplification.md)). Check it against
+- Compiler semantics. Port the pure `core/compile/` (624 lines, see
+  [the compiler notes](../notes/compiler/README.md#the-duckdb-dialect)). Check it against
   `core/compile/GENERATED_SQL.txt` byte for byte, and differentially against the TS compiler on fast-check
   plans.
 - Document semantics: `_id`, `_creationTime`, `_version`, `expectedVersion` concurrency, the storage layouts,
@@ -172,8 +172,7 @@ M2's "in-node first" order, carried over.
 Compared on what decides the choice: where handlers run, who owns the data plane (actors, durability, moves),
 and what is left for us to build. The facts about outside products come from memory unless marked. The one
 exception is Durable Objects, from mansio-server's sourced note
-(`../mansio-server/docs/notes/sqlbench/2026-11-04-cloudflare-durable-objects.md`). **Check these before
-deciding.**
+(`../mansio-server/docs/notes/sqlbench/cloudflare-durable-objects.md`). **Check these before deciding.**
 
 | # | Approach                                                                                                                                                                                                                                                                                                                    | Handlers                                                                          | Data plane owned by                                            | We build                                                                   | Main catch                                                                                                                                                                        |
 | - | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

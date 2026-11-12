@@ -268,7 +268,7 @@ func TestCloseAnswersQueuedRequestsAndClosesConnection(t *testing.T) {
 	}
 }
 
-// PG-01: a write that ends the transaction aborts the batch; nothing after it runs, so nothing autocommits.
+// A write that ends the transaction aborts the batch; nothing after it runs, so nothing autocommits.
 func TestWriteThatEndsTheTransactionStopsTheBatch(t *testing.T) {
 	f := &faultExec{EndsTxn: map[string]bool{"w2": true}}
 	res := submitAll(t, fakeActor(t, Config{}, f, nil), write("w1"), write("w2"), write("w3"))

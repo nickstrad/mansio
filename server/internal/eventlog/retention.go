@@ -11,14 +11,13 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Retention: the log rolls files by hour and size, and something must delete them or a busy week fills the
-// volume (Release It S: everything that accumulates has a reaper; Backpressure in Microservices ch. 4 "the
-// queue is not the backlog"). The offline tool (deno task logs:sweep, docs/observability.md) gzips and deletes
-// files once they are ingested, on its own schedule and limits (30 days, 1 GiB); it runs only when an operator
-// runs it and never touches a file it has not ingested. The limits here are the writer's own ceiling behind
-// that: by default looser than the offline ones, so a tree that is being ingested and swept never reaches
-// them, and enforced whether or not anyone ingests. A file deleted here before it was ingested is telemetry
-// lost; it is counted (Stats.Retired) and logged.
+// Retention: the log rolls files by hour and size, and something must delete them or a busy week fills the volume:
+// everything that accumulates needs a reaper. The offline tool (deno task logs:sweep, docs/observability.md) gzips
+// and deletes files once they are ingested, on its own schedule and limits (30 days, 1 GiB); it runs only when an
+// operator runs it and never touches a file it has not ingested. The limits here are the writer's own ceiling behind
+// that: by default looser than the offline ones, so a tree that is being ingested and swept never reaches them, and
+// enforced whether or not anyone ingests. A file deleted here before it was ingested is telemetry lost; it is counted
+// (Stats.Retired) and logged.
 
 // Retention defaults: looser than the offline sweep's (LOG_MAX_TOTAL_BYTES 1 GiB, LOG_RETENTION_DAYS 30).
 const (

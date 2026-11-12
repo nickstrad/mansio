@@ -16,13 +16,13 @@ import (
 
 // The cluster checker. Per database it keeps:
 //
-//   - the marks (one per mutation's request id: pending, none, maybe, acked, lost, as DST-1's model) and checks
-//     every published generation (the log table): no mark twice (nothing applied twice), none unknown, none
-//     of a write every answer said did nothing, none of a write whose final answer was a definite failure;
-//     each generation extends the one before; generations and epochs only rise;
+//   - the marks (one per mutation's request id: pending, none, maybe, acked, lost, as the single-node model)
+//     and checks every published generation (the log table): no mark twice (nothing applied twice), none
+//     unknown, none of a write every answer said did nothing, none of a write whose final answer was a
+//     definite failure; each generation extends the one before; generations and epochs only rise;
 //   - restores: whenever an owner starts serving the database (a claim after a move or restore, a reopen
 //     after a restart: the owner table's transition to Active), the generation it starts from must hold
-//     every acknowledged write, except, after a kill -9 of the owner, writes inside the RPO (DST-1's rule:
+//     every acknowledged write, except, after a kill -9 of the owner, writes inside the RPO (the single-node rule:
 //     a loss is a violation iff a fault-free stretch at least RPO long fits between its acknowledgement and the
 //     crash, or it was acknowledged before a write-back or fence that published). A graceful move never loses
 //     a write;
@@ -30,7 +30,7 @@ import (
 //     in commit order (at most one owner serves writes per database per epoch); every owner table's epoch for
 //     a key only rises;
 //   - the client-side history of registers and the bank, checked at the end with internal/linearize, split at
-//     the crashes of the database's owner (the IR-5a Jepsen rules: per segment linearizable; a later segment
+//     the crashes of the database's owner (the Jepsen-style rules: per segment linearizable; a later segment
 //     starts from the setup state or a value written before the crash), and bank conservation on every read.
 
 type cmark struct {
@@ -458,7 +458,7 @@ func (m *cmodel) final() {
 	}
 }
 
-// --- Linearizability (the IR-5a Jepsen models) ------------------------------------------------------------------
+// --- Linearizability (the Jepsen-style models) ------------------------------------------------------------------
 
 type regIn struct {
 	key   int
@@ -744,7 +744,7 @@ func unapplied[I, O any](ops []linearize.Op[I, O], start map[string]int, rid fun
 	})
 }
 
-// segments splits a history at the crash times (the IR-5a Jepsen run's rule): an operation called and answered
+// segments splits a history at the crash times (the Jepsen-style rule): an operation called and answered
 // between the same two crashes belongs to that segment; one in flight across a crash, or never answered: a read
 // is left out, a write goes, with an unknown outcome, to every segment its interval reaches.
 func segments[I, O any](ops []linearize.Op[I, O], crashes []int64, write func(I) bool) [][]linearize.Op[I, O] {

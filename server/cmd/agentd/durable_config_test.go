@@ -94,7 +94,7 @@ func TestDurableConfig(t *testing.T) {
 	}
 }
 
-// OS-11 (object-storage guide S2): durable mode over plain-HTTP S3 is refused without -dev, at startup with
+// Durable mode over plain-HTTP S3 is refused without -dev, at startup with
 // exit 1 and a message saying what to do; -dev, s3.secure and static mode are accepted.
 func TestPlainHTTPS3NeedsDev(t *testing.T) {
 	for _, tc := range []struct {

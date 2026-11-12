@@ -13,7 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// ShutdownReport says what a bounded shutdown did (Release It H3).
+// ShutdownReport says what a bounded shutdown did: shutdown has one time budget for everything.
 type ShutdownReport struct {
 	WrittenBack int // dirty databases published before the budget ended
 	Dropped     int // databases closed and deleted: clean ones, and the written-back ones

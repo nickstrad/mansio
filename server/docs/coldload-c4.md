@@ -3,13 +3,14 @@
 These are C4 views of the coldload work as built: it takes SQLite files stored in SeaweedFS, turns them into
 ready virtual actors, and measures how long that takes. See
 [STATE-coldload.md](../../agent-work/server/state_files/STATE-coldload.md) (archived) and
-[docs/notes/coldload/](notes/coldload/README.md). Running actors under request load belongs to
-sqlbench ([architecture-c4.md](architecture-c4.md)). Sources are in `diagrams/coldload-c4-*.mmd`;
-regenerate them with the draw-visual skill's `render.py --update`.
+[docs/notes/coldload/](notes/coldload/README.md). Running actors under request load belongs to sqlbench
+([architecture-c4.md](architecture-c4.md)). Sources are in `diagrams/coldload-c4-*.mmd`; regenerate them with
+the draw-visual skill's `render.py --update`.
 
 ## Level 1: System context
 
 <!-- draw-visual: diagrams/coldload-c4-1-context.mmd -->
+
 ```text
 ┌────────────┐
 │  Engineer  │
@@ -42,7 +43,8 @@ regenerate them with the draw-visual skill's `render.py --update`.
 ```
 
 1. The engineer runs `make coldload-bench CONFIG=sizes` (or `scripts/coldload/run.sh`, or `bin/coldload`).
-2. `seed` uploads copies of a template SQLite file per size class. `run` downloads them again (S3 API, SeaweedFS in Docker).
+2. `seed` uploads copies of a template SQLite file per size class. `run` downloads them again (S3 API,
+   SeaweedFS in Docker).
 3. Each run writes CSV files and a JSON log.
 4. The DuckDB CLI reads the CSVs offline.
 5. `scripts/coldload/report.sh` prints the report.
@@ -50,6 +52,7 @@ regenerate them with the draw-visual skill's `render.py --update`.
 ## Level 2: Containers
 
 <!-- draw-visual: diagrams/coldload-c4-2-container.mmd -->
+
 ```text
 ┌────────────────┐
 │scripts/coldload│
@@ -76,8 +79,10 @@ regenerate them with the draw-visual skill's `render.py --update`.
 ```
 
 1. `run.sh` starts SeaweedFS if needed, takes the shared bench lock `results/.bench-lock`, and refuses to seed
-   with less than 20 GB free on the host or less than 12 GB in the Docker VM. It runs `cleanup.sh local` on every exit.
-2. `coldload-seaweedfs` container: S3 on `:8333` with the data in the `seaweed-data` volume. `cleanup.sh all` removes it.
+   with less than 20 GB free on the host or less than 12 GB in the Docker VM. It runs `cleanup.sh local` on
+   every exit.
+2. `coldload-seaweedfs` container: S3 on `:8333` with the data in the `seaweed-data` volume. `cleanup.sh all`
+   removes it.
 3. Local cache dir (default `<out_dir>/cache`): fetched `.sqlite` copies. The host empties it on start and
    removes it on Close.
 4. `results/coldload/<run>/` holds `activations.csv`, `levels.csv`, `run.json` and `coldload.log`.
@@ -86,6 +91,7 @@ regenerate them with the draw-visual skill's `render.py --update`.
 ## Level 3: Components (inside the coldload process)
 
 <!-- draw-visual: diagrams/coldload-c4-3-component.mmd -->
+
 ```text
 ┌────────────┐
 │cmd/bench/coldload│
@@ -122,22 +128,24 @@ regenerate them with the draw-visual skill's `render.py --update`.
 └────────────┘    └───────────┘
 ```
 
-1. `cmd/bench/coldload` (`realMain` and its reporter, `seed`, `run`) uses the `internal/coldload` domain package (no I/O). That
-   package holds `Config.Normalize`, the `Levels` plan, `RunLevel` and the CSV rows.
+1. `cmd/bench/coldload` (`realMain` and its reporter, `seed`, `run`) uses the `internal/coldload` domain
+   package (no I/O). That package holds `Config.Normalize`, the `Levels` plan, `RunLevel` and the CSV rows.
 2. `recorder` is an async CSV writer for `activations.csv`. It drops and counts rows instead of blocking.
-3. `RunLevel` calls the host through its `Getter` port. `vactor.Host` provides `Get` and `Passivate` and
-   uses singleflight, so concurrent requests for one key share a single activation.
-4. The `Fetcher` port is implemented by `s3Fetcher`. The `s3Fetcher` and `actorOpener` adapters live in `cmd/bench/coldload`.
+3. `RunLevel` calls the host through its `Getter` port. `vactor.Host` provides `Get` and `Passivate` and uses
+   singleflight, so concurrent requests for one key share a single activation.
+4. The `Fetcher` port is implemented by `s3Fetcher`. The `s3Fetcher` and `actorOpener` adapters live in
+   `cmd/bench/coldload`.
 5. The `Opener` port is implemented by `actorOpener`.
 6. `internal/objstore` is the S3 client (minio-go, one GET per fetch) and talks to SeaweedFS.
 7. `internal/actor` (owned by sqlbench) runs one goroutine per database on the SQLite file.
 
-The shared packages `internal/errs`, `internal/logx` and `internal/assert` are used throughout and are not drawn.
-Tests swap the ports for fakes in `internal/vactor/vactortest`.
+The shared packages `internal/errs`, `internal/logx` and `internal/assert` are used throughout and are not
+drawn. Tests swap the ports for fakes in `internal/vactor/vactortest`.
 
 ## Level 4: One activation
 
 <!-- draw-visual: diagrams/coldload-c4-4-activation.mmd -->
+
 ```text
 ┌─────────┐     ┌─────────┐     ┌──────┐     ┌────┐     ┌───────┐
 │ worker1 │     │ worker2 │     │ Host │     │ S3 │     │ actor │

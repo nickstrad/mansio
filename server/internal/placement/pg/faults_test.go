@@ -11,8 +11,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner"
 )
 
-// Failures below the interface (Release It H4): a held row lock, a black hole, a half-open connection, a
-// refused connection. None may hang past its timeout or look like an answer (ErrConflict, ErrNotFound).
+// Failures below the interface: a held row lock, a black hole, a half-open connection, a refused connection. None may
+// hang past its timeout or look like an answer (ErrConflict, ErrNotFound).
 
 const slack = 750 * time.Millisecond // scheduling and connection teardown under -race
 
@@ -121,8 +121,8 @@ func TestHalfOpenRecyclesTheStaleConnection(t *testing.T) {
 	wantUnavailable(t, "Get on a half-open connection", err, took, p.cfg.CallTimeout+slack)
 }
 
-// The breaker counts only system failures (Release It C2): answers keep it closed; refused connections open
-// it; open, it fails fast with a retry hint and sends nothing; a caller that gave up is ignored.
+// The breaker counts only system failures: answers keep it closed; refused connections open it; open, it fails fast
+// with a retry hint and sends nothing; a caller that gave up is ignored.
 func TestBreakerOpensOnSystemFailuresOnly(t *testing.T) {
 	_, schema := newPlacement(t, nil)
 	now := time.Unix(1_000_000, 0)

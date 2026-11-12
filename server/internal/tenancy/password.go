@@ -17,7 +17,7 @@ import (
 // Password hashes are Better Auth 1.7's (better-auth/crypto hashPassword, verified against a real hash in
 // password_test.go): "<salt>:<key>", where salt is 16 random bytes in lowercase hex and key is
 // scrypt(NFKC(password), salt's hex TEXT as the salt bytes, N=16384, r=16, p=1, 64 bytes) in lowercase hex.
-// So accounts migrated from Better Auth sign in with their passwords unchanged (replace-platform plan D5).
+// So accounts migrated from Better Auth sign in with their passwords unchanged.
 const (
 	scryptN, scryptR, scryptP, scryptKeyLen = 16384, 16, 1, 64
 	saltLen                                 = 16

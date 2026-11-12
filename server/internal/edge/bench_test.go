@@ -9,7 +9,7 @@ import (
 )
 
 // The ticket filter's per-request costs: a cache hit, a full verify (miss), garbage refused at parse, and a
-// limiter charge. Numbers: docs/notes/front/2026-11-05-edge.md.
+// limiter charge. Numbers: docs/notes/front/edge.md.
 func BenchmarkTicketFilter(b *testing.B) {
 	is := newIssuer(b)
 	tok := is.mint(b, "vm-a", "db-1", t0, time.Minute)

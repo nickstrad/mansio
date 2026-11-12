@@ -12,7 +12,7 @@ import (
 )
 
 // import-mansio copies the Deno platform's tenancy (tenants, API keys, Better Auth users, passwords, unexpired
-// sessions, memberships) into controld's Postgres schema (replace-platform plan §4.3; IR-4a, ADR 0012):
+// sessions, memberships) into controld's Postgres schema (ADR 0012):
 //
 //	controld import-mansio -secrets FILE [-schema S] [-from-schema public] [-from-dsn-env NAME] [-dry-run]
 //

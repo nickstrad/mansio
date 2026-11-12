@@ -1,8 +1,7 @@
-// Package agenthttp is the control plane's client for one agent's lifecycle endpoints (cmd/agentd
-// control.go): Claim, Fence, Forget and Health over HTTP with the control token. An adapter: it translates
-// the wire codes to owner's sentinels, bounds every call by a deadline and guards each agent with its own
-// circuit breaker (Release It T1, C1). It never retries: the lifecycle controller's resumer is the one
-// retry layer (Release It R1).
+// Package agenthttp is the control plane's client for one agent's lifecycle endpoints (cmd/agentd control.go): Claim,
+// Fence, Forget and Health over HTTP with the control token. An adapter: it translates the wire codes to owner's
+// sentinels, bounds every call by a deadline and guards each agent with its own circuit breaker. It never retries:
+// the lifecycle controller's resumer is the one retry layer.
 //
 // Errors are wrapped for module "agenthttp". An agent's answer maps to owner.ErrWrongOwner, ErrMoving,
 // ErrFenced, ErrIllegal or ErrInvalid; anything that says nothing about the key (transport errors, a
@@ -51,7 +50,8 @@ type Config struct {
 	// Timeout bounds each call (and is sent as X-Timeout-Ms so the agent stops when we do). Default 30 s:
 	// a fence may write a database back to S3.
 	Timeout time.Duration
-	// Breaker is this agent's breaker (zero value: RI §P defaults). Set OnChange to log transitions.
+	// Breaker is this agent's breaker (zero value: the breaker package's defaults). Set OnChange to log
+	// transitions.
 	Breaker breaker.Config
 	// HTTP is the shared client (one per process; its transport pools connections). Default: a client
 	// with dial and header timeouts.

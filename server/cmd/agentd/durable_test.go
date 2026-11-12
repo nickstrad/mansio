@@ -48,7 +48,7 @@ func newDurableRig(t *testing.T, extra string) *durableRig {
 	r := &durableRig{dir: t.TempDir(), bucket: "bkt", prefix: "agentd-" + strconv.FormatInt(time.Now().UnixNano(), 36) + "/"}
 	endpoint, access, secret := "", "a", "b"
 	if ep := os.Getenv("AGENTD_REAL_S3"); ep != "" { // set by s3Rig for the gated runs
-		// The agent runs with the scoped agent identity (deploy/seaweedfs/s3.json, OS-11: no LIST, no bucket
+		// The agent runs with the scoped agent identity (deploy/seaweedfs/s3.json: no LIST, no bucket
 		// creation); the admin identity makes sure the bucket exists and cleans the prefix up (a LIST).
 		endpoint, access, secret, r.bucket = ep, "agent", "agent-secret-dev", "coldload"
 		admin, err := objstore.New(objstore.Config{Endpoint: ep, AccessKey: "coldload", SecretKey: "coldload-secret", Bucket: r.bucket})
@@ -379,11 +379,11 @@ func TestDurableLifecycleEndpoints(t *testing.T) {
 		}
 	}
 	if log := r.log(); strings.Contains(log, "Access Denied") || strings.Contains(log, "AccessDenied") || strings.Contains(log, "S3.BUCKET_CHECK_FAILED") {
-		t.Errorf("the agent needed more than its scoped identity allows:\n%s", log) // OS-11, against a real S3
+		t.Errorf("the agent needed more than its scoped identity allows:\n%s", log) // against a real S3
 	}
 }
 
-// CP-1 gate, RI-07: after a restart every key is refused unavailable until its own reconcile finishes, the
+// After a restart every key is refused unavailable until its own reconcile finishes, the
 // first key serves before the last one is reconciled, and every write that was written back is there.
 func TestRestartServesKeysAsTheyReconcile(t *testing.T) {
 	const keys = 12
@@ -441,7 +441,7 @@ func TestRestartServesKeysAsTheyReconcile(t *testing.T) {
 	}
 }
 
-// CP-1 gate, Release It H4 at the agent: with S3 refusing or black-holed, cold activations answer unavailable
+// S3 faults at the agent: with S3 refusing or black-holed, cold activations answer unavailable
 // with Retry-After, a warm key keeps serving reads and writes, /readyz stays 200, the S3 breaker opens and
 // /metrics shows it; then requests fail fast without reaching S3, and after a heal and a cool-down the cold
 // keys activate.
@@ -516,7 +516,7 @@ func TestS3OutageAtTheAgent(t *testing.T) {
 	}
 }
 
-// CP-1 gate, H4 "applied, reply lost" on a publish: the fence's generation upload and manifest publish both
+// "Applied, reply lost" on a publish: the fence's generation upload and manifest publish both
 // apply and lose their replies; each is resolved by a re-read, so the fence acknowledges, not misreports.
 func TestFenceWithLostPublishReplies(t *testing.T) {
 	r := newDurableRig(t, "")
@@ -542,7 +542,7 @@ func TestFenceWithLostPublishReplies(t *testing.T) {
 	}
 }
 
-// CP-1 gate: SIGTERM with dirty keys. With S3 healthy the shutdown writes every key back within
+// SIGTERM with dirty keys. With S3 healthy the shutdown writes every key back within
 // shutdown_budget (exit 0) and a restart reads the writes back; with S3 black-holed it gives up at the budget,
 // keeps the copies locally and says so (exit 1).
 func TestSIGTERMWithDirtyKeys(t *testing.T) {
@@ -599,8 +599,8 @@ func TestSIGTERMWithDirtyKeys(t *testing.T) {
 	}
 }
 
-// CP-1 gate, the e2e: claim → write over HTTP → passivate → kill -9 → restart → reconcile → read back. Every
-// acknowledged write that was written back is present. Then the VM is declared dead (M5) while down: the
+// The end-to-end run: claim → write over HTTP → passivate → kill -9 → restart → reconcile → read back. Every
+// acknowledged write that was written back is present. Then the VM is declared dead by an operator while down: the
 // operator moves the placement row to a new epoch; the restarted agent fences the old epoch (superseded),
 // a claim at the new epoch serves the same data, and the old epoch gets wrong_owner.
 func TestKill9RestartReconcile(t *testing.T) {
@@ -611,7 +611,7 @@ func TestKill9RestartReconcile(t *testing.T) {
 	a := r.startProcess(t)
 	a.claim(t, "db-1")
 	writeRows(t, a, "db-1", 1, 0, 10)
-	const retried = "retried-after-restart" // CP-2's HTTP gate: the same id after a restart applies once
+	const retried = "retried-after-restart" // request ids over HTTP: the same id after a restart applies once
 	if ans := a.queryID(t, "db-1", 1, retried, front.KindWrite, fronttest.PutSQL, 100, "once").must(t); ans.Duplicate {
 		t.Fatal("first attempt answered duplicate")
 	}
@@ -636,7 +636,7 @@ func TestKill9RestartReconcile(t *testing.T) {
 	writeRows(t, b, "db-1", 1, 10, 15) // acknowledged but never written back (idle_after has not passed)
 	b.kill()
 
-	// M5: the operator attests the VM is dead and moves the row to epoch 2 (same VM: a restore in place).
+	// The operator attests the VM is dead and moves the row to epoch 2 (same VM: a restore in place).
 	pl, err := file.Open(filepath.Join(r.dir, "placement"))
 	if err != nil {
 		t.Fatal(err)

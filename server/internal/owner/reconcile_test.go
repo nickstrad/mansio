@@ -31,7 +31,7 @@ func restarted(t *testing.T, n int) (*world, []string) {
 	return w, keys
 }
 
-// RI-07: one slow authority row does not hold the others. Reconciled keys admit while the slow one is still
+// One slow authority row does not hold the others. Reconciled keys admit while the slow one is still
 // pending (ErrUnavailable), and the round ends at the per-key timeout, not when the slow row answers.
 func TestServesReconciledKeysWhileOthersPending(t *testing.T) {
 	w, keys := restarted(t, 20)
@@ -199,7 +199,7 @@ func TestOnChangeSeesTransitions(t *testing.T) {
 	}
 }
 
-// DST-0: on a simulated clock and a seeded Rand the backoff between rounds is exact and the same every run;
+// On a simulated clock and a seeded Rand the backoff between rounds is exact and the same every run;
 // time moves only when the test advances it.
 func TestReconcileUntilDoneOnSimulatedClock(t *testing.T) {
 	run := func() []time.Duration {
@@ -257,10 +257,10 @@ func TestReconcileUntilDoneOnSimulatedClock(t *testing.T) {
 	}
 }
 
-// A publish the crashed incarnation still had in flight (conditional on the manifest version it read) lands
-// after the restart (DST-1 zombie publishes, S3 completing a killed process's PUT). Reconcile's reopen stamps
-// the manifest at the same epoch, a new version, so the zombie fails and the restarted owner's next publish
-// is not refused as another writer's. The epoch does not move: no placement write, tickets stay valid.
+// A publish the crashed incarnation still had in flight (conditional on the manifest version it read) lands after the
+// restart (a zombie publish the cluster simulation found: S3 completing a killed process's PUT). Reconcile's reopen
+// stamps the manifest at the same epoch, a new version, so the zombie fails and the restarted owner's next publish is
+// not refused as another writer's. The epoch does not move: no placement write, tickets stay valid.
 func TestReopenStampFencesTheCrashedIncarnationsInFlightPublish(t *testing.T) {
 	w := newWorld(t, "a")
 	w.place("k", "a")

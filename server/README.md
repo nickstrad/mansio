@@ -57,7 +57,7 @@ make help                      # benchmark, simulator and soak targets
 
 The end-to-end suite that drives these binaries through the SDK is in `../tests/e2e/platform/`
 (`../scripts/dev/e2e-linux.sh`). Tests that need Postgres or an S3 store are skipped unless their environment
-variables are set; [docs/notes/backpressure/2026-11-10-running-the-gated-suites.md](docs/notes/backpressure/2026-11-10-running-the-gated-suites.md)
+variables are set; [docs/notes/testing/gated-suites.md](docs/notes/testing/gated-suites.md)
 says how to run them.
 
 ## Other folders
@@ -68,4 +68,4 @@ says how to run them.
 | `deploy/`  | Compose files for Postgres and SeaweedFS, and the Prometheus alert rules.                         |
 | `scripts/` | Benchmark, soak and simulator drivers.                                                            |
 | `queries/` | DuckDB SQL for reading benchmark results.                                                         |
-| `docs/`    | [Coding style](docs/coding-style.md), how mansio uses [object storage](docs/object-storage.md) and [Postgres](docs/postgres.md), the [capacity table](docs/capacity.md), the control-plane plan, C4 notes, and dated design [notes](docs/notes/index.md). |
+| `docs/`    | [Coding style](docs/coding-style.md), how mansio uses [object storage](docs/object-storage.md) and [Postgres](docs/postgres.md), the [capacity table](docs/capacity.md), the control-plane plan, C4 notes, and the design [notes](docs/notes/README.md). |

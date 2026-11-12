@@ -13,8 +13,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Generation GC (object-storage guide GC1–GC6, plan OS-06). Two reapers keep a key's storage near
-// (K+1) × its size:
+// Generation GC. Two reapers keep a key's storage near (K+1) × its size:
 //
 //   - Owner-side retention (PlanRetention): right after a publish, under the same serialization, the owner
 //     deletes the published generations more than K publishes old. Computed names, no LIST.
@@ -52,9 +51,9 @@ func (l Listing) Bytes() int64 {
 	return n
 }
 
-// Lister is the inventory port, for the sweeper and cmd/dbtool only: LIST never runs on a request path
-// (guide K2), and an agent's credential need not allow it (guide S1). Implementations: durabletest.Store,
-// objstore.Durable.
+// Lister is the inventory port, for the sweeper and cmd/dbtool only: LIST never runs on a request path (keys are
+// computed, never listed, on that path), and an agent's credential need not allow it (each component gets only the
+// storage actions it needs). Implementations: durabletest.Store, objstore.Durable.
 type Lister interface {
 	// ListKey lists everything under KeyPrefix(key), page by page.
 	//
@@ -139,10 +138,10 @@ func (p GCPolicy) keep() int { return max(p.Keep, 0) }
 // comparable to the store's LastModified). An object is deleted only if all of these hold:
 //
 //   - it is a generation object of m.Key (anything else under gen/ is kept: GC4);
-//   - it is not m.Object, and not among the p.Keep highest-numbered generations below m.Generation (GC1);
+//   - it is not m.Object, and not among the p.Keep highest-numbered generations below m.Generation;
 //   - o.Modified + p.Grace < mod: the manifest was rewritten after the upload, so every publish that could
-//     name o was conditional on a version that is gone and can never return (GC3, W3);
-//   - now − o.Modified > p.Grace (GC3: bounds a delayed request).
+//     name o was conditional on a version that is gone and can never return;
+//   - now − o.Modified > p.Grace (bounds a delayed request).
 //
 // Orphans numbered above m.Generation (an upload whose publish failed) are deleted by the same rules.
 //

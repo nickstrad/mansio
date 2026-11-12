@@ -75,7 +75,7 @@ func TestActorOpenerServesQueries(t *testing.T) {
 	}
 }
 
-// PG-07: the template is built at its own path even when the directory name holds URI characters.
+// The template is built at its own path even when the directory name holds URI characters.
 func TestBuildTemplateInADirectoryWithURICharacters(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "a#b?c")
 	path, _, err := buildTemplate(dir, coldload.SizeClass{Name: "small", Bytes: 16 << 10})

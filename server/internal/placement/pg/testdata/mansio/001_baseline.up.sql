@@ -1,4 +1,4 @@
--- Central multitenancy schema (MT-01). Idempotent: safe to re-apply. Applied by `make db-migrate`.
+-- Central multitenancy schema. Idempotent: safe to re-apply. Applied by `make db-migrate`.
 
 CREATE TABLE IF NOT EXISTS tenants (
   id         uuid PRIMARY KEY,

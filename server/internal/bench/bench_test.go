@@ -392,8 +392,8 @@ func TestRetryDecidedAsTheRunStopsIsNotWaitedOut(t *testing.T) {
 	}
 }
 
-// PG-05: a generated database enforces its foreign key and its column types. A violation is the statement's own
-// error (outcome "error", not "aborted"), and its batch-mates still commit (relies on PG-01's savepoints).
+// A generated database enforces its foreign key and its column types. A violation is the statement's own error
+// (outcome "error", not "aborted"), and its batch-mates still commit (relies on the actor's per-write savepoints).
 func TestGeneratedDatabaseEnforcesForeignKeysAndTypes(t *testing.T) {
 	s := &schema.Schema{Tables: []schema.Table{
 		{Name: "a", Parent: -1, SeedRows: 2, Columns: []schema.Column{{Name: "x", Type: schema.Integer, Cardinality: 5}}},

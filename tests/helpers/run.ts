@@ -1,5 +1,5 @@
 /**
- * The Effect test runner (plan item 20): tests are effects, `node:test` still runs them.
+ * The Effect test runner: tests are effects, `node:test` still runs them.
  *
  * `runTest(name, effect)` registers a `node:test` case that provides `TestLayer` (every in-memory
  * double plus `TestClock`) and a `Scope`, runs the effect with `Effect.runPromiseExit`, and turns a

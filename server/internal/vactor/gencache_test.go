@@ -7,7 +7,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// OS-10: a re-warm of an idle database whose manifest has not moved is a local hit (1 manifest GET, no
+// A re-warm of an idle database whose manifest has not moved is a local hit (1 manifest GET, no
 // download), after a dirty passivation (the uploaded file is cached under its hash) and after a clean one.
 func TestGenCacheRewarm(t *testing.T) {
 	r := newDurable(t, func(o *vactor.Options) { o.GenCacheBytes = 1 << 20 })

@@ -22,7 +22,7 @@ const (
 	Aborted            // rolled back because another write in its batch timed out
 	Closed             // the database was closed
 	Error              // any other SQLite or driver error
-	Unavailable        // a dependency (storage, placement) was down; nothing ran (wire code "unavailable", RI-10)
+	Unavailable        // a dependency (storage, placement) was down; nothing ran (wire code "unavailable")
 	numCodes
 )
 

@@ -11,8 +11,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/errs"
 )
 
-// Listing and deleting (Release It B: bound every listing; object-storage guide K2, GC5). LIST is never on
-// a request path: GC, cmd/dbtool and benchmark setup only.
+// Listing and deleting: every listing is paged and bounded, and deletes go in batches. LIST is never on a request
+// path: GC, cmd/dbtool and benchmark setup only.
 
 // maxPage is S3's largest listing page and largest batch delete.
 const maxPage = 1000

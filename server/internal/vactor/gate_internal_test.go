@@ -124,7 +124,7 @@ func TestFetchGateIsFIFO(t *testing.T) {
 	}
 }
 
-// RI-16: lowering the count limit lets the running fetches finish and holds new ones until fewer than the new
+// Lowering the count limit lets the running fetches finish and holds new ones until fewer than the new
 // limit run (on point: n == limit still waits); raising it grants a waiter at once.
 func TestFetchGateSetMaxN(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())

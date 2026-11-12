@@ -177,7 +177,7 @@ func TestShippedConfigsParse(t *testing.T) {
 	}
 }
 
-// B8: controld's resolve answers are the caller contract's rows (front.Contract, docs/retry-contract.md):
+// controld's resolve answers are the caller contract's rows (front.Contract, docs/retry-contract.md):
 // each code's status, and Retry-After exactly on the answers the contract says carry it.
 func TestResolveAnswersMatchTheContract(t *testing.T) {
 	cause := map[string][]error{

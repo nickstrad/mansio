@@ -66,7 +66,7 @@ func queryDB(t *testing.T, addr, db string) (*http.Response, front.Response) {
 	return res, out
 }
 
-// RI-07 at the agent: a database that will not open does not stop the others from being served, its requests
+// Startup at the agent: a database that will not open does not stop the others from being served, its requests
 // are refused unavailable (503 + Retry-After, never internal), and the agent turns ready once every database
 // was tried; /livez and /readyz live on the lifecycle listener only.
 func TestServesOpenDatabasesWhileOthersFail(t *testing.T) {
@@ -121,7 +121,7 @@ func TestLifecycleOnQueryListenerWhenAlone(t *testing.T) {
 }
 
 // Lifecycle config bounds: the drain is part of the shutdown (drain_timeout <= shutdown_budget), and a probe
-// ends before the next starts (ready_timeout < ready_interval; Release It T4).
+// ends before the next starts (ready_timeout < ready_interval: an inner deadline is shorter than the outer one).
 func TestLifecycleConfigBounds(t *testing.T) {
 	for _, tc := range []struct {
 		fields string

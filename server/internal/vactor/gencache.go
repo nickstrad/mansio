@@ -11,10 +11,10 @@ import (
 	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
-// genCache is the local generation cache (object-storage guide CA1, plan OS-10): generation files kept on
-// local disk after a passivation, named by content, <dir>/<sha256>.db, within a byte budget (least recently
-// cached goes first). A generation is immutable, so a cached file is never stale: it is used only when the
-// manifest an activation just read names exactly that sha256 and size; anything else is a miss.
+// genCache is the local generation cache: generation files kept on local disk after a passivation, named by content,
+// <dir>/<sha256>.db, within a byte budget (least recently cached goes first). A generation is immutable, so a cached
+// file is never stale: it is used only when the manifest an activation just read names exactly that sha256 and size;
+// anything else is a miss.
 //
 // A file moves in and out: put renames a passivated database file in, take renames it out to the key's local
 // path (SQLite will write to it, so it cannot stay shared). Renames stay within the cache directory's file

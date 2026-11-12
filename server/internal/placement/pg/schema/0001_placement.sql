@@ -1,8 +1,8 @@
 -- 0001_placement.sql — the placement authority (owner.Placement). Applied once by Migrate, or by hand with
 -- psql -X -v ON_ERROR_STOP=1 -f 0001_placement.sql. Never edit after it is applied; add 0002_*.sql.
 -- Safety rests on: one CAS per change, epochs never decrease, owner changes only with an epoch increase
--- (docs/notes/fencing/2026-11-05-safety-argument.md, step 1). The schema enforces all three, whichever code
--- path writes (SQL G-12).
+-- (docs/notes/fencing/safety-argument.md, step 1). The schema enforces all three, whichever code
+-- path writes.
 begin;
 
 create domain database_key as text collate "C"
@@ -17,7 +17,7 @@ create table vms (
   endpoint         text not null,
   registered       timestamptz not null default now(),
   heartbeat        timestamptz not null default now(),   -- updated often: not indexed, so updates stay HOT
-  dead_attested_at timestamptz,                          -- operator attests VM loss (M5); null = alive
+  dead_attested_at timestamptz,                          -- operator attests VM loss; null = alive
   dead_attested_by text,
   constraint vms_dead_attested_pair check ((dead_attested_at is null) = (dead_attested_by is null))
 ) with (fillfactor = 70);
@@ -47,7 +47,7 @@ create table moves (
   primary key (database_id, from_epoch),
   constraint moves_distinct_vms check (from_vm <> to_vm)
 );
--- The primary key covers database_id; index the other referencing columns (SQL G-12).
+-- The primary key covers database_id; index the other referencing columns.
 create index moves_from_vm on moves (from_vm);
 create index moves_to_vm on moves (to_vm);
 

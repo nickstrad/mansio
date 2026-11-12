@@ -3,7 +3,8 @@
 //
 //   - MemStore: LocalStore in memory (the "disk" survives a simulated process restart).
 //   - Placement: the authority, with Down, Delay, Stale and LoseReply switches.
-//   - Objects: object storage implementing contract 1 exactly (conditional manifest publish, ErrStale).
+//   - Objects: object storage implementing the durable.Store contract exactly (conditional manifest publish,
+//     ErrStale).
 //   - Disk + WriteBack: one process's local database copies and its write-back into Objects.
 package ownertest
 
@@ -214,7 +215,7 @@ func (p *Placement) CAS(ctx context.Context, key string, expect, next owner.Plac
 	return nil
 }
 
-// manifest is one stored manifest (contract 1's generation and epoch) plus a version that stands in for the
+// manifest is one stored manifest (its generation and epoch) plus a version that stands in for the
 // S3 ETag. Generation contents (lists of write ids) live in Objects.gens.
 type manifest struct {
 	gen     owner.Generation
@@ -222,9 +223,9 @@ type manifest struct {
 	version uint64 // bumps on every successful publish or stamp: "changed since read"
 }
 
-// Objects is object storage implementing contract 1 exactly: immutable generations, a manifest per key, and
-// conditional publish that fails with owner.ErrStale if the manifest changed since it was read or its epoch is
-// greater than the caller's. Down fails every call with ErrDown.
+// Objects is object storage implementing the durable.Store contract exactly: immutable generations, a manifest per
+// key, and conditional publish that fails with owner.ErrStale if the manifest changed since it was read or its epoch
+// is greater than the caller's. Down fails every call with ErrDown.
 type Objects struct {
 	mu        sync.Mutex
 	manifests map[string]manifest
@@ -243,7 +244,7 @@ func NewObjects() *Objects {
 func (o *Objects) SetDown(v bool) { o.mu.Lock(); o.down = v; o.mu.Unlock() }
 
 // LoseNextReply makes the next successful Publish apply and then report ErrStale: what a re-send of a
-// conditional PUT whose reply was lost gets (object-storage plan G2, OS-02).
+// conditional PUT whose reply was lost gets.
 func (o *Objects) LoseNextReply() { o.mu.Lock(); o.lostReply = true; o.mu.Unlock() }
 
 // PublishCount is the number of successful publishes that changed a generation.
@@ -310,8 +311,8 @@ func (o *Objects) Publish(key string, readVersion uint64, gen owner.Generation, 
 	return nil
 }
 
-// publishResolved is Publish followed, on failure, by the re-read a real WriteBack does (guide R3): if the
-// stored manifest is the one we asked for, the publish applied.
+// publishResolved is Publish followed, on failure, by the re-read a real WriteBack does after an ambiguous write: if
+// the stored manifest is the one we asked for, the publish applied.
 func (o *Objects) publishResolved(key string, readVersion uint64, gen owner.Generation, epoch owner.Epoch) error {
 	err := o.Publish(key, readVersion, gen, epoch)
 	if err == nil {
@@ -350,9 +351,9 @@ func (d *Disk) Set(key string, contents []string) {
 	d.dbs[key] = slices.Clone(contents)
 }
 
-// WriteBack is one process's owner.WriteBack: it publishes its Disk's copy into Objects under contract 1.
-// FailPublish makes Publish fail with ErrDown (nothing changes); OnPublish, if set, runs at the start of every
-// Publish (tests use it to check that no permit is outstanding during the final write-back).
+// WriteBack is one process's owner.WriteBack: it publishes its Disk's copy into Objects under the store's
+// conditional publish. FailPublish makes Publish fail with ErrDown (nothing changes); OnPublish, if set, runs at the
+// start of every Publish (tests use it to check that no permit is outstanding during the final write-back).
 type WriteBack struct {
 	Objects *Objects
 	Disk    *Disk

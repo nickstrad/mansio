@@ -85,7 +85,7 @@ func keyRequests(r *durableRig, db string) int {
 	return n
 }
 
-// RI-16 gate: tripping the S3 breaker through the admin endpoint makes cold keys answer unavailable +
+// Tripping the S3 breaker through the admin endpoint makes cold keys answer unavailable +
 // Retry-After without a single S3 request for them, while warm keys keep serving reads and writes; the trip
 // holds past the cool-down; a reset restores cold activations. Both are logged (ADMIN.*, S3.BREAKER_*).
 func TestAdminBreakerTripFailsFastWithoutS3Calls(t *testing.T) {
@@ -141,7 +141,7 @@ func TestAdminBreakerTripFailsFastWithoutS3Calls(t *testing.T) {
 	}
 }
 
-// RI-16 gate: lowering fetch:limit at run time applies to the next fetches. With the limit at 1 and slow
+// Lowering fetch:limit at run time applies to the next fetches. With the limit at 1 and slow
 // fetches, three cold keys queried at once fetch one at a time (the others wait in the bulkhead's queue, then
 // all answer ok); raised to 3, they fetch together.
 func TestAdminFetchLimitAppliesToTheNextFetches(t *testing.T) {
@@ -244,7 +244,7 @@ func TestAdminControlsAndErrors(t *testing.T) {
 	if code, _ := adminCall(t, a.admin, "/admin/fetch:limit?n=1"); code != http.StatusOK {
 		t.Fatalf("on point n=1: %d", code)
 	}
-	// B11: the slot pools in front of a dependency have a runtime lever; the change shows in the capacity gauge.
+	// The slot pools in front of a dependency have a runtime lever; the change shows in the capacity gauge.
 	if out := a.mustAdmin(t, "/admin/limit?queue=verify&n=8"); out["queue"] != "verify" || out["limit"] != 8.0 || out["previous"] != 64.0 {
 		t.Fatalf("limit verify answer %v", out)
 	}
@@ -302,7 +302,7 @@ func TestAdminStaticMode(t *testing.T) {
 	}
 }
 
-// OS-11: durable mode over TLS without -dev. S3 is reached over HTTPS with the private CA of ca_file; the
+// Durable mode over TLS without -dev. S3 is reached over HTTPS with the private CA of ca_file; the
 // claim's create stand-in is refused (controld creates); a claim of a row the control plane wrote serves.
 func TestDurableOverTLSWithoutDev(t *testing.T) {
 	r := newDurableRig(t, "")

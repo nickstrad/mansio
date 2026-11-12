@@ -1,6 +1,6 @@
-// Package sim is the single-node deterministic simulation (DST-1, IR protocol plan §6.4): one agent's request
-// path (front pipeline → owner table → vactor host → real SQLite actors → durable store) driven from one seed,
-// with simulated time and faults, so that any failure replays exactly from its seed.
+// Package sim is the single-node deterministic simulation: one agent's request path (front pipeline → owner table →
+// vactor host → real SQLite actors → durable store) driven from one seed, with simulated time and faults, so that
+// any failure replays exactly from its seed.
 //
 // What runs. Each seed builds a world: a dettest.Clock, seeded random streams split from the seed, the
 // durabletest store (the S3 stand-in, on the clock, with per-call faults), the ownertest placement authority,
@@ -33,10 +33,10 @@
 // only rise.
 //
 // Workloads. Workload is the port: SQL (raw SQL with request ids, today's path) is built in; an IR workload
-// (IR-2b's docexec behind /v1/ops) implements the same four methods. See docs/notes/determinism/ for the
+// (docexec behind /v1/ops) implements the same four methods. See docs/notes/determinism/ for the
 // fidelity limits and how to replay a seed.
 //
-// The cluster simulation (DST-2, RunCluster) runs the same loop over several agents (each wired through
+// The cluster simulation (RunCluster) runs the same loop over several agents (each wired through
 // internal/agentglue with /v1/ops on), controld's real Controller, Locator and ticket issuer (ticket.Rotate over
 // tickettest.MemKeys), the real edge, a linearizable placement fake and an in-memory registry, and simulated SDK
 // clients (several per database) running register and bank-transfer IR workloads; every call between nodes
@@ -46,7 +46,7 @@
 // adds split brain (one VM per epoch, epochs rising in commit order), loss across a graceful move, loss at a
 // kill -9 beyond the RPO, and per-database linearizability (internal/linearize). Requests reaching an actor
 // pass a door (doors, cluster_agent.go) that the loop opens one per step, so requests woken together reach
-// the actor in arrival order. ShrinkCluster (DST-3) cuts a failing run down to a small op script; Vector
+// the actor in arrival order. ShrinkCluster cuts a failing run down to a small op script; Vector
 // files under testdata/cluster replay fixed failures.
 //
 // Run must be called inside a synctest bubble (synctest.Test). Error module: "sim" (it returns violations, not

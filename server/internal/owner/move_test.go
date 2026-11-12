@@ -139,8 +139,8 @@ func TestMoveHappyPath(t *testing.T) {
 	}
 }
 
-// Every crash point of option 4 §3.4. After each, the caller calls Move again (resume) and the end state must
-// be the same as the happy path: nothing acknowledged lost, nothing duplicated, one admitter.
+// Every crash point of the move protocol (Mover). After each, the caller calls Move again (resume) and the end state
+// must be the same as the happy path: nothing acknowledged lost, nothing duplicated, one admitter.
 func TestMoveCrashPoints(t *testing.T) {
 	for _, tc := range []struct {
 		name string

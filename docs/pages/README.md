@@ -37,8 +37,8 @@ something the diagrams draw or describe (a process, a component's duty, a relati
 a document such as "paused" or "open issue"), refresh it in the same change or right after:
 
 1. List what changed since the pin: `git log --first-parent <pin>..main` and
-   `git diff --stat <pin>..main -- server sdk core intermediate-representation eventlog`; the merge messages,
-   `agent-work/server/shared_state.md` and the notes in `server/docs/notes/` summarise each merge.
+   `git diff --stat <pin>..main -- server sdk core intermediate-representation eventlog`; the merge messages
+   and the notes in `server/docs/notes/` summarise each merge.
 2. Update elements, relationships, documents (both `plain` and `ste`) and diagrams; add a source for each new
    piece of evidence.
 3. Re-pin every source to the new commit (`url` and `revision`; check each path with

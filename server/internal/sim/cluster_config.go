@@ -7,8 +7,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/vactor"
 )
 
-// ClusterConfig is one cluster run (DST-2). Zero fields take values drawn from the seed; Swarm (DST-3) varies
-// the fault probabilities per run on top of that.
+// ClusterConfig is one cluster run. Zero fields take values drawn from the seed; Swarm varies the fault probabilities
+// per run on top of that.
 type ClusterConfig struct {
 	Seed     uint64
 	Dir      string        `json:"-"` // scratch directory (created)
@@ -19,7 +19,7 @@ type ClusterConfig struct {
 	Policy   *vactor.Policy
 	Tick     time.Duration
 	Faults   *ClusterFaults // nil: drawn from the seed
-	// RPO is the loss window the checker allows for a kill -9 (the open decision of plan §9, parameterized):
+	// RPO is the loss window the checker allows for a kill -9 (an open product decision, so a parameter):
 	// an acknowledged write lost at a crash is a violation iff a fault-free stretch at least RPO long fits
 	// between its acknowledgement and the crash. 0: Policy.WriteBackEvery + Tick + 1 s (docs/notes/writeback).
 	// Losses across a graceful move are never allowed.
@@ -44,7 +44,7 @@ type ClusterFaults struct {
 	Duplicate float64       // a request is delivered twice (the second copy's answer is dropped)
 	Spike     float64       // a message takes up to SpikeMax instead of the usual 0.2–5 ms (reordering)
 	SpikeMax  time.Duration //
-	// S3 (durabletest, per call), as in DST-1.
+	// S3 (durabletest, per call), as in the single-node sim.
 	Stall     float64
 	StallMax  time.Duration
 	FailCall  float64

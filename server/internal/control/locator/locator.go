@@ -20,9 +20,9 @@ import (
 
 // Config tunes a Locator. Zero fields take the defaults.
 type Config struct {
-	TicketTTL   time.Duration // a ticket's lifetime; default 60 s (option 4 §3.1)
+	TicketTTL   time.Duration // a ticket's lifetime; default 60 s
 	CacheTTL    time.Duration // longest a placement stays cached; default 5 min (notifications invalidate sooner)
-	CacheMax    int           // placements cached; default 100 000 (Release It B6: bounded)
+	CacheMax    int           // placements cached; default 100 000 (bounded so the cache cannot grow without limit)
 	AuthTTL     time.Duration // an API key row is re-read after this; revocation takes AuthTTL + TicketTTL; default 10 s
 	AuthMax     int           // API keys cached; default 10 000
 	LoadTimeout time.Duration // one store read (placement or key); default 2.5 s
@@ -98,7 +98,7 @@ type Route struct {
 	Gen      uint64
 	Ticket   string
 	Perms    string
-	// Expires is the ticket's exp; refresh ahead of it (option 4 §2: at ~80 % of the TTL, jittered).
+	// Expires is the ticket's exp; refresh ahead of it (at ~80 % of the TTL, jittered).
 	Expires time.Time
 	TTL     time.Duration
 }

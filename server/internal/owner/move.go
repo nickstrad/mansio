@@ -8,13 +8,13 @@ import (
 )
 
 // Agent is what the control plane calls on a process during a move. *Table implements it; over the network
-// it would be the agent's lifecycle listener (option 4 §2).
+// it would be the agent's lifecycle listener (agentd's /v1/lifecycle).
 type Agent interface {
 	Fence(ctx context.Context, key string) (Ack, error)
 	Claim(ctx context.Context, key string) (Local, error)
 }
 
-// Mover runs the offline move protocol (option 4 §3.4) as the control plane would:
+// Mover runs the offline move protocol as the control plane would:
 //
 //  1. CAS ACTIVE(src, E) → MOVING(src, E)       (clients of src now get ErrMoving/ErrFenced)
 //  2. src.Fence → Ack{E, G}                    (stop, drain, final write-back of G at E, durable FENCED)
@@ -22,7 +22,7 @@ type Agent interface {
 //  4. dst.Claim                                (reads the flip, stamps E+1 in storage, durable ACTIVE)
 //
 // Move is resumable: each call reads the authority and continues from the step it finds, so after any crash
-// or error the caller just calls Move again. Request-id de-duplication (option 4 §3.5) is not here: it lives
+// or error the caller just calls Move again. Request-id de-duplication is not here: it lives
 // in the database (the request-id table copied with the snapshot), so a client retry after an ambiguous
 // failure is answered by whichever owner the retry reaches.
 type Mover struct {

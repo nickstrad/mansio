@@ -16,7 +16,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/front"
 )
 
-// The CP-6 gate (control-plane plan §3): clients that know only controld, through internal/client.
+// Clients that know only controld, through internal/client.
 //
 //  1. frontbench's locator mode (the real binary) with a move every second: resolve hit/miss latency, and the
 //     error rate of requests that overlapped a move.

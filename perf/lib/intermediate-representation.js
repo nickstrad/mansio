@@ -1,5 +1,5 @@
 // The tic-tac-toe handlers over the IR protocol (POST /v1/ops; intermediate-representation/spec/v1.md), for k6 runs against agentd
-// (the only backend since IR-6). k6 cannot run the TS SDK, so each handler here sends what sdk/client.ts sends for it (the
+// (the only backend, ADR 0013). k6 cannot run the TS SDK, so each handler here sends what sdk/client.ts sends for it (the
 // requests the `sdk:` vectors in intermediate-representation/vectors/execute.json pin): a query is one read request; makeMove reads the
 // game, applies examples/tic-tac-toe/rules.ts locally and commits [assert version, patch game, insert move]. A rule failure or
 // an app conflict (stale expectedVersion) fails locally, as in the SDK, without a request; its answer is

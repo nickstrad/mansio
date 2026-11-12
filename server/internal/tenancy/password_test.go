@@ -7,7 +7,7 @@ import (
 )
 
 // betterAuthHashes were made by Better Auth 1.7.7 (npm:better-auth@1.7.7/crypto hashPassword) on 2026-11-06:
-// Go must verify them unchanged, so migrated accounts keep their passwords (replace-platform plan D5).
+// Go must verify them unchanged, so migrated accounts keep their passwords.
 var betterAuthHashes = []struct{ password, hash string }{
 	{"E2e-password-Ünïcode", "d93a498cd836d71e7e62c8c0ae02cd6b:8169ad001cdf7d081e2d8dc3d253b8f9c8416bfb4183f99159eb7277ba0eb3934a1346af008f2fb2702a3d7eec6d884cd70e5465f6b791eb487e3410f82f59e0"},
 	{"correct horse battery staple", "5f1a4a39142f8680f6acf0644b323600:ed91a4c3469e54b1200519ddfb9efa577390d464bdec2c8a1d8902c44f44edc9d3aadc845e6f77a4d7b049059f8ef4d232cdcd62f0614d5c6695a41ce3ceb033"},

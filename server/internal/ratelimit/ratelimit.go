@@ -10,11 +10,11 @@ import (
 	"github.com/nickstrad/mansio/server/internal/assert"
 )
 
-// SourceLimiter is a token bucket per request source, charged once for each costly check an unauthenticated
-// request needs: the edge charges a ticket it has to verify (a verified-ticket cache miss), controld an API key
-// id it has to read from Postgres (not in its key cache). A client that reuses its ticket or key pays once per
-// lifetime; a source that sends garbage runs dry after Burst and is refused before the work, while other sources
-// and cached credentials from the same source go on (Release It B1: shed, never queue).
+// SourceLimiter is a token bucket per request source, charged once for each costly check an unauthenticated request
+// needs: the edge charges a ticket it has to verify (a verified-ticket cache miss), controld an API key id it has to
+// read from Postgres (not in its key cache). A client that reuses its ticket or key pays once per lifetime; a source
+// that sends garbage runs dry after Burst and is refused before the work, while other sources and cached credentials
+// from the same source go on (a dry source is shed, never queued).
 //
 // Sources are bounded: with MaxSources buckets held, buckets that are full again (idle long enough) are swept,
 // at most once per second; if none is, new sources share one overflow bucket. So many-source floods are cut to

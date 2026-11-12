@@ -195,7 +195,7 @@ func layouts(t *testing.T) map[string]*docschema.Schema {
 }
 
 // TestDecodeInvertsEncode: a valid document written by Insert reads back, through Select and Decode,
-// as exactly the same document, in both layouts (spec §6.4; plan §6.2 "decode is the inverse of encode").
+// as exactly the same document, in both layouts (spec §6.4: decode is the inverse of encode).
 func TestDecodeInvertsEncode(t *testing.T) {
 	for name, s := range layouts(t) {
 		t.Run(name, func(t *testing.T) {

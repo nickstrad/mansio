@@ -1,5 +1,5 @@
 /**
- * Read-your-writes for `find` inside a mutation handler (IR-3): a select's server answer, corrected for
+ * Read-your-writes for `find` inside a mutation handler: a select's server answer, corrected for
  * the writes the handler has buffered but not yet sent.
  *
  * PURE. The recording executor (`sdk/recording.ts`) asks the server, in one query request (one

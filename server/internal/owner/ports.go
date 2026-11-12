@@ -28,14 +28,14 @@ var (
 
 // Other sentinels.
 var (
-	// ErrSuperseded: a publish found a higher epoch in storage (contract 1 ErrStale after this process
+	// ErrSuperseded: a publish found a higher epoch in storage (the store's ErrStale after this process
 	// stamped its epoch). The key is now fenced durably; the process must not serve it.
 	ErrSuperseded = errors.New("owner: superseded by a higher epoch")
 	// ErrIllegal: a transition the table does not allow (see Step).
 	ErrIllegal = errors.New("owner: illegal transition")
 	// ErrInvalid: bad input (empty or too long key, epoch 0, malformed record).
 	ErrInvalid = errors.New("owner: invalid input")
-	// ErrStale is what a WriteBack returns (wrapped is fine) when contract 1's conditional publish fails:
+	// ErrStale is what a WriteBack returns (wrapped is fine) when the store's conditional publish fails:
 	// the stored manifest changed since it was read, or its epoch is greater than the caller's.
 	ErrStale = errors.New("owner: stale publish")
 	// ErrNoManifest is what WriteBack.Head returns when the key has no manifest yet.
@@ -71,7 +71,7 @@ func (s PlaceState) String() string {
 	return "?"
 }
 
-// Place is the authority's row for a key (option 4 §1: database_id, owner_vm, epoch, generation, state).
+// Place is the authority's row for a key (database_id, owner_vm, epoch, generation, state).
 type Place struct {
 	Owner string
 	Epoch Epoch
@@ -92,13 +92,13 @@ type Placement interface {
 	CAS(ctx context.Context, key string, expect, next Place) error
 }
 
-// Manifest is the part of contract 1's manifest that ownership needs.
+// Manifest is the part of the stored manifest (durable.Manifest) that ownership needs.
 type Manifest struct {
 	Gen   Generation
 	Epoch Epoch
 }
 
-// WriteBack is the durable copy (contract 1); writeback implements it. Every method is conditional on the
+// WriteBack is the durable copy (over durable.Store); writeback implements it. Every method is conditional on the
 // stored manifest, so a lower epoch never overwrites a higher one.
 //
 //	Publish: upload the local copy as a new generation and publish the manifest at epoch, iff the stored
@@ -110,7 +110,7 @@ type Manifest struct {
 //	         earlier version fails afterwards (Reconcile's reopen relies on it).
 //	errors:  a failed condition matches ErrStale. Any other error means nothing is known to have changed.
 //	         An implementation resolves its own ambiguous writes (a lost reply, or a 412 its own re-sent PUT
-//	         caused) by re-reading before it answers (object-storage guide R3): ErrStale means the re-read
+//	         caused) by re-reading before it answers: ErrStale means the re-read
 //	         shows another writer, never our own write.
 type WriteBack interface {
 	Publish(ctx context.Context, key string, epoch Epoch) (Generation, error)

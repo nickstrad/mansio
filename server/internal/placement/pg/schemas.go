@@ -11,9 +11,9 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The app schema registry (schema 0006, IR-2): one statement per method under the same breaker and deadlines
-// as the placement port. Every method checks its input at the edge (an invalid app or text matches
-// owner.ErrInvalid; nothing is sent); the schema re-checks the fingerprint whichever path writes.
+// The app schema registry (schema 0006): one statement per method under the same breaker and deadlines as the
+// placement port. Every method checks its input at the edge (an invalid app or text matches owner.ErrInvalid; nothing
+// is sent); the schema re-checks the fingerprint whichever path writes.
 
 // RegisterSchema stores text under fingerprint for app (idempotent) and reports whether this call added the
 // app's registration. The text must pass schemareg.Check (it hashes to fingerprint).

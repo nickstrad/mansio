@@ -1,5 +1,5 @@
 /**
- * Access tickets for development and tests (IR-3): a TypeScript minter for mansio-server's
+ * Access tickets for development and tests: a TypeScript minter for mansio-server's
  * `internal/ticket` v1 format, so a single-node agentd in static mode (`keys_file`) can be driven by the
  * SDK without controld. Production tickets come from controld's `POST /v1/resolve`
  * (`sdk/transport.ts`'s `locatorRouter`); nothing here is needed there.

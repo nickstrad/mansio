@@ -1,5 +1,5 @@
 /**
- * Property tests for `core/compile/*` (plan item 13, work 2): security and semantics invariants of the
+ * Property tests for `core/compile/*`: security and semantics invariants of the
  * SQL the compiler emits, over generated schemas and plans.
  *
  * The properties are chosen to catch the two failure classes that matter for a SQL generator, not to

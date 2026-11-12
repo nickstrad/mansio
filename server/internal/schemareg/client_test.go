@@ -85,7 +85,7 @@ func TestMalformedInputSendsNothing(t *testing.T) {
 	}
 }
 
-// The fault table (Release It H4): each system failure is ErrUnavailable, counts against the breaker, and is
+// The fault table: each system failure is ErrUnavailable, counts against the breaker, and is
 // never cached; once the breaker opens, nothing is sent and the error carries a retry hint.
 func TestFaultsAreUnavailableAndOpenTheBreaker(t *testing.T) {
 	for _, tc := range []struct {
@@ -121,7 +121,7 @@ func TestFaultsAreUnavailableAndOpenTheBreaker(t *testing.T) {
 	}
 }
 
-// The Validate hook (IR-2b's docschema check) refuses a text before it is cached.
+// The Validate hook (the document executor's docschema check) refuses a text before it is cached.
 func TestValidateHook(t *testing.T) {
 	s := schemaregtest.New(t)
 	fp := s.Add("app", text)
@@ -177,7 +177,7 @@ func TestSingleFlightAndDetachedFetch(t *testing.T) {
 	}
 }
 
-// Distinct fetches are bounded: past MaxInFlight they are refused at once, never queued (Release It B1).
+// Distinct fetches are bounded: past MaxInFlight they are refused at once, never queued.
 func TestInFlightBound(t *testing.T) {
 	s := schemaregtest.New(t)
 	fp1, fp2 := s.Add("app", `{"a":{}}`), s.Add("app", `{"b":{}}`)

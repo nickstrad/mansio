@@ -272,8 +272,8 @@ func TestRerouteOnTicketInvalidAndConnectFailure(t *testing.T) {
 	}
 }
 
-// RI-10: unavailable is retried by default, the first retry waits at least the Retry-After (header seconds, or
-// the body's ms), and it spends the budget.
+// Unavailable is retried by default, the first retry waits at least the Retry-After (header seconds, or the body's
+// ms), and it spends the budget.
 func TestRetryHonorsRetryAfter(t *testing.T) {
 	f := newFake(t)
 	a := f.agent("a", func(n int) (int, string, front.Response) {

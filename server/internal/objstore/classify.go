@@ -14,8 +14,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/durable"
 )
 
-// Kind is what an S3 error means for the caller (object-storage guide R1). Callers branch on it, never on
-// message text. Errors leaving this package carry it as the "s3_kind" Misc field too.
+// Kind is what an S3 error means for the caller. Callers branch on it, never on message text. Errors leaving this
+// package carry it as the "s3_kind" Misc field too.
 type Kind int
 
 const (

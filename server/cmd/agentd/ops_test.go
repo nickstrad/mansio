@@ -19,7 +19,7 @@ import (
 // opsSchema is the app's registered schema, as a schemas_dir file holds it (with an editor's newline).
 const opsSchema = `{"games":{"fields":{"player":{"node":{"kind":"string"}},"moves":{"node":{"kind":"integer"}}},"storage":"columns","indexes":[]}}`
 
-// Single-node agentd end to end over HTTP (IR-2b): a static-mode agent with a schemas_dir and an empty
+// Single-node agentd end to end over HTTP: a static-mode agent with a schemas_dir and an empty
 // database file for (tenant, app) acme:ttt. The first /v1/ops request creates the tables from the registered
 // schema; mutations, a duplicate, a query and a drifted fingerprint follow; the data survives a restart.
 func TestOpsEndToEnd(t *testing.T) {

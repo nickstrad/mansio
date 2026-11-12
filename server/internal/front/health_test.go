@@ -67,14 +67,14 @@ func TestCanaryOutcomes(t *testing.T) {
 	}
 }
 
-// RI-07 acceptance: once the canary's actor wedges, /readyz turns 503 within one probe interval (plus the
-// probe's timeout); /livez stays 200.
+// Once the canary's actor wedges, /readyz turns 503 within one probe interval (plus the probe's timeout); /livez
+// stays 200.
 func TestReadyzFalseWhenActorsWedged(t *testing.T) {
 	ex := fronttest.NewExecutor(front.CanaryDB)
 	s := canaryServer(ex, front.AdmissionLimits{})
 	const every, timeout = 50 * time.Millisecond, 30 * time.Millisecond
 	r := front.NewReadiness(timeout, 3*every, nil, front.Check{Name: "canary", Run: func(ctx context.Context) error {
-		return s.Canary(ctx, front.CanaryDB, timeout*2/3) // inner deadline shorter than the probe's (T4)
+		return s.Canary(ctx, front.CanaryDB, timeout*2/3) // inner deadline shorter than the probe's
 	}})
 	ready, live := front.ReadyHandler(s, r), front.LiveHandler(s)
 	if code, body := getJSON(t, ready); code != http.StatusServiceUnavailable || body["status"] != "not_ready" {

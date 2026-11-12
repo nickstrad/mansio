@@ -72,7 +72,7 @@ func TestSchemaRegistry(t *testing.T) {
 	}
 }
 
-// Many workers registering one schema at once (SQL G-22): no error, exactly one sees created per app.
+// Many workers registering one schema at once: no error, exactly one sees created per app.
 func TestSchemaRegistryConcurrent(t *testing.T) {
 	p, _ := newPlacement(t, nil)
 	text := []byte(`{"race":{"fields":{},"storage":"json","indexes":[]}}`)

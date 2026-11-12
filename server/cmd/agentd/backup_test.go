@@ -19,7 +19,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/objstore/s3test"
 )
 
-// Backup (IR-4b): a warm, dirty key is written back and keeps serving; the answer is the manifest now stored
+// Backup: a warm, dirty key is written back and keeps serving; the answer is the manifest now stored
 // (same generation, object, sha256); a second backup with nothing new uploads nothing and answers the same
 // generation; a write then a backup publishes a newer one. A key not active here, and bad keys, are refused.
 func TestAdminBackupWritesBackAndAnswersTheManifest(t *testing.T) {
@@ -66,7 +66,7 @@ func TestAdminBackupWritesBackAndAnswersTheManifest(t *testing.T) {
 	}
 }
 
-// Durable mode with a local schema registry (schemas_dir, IR-4b): the first /v1/ops request to a new key
+// Durable mode with a local schema registry (schemas_dir): the first /v1/ops request to a new key
 // creates its tables from the registered schema, and the documents survive a write-back and a cold start.
 func TestDurableOpsWithSchemasDir(t *testing.T) {
 	r := newDurableRig(t, adminExtra+`,"schemas_dir":"schemas"`)

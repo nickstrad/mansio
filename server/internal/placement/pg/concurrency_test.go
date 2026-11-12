@@ -16,7 +16,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/owner/ownertest"
 )
 
-// PG-04: the placement concurrency gate (SQL G-22: many workers on the same key).
+// The placement concurrency tests: many workers on the same key.
 
 func conns64(c *Config) { c.MaxConns = 64 }
 

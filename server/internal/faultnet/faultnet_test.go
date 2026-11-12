@@ -106,7 +106,7 @@ func TestRefuseFailsFast(t *testing.T) {
 		t.Fatalf("err = %v, want a reset", err)
 	}
 	// Fast = well inside the 2 s read budget (a refusal that waited for it would also be a timeout, above).
-	// Not 100 ms: that flaked under load (CP-8).
+	// Not 100 ms: that flaked under load.
 	if d := time.Since(t0); d > time.Second {
 		t.Fatalf("refusal took %v, want well under the 2s read budget", d)
 	}

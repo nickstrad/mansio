@@ -104,7 +104,7 @@ func (e epochOne) Exec(ctx context.Context, c front.Call) (front.Reply, error) {
 	return e.Executor.Exec(ctx, c)
 }
 
-// CP-1: the executor over the virtual-actor host passes the shared executor contract. Activation runs without
+// The executor over the virtual-actor host passes the shared executor contract. Activation runs without
 // an ownership check here (the suite has no admission); the next tests cover the check.
 func TestHostExecutorContract(t *testing.T) {
 	data := seedFile(t)

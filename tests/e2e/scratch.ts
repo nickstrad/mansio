@@ -1,6 +1,6 @@
 /**
  * Scratch-process helpers for `tests/e2e/observability_test.ts`: a throwaway agentd with an event log
- * (`startScratchAgent`, IR-4c), its JSONL, and DuckDB read out of process.
+ * (`startScratchAgent`), its JSONL, and DuckDB read out of process.
  *
  * The DuckDB files are read from a `deno eval` subprocess (`duckdbRows`), so a file `scripts/logs.ts` still
  * holds is never opened twice in one process.

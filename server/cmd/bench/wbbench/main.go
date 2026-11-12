@@ -139,7 +139,7 @@ type row struct {
 	snapshot, hash, upload, publish, total time.Duration
 	maxWriteStall                          time.Duration
 	passivate                              time.Duration
-	requests                               int64   // store requests of the warm write-back (OS-08)
+	requests                               int64   // store requests of the warm write-back
 	usdPerMillion                          float64 // their cost at S3 list prices, per million write-backs
 }
 

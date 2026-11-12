@@ -1,4 +1,4 @@
--- Typed readers for sqlbench's CSV files, shared by report.sql and compare.sql (SQL G-19: one definition of each
+-- Typed readers for sqlbench's CSV files, shared by report.sql and compare.sql (one definition of each
 -- input, explicit columns instead of type sniffing, so a short run whose column is all empty or all 0 reads the
 -- same types as a long one).
 -- Each macro takes a path or glob and returns the file's columns plus `filename`.

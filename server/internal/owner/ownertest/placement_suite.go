@@ -157,7 +157,7 @@ func RunPlacementSuite(t *testing.T, newPlacement NewPlacementFunc) {
 		wantNoRow(t, p, "A/b")
 	})
 
-	// Many workers on the same key (SQL G-22): exactly one CAS from a given row wins.
+	// Many workers on the same key: exactly one CAS from a given row wins.
 	t.Run("concurrent CAS from the same row: exactly one wins", func(t *testing.T) {
 		p := newPlacement(t)
 		base := active(vmA, 1, 0)

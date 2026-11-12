@@ -52,12 +52,12 @@ type Config struct {
 	// host, ownership is the owner table, and the control plane calls the lifecycle endpoints (control.go).
 	S3 *S3Config `json:"s3"`
 	// SecretsFile holds the S3 keys and the control-plane token: a JSON file outside the config, mode 0600 or
-	// stricter (object-storage guide S2). Required in durable mode.
+	// stricter, so credentials never sit in a config file or a log. Required in durable mode.
 	SecretsFile string `json:"secrets_file"`
 	CacheDir    string `json:"cache_dir"` // local database copies; emptied at start (required)
 	OwnerDir    string `json:"owner_dir"` // the owner table's durable records (required)
 	// The placement authority: exactly one of placement_dir (a file-backed single-node authority shared by the
-	// agents of one host; CP-1) and placement_pg (Postgres, the control plane's authority; CP-4). With
+	// agents of one host) and placement_pg (Postgres, the control plane's authority). With
 	// placement_pg the DSN comes from the secrets file (pg_dsn).
 	PlacementDir string             `json:"placement_dir"`
 	PlacementPG  *PlacementPGConfig `json:"placement_pg"`
@@ -73,7 +73,7 @@ type Config struct {
 	ReconcilePerKey      load.Duration `json:"reconcile_per_key"` // one key's reconcile deadline; workers = startup_workers
 
 	// Ticket public keys: keys_file (a ticket.PublicKeyFile; static, for dev and benches), or keys_url (the
-	// issuer's GET /v1/keys on controld, fetched every keys_refresh; CP-5). With keys_url, keys_file is
+	// issuer's GET /v1/keys on controld, fetched every keys_refresh). With keys_url, keys_file is
 	// optional and caches the last fetched set, so a restart while controld is down still verifies tickets.
 	KeysFile string `json:"keys_file"`
 	KeysURL  string `json:"keys_url"`
@@ -82,12 +82,12 @@ type Config struct {
 	ControlCAFile string        `json:"control_ca_file"`
 	KeysRefresh   load.Duration `json:"keys_refresh"` // default 30 s; controld's ticket_keys.activate must be at least twice this
 	// SchemasURL is controld's API base URL for the app schema registry (GET /v1/apps/{app}/schemas/{fingerprint}
-	// with the control token; internal/schemareg, IR-2). Durable mode only; "" = no registry client. An https URL
+	// with the control token; internal/schemareg). Durable mode only; "" = no registry client. An https URL
 	// with a private CA uses control_ca_file.
 	SchemasURL string `json:"schemas_url"`
 	// SchemasDir is a local schema registry (single-node dev and tests, no controld): <app>/<name>.json files,
 	// each one schema in fingerprint form (JSON.stringify of the defineSchema value), read at start. Static mode,
-	// or durable mode without schemas_url (IR-4b).
+	// or durable mode without schemas_url.
 	SchemasDir     string        `json:"schemas_dir"`
 	SchemasTimeout load.Duration `json:"schemas_timeout"` // one fetch; default 3 s
 	SchemaCache    int           `json:"schema_cache"`    // schemas cached (by app and fingerprint); default 1024
@@ -118,7 +118,7 @@ type Config struct {
 	// actorQueues counts every actor's refusals and mailbox waits (set by newAgent; nil counts nothing).
 	actorQueues *actor.Queues
 
-	// Startup and readiness (Release It H1, H2). Databases open in the background, startup_workers at a time,
+	// Startup and readiness. Databases open in the background, startup_workers at a time,
 	// while the agent already serves. /readyz reflects a probe every ready_interval, each bounded by
 	// ready_timeout (which must be shorter).
 	StartupWorkers int           `json:"startup_workers"` // default 16
@@ -133,7 +133,7 @@ type Config struct {
 	LogLevel string `json:"log_level"` // debug | info (default) | warn; POST /admin/loglevel changes it at run time
 
 	// Dev is the -dev flag, not a file field: local development, where plain-HTTP S3 and the claim's create
-	// stand-in are allowed (object-storage guide S2; control.go).
+	// stand-in are allowed (control.go). Everywhere else S3 must be reached over TLS.
 	Dev bool `json:"-"`
 }
 
@@ -163,27 +163,27 @@ type S3Config struct {
 	OpTimeout    load.Duration `json:"op_timeout"`
 	StallTimeout load.Duration `json:"stall_timeout"`
 	MaxConns     int           `json:"max_conns"`
-	// Breaker overrides the S3 breaker's thresholds; zero fields take Release It §P (50 % of >= 20 calls in
+	// Breaker overrides the S3 breaker's thresholds; zero fields take the S3 defaults (50 % of >= 20 calls in
 	// 10 s, cool-down 5 s).
 	Breaker BreakerConfig `json:"breaker"`
 
-	// Secure speaks HTTPS to the endpoint; false (plain HTTP) is refused without -dev (object-storage guide S2).
+	// Secure speaks HTTPS to the endpoint; false (plain HTTP) is refused without -dev (TLS outside a laptop).
 	Secure bool `json:"secure"`
 	// CAFile is a PEM bundle of the CAs that sign the endpoint's certificate (a private CA); default the
 	// system roots. Requires secure.
 	CAFile string `json:"ca_file"`
 }
 
-// PlacementPGConfig selects the Postgres placement authority (internal/placement/pg). Zero fields take Release
-// It §P (connect 3 s, statement 2 s, lock 1 s, pool = startup_workers + lifecycle_concurrency).
+// PlacementPGConfig selects the Postgres placement authority (internal/placement/pg). Zero fields take the
+// Postgres defaults (connect 3 s, statement 2 s, lock 1 s, pool = startup_workers + lifecycle_concurrency).
 type PlacementPGConfig struct {
 	Schema   string `json:"schema"`    // search_path ("" = the server default); tests use one schema each
-	MaxConns int32  `json:"max_conns"` // default startup_workers + lifecycle_concurrency (RI §P)
-	// Breaker overrides the placement breaker's thresholds (zero fields: RI §P).
+	MaxConns int32  `json:"max_conns"` // default startup_workers + lifecycle_concurrency
+	// Breaker overrides the placement breaker's thresholds (zero fields take the defaults).
 	Breaker BreakerConfig `json:"breaker"`
 }
 
-// BreakerConfig is a breaker's thresholds in a config file; zero fields take Release It §P.
+// BreakerConfig is a breaker's thresholds in a config file; zero fields take the breaker package's defaults.
 type BreakerConfig struct {
 	Window      load.Duration `json:"window"`
 	MinCalls    int           `json:"min_calls"`
@@ -196,7 +196,7 @@ func (b BreakerConfig) config() breaker.Config {
 	return breaker.Config{Window: b.Window.Duration, MinCalls: b.MinCalls, FailureRate: b.FailureRate, CoolDown: b.CoolDown.Duration}
 }
 
-// Maintenance drives the host's periodic write-back and eviction (vactor.Policy, Release It S2).
+// Maintenance drives the host's periodic write-back and eviction (vactor.Policy): a tick never overlaps the next.
 type Maintenance struct {
 	Interval         load.Duration `json:"interval"`           // tick period; default 1 s
 	WriteBackEvery   load.Duration `json:"write_back_every"`   // RPO in time; default 10 s
@@ -459,7 +459,7 @@ func checkDurable(c *Config, bad func(string, ...any)) {
 }
 
 // checkDev refuses what only local development may do unless -dev is given: durable mode over plain-HTTP S3
-// (object-storage guide S1, S2; plan OS-11) and a plain-HTTP query listener off loopback (CP-7, tls.go).
+// (S3 credentials in the clear) and a plain-HTTP query listener off loopback (tls.go).
 func (c *Config) checkDev() error {
 	if err := c.checkTLS(); err != nil {
 		return err
@@ -479,7 +479,7 @@ func (c *Config) checkDev() error {
 	return nil
 }
 
-// Secrets is the secrets file (0600, outside the config; object-storage guide S2, Release It RI-16).
+// Secrets is the secrets file (0600, outside the config, so credentials never sit in a config file or a log).
 type Secrets struct {
 	S3AccessKey  string `json:"s3_access_key"`
 	S3SecretKey  string `json:"s3_secret_key"`

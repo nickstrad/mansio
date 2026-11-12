@@ -8,8 +8,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-// Observing /v1/ops (agentd's event log, IR-4c). With OpsConfig.Observer set, the HTTP adapter traces every
-// /v1/ops request and hands the result to the observer once the answer is written:
+// Observing /v1/ops (for agentd's event log). With OpsConfig.Observer set, the HTTP adapter traces every /v1/ops
+// request and hands the result to the observer once the answer is written:
 //
 //	HTTP adapter: trace id (X-Trace-Id, or a generated one; echoed), handler name (X-Mansio-Handler),
 //	              bytes in and out, status, the whole request's time

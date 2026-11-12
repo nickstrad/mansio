@@ -105,7 +105,7 @@ until its call timeout and then fails; a caller refused at a slot fails at once 
   pool; the config is refused otherwise. The rest is for the heartbeat, the move resumer and tenancy. The
   LISTEN connection is separate. N controld instances hold up to N × (`max_conns` + 1) connections; keep that
   under Postgres's `max_connections` minus other clients. Details:
-  [controld pool budget](notes/backpressure/2026-11-10-controld-pool-budget.md).
+  [controld pool budget](notes/backpressure/controld-pool-budget.md).
 - **agentd placement**: `max_conns` defaults to `startup_workers` + `lifecycle_concurrency` (16 + 16), the
   most callers that can use it at once.
 - **agentd tenancy**: its own pool of 8 and its own breaker; admin and sign-in calls have their own slot
@@ -137,7 +137,7 @@ rebuildable caches (the locator's):
 - **Concurrency tests put many workers on the same key** (`TestConcurrentCASOneKey`: 64 CASes from one row,
   exactly one wins, the epoch rises by one) and race moves over many keys (`TestMoveRaceManyKeys`, then
   `invariants.sql` must return no rows). Latency at 1, 16 and 64 workers is in
-  [the adapter note](notes/fencing/2026-11-05-postgres-placement-adapter.md).
+  [the adapter note](notes/fencing/postgres-placement.md).
 - Try schema changes and manual fixes in `begin; … rollback;` first. Scripts run `psql -X -v ON_ERROR_STOP=1`
   and never `ON_ERROR_ROLLBACK`. A manual fix is `begin`, DML with `returning`, check, `commit`, and filters
   on the natural key as well as any id.
@@ -153,6 +153,6 @@ rebuildable caches (the locator's):
 ## Open questions
 
 - **Leases.** If they are ever built, a `tstzrange` with an exclusion constraint per database is the natural
-  tool for "no overlapping leases" ([options](notes/fencing/2026-11-05-leases-options.md)).
+  tool for "no overlapping leases" ([options](notes/fencing/leases-options.md)).
 - **`pg_stat_statements`** should be enabled on the control-plane database when it is deployed (operations,
   not code).

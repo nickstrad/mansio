@@ -21,7 +21,7 @@ type TickReport struct {
 	// TimedOut lists the keys (sorted) whose job hit its own deadline (Options.WriteBackTimeout); they are in
 	// Errors too.
 	TimedOut []string
-	// OldestDirtyAge is the steady-state gauge oldest_dirty_age (Release It S3): how long the dirty database
+	// OldestDirtyAge is the steady-state gauge oldest_dirty_age: how long the dirty database
 	// with the oldest last write-back (or activation) has gone unpublished, at the start of the tick. It
 	// bounds the writes a crash would lose (RPO). 0 when nothing is dirty.
 	OldestDirtyAge time.Duration
@@ -36,7 +36,7 @@ type TickReport struct {
 // Tick runs one maintenance round: it plans with PlanTick over the warm databases, then carries the plan out,
 // at most Options.Workers at a time. Passivations write back first. Each job runs under its own deadline,
 // Options.WriteBackTimeout, derived from ctx: one hung write-back cannot hold the tick, only its worker for
-// that long (Release It T2, S2).
+// that long. Background loops cannot stall.
 //
 //	post: err != nil only if the host is closed
 //	post: every planned key is either done or in r.Errors

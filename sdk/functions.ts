@@ -1,5 +1,5 @@
 /**
- * Handler declaration (plan item 10).
+ * Handler declaration.
  *
  * A handler is an `Effect`, not an `async` function: it returns a description of the work, and the
  * platform decides when to run it. Two consequences app authors see directly:

@@ -24,7 +24,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/schemareg"
 )
 
-// The Jepsen-style system run (IR protocol plan §6.5; IR-5): real agentd (two, durable over Postgres placement
+// The Jepsen-style system run: real agentd (two, durable over Postgres placement
 // and S3), controld (in-process, as in the gates) and the edge, with faultnet proxies on every link between
 // them (client → edge, client/agents/edge → controld, edge → each agent's query listener, controld → each
 // agent's lifecycle listener). A nemesis injects, one at a time: proxy faults (latency, refused and silent
@@ -131,7 +131,7 @@ type jepsenWorld struct {
 	// crashes are, per app, the kill -9 times of the agent that owned its database then (read from the
 	// authority just before the kill). A restarted agent serves each database from its last published
 	// generation: acknowledged writes inside the write-back window (the RPO) may be lost (by design:
-	// docs/notes/writeback, DST-1's RPO rule), so each database's history is checked per crash-free segment.
+	// docs/notes/writeback: write-back is asynchronous), so each database's history is checked per crash-free segment.
 	crashes map[string][]int64
 	kills   int
 	faults  []string

@@ -1,6 +1,6 @@
 /**
- * The `/v1/ops` transport (IR-3): sends one IR request and answers its decoded response, with the
- * client behavior of mansio-server's `internal/client` (CP-6), so the SDK and the Go client fail and retry
+ * The `/v1/ops` transport: sends one IR request and answers its decoded response, with the
+ * client behavior of mansio-server's `internal/client`, so the SDK and the Go client fail and retry
  * the same way.
  *
  * Per request:

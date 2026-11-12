@@ -27,9 +27,9 @@ type Config struct {
 	MaxTimeout     time.Duration // longest deadline a client may ask for; default 30 s
 	StmtTimeout    time.Duration // per statement, also capped by the deadline; default 1 s
 
-	// HTTP transport only (Release It T3, §P inbound HTTP). BodyReadTimeout bounds reading the request body, so a
-	// client cannot dribble it forever; default 5 s. WriteGrace is how long past the request deadline the answer
-	// may take to write, so a client that stops reading cannot hold a handler; it must exceed the executor's
+	// HTTP transport only (bodies are bounded by time as well as size). BodyReadTimeout bounds reading the request
+	// body, so a client cannot dribble it forever; default 5 s. WriteGrace is how long past the request deadline the
+	// answer may take to write, so a client that stops reading cannot hold a handler; it must exceed the executor's
 	// reply grace; default 2 s.
 	BodyReadTimeout time.Duration
 	WriteGrace      time.Duration
@@ -82,7 +82,7 @@ type Server struct {
 	inFlightHW int           // highest inFlight since NewServer
 	idle       chan struct{} // closed when draining and inFlight reaches 0
 
-	// Outcomes by code (and ambiguity) and latency of every pipeline answer (Release It O1).
+	// Outcomes by code (and ambiguity) and latency of every pipeline answer.
 	outcomes [len(Codes)][2]atomic.Int64 // [code index][1 if ambiguous]
 	latency  *metrics.LatencyHistogram
 }
@@ -292,9 +292,9 @@ func (s *Server) InFlight() int {
 	return s.inFlight
 }
 
-// ServerStats are the pipeline's counters since NewServer (Release It O1). Every request is counted once it is
-// answered; Handle is bounded by the request deadline plus the executor's grace, so a hung request shows in the
-// latency histogram at its deadline, not never.
+// ServerStats are the pipeline's counters since NewServer. Every request is counted once it is answered; Handle is
+// bounded by the request deadline plus the executor's grace, so a hung request shows in the latency histogram at its
+// deadline, not never.
 type ServerStats struct {
 	// Outcomes counts answers by wire code (indexed like Codes) and ambiguity: [i][1] are answers that may
 	// have committed a write (front.OutcomeClass(c, true)).

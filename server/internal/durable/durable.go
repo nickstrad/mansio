@@ -1,19 +1,17 @@
-// Package durable is the durable copy of one database in object storage: immutable generations plus a
-// manifest that names the current one (contract 1 in shared_state.md, 2026-11-05).
+// Package durable is the durable copy of one database in object storage: immutable generations plus a manifest that
+// names the current one.
 //
-// Layout per database key (v2, object-storage guide K1–K3), under KeyPrefix(key) = dbs/<h2>/<esc>/ where
-// h2 is the first 2 hex digits of sha256(key) and esc is the key path-escaped ("/" becomes "%2F"), so no
-// key's prefix contains another's:
+// Layout per database key (v2), under KeyPrefix(key) = dbs/<h2>/<esc>/ where h2 is the first 2 hex digits of
+// sha256(key) and esc is the key path-escaped ("/" becomes "%2F"), so no key's prefix contains another's:
 //
 //	dbs/<h2>/<esc>/gen/<generation 20d>-e<epoch 20d>.db   immutable SQLite snapshot, uploaded at epoch,
 //	                                                      created once, never overwritten
 //	dbs/<h2>/<esc>/manifest.json   {key, generation, epoch, object, size, sha256, written_at}
 //
-// The epoch in a generation's name (guide K4, OS-05) means two owners can never collide on a name, and an
-// orphan names the epoch that wrote it. Each generation also carries user metadata (sha256, epoch,
-// generation, key, format: guide I4), enough to rebuild a manifest from the object alone. A manifest names
-// an object uploaded at an epoch no greater than its own: a Stamp raises the manifest's epoch without
-// renaming the object.
+// The epoch in a generation's name means two owners can never collide on a name, and an orphan names the epoch that
+// wrote it. Each generation also carries user metadata (sha256, epoch, generation, key, format), enough to rebuild a
+// manifest from the object alone. A manifest names an object uploaded at an epoch no greater than its own: a Stamp
+// raises the manifest's epoch without renaming the object.
 //
 // Activation reads the manifest and fetches its generation. Write-back uploads a new generation, then
 // publishes a manifest naming it, conditionally: the publish fails with ErrStale if the stored manifest
@@ -23,10 +21,10 @@
 // Generations do not pile up: owner-side retention and the orphan sweeper delete what no manifest can name
 // any more (gc.go: PlanRetention, PlanGC, Sweep; guide GC1–GC6).
 //
-// Domain code: the decisions here (CheckPublish, CheckStamp, NextManifest, PlanGC, PlanRetention) are pure. Storage is reached
-// through the Store port; durabletest has a fake and the contract suite, internal/objstore the S3 adapter.
+// Domain code: the decisions here (CheckPublish, CheckStamp, NextManifest, PlanGC, PlanRetention) are pure. Storage
+// is reached through the Store port; durabletest has a fake and the contract suite, internal/objstore the S3 adapter.
 // WithBreaker guards any Store with a circuit breaker (internal/breaker): refused and failing calls are
-// ErrUnavailable (Release It C1–C3).
+// ErrUnavailable, so callers fail fast while the store is down.
 package durable
 
 import (
@@ -79,10 +77,10 @@ type Manifest struct {
 	SHA256     string    `json:"sha256"`        // lower-case hex; "" for generation 0
 	MD5        string    `json:"md5,omitempty"` // lower-case hex, when the writer computed it (Content-MD5)
 	WrittenAt  time.Time `json:"written_at"`
-	// Seal counts the stamps of this key (Stamp raises it every time; a new generation keeps it: Succeeding).
-	// It makes every stamp change the manifest's bytes and so its version, even at the stored epoch: (Epoch,
-	// Generation, Seal) only rises (guide W3). A restarted owner stamps on reopen, so every publish its crashed
-	// incarnation still had in flight, conditional on an older version, fails.
+	// Seal counts the stamps of this key (Stamp raises it every time; a new generation keeps it: Succeeding). It
+	// makes every stamp change the manifest's bytes and so its version, even at the stored epoch: (Epoch, Generation,
+	// Seal) only rises. A restarted owner stamps on reopen, so every publish its crashed incarnation still had in
+	// flight, conditional on an older version, fails.
 	//
 	// Because it never falls, the seal a database was activated under also names its incarnation: two
 	// activations that may have lost different writes never share one. Document versions are floored by it
@@ -90,8 +88,8 @@ type Manifest struct {
 	Seal uint64 `json:"seal,omitempty"`
 }
 
-// Digest is what a snapshot file holds. Writers compute SHA256 and MD5 in one pass over the file; the MD5
-// becomes the upload's Content-MD5 (guide V2), so the adapter need not read the file again.
+// Digest is what a snapshot file holds. Writers compute SHA256 and MD5 in one pass over the file; the MD5 becomes the
+// upload's Content-MD5 (the server checks every upload), so the adapter need not read the file again.
 type Digest struct {
 	Size   int64
 	SHA256 string // lower-case hex
@@ -101,8 +99,8 @@ type Digest struct {
 // Format is the format metadata of a generation that holds one SQLite database file.
 const Format = "sqlite3-v1"
 
-// GenInfo is what the store says about one stored generation object (its HEAD): its size and the user
-// metadata PutGeneration recorded (guide I4). Fields are zero when the object lacks that metadata.
+// GenInfo is what the store says about one stored generation object (its HEAD): its size and the user metadata
+// PutGeneration recorded. Fields are zero when the object lacks that metadata.
 type GenInfo struct {
 	Size       int64
 	SHA256     string // lower-case hex
@@ -142,8 +140,8 @@ type Store interface {
 	//	post: other err ⇒ the object may or may not exist; it is not referenced by any manifest
 	PutGeneration(ctx context.Context, m Manifest, path string) error
 
-	// StatGeneration returns the size and recorded metadata of the stored object named object (a GenObject
-	// name). It is the re-read that resolves an ambiguous PutGeneration (object-storage guide R3).
+	// StatGeneration returns the size and recorded metadata of the stored object named object (a GenObject name). It
+	// is the re-read that resolves an ambiguous PutGeneration.
 	//
 	//	post: missing object ⇒ errors.Is(err, ErrNotFound)
 	//	post: err == nil ⇒ info describes the object as PutGeneration uploaded it
@@ -360,9 +358,9 @@ func Stamped(cur *Manifest, key string, epoch uint64, now time.Time) Manifest {
 // gen 0 it creates a generation-0 manifest. Returns the manifest now stored and its version. Every stamp is a
 // new version, at the stored epoch too (Seal): a publish conditional on any earlier version fails after it.
 //
-// A failed publish is ambiguous (a lost reply, or a 412 that a re-send of our own applied PUT caused), so
-// Stamp re-reads before it reports failure (object-storage guide R3): if the stored manifest is the one it
-// stamped, the stamp applied and Stamp succeeds.
+// A failed publish is ambiguous (a lost reply, or a 412 that a re-send of our own applied PUT caused), so Stamp
+// re-reads before it reports failure: if the stored manifest is the one it stamped, the stamp applied and Stamp
+// succeeds.
 func Stamp(ctx context.Context, s Store, key string, epoch, gen uint64, now time.Time) (Manifest, Version, error) {
 	stored, v, err := s.ReadManifest(ctx, key)
 	var cur *Manifest

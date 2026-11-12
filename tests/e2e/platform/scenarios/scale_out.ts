@@ -1,5 +1,5 @@
 /**
- * IR-5 `scale_out` (replace-platform plan §5 phase 6): two durable agents, controld and the edge; the SDK
+ * The `scale_out` scenario: two durable agents, controld and the edge; the SDK
  * resolves at controld (an API key from controld's tenancy admin API; the database created on first use)
  * and sends every request through the edge.
  *

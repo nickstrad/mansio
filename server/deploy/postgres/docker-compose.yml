@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: mansio
       POSTGRES_PASSWORD: mansio-dev
       POSTGRES_DB: mansio
-    # max_connections covers the PG-04 concurrency gate (64 workers) plus parallel test packages.
+    # max_connections covers the placement concurrency test (64 workers) plus parallel test packages.
     command: ["postgres", "-c", "max_connections=300"]
     ports:
       - "5433:5432"

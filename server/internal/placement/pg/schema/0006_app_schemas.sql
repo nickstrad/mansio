@@ -1,11 +1,10 @@
--- 0006_app_schemas.sql — the app schema registry (IR protocol plan §2.4, IR-2). Applied once by Migrate; never
--- edit after it is applied.
+-- 0006_app_schemas.sql — the app schema registry. Applied once by Migrate; never edit after it is applied.
 -- An app registers its schema (the defineSchema JSON) once with controld; agentd fetches it by fingerprint when
 -- it creates an app's database, and caches it (internal/schemareg). A database is (tenant, app), stored under
 -- the placement key tenant ':' app (ADR 0011), so an app is named by the database_name domain.
 -- Schemas are content-addressed: the fingerprint is "sha256:" and the lowercase hex SHA-256 of the exact text
--- (intermediate-representation/spec/v1.md §2), and the schema checks it, whichever code path writes (SQL G-12). Rows are never updated:
--- a changed schema is a new fingerprint.
+-- (intermediate-representation/spec/v1.md §2), and the schema checks it, whichever code path writes. Rows are
+-- never updated: a changed schema is a new fingerprint.
 begin;
 
 create domain schema_fingerprint as text collate "C"
@@ -28,7 +27,7 @@ create table app_schemas (
   registered_at timestamptz not null default now(),
   primary key (app, fingerprint)
 );
--- The primary key covers app; index the FK's referencing side (SQL G-12).
+-- The primary key covers app; index the FK's referencing side.
 create index app_schemas_fingerprint on app_schemas (fingerprint);
 
 insert into schema_version (version) values (6);

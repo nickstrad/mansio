@@ -94,8 +94,8 @@ func TestSQLiteCrashLosesOnlyUnpublishedWrites(t *testing.T) {
 	}
 }
 
-// OS-10 over real SQLite: a passivated database, clean or dirty, is re-warmed from the generation cache
-// (its bytes are exactly the published generation's), and its rows are intact.
+// The generation cache over real SQLite: a passivated database, clean or dirty, is re-warmed from the generation
+// cache (its bytes are exactly the published generation's), and its rows are intact.
 func TestGenCacheRewarmRealSQLite(t *testing.T) {
 	s := durabletest.NewStore()
 	h, err := vactor.NewHost(nil, actordb.Opener{}, vactor.Options{CacheDir: filepath.Join(t.TempDir(), "c"), Store: s,

@@ -288,7 +288,7 @@ the keys from `DBTOOL_S3_ACCESS_KEY` and `DBTOOL_S3_SECRET_KEY`. Without a comma
 - `dbtool import <file> -tenant T -app A -schema F [-placement-dir D -vm V]` makes an existing SQLite file the
   first generation of `T:A`. The file's stored schema must equal `F`.
 - `inspect`, `verify`, `orphans`, `gc` and `rebuild-manifest` are for operators; the runbook is
-  `server/docs/notes/writeback/2026-11-05-storage-runbook.md`.
+  `server/docs/notes/writeback/storage-runbook.md`.
 
 ## Observability
 

@@ -5,27 +5,27 @@ import (
 	"fmt"
 )
 
-// One named query per file, loaded once (SQL G-1, G-2). The text is sent as is: values are always bind
-// parameters (SQL G-4).
+// One named query per file, loaded once. The text is sent as is: values are always bind parameters, never formatted
+// into the SQL.
 //
 //go:embed queries/*.sql
 var queryFS embed.FS
 
 type queries struct {
 	get, create, cas, moving, vmLoad, liveVMs, registerVM, invariants string
-	// Registries (0002, CP-4).
+	// Registries (0002).
 	heartbeat, attestDead, vm, ownedBy, createDatabase, getDatabase, setDatabaseState, pending, dropPlacement string
-	// Locator and API keys (0003, 0004, CP-5).
+	// Locator and API keys (0003, 0004).
 	locate, apiKey, createAPIKey, revokeAPIKey string
-	// The app schema registry (0006, IR-2).
+	// The app schema registry (0006).
 	registerSchema, getSchema, appRegistered string
-	// Create-on-first-use caps (IR-5).
+	// Create-on-first-use caps.
 	countDatabases string
-	// Tenancy and auth (0007, IR-4a).
+	// Tenancy and auth (0007).
 	tenancyCreateTenant, tenancyListTenants, tenancyGetTenant, tenancyDeactivateTenant, tenancyCreateKey, tenancyRevokeKey,
 	tenancyKeyByID, tenancyKeyByLegacyHash, tenancyCreateUser, tenancyPassword, tenancyCreateSession, tenancySessionTenant,
 	tenancyLink string
-	// The Deno platform's tenancy import (IR-4a): source reads and the one target write.
+	// The Deno platform's tenancy import: source reads and the one target write.
 	importHasAuth, importCore, importAuth, importMansio, importEmailTaken string
 }
 

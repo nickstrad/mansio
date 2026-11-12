@@ -1,7 +1,7 @@
 /**
- * The SDK's read path (survey changes 1–4, `docs/programmatic-schema-platform-survey.md` §3.2) against the
- * in-memory `/v1/ops` model (`sdk_model.ts`), through the real HTTP transport (a fake `fetch`). Every test
- * counts round trips: `model.log` is every request the server received.
+ * The SDK's read path (four behaviours, tested below as `read path 1`–`4`) against the in-memory `/v1/ops`
+ * model (`sdk_model.ts`), through the real HTTP transport (a fake `fetch`). Every test counts round trips:
+ * `model.log` is every request the server received.
  */
 import assert from "node:assert/strict";
 import { Effect } from "effect";

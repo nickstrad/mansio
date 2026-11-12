@@ -1,5 +1,4 @@
-# Prometheus alert rules for mansio's bounded queues (Backpressure in Microservices ch. 8 "Prometheus Alerts"
-# and ch. 4 "Useful Alerts"; finding B11). The queues, their capacities, levers and runbooks are in
+# Prometheus alert rules for mansio's bounded queues. The queues, their capacities, levers and runbooks are in
 # docs/capacity.md. Thresholds live here, not in code (the metric catalog's rule).
 #
 # Alert on broken protection, not merely active protection: a queue that sheds while its dependency recovers
@@ -9,7 +8,7 @@
 groups:
   - name: mansio-backpressure
     rules:
-      # The book's four rules, against mansio's series.
+      # Four basic rules: queue near capacity, unexpected drops, failures high, queue age too high.
       - alert: MansioQueueNearCapacity
         expr: mansio_queue_depth / mansio_queue_capacity > 0.8
         for: 10m
@@ -67,7 +66,7 @@ groups:
           description: "Backpressure is active but the dependency has not recovered: lower the fetch limit (agentctl fetch-limit) or trip the S3 breaker (agentctl breaker s3 trip)."
       # The durability promise (README "Transaction and consistency contract"): an acknowledged write reaches S3
       # within about 11 s. While S3 is down the window grows without limit and nothing refuses the writes, so
-      # this alert is the only signal (control-plane plan, decision "alert on oldest_dirty_age").
+      # this alert is the only signal.
       - alert: MansioUnpublishedWritesOld
         expr: mansio_vactor_oldest_dirty_age_seconds > 60
         for: 2m

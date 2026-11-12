@@ -5,7 +5,7 @@ out, which writes are conditional and why, how ambiguous outcomes and garbage ar
 must support. It applies to `internal/objstore` (the S3 adapter), `internal/durable` (the port, the pure
 decisions and GC), `internal/vactor` (activation, write-back, passivation), `internal/owner` where it stamps,
 and `cmd/dbtool`. The ownership invariants these rules protect are in the
-[fencing safety argument](notes/fencing/2026-11-05-safety-argument.md).
+[fencing safety argument](notes/fencing/safety-argument.md).
 
 The model in one paragraph: each database is a series of **immutable generations** (whole SQLite files) plus
 one small **mutable manifest** that names the current one. A write-back uploads a new generation, then moves
@@ -162,9 +162,8 @@ it for each backend and version before use, and record the result in
 
 Known results: single-node SeaweedFS 4.47 and MinIO (2025-05-24 build) pass all twelve; a SeaweedFS 4.47
 cluster with two filers on a shared Postgres store passes X1–X11 with X3 raced across both gateways
-([SeaweedFS](notes/writeback/2026-11-05-s3-compat-seaweedfs.md),
-[MinIO and cluster](notes/writeback/2026-11-05-s3-compat-minio-and-cluster.md)). Identical bytes repeat the
-ETag on SeaweedFS, which is why every publish must change the bytes.
+([S3 compatibility results](notes/writeback/s3-compatibility.md)). Identical bytes repeat the ETag on
+SeaweedFS, which is why every publish must change the bytes.
 
 ## Client, cache and credentials
 
@@ -195,8 +194,8 @@ ETag on SeaweedFS, which is why every publish must change the bytes.
   PUT manifest) and an activation is 2. The manifest pre-read in a write-back is kept on purpose: a GET costs
   about a tenth of a PUT, and it checks the stored epoch as a second line of defence.
 - Every storage failure mode has a `cmd/dbtool` command and a runbook entry
-  ([storage runbook](notes/writeback/2026-11-05-storage-runbook.md)): corrupt generation (`verify`), lost
-  manifest (`rebuild-manifest`, with the epoch from the placement row, published only with `If-None-Match` or
+  ([storage runbook](notes/writeback/storage-runbook.md)): corrupt generation (`verify`), lost manifest
+  (`rebuild-manifest`, with the epoch from the placement row, published only with `If-None-Match` or
   `If-Match` on the manifest the operator saw), orphan growth (`orphans`, `gc`), a cost spike, a 503 SlowDown
   storm.
 
@@ -207,16 +206,15 @@ ETag on SeaweedFS, which is why every publish must change the bytes.
 - **Bucket policies that "require conditional writes".** SeaweedFS has none; `TestS3Compat` and the adapter
   enforce conditional writes instead.
 - **Leases stored in S3.** If leases are ever added they live in Postgres placement (see the
-  [leases options note](notes/fencing/2026-11-05-leases-options.md)).
+  [leases options note](notes/fencing/leases-options.md)).
 
 ## Open questions
 
 - **Multipart uploads.** Generations over 5 GiB are refused. Multipart needs X11 on the backend in use, and
   then a lifecycle rule that aborts incomplete uploads after a day.
 - **AWS S3, filers with separate stores, and failover during a publish** are unverified.
-- **WAL shipping** is designed, not built ([design](notes/writeback/2026-11-05-wal-shipping.md),
-  [amendments](notes/writeback/2026-11-05-wal-shipping-amendments.md)): create-only segments named
-  `gen/<G>-e<E>/wal/<seq>-e<E>.wal`, found by computed-key HEAD probes, not LIST; never adopted across epochs.
-  With an output gate it puts an S3 PUT on the write-ack path, so write availability becomes at most S3 PUT
-  availability. Before any WAL code, decide the behaviour under an open S3 breaker: refuse writes, or
-  acknowledge locally with a larger RPO.
+- **WAL shipping** is designed, not built ([design](notes/writeback/wal-shipping-design.md)): create-only
+  segments named `gen/<G>-e<E>/wal/<seq>-e<E>.wal`, found by computed-key HEAD probes, not LIST; never adopted
+  across epochs. With an output gate it puts an S3 PUT on the write-ack path, so write availability becomes at
+  most S3 PUT availability. Before any WAL code, decide the behaviour under an open S3 breaker: refuse writes,
+  or acknowledge locally with a larger RPO.
