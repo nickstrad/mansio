@@ -1,7 +1,7 @@
 # Container — observability path
 
-Redrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone
-and the server is the Go server in `server/`. Both formats are generated from
+Redrawn on 2026-11-12 for ADR 0014: the offline event-log tool and its DuckDB file are deleted; agentd's
+request log is read in place or shipped. Both formats are generated from
 `diagrams/c4-container-observability.py`; numbered relationships are identical. All boxes describe landed
 code.
 
@@ -11,60 +11,50 @@ code.
 ╭╌ Mansio observability ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
 ╎                                                                      ╎
 ╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ Agent                        │   │ Structured event sources     │ ╎
+╎  │ Agent                        │   │ Request log (JSONL)          │ ╎
 ╎  │ [Go process]                 │   │ [Filesystem]                 │ ╎
 ╎  │ server/cmd/agentd;           │   │ event_log.dir:               │ ╎
-╎  │ internal/eventlog            │   │ role/date/events-*.jsonl     │ ╎
-╎  │ event_log: http, handler,    │   │ agentd JSONL (role server);  │ ╎
-╎  │ sql, tx, backup and          │   │ the CLI's own (role reader); │ ╎
-╎  │ lifecycle records            │   │ quarantine beside source     │ ╎
-╎  └──────────────────────────────┘   └──────────────────────────────┘ ╎
+╎  │ internal/eventlog            │   │ server/date/events-*.jsonl   │ ╎
+╎  │ event_log: http, handler,    │   │ One JSON line per record,    │ ╎
+╎  │ sql, tx, queue, backup and   │   │ rolled by hour and size,     │ ╎
+╎  │ lifecycle records; /metrics  │   │ oldest deleted past          │ ╎
+╎  └──────────────────────────────┘   │ max_total_bytes or max_age   │ ╎
+╎                                     └──────────────────────────────┘ ╎
 ╎                                                                      ╎
-╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ Derived event log            │   │ Logs CLI                     │ ╎
-╎  │ [DuckDB file]                │   │ [Deno process]               │ ╎
-╎  │ EVENTLOG_DUCKDB              │   │ scripts/logs.ts; eventlog/   │ ╎
-╎  │ Schema v2; typed events      │   │ Ingest/list/query/sweep;     │ ╎
-╎  │ (sql_events.path),           │   │ named catalog                │ ╎
-╎  │ watermarks, k6_points        │   └──────────────────────────────┘ ╎
-╎  └──────────────────────────────┘                                    ╎
-╎                                                                      ╎
-╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
-╎  │ k6 point loader              │   │ k6 artifacts                 │ ╎
-╎  │ [Deno process]               │   │ [Filesystem]                 │ ╎
-╎  │ perf/ingest_k6.ts            │   │ logs/k6/run-id/              │ ╎
-╎  │ Loads raw points into        │   │ raw.json and summary.json    │ ╎
-╎  │ k6_points                    │   └──────────────────────────────┘ ╎
+╎  ┌──────────────────────────────┐                                    ╎
+╎  │ k6 artifacts                 │                                    ╎
+╎  │ [Filesystem]                 │                                    ╎
+╎  │ logs/k6/run-id/              │                                    ╎
+╎  │ raw.json and summary.json    │                                    ╎
 ╎  └──────────────────────────────┘                                    ╎
 ╎                                                                      ╎
 ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
-   ┌──────────────────────────────┐
-   │ k6 load generator            │
-   │ [External process]           │
-   │ perf/*.js                    │
-   │ IR load over /v1/ops; JSON   │
-   │ metric output                │
+   ┌──────────────────────────────┐   ┌──────────────────────────────┐
+   │ Operator                     │   │ k6 load generator            │
+   │ [Person]                     │   │ [External process]           │
+   │ jq, duckdb CLI; or their log │   │ perf/*.js                    │
+   │ collector and Prometheus     │   │ IR load over /v1/ops; JSON   │
+   │ Reads or ships the request   │   │ metric output                │
+   │ log; scrapes metrics         │   └──────────────────────────────┘
    └──────────────────────────────┘
 ```
 
 ## Relationships
 
-| # | From              | To                       | Relationship                                                                      |
-| - | ----------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| 1 | Agent             | Structured event sources | Append JSONL in core/events.ts format through a dropping queue                    |
-| 2 | Logs CLI          | Structured event sources | Offline ingest-then-sweep; seal tails, gzip/delete safe files; dry-run plans only |
-| 3 | Logs CLI          | Derived event log        | Transactional ingest (adds sql_events.path if missing); read-only catalog SELECT  |
-| 4 | k6 load generator | k6 artifacts             | Raw points and summary JSON                                                       |
-| 5 | k6 artifacts      | k6 point loader          | Read raw.json for selected run id                                                 |
-| 6 | k6 point loader   | Derived event log        | Insert k6_points; catalog compares overlapping HTTP buckets                       |
+| # | From              | To                  | Relationship                                                                                       |
+| - | ----------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| 1 | Agent             | Request log (JSONL) | Append records through a bounded queue that drops (counted); delete the oldest files at the limits |
+| 2 | Operator          | Request log (JSONL) | Read in place (jq, duckdb CLI) or tail and ship to a log store                                     |
+| 3 | Operator          | Agent               | Scrape /metrics; probe /healthz, /livez, /readyz                                                   |
+| 4 | k6 load generator | k6 artifacts        | Raw points and summary JSON                                                                        |
+| 5 | Operator          | k6 artifacts        | Read summary.json; find a k6 request in the request log by its trace id                            |
 
 ## Runtime notes
 
-agentd writes the event log when its config has event_log (dir, level, trace_sql); the records are
-byte-identical to core/events.ts toJsonLine (goldens shared with Go, IR-4c). Nothing in the server opens
-DuckDB: ingest and analysis are offline, in the logs CLI (eventlog/), and the DuckDB file has a single writer,
-so a query fails while an ingest holds it. The CLI writes its own records under the reader role. Retention
-bounds JSONL only, requires committed watermarks and matching hashes, and never touches today or the CLI's
-open file. Derived tables are never pruned. Gzipped retained sources are not re-ingested. Until IR-6 the Deno
-server and its reader child process did all of this in-process (ADR 0004).
+agentd writes the request log when its config has event_log (dir, level, trace_sql, buffer and the size and
+age limits); server/internal/eventlog owns the record format (goldens in its testdata). Emitting never blocks
+a request: a full queue drops the record, and drops, write losses and deletions are counted on /metrics
+(mansio_eventlog_*). mansio ships no log collector, log store, Prometheus server or dashboard: those are the
+deployment's. The offline TypeScript tool that loaded the files into DuckDB is deleted (ADR 0014);
+docs/observability.md has the fields and worked jq and duckdb queries.

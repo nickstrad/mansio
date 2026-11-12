@@ -1,6 +1,8 @@
 # ADR 0006 — Event identity, kind taxonomy and backup accounting in the event log (schema v2)
 
-- **Status:** accepted
+- **Status:** accepted for the record format (`eventId`, `kind`/`handlerKind`, a backup's `emitter` and
+  `runId`, now `server/internal/eventlog`); its DuckDB tables and schema versions are superseded by
+  [ADR 0014](0014-request-log-without-an-offline-tool.md)
 - **Date:** 2026-10-11
 - **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 35, from the accepted
   `reflection/astra` P2 finding; recorded by item 35

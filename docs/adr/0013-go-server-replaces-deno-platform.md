@@ -1,6 +1,7 @@
 # ADR 0013 — The Go server replaces the Deno platform
 
-- **Status:** accepted
+- **Status:** accepted; decision 4 (the offline event-log CLI) and the event-log parts of decision 3 are
+  superseded by [ADR 0014](0014-request-log-without-an-offline-tool.md)
 - **Date:** 2026-11-06
 - **Deciders:** `docs/plans/completed/replace-platform-with-go.md` (removed; see git history) §5 phase 7, §6;
   recorded by IR-6 (`docs/plans/completed/intermediate-representation-protocol.md` (removed; see git history)

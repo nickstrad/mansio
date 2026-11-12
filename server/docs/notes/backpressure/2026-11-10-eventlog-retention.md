@@ -1,5 +1,9 @@
 # Event-log retention in the writer (B9, event-log part, 2026-11-10)
 
+> **Later:** the offline sweep and ingest mentioned below were removed
+> ([ADR 0014](../../../../docs/adr/0014-request-log-without-an-offline-tool.md)); the writer's limits are the only
+> retention, and a log collector is expected to ship files before they reach them.
+
 Scope of B9 in this run: the event log only. B9's warm-set default (requiring `cache_bytes` or `max_active` in
 durable mode) is **not implemented**: gated on the paused LiteFS / write-back decision. Also not done here,
 and not gated: exporting the owner-slot count (the slots are never removed) and rotating the operational log

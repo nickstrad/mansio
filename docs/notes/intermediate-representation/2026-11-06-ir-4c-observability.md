@@ -1,5 +1,10 @@
 # 2026-11-06 — IR-4c: agentd writes mansio's event log; the TS CLI ingests and queries it
 
+> **Later:** the offline TypeScript tool (ingest, catalog, sweep, `core/events.ts`) was removed without a port
+> ([ADR 0014](../../adr/0014-request-log-without-an-offline-tool.md)). agentd's writer described here is
+> unchanged and now the only owner of the record format; [docs/observability.md](../../observability.md)
+> documents it.
+
 Question: how does the Go backend feed the event-log analysis (`docs/observability.md`) without DuckDB in Go,
 and what do its records mean when handlers run in the SDK? Built on `ir/04c-observability` from `main` at
 `6352bfb`. Plan: `docs/plans/completed/replace-platform-with-go.md` (removed; see git history) §5 phase 5,

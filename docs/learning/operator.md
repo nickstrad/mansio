@@ -191,14 +191,14 @@ Every drill from Phase 3 on uses that cluster.
     connection budget. Know this before an incident; the change is not written to the config file.
 
 27. Read "Observability" in `docs/guide.md` and `docs/observability.md`. The practice cluster does not enable
-    the event log, so add `"event_log": {"dir": "<absolute dir>"}` to `.platform/vm-a/agentd.json`, restart
-    that agent (step 15), make some calls, then run
-    `LOG_DIR=<dir> DATA_DIR=<scratch dir> deno task logs:ingest`, `deno task logs:list` and
-    `deno task logs:query handler-throughput` with the same variables.
+    the request log, so add `"event_log": {"dir": "<absolute dir>", "trace_sql": true}` to
+    `.platform/vm-a/agentd.json`, restart that agent (step 15), make some calls, then read the files under
+    `<dir>/server/` with the `jq` and `duckdb` examples of `docs/observability.md` (errors by handler, the
+    slowest statements), and check `mansio_eventlog_records_total` on that agent's `/metrics`.
 
-    Metrics tell you that something is wrong; the event log tells you what happened, request by request. The
-    writer bounds its own disk use (4 GiB and 45 days by default) and `logs:sweep` trims what has been
-    ingested.
+    Metrics tell you that something is wrong; the request log tells you what happened, request by request. The
+    writer bounds its own disk use (4 GiB and 45 days by default) and counts what it drops or deletes; in
+    production a log collector ships the files to a log store, which mansio does not include.
 
 28. Make a process fail at startup (for example point `tls.cert_file` at a missing file in a copy of its
     config), then find the printed log ID in its log (`.platform/<process>/*.log`).

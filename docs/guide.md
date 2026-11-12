@@ -3,7 +3,7 @@
 Write TypeScript schemas and named document handlers; the SDK runs the handlers in your process and sends
 their reads and writes to the Go server, `agentd`, as intermediate representation (IR) requests
 (`POST /v1/ops`, [intermediate-representation/spec/v1.md](../intermediate-representation/spec/v1.md)). This
-guide runs one local agentd for the two tic-tac-toe sample apps, drives it with the SDK, and reads its event
+guide runs one local agentd for the two tic-tac-toe sample apps, drives it with the SDK, and reads its request
 log. Read the README's [Deliberate limits](../README.md#deliberate-limits) before using it for anything real.
 
 ```text
@@ -12,9 +12,9 @@ Your program (SDK + handlers)
        v
 agentd: POST /v1/ops, one actor per SQLite database
        |                              |
-       | <tenant>:<app>.db files      | event_log: JSONL under <dir>/server/<date>/
+       | <tenant>:<app>.db files      | event_log: request log, JSONL under <dir>/server/<date>/
        v                              v
-db_dir (static mode)            deno task logs:ingest -> DuckDB event log
+db_dir (static mode)            jq, duckdb, or your log collector
 or S3 generations (durable)
 ```
 
@@ -30,8 +30,9 @@ deno --version
 go version
 ```
 
-Keep the committed `deno.lock`. The first run needs network access for the npm packages (Effect, DuckDB) and
-the Go modules.
+Keep the committed `deno.lock`. The first run needs network access for the npm packages (Effect) and the Go
+modules. `deno task check` type-checks the SDK, the examples and the tests, which confirms the setup. The
+Observability section uses `jq`.
 
 ## Configure and start agentd
 
@@ -93,8 +94,8 @@ JSON
   mode serves only the files it finds at start. It needs `schemas_dir`.
 - In `off` mode the tenant is `default`, so the databases are `default:tic-tac-toe` and
   `default:tic-tac-toe-json`.
-- `log_file` is agentd's own JSON log (default stderr). `event_log` is the event log for `deno task logs:*`;
-  `trace_sql` adds one record per SQL statement.
+- `log_file` is agentd's own JSON log (default stderr). `event_log` turns on the request log under
+  `logs/server/` (see Observability); `trace_sql` adds one record per SQL statement.
 
 Check the config, then start agentd and wait until it is ready:
 
@@ -237,8 +238,8 @@ agentd accepts two kinds of bearer credential on `/v1/ops`:
 - **Tickets**: short-lived Ed25519-signed tokens naming one database, its agent (`vm`) and read or write
   permission. agentd verifies them against `keys_file` (or controld's `keys_url`). In production controld's
   locator issues them; for development `sdk/ticket.ts` mints them (`generateIssuer`, `mintTicket`), as
-  `startGoAgent` in `tests/e2e/platform/harness.ts` and `startScratchAgent` in `tests/e2e/scratch.ts` do. A
-  read ticket does not allow writes and a write ticket does not allow reads.
+  `startGoAgent` in `tests/e2e/platform/harness.ts` does. A read ticket does not allow writes and a write
+  ticket does not allow reads.
 - **Tenancy credentials** (a `tenancy` section): `off` (one token per app, from the secrets file), `api-key`
   (tenant API keys) or `session` (API keys plus email/password sessions at `/api/auth/sign-up/email` and
   `/api/auth/sign-in/email`). `api-key` and `session` keep tenants, keys and users in Postgres (`pg_dsn` in
@@ -292,38 +293,57 @@ the keys from `DBTOOL_S3_ACCESS_KEY` and `DBTOOL_S3_SECRET_KEY`. Without a comma
 
 ## Observability
 
-agentd writes the event log when its config has an `event_log` section: `dir` (required), `level` (`debug`,
-`info` (default), `warn`, `error`), `trace_sql`, `buffer` and `max_file_bytes`. Files are
-`<dir>/server/<date>/events-<HH>-<pid>-<seq>.jsonl`. Every `/v1/ops` request gets an http record and a handler
-record (the handler name comes from the SDK's `X-Mansio-Handler` header), plus tx records and, with
-`trace_sql`, sql records. The response echoes the request's `X-Trace-Id`; agentd generates one if it is absent
-or invalid.
+With an `event_log` section, agentd writes its **request log**: one JSON line per `/v1/ops` request (`http`),
+per handled request (`handler`), per transaction (`tx`) and, with `trace_sql`, per SQL statement (`sql`), all
+under the request's trace id. The SDK sends one `X-Trace-Id` per call (the third argument of `query` and
+`mutation`, else a random UUID) and its handler's name in `X-Mansio-Handler`; agentd sends the trace id back
+and generates one if it is absent or invalid. The files are
+`<dir>/server/<date>/events-<HH>-<pid>-<seq>.jsonl` (local date and hour), written within milliseconds of each
+answer.
 
-The `deno task logs:*` CLI reads that tree. Its settings are environment variables declared in
-`eventlog/config.ts`; the important ones are `LOG_DIR` (the event log's `dir`), `EVENTLOG_DUCKDB` (the DuckDB
-file, default `<DATA_DIR>/eventlog.duckdb`) and `DATA_DIR`. Stop agentd (it drains the log on shutdown), then
-ingest and query:
+Find the walkthrough's traced read, with its SQL, while agentd still runs (you need `jq`):
+
+```sh
+ls "$MANSIO_DIR"/logs/server/*/
+jq -c 'select(.traceId == "guide-read")
+  | {kind, name, status, outcome, sqlText, rowCount, durationMs} | with_entries(select(.value != null))' \
+  "$MANSIO_DIR"/logs/server/*/*.jsonl
+```
+
+The answer is the request (`http`), the two statements of its snapshot read (`sql`: your `games` lookup and
+the `_mansio_changes` counters behind read preconditions), the transaction (`tx`) and the handler run
+(`handler`):
+
+```text
+{"kind":"http","name":"getGame","status":200,"durationMs":0.115}
+{"kind":"sql","outcome":"ok","sqlText":"SELECT * FROM \"games\" WHERE \"_id\" = ? ORDER BY \"_id\" ASC LIMIT ?","rowCount":1,"durationMs":0.024}
+{"kind":"sql","outcome":"ok","sqlText":"SELECT table_name, seq FROM \"_mansio_changes\"","rowCount":2,"durationMs":0.008}
+{"kind":"tx","outcome":"commit","durationMs":0.05}
+{"kind":"handler","name":"getGame","outcome":"ok","durationMs":0.111}
+```
+
+Use `guide-create` for the first mutation. Failed requests, by handler and error tag:
+
+```sh
+jq -r 'select(.kind == "http" and .status >= 400) | [.name, .status, .errorTag] | @tsv' \
+  "$MANSIO_DIR"/logs/server/*/*.jsonl | sort | uniq -c
+```
+
+The walkthrough's `RuleError` is not there: the SDK rejected it locally, so it never reached agentd. Bind
+values are never logged, and bearer tokens are redacted.
+
+[docs/observability.md](observability.md) is the reference: every record's fields, the writer's queue and size
+and age limits (`buffer`, `max_file_bytes`, `max_total_bytes`, `max_age`), how to ship the files to a log
+store, and queries with the optional `duckdb` CLI (slowest statements, errors and latency by handler).
+
+`/healthz`, `/livez`, `/readyz` and `/metrics` (Prometheus) are on the `health_listen` listener, or on the
+query listener when there is none; `curl -s http://127.0.0.1:7070/metrics | grep mansio_eventlog` shows the
+request log's counters (records written, dropped, lost). agentd's own operational log is `log_file` (JSON
+lines; a failure names a log ID). Stop agentd when you are done:
 
 ```sh
 kill -TERM "$agentd_pid"; wait "$agentd_pid"
-export LOG_DIR="$MANSIO_DIR/logs" DATA_DIR="$MANSIO_DIR/data" EVENTLOG_DUCKDB="$MANSIO_DIR/eventlog.duckdb"
-deno task logs:ingest
-deno task logs:list
-deno task logs:query handler-throughput --format json
-deno task logs:query trace --param traceId=guide-read --format json
-deno task logs:sweep --dry-run
 ```
-
-`logs:ingest` is idempotent: it loads only JSONL it has not seen. The DuckDB file has a single writer: while
-one `logs:ingest` holds it, other `logs:*` commands fail with a lock error rather than wait. `logs:sweep`
-without `--dry-run` ingests, then gzips or deletes JSONL files that are closed and fully ingested; the DuckDB
-file is never pruned. `logs:list` names the catalog queries and the question each answers.
-[docs/observability.md](observability.md) describes the tables, parameters and retention rules;
-[perf/README.md](../perf/README.md) the k6 scenarios and the `perf:ingest` loader.
-
-agentd's own operational log is `log_file` (JSON lines; a failure names a log ID). `/healthz`, `/livez`,
-`/readyz` and `/metrics` (Prometheus) are on the `health_listen` listener, or on the query listener when there
-is none.
 
 ## Troubleshooting
 
@@ -351,9 +371,12 @@ Each entry is symptom → cause → fix.
   overload.
 - **504 `StatementDeadlineError`** → a statement ran past `statement_timeout` → narrow the read (an index, a
   lower limit) or raise the timeout.
-- **`deno task logs:*` fails with a lock error** → another `logs:ingest` holds the DuckDB file → wait for it
-  to finish and rerun.
-- **The event log is empty** → agentd has no `event_log` section, or `level` is `error` → add the section and
-  restart.
+- **No files under `<dir>/server/`** → agentd has no `event_log` section → add it and restart.
+- **A request is missing from the request log** → `level` is above `info` (only failures are kept), or the
+  trace id you searched for is not the one sent (agentd replaces one that is not 1 to 128 characters of
+  `A-Za-z0-9._:-`; the answer's `X-Trace-Id` header has the one it used), or the queue was full →
+  `mansio_eventlog_records_total{result="dropped"}` on `/metrics` and `queue` records in the log count the
+  dropped records; raise `event_log.buffer` or reduce load.
+- **No `sql` records** → `trace_sql` is off (only failed statements are logged) → set it and restart.
 - **Anything else** → agentd's `log_file` names a log ID for every failure. See `server/` for the server's
   design notes.

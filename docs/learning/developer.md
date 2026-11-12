@@ -208,18 +208,18 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 ## Phase 8: Observability and history
 
-36. Read "Observability" in `docs/guide.md` and run its block against the agentd from step 7: stop agentd,
-    then `deno task logs:ingest`, `deno task logs:list` and
-    `deno task logs:query handler-throughput --format json`.
+36. Read "Observability" in `docs/guide.md` and run its `jq` commands against the agentd from step 7, then the
+    record tables in `docs/observability.md`.
 
-    The server writes a JSONL event log and an offline CLI loads it into DuckDB for named queries. This is how
-    you answer "what did the system actually do?" after the fact.
+    The server writes a JSON-lines request log: every request, transaction and statement under its trace id.
+    This is how you answer "what did the system actually do?" after the fact; `server/internal/eventlog` is
+    the writer and the record format.
 
 37. Start that agentd again, make a few calls, and run
     `curl -s http://127.0.0.1:7070/metrics | grep mansio_queue`.
 
-    The event log is for after the fact; `/metrics` is the live view. Matching each `queue` label to a row of
-    `server/docs/capacity.md` ties the overload reading from steps 34 and 35 to numbers you can watch.
+    The request log is for after the fact; `/metrics` is the live view. Matching each `queue` label to a row
+    of `server/docs/capacity.md` ties the overload reading from steps 34 and 35 to numbers you can watch.
 
 38. Read `docs/adr/README.md`, then ADRs 0009, 0010 and 0013.
 
@@ -241,7 +241,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
 
 41. Add a small feature to the sample app (for example a `resignGame` mutation in
     `examples/tic-tac-toe/functions.ts`), call it from a script against your local agentd, and watch the SQL
-    in the event log.
+    in the request log.
 
     Using the platform as an app author tests everything from phases 2 to 4 at once. If you can predict the IR
     and the SQL before you look, you understand the request path.
@@ -270,7 +270,7 @@ first if you have never used the SDK. Paths are from the repo root. Setup for ev
     protocol change takes, and the order to copy.
 
 46. Make a small real change with that shape: for example add a `resignGame` test to
-    `tests/e2e/platform/scenarios/`, or a new named query to the event-log catalog (`eventlog/`), and pass
+    `tests/e2e/platform/scenarios/`, or a new worked query to `docs/observability.md`, and pass
     `deno task ci:all`.
 
     A change that passes the gates proves you can extend the platform, not only read it. Start with something

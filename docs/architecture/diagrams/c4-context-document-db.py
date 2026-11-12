@@ -18,7 +18,7 @@ NODES = [('developer',
   'Operator',
   'Person',
   'scripts/tenants.ts; server/cmd/dbtool',
-  'Tenants, keys, placement, backups and log analysis',
+  'Tenants, keys, placement, backups; reads the request log and metrics',
   False),
  ('db',
   'Mansio',
@@ -32,12 +32,6 @@ NODES = [('developer',
   'S3 (SeaweedFS in dev)',
   'SQLite generations and manifests (durable mode)',
   False),
- ('analytics',
-  'Analytics consumer',
-  'External system',
-  'scripts/logs.ts; scripts/duckdb/',
-  'Offline DuckDB event log: named catalog or SQL',
-  False),
  ('k6',
   'k6 load generator',
   'External system',
@@ -46,11 +40,10 @@ NODES = [('developer',
   False)]
 EDGES = [('developer', 'db', 'Registered schema JSON; handlers stay in the app (TypeScript SDK)'),
  ('caller', 'db', 'IR over HTTP (/v1/resolve, /v1/ops); tickets, API keys or sessions; X-Trace-Id'),
- ('operator', 'db', 'Admin HTTP and CLIs; tenants, keys, moves, backups'),
+ ('operator', 'db', 'Admin HTTP and CLIs; tenants, keys, moves, backups; request log (JSONL) and /metrics'),
  ('db', 'objects', 'S3 HTTP; write-back of SQLite generations, restore'),
- ('db', 'analytics', 'JSONL event log, ingested offline into DuckDB'),
  ('k6', 'db', 'IR scenarios over /v1/ops and trace headers')]
-NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired.'
+NOTES = 'Since IR-6 the server is the Go server in server/; the Deno platform was deleted (ADR 0013). App handlers\nrun in the client SDK and reach the server as IR requests (intermediate-representation/spec/v1.md); no application SQL crosses the\nclient boundary. Tenant identity comes from tickets, API keys or sessions (ADR 0012); Postgres is inside the\nsystem, shown at Level 2. No external identity provider is wired. The request log and the metrics are\nfor the deployment\'s own log collector and Prometheus, which are not part of mansio (ADR 0014).'
 NAME = 'c4-context-document-db'
 
 

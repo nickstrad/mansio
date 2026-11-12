@@ -11,41 +11,33 @@ NODES = [('agentd',
   'Agent',
   'Go process',
   'server/cmd/agentd; internal/eventlog',
-  'event_log: http, handler, sql, tx, backup and lifecycle records',
+  'event_log: http, handler, sql, tx, queue, backup and lifecycle records; /metrics',
   True),
  ('jsonl',
-  'Structured event sources',
+  'Request log (JSONL)',
   'Filesystem',
-  'event_log.dir: role/date/events-*.jsonl',
-  "agentd JSONL (role server); the CLI's own (role reader); quarantine beside source",
+  'event_log.dir: server/date/events-*.jsonl',
+  'One JSON line per record, rolled by hour and size, oldest deleted past max_total_bytes or max_age',
   True),
- ('duck',
-  'Derived event log',
-  'DuckDB file',
-  'EVENTLOG_DUCKDB',
-  'Schema v2; typed events (sql_events.path), watermarks, k6_points',
-  True),
- ('cli',
-  'Logs CLI',
-  'Deno process',
-  'scripts/logs.ts; eventlog/',
-  'Ingest/list/query/sweep; named catalog',
-  True),
- ('loader', 'k6 point loader', 'Deno process', 'perf/ingest_k6.ts', 'Loads raw points into k6_points', True),
  ('results', 'k6 artifacts', 'Filesystem', 'logs/k6/run-id/', 'raw.json and summary.json', True),
+ ('operator',
+  'Operator',
+  'Person',
+  'jq, duckdb CLI; or their log collector and Prometheus',
+  'Reads or ships the request log; scrapes metrics',
+  False),
  ('k6',
   'k6 load generator',
   'External process',
   'perf/*.js',
   'IR load over /v1/ops; JSON metric output',
   False)]
-EDGES = [('agentd', 'jsonl', 'Append JSONL in core/events.ts format through a dropping queue'),
- ('cli', 'jsonl', 'Offline ingest-then-sweep; seal tails, gzip/delete safe files; dry-run plans only'),
- ('cli', 'duck', 'Transactional ingest (adds sql_events.path if missing); read-only catalog SELECT'),
+EDGES = [('agentd', 'jsonl', 'Append records through a bounded queue that drops (counted); delete the oldest files at the limits'),
+ ('operator', 'jsonl', 'Read in place (jq, duckdb CLI) or tail and ship to a log store'),
+ ('operator', 'agentd', 'Scrape /metrics; probe /healthz, /livez, /readyz'),
  ('k6', 'results', 'Raw points and summary JSON'),
- ('results', 'loader', 'Read raw.json for selected run id'),
- ('loader', 'duck', 'Insert k6_points; catalog compares overlapping HTTP buckets')]
-NOTES = "agentd writes the event log when its config has event_log (dir, level, trace_sql); the records are\nbyte-identical to core/events.ts toJsonLine (goldens shared with Go, IR-4c). Nothing in the server opens\nDuckDB: ingest and analysis are offline, in the logs CLI (eventlog/), and the DuckDB file has a single\nwriter, so a query fails while an ingest holds it. The CLI writes its own records under the reader role.\nRetention bounds JSONL only, requires committed watermarks and matching hashes, and never touches today\nor the CLI's open file. Derived tables are never pruned. Gzipped retained sources are not re-ingested.\nUntil IR-6 the Deno server and its reader child process did all of this in-process (ADR 0004)."
+ ('operator', 'results', 'Read summary.json; find a k6 request in the request log by its trace id')]
+NOTES = "agentd writes the request log when its config has event_log (dir, level, trace_sql, buffer and the\nsize and age limits); server/internal/eventlog owns the record format (goldens in its testdata).\nEmitting never blocks a request: a full queue drops the record, and drops, write losses and deletions\nare counted on /metrics (mansio_eventlog_*). mansio ships no log collector, log store, Prometheus server\nor dashboard: those are the deployment's. The offline TypeScript tool that loaded the files into DuckDB\nis deleted (ADR 0014); docs/observability.md has the fields and worked jq and duckdb queries."
 NAME = 'c4-container-observability'
 
 
@@ -90,7 +82,7 @@ def mermaid():
 
 
 def document(github):
-    text = '# ' + TITLE + '\n\nRedrawn for IR-6 (ADR 0013) on 2026-11-06 on `ir/06-cutover` from main `7cf4ba6`: the Deno platform is gone and\nthe server is the Go server in `server/`. Both formats are generated from\n'
+    text = '# ' + TITLE + '\n\nRedrawn on 2026-11-12 for ADR 0014: the offline event-log tool and its DuckDB file are deleted; agentd\'s\nrequest log is read in place or shipped. Both formats are generated from\n'
     text += '`diagrams/' + NAME + '.py`; numbered relationships are identical. All boxes describe landed code.\n\n'
     if github:
         text += '```mermaid\n' + mermaid() + '\n```\n'

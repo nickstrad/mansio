@@ -1,6 +1,6 @@
 # Plan: TypeScript only in the SDK
 
-Status: phase 1 decided and in progress (2026-11-12). Phases 2 to 4 are proposed and wait for a decision.
+Status: phase 1 done (2026-11-12, ADR 0014). Phases 2 to 4 are proposed and wait for a decision.
 
 ## Goal
 
@@ -23,7 +23,7 @@ something that is not the SDK.
 `tests/e2e/` stays TypeScript on purpose: it is the only suite that runs the real SDK against the real server.
 `perf/*.js` stays JavaScript because k6 scripts are JavaScript.
 
-## Phase 1: remove the offline event-log tool
+## Phase 1: remove the offline event-log tool (done)
 
 ### Decision (Nick, 2026-11-12)
 
@@ -77,6 +77,37 @@ tool used go too. Nothing replaces them in Go. The rest of `tests/` is left as i
   a different purpose.
 - A person can follow `docs/guide.md` "Observability" from a fresh checkout and find their own request, with
   its SQL, in the request log.
+
+### What was decided while doing it
+
+- **The goldens were already Go test data.** `server/internal/eventlog/testdata/goldens.jsonl` held one
+  `{name, line}` per record and `record_test.go` already asserted every kind against it; the TypeScript test
+  only wrote and checked the same file. Nothing was added: the file is now frozen Go test data, and only the
+  comments and failure messages of `record_test.go` and `log_test.go` were changed to stop naming the deleted
+  TypeScript files.
+- **Also deleted, because they existed only for the tool:** `tests/helpers/run.ts` (the Effect test runner
+  over `tests/layers/`, used only by the retention test) and `tests/e2e/scratch.ts` (the scratch agentd of the
+  k6 join). From `core/errors.ts`: `IngestError`, `AnalysisError`, `UnknownAnalysisQuery`, `IngestPhase` and
+  `QueueName`. `ConfigError` stays: it is a member of `StartupError` and the exhaustiveness test, and removing
+  it changes the taxonomy beyond this phase.
+- **macOS.** With the DuckDB suites gone, `deno task ci` no longer hangs natively on macOS, but one property
+  test fails there and passes in Linux: `tests/property/json_number_test.ts` (a JSON double near 3.6e275
+  compared with `gt`; macOS SQLite rounds it differently). It was hidden behind the hang before. So the docs
+  keep "run the gate through `scripts/dev/deno-linux.sh`", with that reason instead of the hang.
+- **`git grep -i duckdb` also finds the TypeScript and Go compilers' `duckdb` dialect** (`core/compile/`,
+  `core/compile/GENERATED_SQL.txt`, their tests, `server/internal/doccompile/dialect.go`). That is the
+  compiler's second dialect, phase 3's subject, not the event-log tool, so it stays.
+- **Go comments and one message still name the tool**: the package comments of `server/internal/eventlog`
+  (`log.go`, `record.go`, `retention.go`), `server/cmd/agentd/events.go` and `config.go` (`checkEventLog`'s
+  "LOG_DIR for deno task logs:ingest" error text), `events_test.go`, and the generated
+  `server/docs/capacity.md` runbook line ("before the offline ingest took them", from
+  `server/cmd/agentd/capacity_test.go`). They were left to the agent rewriting Go comments, to keep the merge
+  simple; they should be fixed when that lands.
+- **perf.** `perf/lib/api.js` imported `./ir.js`, renamed earlier to `intermediate-representation.js`, so
+  every k6 scenario failed to load; the import is fixed. The k6 tasks are unchanged apart from `perf:ingest`.
+- **Diagrams.** The Markdown C4 pairs in `docs/architecture/` (context and observability) were redrawn as well
+  as the site dataset: the operator reads or ships the request log and scrapes `/metrics`; no log store or
+  Prometheus server is drawn, because none is part of the platform.
 
 ### Later, with the control plane hardening (not in this plan)
 

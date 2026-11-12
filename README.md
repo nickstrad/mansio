@@ -5,7 +5,8 @@ the TypeScript SDK. The SDK turns their database work into requests of a small, 
 intermediate representation, or IR,
 [`intermediate-representation/spec/v1.md`](intermediate-representation/spec/v1.md)) and sends them to the Go
 server, which validates them, compiles them to SQLite SQL and runs them with one goroutine per database. The
-event log the server writes is ingested into DuckDB by an offline TypeScript CLI for named analysis.
+server writes a structured request log (JSON lines) and Prometheus metrics for the deployment's own logging
+and metrics stack.
 
 Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 [docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
@@ -17,9 +18,8 @@ Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `examples/tic-tac-toe/`                    | The tic-tac-toe sample: `schema.ts` (typed fields and indexes), `functions.ts` (queries and mutations, no SQL), rules.                                                                                                                       |
 | `sdk/`                                     | Schema builder, `defineFunctions`, the document API (`db.ts`), the client (`client.ts`, `recording.ts`, `transport.ts`).                                                                                                                     |
-| `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types, event records.                                                                                                                          |
+| `core/`                                    | Pure code: schema validation, query plans, compilation to SQL (`compile/`), tagged errors, IR types.                                                                                                                                         |
 | `intermediate-representation/`             | The IR protocol spec and the shared vectors both implementations are tested against.                                                                                                                                                         |
-| `eventlog/`, `scripts/logs.ts`             | The offline event-log CLI: JSONL → DuckDB ingest, retention sweep, the named analysis catalog.                                                                                                                                               |
 | `scripts/tenants.ts`, `scripts/explain.ts` | Tenant admin CLI against agentd's `/admin/tenants*`; the compiler's SQL for both layouts (`core/compile/GENERATED_SQL.txt`).                                                                                                                 |
 | `server/`                                  | The Go server (module `github.com/nickstrad/mansio/server`): `agentd`, `controld`, `edge`, `dbtool` and their tests.                                                                                                                         |
 | `tests/`                                   | Unit and property suites; `tests/e2e/platform/` is the Go server's conformance suite, driven through the SDK.                                                                                                                                |
@@ -33,7 +33,7 @@ The Go binaries:
   **durable mode** (an `s3` section) each database is a chain of immutable generations in S3, written back
   periodically and on shutdown. Callers authenticate with Ed25519-signed tickets, or, with a `tenancy`
   section, with app tokens (`off`), tenant API keys (`api-key`) or API keys plus email/password sessions
-  (`session`). An optional `event_log` section writes the JSONL event log.
+  (`session`). An optional `event_log` section writes the request log.
 - **`controld`** is the control plane for multi-node deployments: placement, the locator, the ticket issuer.
 - **`edge`** is the front door that forwards to agents.
 - **`dbtool`** inspects, verifies, restores and imports the durable copies in S3.
@@ -51,8 +51,9 @@ scripts/dev/e2e-linux.sh                   # the e2e suite on Linux, with Postgr
 deno task explain > core/compile/GENERATED_SQL.txt            # regenerate the compiler artifact
 ```
 
-Run `deno task ci` on Linux: the DuckDB event-log suites hang on macOS. `deno-linux.sh` runs a command in a
-Linux container with this checkout mounted. `e2e-linux.sh` cross-compiles `agentd`, `dbtool`, `controld` and
+Run `deno task ci` through `deno-linux.sh`, which runs a command in a clean Linux container with this checkout
+mounted: natively on macOS one property test (`tests/property/json_number_test.ts`) fails, because SQLite
+there rounds a huge JSON double differently. `e2e-linux.sh` cross-compiles `agentd`, `dbtool`, `controld` and
 `edge`, starts Postgres and SeaweedFS sibling containers, and runs `tests/e2e/platform/` in a Deno container.
 [docs/testing.md](docs/testing.md) describes the suites.
 
@@ -204,32 +205,25 @@ SDK retries or reroutes the transient ones itself. Handler-side failures (`RuleE
 `ConflictError`) never reach the server; the client reports them with the status the server would have used
 (`core/errors.ts:toHttpStatus`).
 
-## Observability and the event log
+## Observability: the request log and metrics
 
-With an `event_log: { dir, level, trace_sql }` section, agentd writes JSONL records (http, handler, tx, sql,
-queue, backup, lifecycle) under `<dir>/server/<date>/`, in the record format of `core/events.ts`. The
-`deno task logs:*` CLI (`eventlog/`) reads that tree as `LOG_DIR`:
-
-- `logs:ingest` loads new JSONL into the DuckDB event log (`EVENTLOG_DUCKDB`, default
-  `<DATA_DIR>/eventlog.duckdb`). The JSONL is the source of truth; the DuckDB file is a derived cache.
-- `logs:list` and `logs:query <name>` list and run the named analysis queries (`eventlog/catalog.ts`).
-- `logs:sweep` ingests, then gzips or deletes JSONL that is closed and fully ingested (defaults: gzip after 7
-  days, delete after 30, 1 GiB total). The DuckDB file is never pruned.
-
-The CLI's settings are environment variables, declared in `eventlog/config.ts`. agentd echoes or generates an
-`X-Trace-Id` per request, and its records carry it. [docs/observability.md](docs/observability.md) has the
-tables, the catalog and worked examples; `scripts/duckdb/` holds ad-hoc DuckDB queries.
+With an `event_log: { dir, trace_sql }` section, agentd writes its request log: JSON lines (http, handler, tx,
+sql, plus queue, backup and lifecycle) under `<dir>/server/<date>/`, every request's records under its
+`X-Trace-Id`, through a bounded queue that never blocks a request, into files it rolls by hour and size and
+deletes past a size and an age limit. A log collector ships them as they are; `jq` or the `duckdb` CLI read
+them in place. Health and overload are Prometheus metrics on `/metrics`, with `/healthz`, `/livez` and
+`/readyz`. [docs/observability.md](docs/observability.md) is the reference: the record fields, the limits and
+counters, shipping, and worked queries.
 
 ## Tasks
 
-| `deno task …`                                                        | Purpose                                                                         |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci`              | Format, lint, types, unit, property, and the aggregate gate (run on Linux).     |
-| `go:ci`, `ci:all`                                                    | The Go checks; both gates.                                                      |
-| `sim:swarm`                                                          | The Go server's deterministic-simulation seed swarm (`server/scripts/`).        |
-| `explain`                                                            | Compiler output for both layouts; redirect to `core/compile/GENERATED_SQL.txt`. |
-| `logs:ingest`, `logs:list`, `logs:query`, `logs:sweep`               | The offline event-log CLI.                                                      |
-| `perf:smoke`, `perf:load`, `perf:query`, `perf:mixed`, `perf:ingest` | k6 scenarios against agentd, and the loader of k6 points into the event log.    |
+| `deno task …`                                           | Purpose                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `fmt:check`, `lint`, `check`, `test`, `test:prop`, `ci` | Format, lint, types, unit, property, and the aggregate gate.                    |
+| `go:ci`, `ci:all`                                       | The Go checks; both gates.                                                      |
+| `sim:swarm`                                             | The Go server's deterministic-simulation seed swarm (`server/scripts/`).        |
+| `explain`                                               | Compiler output for both layouts; redirect to `core/compile/GENERATED_SQL.txt`. |
+| `perf:smoke`, `perf:load`, `perf:query`, `perf:mixed`   | k6 scenarios against agentd.                                                    |
 
 `deno task e2e` runs the e2e suite directly; it needs Linux, Postgres and S3, which `scripts/dev/e2e-linux.sh`
 provides.
@@ -252,6 +246,4 @@ run it with `cd pages && npm ci && npm run dev`.
 
 ## Primary references
 
-- DuckDB Node Neo API: https://duckdb.org/docs/current/clients/node_neo/overview
-- DuckDB JSON functions: https://duckdb.org/docs/current/data/json/json_functions
 - SQLite JSON functions: https://www.sqlite.org/json1.html
