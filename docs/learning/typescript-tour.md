@@ -10,7 +10,7 @@ Source: [examples/tic-tac-toe/schema.ts](../../examples/tic-tac-toe/schema.ts).
 
 <!-- deno-fmt-ignore -->
 ```ts
-import { defineSchema, defineTable, v } from "../sdk/schema.ts";
+import { defineSchema, defineTable, v } from "../../sdk/schema.ts";
 export const mark = v.enum("X", "O");
 
 export const schema = defineSchema({
@@ -69,7 +69,7 @@ export type Operation =
   | { kind: "insert"; table: string; value: unknown }
   | { kind: "patch"; table: string; id: string; value: unknown }
   | { kind: "delete"; table: string; id: string };
-export type Execute = (operation: Operation) => Effect.Effect<unknown, DbError>;
+export type Execute = (operation: Operation, guarded?: boolean) => Effect.Effect<unknown, DbError>;
 ```
 
 ## A terminal read returns a typed Effect
@@ -79,7 +79,7 @@ Source: [sdk/db.ts](../../sdk/db.ts).
 <!-- deno-fmt-ignore -->
 ```ts
 collect(): Effect.Effect<T[], DbError> {
-  return Effect.map(this.execute(this.plan), (rows) => rows as T[]);
+  return Effect.map(this.execute(this.plan, this.guarded), (rows) => rows as T[]);
 }
 first(): Effect.Effect<T | null, DbError> {
   return Effect.map(this.limit(1).collect(), (rows) => rows[0] ?? null);
@@ -182,7 +182,7 @@ Source: [sdk/client.ts](../../sdk/client.ts) (inside the loop that runs a handle
             Effect.flatMap(request("mutation", ops, newRequestId()), (req) => send(req, call)),
           );
           if (committed._tag === "Right") {
-            recording.committed();
+            recording.committed(committed.right.result.slice(asserts));
             return ran.right;
           }
           error = committed.left;
