@@ -9,12 +9,11 @@ read and edit entries with zero tooling.
 
 ## Pages
 
-| Page                                                     | Contents                                                              |
-| -------------------------------------------------------- | --------------------------------------------------------------------- |
-| [decisions.md](decisions.md)                             | Architectural decisions with dates and rationale                      |
-| [gotchas.md](gotchas.md)                                 | Environment and tooling traps that have bitten agents before          |
-| [glossary.md](glossary.md)                               | Project terms: items, batches, side quests, review protocol           |
-| [haiku-experiment-record.md](haiku-experiment-record.md) | Preserved 2026-10-10 verdicts from the retired Haiku experiment track |
+| Page                         | Contents                                                     |
+| ---------------------------- | ------------------------------------------------------------ |
+| [decisions.md](decisions.md) | Architectural decisions with dates and rationale             |
+| [gotchas.md](gotchas.md)     | Environment and tooling traps that have bitten agents before |
+| [glossary.md](glossary.md)   | Project terms: items, batches, review protocol               |
 
 ## Topics
 
@@ -55,20 +54,21 @@ One folder per part of the system, one dated entry per thread that explained it.
   ([`server/docs/capacity.md`](../../server/docs/capacity.md)) and its alert rules. Notes per finding:
   [`server/knowledge/backpressure/`](../../server/knowledge/backpressure/README.md). Two items wait on the
   LiteFS / write-back decision (`STATE.md`).
-- IR plan complete (`docs/plans/ir-protocol.md`): IR-0 to IR-6 and DST-0 to DST-3 landed; the Deno platform is
-  deleted and the Go server (`server/`) is the only backend
+- IR plan complete (`docs/plans/completed/ir-protocol.md`): IR-0 to IR-6 and DST-0 to DST-3 landed; the Deno
+  platform is deleted and the Go server (`server/`) is the only backend
   ([ADR 0013](../adr/0013-go-server-replaces-deno-platform.md)). S3 backup work is paused
   ([open issues](../../server/knowledge/writeback/2026-11-06-backup-paused-open-issues.md)).
-- `docs/plans/ffi-implementation.md` (historical; the FFI layer was deleted with the platform in IR-6) — the
-  FFI statement execution layer: FFI-01 to FFI-08, including FFI-04b, all landed on `main` (FFI-08 merge
-  `0b82504`; the plan record landed at `2d30330`). Decision record:
+- `docs/plans/completed/ffi-implementation.md` (historical; the FFI layer was deleted with the platform in
+  IR-6) — the FFI statement execution layer: FFI-01 to FFI-08, including FFI-04b, all landed on `main` (FFI-08
+  merge `0b82504`; the plan record landed at `2d30330`). Decision record:
   `docs/adr/0008-statement-execution-via-ffi.md`.
 - `pages/` — the architecture diagrams site (PG-01 landed 2026-10-15 as `b789441`; PG-02 landed as `f52c817`,
   completing the proposed dataset and rendering all seven C4 kinds): current and proposed C4 views side by
   side, on an interim c4-sdk copy until PG-03 swapped it for the published `c4-sdk` 0.1.0 npm package. See
   `pages/README.md` and the decisions of 2026-10-15.
 - `agent-work/COORDINATION.md` — the coordinator's live log: what landed, what is in review, what is building.
-- `docs/plans/effect-port-and-observability.md` and `docs/plans/multitenancy.md` — the build plans.
+- `docs/plans/completed/effect-port-and-observability.md` and `docs/plans/completed/multitenancy.md` — the
+  build plans.
 - `/root/MUSE_HATCH_README.md` — vm-1 orientation (read once per host).
 
 ## Maintenance convention
@@ -80,9 +80,8 @@ This folder only works if agents keep it current. Short, enforceable rules:
    you something another agent would otherwise rediscover. Add it to the right page in the same flow — not
    "later".
 3. **Date** new entries (`YYYY-MM-DD`). Undated knowledge rots silently.
-4. **Link, don't duplicate.** Plans (`docs/plans/`), architecture (`docs/architecture/`), and findings
-   (`docs/haiku-experiments/findings/`) are authoritative for their details; knowledge entries record the
-   _why_ and the _trap_, with a link.
+4. **Link, don't duplicate.** Plans (`docs/plans/`) and architecture (`docs/architecture/`) are authoritative
+   for their details; knowledge entries record the _why_ and the _trap_, with a link.
 5. **Mark superseded entries** with a date and a pointer to the replacement instead of deleting history.
    Delete only what would actively mislead.
 6. **Update this index** whenever you add, move, rename, or remove a page.

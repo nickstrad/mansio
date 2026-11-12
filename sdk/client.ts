@@ -1,5 +1,5 @@
 /**
- * The typed client (IR-3, `docs/plans/ir-protocol.md` §3): handlers run **in the caller's process**
+ * The typed client (IR-3, `docs/plans/completed/ir-protocol.md` §3): handlers run **in the caller's process**
  * against the remote database over `/v1/ops`.
  *
  * ```ts

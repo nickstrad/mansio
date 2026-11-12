@@ -2,8 +2,10 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-06
-- **Deciders:** [`docs/plans/replace-platform-with-go.md`](../plans/replace-platform-with-go.md) §5 phase 7,
-  §6; recorded by IR-6 ([`docs/plans/ir-protocol.md`](../plans/ir-protocol.md) §5)
+- **Deciders:**
+  [`docs/plans/completed/replace-platform-with-go.md`](../plans/completed/replace-platform-with-go.md) §5
+  phase 7, §6; recorded by IR-6 ([`docs/plans/completed/ir-protocol.md`](../plans/completed/ir-protocol.md)
+  §5)
 - **Related:** [ADR 0009](0009-ir-is-the-app-wire.md), [ADR 0010](0010-compiler-port-with-ts-oracle.md),
   [ADR 0012](0012-single-node-auth-port.md); supersedes [ADR 0001](0001-effect-port.md)'s process split,
   [ADR 0004](0004-eventlog-duckdb-in-reader-only.md) and [ADR 0008](0008-statement-execution-via-ffi.md) for
@@ -57,6 +59,7 @@
   `controld import-mansio` (ADR 0012); the e2e check that imported a freshly Deno-written file went with the
   platform.
 - The open durability question is unchanged and is now the only server's: writes are acknowledged before
-  write-back, so a kill -9 can lose the window (`docs/plans/ir-protocol.md` §9; S3 backup work is paused).
+  write-back, so a kill -9 can lose the window (`docs/plans/completed/ir-protocol.md` §9; S3 backup work is
+  paused).
 - ADRs 0001, 0004 and 0008 now describe history for the server; their TS-side rules that still apply (pure
   `core/`, a single DuckDB writer, the text storage contract) stay in force for what remains.

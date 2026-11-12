@@ -57,7 +57,7 @@ A long-running process, `mansio serve`, that:
 It is application-tier code: the app owner's handlers plus a host that mansio ships. Until IR-6 the Deno
 platform's handler routes (`POST /apps/:app/(query|mutation)/:name`) did this job; the runner is those routes
 without a database inside them. The Go plan named it as the fallback when it chose not to embed an engine
-(`docs/plans/replace-platform-with-go.md`, decision D2: "Deno sidecar, optimistic commit").
+(`docs/plans/completed/replace-platform-with-go.md`, decision D2: "Deno sidecar, optimistic commit").
 
 ### Who deploys and owns it
 
@@ -316,7 +316,7 @@ What is still missing:
 1. **Local data beyond point reads.** The cache answers `get`. A local `find` needs every row of the table as
    of a known sequence, and a select evaluator over them (the overlay's `matches` and `compareRows` are most
    of one). That means a local store and a way to fill it: the plan's read replicas or an op log
-   (`docs/plans/ir-protocol.md` §7, steps 1 and 2).
+   (`docs/plans/completed/ir-protocol.md` §7, steps 1 and 2).
 2. **A change feed.** Today the client learns of other writers' changes only by being refused. Local logic
    wants "what changed since sequence N" pushed or pulled. The sequence exists; the feed does not.
 3. **A pending-write queue with rebase.** Showing a speculative result before the commit returns, queueing

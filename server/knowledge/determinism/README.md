@@ -1,6 +1,6 @@
 # determinism/ — Clock, Rand and IDGen seams for deterministic simulation (DST)
 
-Owner: DST builder (IR protocol plan §6.4, `mansio/docs/plans/ir-protocol.md`). Newest first.
+Owner: DST builder (IR protocol plan §6.4, `mansio/docs/plans/completed/ir-protocol.md`). Newest first.
 
 ## 2026-11-06 DST-2 and DST-3: cluster simulation, swarm, shrinking (branch `dst/2-cluster`)
 

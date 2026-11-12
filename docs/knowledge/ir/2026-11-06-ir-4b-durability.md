@@ -3,8 +3,8 @@
 Question: what do the Deno platform's `/admin/backup/:appId`, `scripts/restore.ts` and "existing SQLite files"
 become on agentd, where a database's durable copy is already a chain of S3 generations? Built on
 `ir/04b-durability` from `main` at `6352bfb`. Plan:
-[`replace-platform-with-go.md`](../../plans/replace-platform-with-go.md) §4.3, §5 phase 4;
-[`ir-protocol.md`](../../plans/ir-protocol.md) §5 IR-4.
+[`replace-platform-with-go.md`](../../plans/completed/replace-platform-with-go.md) §4.3, §5 phase 4;
+[`ir-protocol.md`](../../plans/completed/ir-protocol.md) §5 IR-4.
 
 ## Design
 

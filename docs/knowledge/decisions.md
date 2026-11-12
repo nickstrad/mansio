@@ -45,10 +45,10 @@ inventory (`pages/content/<dataset>/inventory.md`). See [pages/README.md](../../
 
 ## 2026-10-14 — Statement execution through the FFI binding, not `node:sqlite`
 
-Decision (plan `docs/plans/ffi-implementation.md`, ADR 0008): the API process opens every application SQLite
-file through `platform/sqlite_ffi/`, a `Deno.dlopen` binding over the system `libsqlite3`. `node:sqlite`
-leaves the server's module graph. Why: a synchronous `DatabaseSync` call cannot be stopped, so a long `count`
-held the event loop and the request could only fail by timeout while the statement kept running.
+Decision (plan `docs/plans/completed/ffi-implementation.md`, ADR 0008): the API process opens every
+application SQLite file through `platform/sqlite_ffi/`, a `Deno.dlopen` binding over the system `libsqlite3`.
+`node:sqlite` leaves the server's module graph. Why: a synchronous `DatabaseSync` call cannot be stopped, so a
+long `count` held the event loop and the request could only fail by timeout while the statement kept running.
 `sqlite3_interrupt` can stop it. The cutover is one commit with no flag, because two copies of SQLite must
 never open one file in one process. Unbounded reads run under `STATEMENT_DEADLINE_MS` and fail HTTP 504 when
 they pass it. Point reads and writes stay synchronous and are never interrupted.
@@ -86,7 +86,7 @@ the narrowed outcome of the sqlite-pivot plan's SP-02/SP-05.
 Human decision: MT-03 (and any other item touching Postgres) uses the pinned `npm:postgres` client directly
 with hand-written SQL, leveraging SQL syntax — not an ORM or query builder generating SQL internally.
 Rationale: direct hand-written SQL is tunable and has no hidden query generation. Recorded in
-`docs/plans/multitenancy.md` §2.4 and MT-03.
+`docs/plans/completed/multitenancy.md` §2.4 and MT-03.
 
 ## 2026-10-11 — Knowledge lives in plain markdown, no `kb` CLI
 
@@ -106,11 +106,11 @@ repo `AGENTS.md`.
 
 ## 2026-10-11 — Multitenancy: Postgres registry, per-tenant SQLite, router interface
 
-`docs/plans/multitenancy.md` (MT-01–MT-10): Postgres is the central tenant registry; each tenant gets its own
-SQLite file. Routing is a `TenantStorageRouter` Effect interface the Storage service depends on — never paths
-or env vars. `LocalFolderRouter` maps UUID-validated tenants to `TENANTS_DIR/<tenant-id>.db`; a future
-`ControlPlaneRouter` must be swappable with zero Storage/client changes. Rationale: grow from local folder to
-control plane without rewriting the storage layer.
+`docs/plans/completed/multitenancy.md` (MT-01–MT-10): Postgres is the central tenant registry; each tenant
+gets its own SQLite file. Routing is a `TenantStorageRouter` Effect interface the Storage service depends on —
+never paths or env vars. `LocalFolderRouter` maps UUID-validated tenants to `TENANTS_DIR/<tenant-id>.db`; a
+future `ControlPlaneRouter` must be swappable with zero Storage/client changes. Rationale: grow from local
+folder to control plane without rewriting the storage layer.
 
 ## 2026-10-11 — Better Auth is not punted
 

@@ -2,8 +2,10 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-06
-- **Deciders:** [`docs/plans/replace-platform-with-go.md`](../plans/replace-platform-with-go.md) §3 D5, D6,
-  §4.4; recorded by IR-4a ([`docs/plans/ir-protocol.md`](../plans/ir-protocol.md) §5 IR-4)
+- **Deciders:**
+  [`docs/plans/completed/replace-platform-with-go.md`](../plans/completed/replace-platform-with-go.md) §3 D5,
+  D6, §4.4; recorded by IR-4a ([`docs/plans/completed/ir-protocol.md`](../plans/completed/ir-protocol.md) §5
+  IR-4)
 - **Related:** [ADR 0009](0009-ir-is-the-app-wire.md), [ADR 0011](0011-database-identity-and-client-ids.md)
 - **Implements:** `server/internal/tenancy`, `server/internal/tenancy/tenancyhttp`, `server/internal/front`
   (`Credentials`), `server/cmd/agentd/tenancy.go`, `server/internal/placement/pg` (schema 0007, `Tenancy()`,

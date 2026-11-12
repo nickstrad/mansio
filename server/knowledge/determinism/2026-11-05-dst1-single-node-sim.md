@@ -1,6 +1,6 @@
 # 2026-11-05 — DST-1: the single-node deterministic simulation (`internal/sim`)
 
-Author: DST builder. Plan: IR protocol plan §6.4 item 2 (`mansio/docs/plans/ir-protocol.md`). Branch
+Author: DST builder. Plan: IR protocol plan §6.4 item 2 (`mansio/docs/plans/completed/ir-protocol.md`). Branch
 `dst/1-single-node`. Code: `internal/sim` (harness, checker, entry point), plus the clock-aware fakes in
 `durabletest`, `vactortest`, `ownertest` and `dettest.Clock.Step`.
 

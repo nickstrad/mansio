@@ -6,11 +6,12 @@ approval · Author: Fable 5.1 (with nickstrad) · Date: 2026-10-13 · Target bra
 off `main`, one commit per item · Baseline: `main` at `dedef4f` (the `platform/`, `core/`, `sdk/` and `tests/`
 trees are identical to `e808983`, the commit the research measured).
 
-Turns the recommendation of [lang-switch-fable.md §8](../architecture/lang-switch-fable.md) into build items.
-The design it implements is drawn in [docs/plans/ffi/](ffi/README.md) (C4 set) and restated in
-[architecture-ste100.md](ffi/architecture-ste100.md). This plan builds the **execution layer only**: the FFI
-binding, the connection and statement API over it, the cutover of the statement path away from `node:sqlite`,
-and deadline-bounded execution for statements that can run long. It does not build lanes or placement (§6).
+Turns the recommendation of [lang-switch-fable.md §8](../../architecture/lang-switch-fable.md) into build
+items. The design it implements is drawn in [docs/plans/ffi/](../ffi/README.md) (C4 set) and restated in
+[architecture-ste100.md](../ffi/architecture-ste100.md). This plan builds the **execution layer only**: the
+FFI binding, the connection and statement API over it, the cutover of the statement path away from
+`node:sqlite`, and deadline-bounded execution for statements that can run long. It does not build lanes or
+placement (§6).
 
 The first item is the FFI binding module itself. It is **built**: Claude Opus 5.5 (`claude-ffi-binding`)
 pushed `item/ffi-binding` at `acdef43` on 2026-10-13 (`agent-work/items/ffi-binding/brief.md`); FFI-01 below
@@ -525,7 +526,7 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
   decision, the §1.2 rule, the §1.3 threading model, the measured numbers), `docs/knowledge/decisions.md` and
   `gotchas.md` (two SQLite copies; two `libsqlite3` on vm-1; `getCString` truncation),
   `docs/plans/ffi/README.md` (status line: execution layer landed, lanes/placement still proposed),
-  `docs/plans/ffi-implementation.md` (this file: status → landed).
+  `docs/plans/completed/ffi-implementation.md` (this file: status → landed).
 - **Reads:** the landed diffs of FFI-01 … FFI-07.
 - **Acceptance evidence:** `python3 docs/architecture/diagrams/render.py --check` passes; both formats of each
   touched diagram updated; the ADR cites the FFI-06 numbers; `deno fmt --check docs/` green; a reviewer
@@ -605,15 +606,15 @@ Each review and each fixup gets its own worktree too. Nobody edits another unit'
 
 ## 7. Evidence this plan builds on
 
-- Measurements: [lang-switch-fable.md §3](../architecture/lang-switch-fable.md) and the raw JSON in
-  [`lang-switch-fable-data/`](../architecture/lang-switch-fable-data/) (vm-1, 2026-10-12, load 3.3 at the
+- Measurements: [lang-switch-fable.md §3](../../architecture/lang-switch-fable.md) and the raw JSON in
+  [`lang-switch-fable-data/`](../../architecture/lang-switch-fable-data/) (vm-1, 2026-10-12, load 3.3 at the
   committed run). Harnesses: `work-scripts/INDEX.md` rows for `ffi-sqlite-interrupt.ts`,
   `ffi-sqlite-read-cost.ts`, `lane-kill-latency.ts`, `lang-switch-poc.sh` on `research/fable-lang-switch`.
-- Design: [docs/plans/ffi/README.md](ffi/README.md) (C4 set and the four flows),
-  [architecture-ste100.md](ffi/architecture-ste100.md), `docs/architecture/scale-out-final-fable.md` §Tweaks
-  on `arch/fable-ranking` (lanes as child processes, request ids, hot-tenant pinning — all deferred with the
-  lanes).
+- Design: [docs/plans/ffi/README.md](../ffi/README.md) (C4 set and the four flows),
+  [architecture-ste100.md](../ffi/architecture-ste100.md), `docs/architecture/scale-out-final-fable.md`
+  §Tweaks on `arch/fable-ranking` (lanes as child processes, request ids, hot-tenant pinning — all deferred
+  with the lanes).
 - Precedent for a one-item cutover without a flag: `docs/plans/sqlite-pivot.md` SP-02 (`plan/sqlite-pivot`).
-- Constraints: `docs/plans/effect-port-and-observability.md` §0 "the hard architectural constraint", §2.2
-  (`deno.json` freeze, ownership rules); `AGENTS.md` (model policy, review, event log);
+- Constraints: `docs/plans/completed/effect-port-and-observability.md` §0 "the hard architectural constraint",
+  §2.2 (`deno.json` freeze, ownership rules); `AGENTS.md` (model policy, review, event log);
   `docs/adr/0005-text-storage-contract.md`.

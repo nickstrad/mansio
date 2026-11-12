@@ -1,9 +1,8 @@
 # Agent orchestration protocol for mansio
 
-This file is the coordination contract for agents working on this repo. It covers the plan in
-[`docs/plans/effect-port-and-observability.md`](docs/plans/effect-port-and-observability.md) and the
-side-quest track in [`docs/side-quests.md`](docs/side-quests.md). For repo conventions (how to run things,
-style), see `CLAUDE.md`.
+This file is the coordination contract for agents working on this repo. Open plans live in `docs/plans/`;
+finished ones are in `docs/plans/completed/`. For repo conventions (how to run things, style), see
+`CLAUDE.md`.
 
 Agent protocol (three-CLI seats, fresh-agent lifecycle, hybrid execution, review/arbitration): see the global
 agent files (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, Muse Code global rules). This file keeps only
@@ -11,8 +10,8 @@ repo-specific rules.
 
 ## Unit-of-work rules (repo additions to the global lifecycle)
 
-Every build, review, repair/fixup, documentation follow-up, side quest, and other bounded task is a separate
-unit and follows the global fresh-agent lifecycle. In this repo:
+Every build, review, repair/fixup, documentation follow-up, and other bounded task is a separate unit and
+follows the global fresh-agent lifecycle. In this repo:
 
 - Give each fresh unit its own stable event actor ID, and have it read the required orientation and the shared
   event log at start.
@@ -61,10 +60,9 @@ unit and follows the global fresh-agent lifecycle. In this repo:
   public type-level API, the error taxonomy.
 - **Sonnet** (`implementer-sonnet-high`) — bounded, mechanical items: the interface is already fixed by an
   earlier item, the file list is short, acceptance criteria are checkable by running a command.
-- **Haiku** (never ≤4.5) — side quests **only**, tracked in `docs/side-quests.md`. Haiku never lands work to
-  `main` without both an Opus review (PASS) and explicit human approval — a PASS alone is not sufficient
-  authorization to merge. Haiku side-quest work happens on `haiku/sq-NN` branches, never on an `item/NN-slug`
-  branch or worktree.
+- **Haiku** (never ≤4.5) — small read-only investigations **only**. Haiku never lands work to `main` without
+  both an Opus review (PASS) and explicit human approval — a PASS alone is not sufficient authorization to
+  merge — and never works on an `item/NN-slug` branch or worktree.
 
 Every item, regardless of model, gets the same Opus review pass described above.
 
@@ -83,21 +81,6 @@ The seat mapping (Opus/astra, Sonnet/sol, Haiku/luna) is global. Repo specifics:
   ≤4.5 must never be used. Luna always runs on high effort.
 - Independent reviews stay top-tier (Opus 5.5 or astra). Model names alone never authorize work outside an
   item's ownership. This orchestration policy lives only here; `CLAUDE.md` needs no change.
-
-## Side-quest protocol
-
-Side quests are small, bounded investigations (survey a library's patterns, measure a baseline, compare output
-formats) that are read-only or scratch-only against the product tree — they must never modify plan item files
-(`core/`, `eventlog/`, `sdk/`, `app/`, `server/`, `tests/`, `scripts/`, `perf/`, `deno.json`).
-
-1. The main agent appends new quests to the board table in `docs/side-quests.md` (id, question, why it
-   matters, done-criteria).
-2. A newly spawned Haiku subagent with fresh context and its own worktree claims one quest, investigates,
-   commits its findings, and writes them to exactly `docs/haiku-experiments/findings/<quest-id>.md` — a unique
-   path per quest, so concurrent Haiku runs never collide on a shared-file edit. A Haiku agent does not edit
-   the board itself, any other quest's findings file, or `MEMORY.md`.
-3. The main agent updates the quest's status in the board and commits the status change together with the new
-   findings file.
 
 ## Work scripts
 

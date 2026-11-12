@@ -2,9 +2,9 @@
 
 Status: proposed · Date: 2026-10-10 · Target branch: feature branches off `main`, one commit per item.
 
-Builds on: `docs/plans/effect-port-and-observability.md` items 01–29 complete. This plan is additive — it does
-not modify that plan. Where this plan touches files owned by earlier items, it extends them (new config rows,
-new routes, new service methods), never rewrites them.
+Builds on: `docs/plans/completed/effect-port-and-observability.md` items 01–29 complete. This plan is additive
+— it does not modify that plan. Where this plan touches files owned by earlier items, it extends them (new
+config rows, new routes, new service methods), never rewrites them.
 
 ## 0. Where the code is today (multitenancy-relevant surface)
 

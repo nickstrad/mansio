@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-11
-- **Deciders:** the plan at `docs/plans/effect-port-and-observability.md` item 35, from the accepted
+- **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 35, from the accepted
   `reflection/astra` P2 finding; recorded by item 35
 - **Related:** [ADR 0004 — the event log's DuckDB file](0004-eventlog-duckdb-in-reader-only.md)
 - **Implements:** `core/eventlog/ddl.ts`, `core/events.ts`, `platform/eventlog/tables.ts`,

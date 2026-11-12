@@ -2,8 +2,9 @@
 
 Question: how does the Go backend feed the event-log analysis (`docs/observability.md`) without DuckDB in Go,
 and what do its records mean when handlers run in the SDK? Built on `ir/04c-observability` from `main` at
-`6352bfb`. Plan: [`docs/plans/replace-platform-with-go.md`](../../plans/replace-platform-with-go.md) §5 phase
-5, [`docs/plans/ir-protocol.md`](../../plans/ir-protocol.md) IR-4.
+`6352bfb`. Plan:
+[`docs/plans/completed/replace-platform-with-go.md`](../../plans/completed/replace-platform-with-go.md) §5
+phase 5, [`docs/plans/completed/ir-protocol.md`](../../plans/completed/ir-protocol.md) IR-4.
 
 ## The pieces
 

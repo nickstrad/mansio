@@ -1,6 +1,6 @@
 # 2026-11-06 — DST-2 and DST-3: the cluster simulation, the swarm and shrinking
 
-Author: DST builder. Plan: IR protocol plan §6.4 items 3–4 (`mansio/docs/plans/ir-protocol.md`). Branch
+Author: DST builder. Plan: IR protocol plan §6.4 items 3–4 (`mansio/docs/plans/completed/ir-protocol.md`). Branch
 `dst/2-cluster`. Code: `internal/sim/cluster*.go`, `internal/sim/ir_workload.go`, `internal/agentglue`,
 `ticket.Rotate`, `tickettest.MemKeys`, `scripts/sim-swarm.sh`. Builds on
 [DST-1](2026-11-05-dst1-single-node-sim.md) (the loop, streams, gate, trace, health and RPO rule).

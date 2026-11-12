@@ -1,6 +1,6 @@
 # 2026-11-05 — IR-2a: actor closure requests, the schema registry, (tenant, app) identity
 
-Branch `ir/02a-actor-registry`. Plan: `docs/plans/ir-protocol.md` §4, IR-2 (the parts that do not need IR-1).
+Branch `ir/02a-actor-registry`. Plan: `docs/plans/completed/ir-protocol.md` §4, IR-2 (the parts that do not need IR-1).
 
 ## Actor closures (`internal/actor/fn.go`)
 

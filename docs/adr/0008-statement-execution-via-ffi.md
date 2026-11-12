@@ -3,7 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-10-14 (decision direction 2026-10-13; built by FFI-01 to FFI-07, documented by FFI-08)
 - **Deciders:** nickstrad, who approved the plan's direction on 2026-10-13 and its amended parity gate the
-  same night (~23:03 CDT); the plan at `docs/plans/ffi-implementation.md`
+  same night (~23:03 CDT); the plan at `docs/plans/completed/ffi-implementation.md`
 - **Related:** [ADR 0002 — error taxonomy](0002-error-taxonomy.md) (`StatementDeadlineError` row),
   [ADR 0004 — event-log DuckDB in the reader only](0004-eventlog-duckdb-in-reader-only.md),
   [ADR 0005 — text storage contract](0005-text-storage-contract.md) (U+0000 rejected before commit)
@@ -160,7 +160,8 @@ amended bound as a stronger claim than the one measured.
 
 ## Consequences
 
-Accepted, with the risks from the plan's register (`docs/plans/ffi-implementation.md` §5, numbers kept):
+Accepted, with the risks from the plan's register (`docs/plans/completed/ffi-implementation.md` §5, numbers
+kept):
 
 - **Blocking tail for wide reads (15).** The nonblocking path pays one pool hop per returned row, about 50 µs.
   That is accepted because it is confined to unbounded reads. A follow-up may batch row steps while keeping

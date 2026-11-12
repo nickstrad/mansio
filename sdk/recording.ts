@@ -1,5 +1,5 @@
 /**
- * The recording executor (IR-3, `docs/plans/ir-protocol.md` §3): runs a handler in the caller's process
+ * The recording executor (IR-3, `docs/plans/completed/ir-protocol.md` §3): runs a handler in the caller's process
  * against the remote database, and turns what it did into one IR request.
  *
  * - **Reads go out at once** as query requests (`Reads`) and are cached per handler run: a second `get` of

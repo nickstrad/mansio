@@ -2,7 +2,8 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-10
-- **Deciders:** the plan at `docs/plans/effect-port-and-observability.md` item 21; recorded by item 21
+- **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 21; recorded by item
+  21
 - **Related:** [ADR 0001 — Effect port](0001-effect-port.md) decisions 4 and 5
 - **Implements:** `core/eventlog/ddl.ts`, `core/eventlog/offsets.ts`, `platform/eventlog/tables.ts`,
   `platform/eventlog/ingest.ts`

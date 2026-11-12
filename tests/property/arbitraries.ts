@@ -17,7 +17,7 @@
  * `PROP_SEED=<int>` is the single override: set it to explore new cases, or to replay a red run. Use
  * `titled()` for test names so the seed in use is printed next to every test, pass or fail.
  *
- * Recursive generators follow `docs/haiku-experiments/findings/sq-03.md`: depth is an explicit parameter
+ * Recursive generators take depth as an explicit parameter
  * (`nodeArb(maxDepth)`), not `fc.letrec`, so nesting is bounded by construction and shrinks cleanly.
  *
  * Nothing here restates the validator. "Matching" values are built structurally from the node, and

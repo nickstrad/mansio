@@ -2,10 +2,11 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-05
-- **Deciders:** [`docs/plans/ir-protocol.md`](../plans/ir-protocol.md) §9; recorded by IR-0
+- **Deciders:** [`docs/plans/completed/ir-protocol.md`](../plans/completed/ir-protocol.md) §9; recorded by
+  IR-0
 - **Related:** [ADR 0010](0010-compiler-port-with-ts-oracle.md),
   [ADR 0011](0011-database-identity-and-client-ids.md),
-  [`docs/plans/replace-platform-with-go.md`](../plans/replace-platform-with-go.md)
+  [`docs/plans/completed/replace-platform-with-go.md`](../plans/completed/replace-platform-with-go.md)
 - **Implements:** [`ir/spec/v1.md`](../../ir/spec/v1.md), `core/ir/`, `platform/ir/executor.ts`
 
 ## Context

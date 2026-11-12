@@ -2,7 +2,7 @@
 
 The IR protocol: `/v1/ops` requests (queries and atomic mutations with preconditions) that the SDK sends and
 any backend executes. Spec: [`ir/spec/v1.md`](../../../ir/spec/v1.md); plan:
-[`docs/plans/ir-protocol.md`](../../plans/ir-protocol.md); vectors:
+[`docs/plans/completed/ir-protocol.md`](../../plans/completed/ir-protocol.md); vectors:
 [`ir/vectors/`](../../../ir/vectors/README.md). Code: `core/ir/` (decode, canonical JSON, wire errors,
 execution rules), `platform/ir/executor.ts` (the reference executor on SQLite), `sdk/` (the client: IR-3).
 

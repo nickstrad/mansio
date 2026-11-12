@@ -2,7 +2,8 @@
 
 - **Status:** accepted
 - **Date:** 2026-11-05
-- **Deciders:** [`docs/plans/ir-protocol.md`](../plans/ir-protocol.md) §9; recorded by IR-0
+- **Deciders:** [`docs/plans/completed/ir-protocol.md`](../plans/completed/ir-protocol.md) §9; recorded by
+  IR-0
 - **Related:** [ADR 0009](0009-ir-is-the-app-wire.md)
 - **Implements:** `ir/spec/v1.md` §4 and §5.3, `core/ir/decode.ts`
 

@@ -1,6 +1,6 @@
 # ir/ — the IR protocol in Go (IR-1: decode, schema, compiler; IR-2b: execution and /v1/ops)
 
-Owner: IR builders (IR-1 Go core; IR-2 adds execution). Plan: `../../../docs/plans/ir-protocol.md`; spec:
+Owner: IR builders (IR-1 Go core; IR-2 adds execution). Plan: `../../../docs/plans/completed/ir-protocol.md`; spec:
 `../../../ir/spec/v1.md`; vectors: `../../../ir/vectors/`.
 
 ## Notes

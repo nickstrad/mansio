@@ -143,11 +143,11 @@ K6_OUT="json=logs/k6/$K6_RUN_ID/raw.json" deno task perf:mixed
 ```
 
 Both `logs/k6/<run-id>/raw.json` (newline-delimited JSON; `read_json_auto` reads the mixed file directly, then
-filter `WHERE type='Point'`, see `docs/haiku-experiments/findings/sq-04.md`) and `summary.json` (written by
-the scenario's `handleSummary`, with `run_id` and `scenario` added) land there. `K6_RUN_ID` also feeds the
-`X-Trace-Id` suffix, so the trace ids in agentd's event log match the directory name. If you forget it the run
-id falls back to `k6-smoke`, which is smoke's directory — always set it. Use a fresh database per run (a new
-`MANSIO_DIR` above) so runs do not see each other's games.
+filter `WHERE type='Point'`) and `summary.json` (written by the scenario's `handleSummary`, with `run_id` and
+`scenario` added) land there. `K6_RUN_ID` also feeds the `X-Trace-Id` suffix, so the trace ids in agentd's
+event log match the directory name. If you forget it the run id falls back to `k6-smoke`, which is smoke's
+directory — always set it. Use a fresh database per run (a new `MANSIO_DIR` above) so runs do not see each
+other's games.
 
 Thresholds are enforced by k6: a crossed threshold makes the task exit 99. The environment variables work as
 for `smoke.js`.

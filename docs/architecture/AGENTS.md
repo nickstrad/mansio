@@ -67,9 +67,9 @@ Both files for one diagram share the stem exactly, so `ls docs/architecture/` pa
 
 The diagrams draw the **current** tree, so that a reader can trust a solid box. This repo is mid-way through
 the Effect-TS port in
-[`docs/plans/effect-port-and-observability.md`](../plans/effect-port-and-observability.md); a target view is
-allowed only as an explicitly labelled element or edge inside a current diagram. Anything that does not exist
-on `main` must be unmistakable:
+[`docs/plans/completed/effect-port-and-observability.md`](../plans/completed/effect-port-and-observability.md);
+a target view is allowed only as an explicitly labelled element or edge inside a current diagram. Anything
+that does not exist on `main` must be unmistakable:
 
 - The literal word **`(planned)`** or **`[planned]`** in the element's label, with the plan item reference
   (`(item 23)`) if the item has not landed on `main`.

@@ -2,7 +2,7 @@
 
 Status: plan · Date: 2026-11-05 · Baselines: mansio `main` at `addda3d` (plus uncommitted docs), mansio-server
 `main` at `1eac7d4` · Supersedes the build order in
-[scale-out-go-greenfield.md](../architecture/scale-out-go-greenfield.md) §4, which was written before
+[scale-out-go-greenfield.md](../../architecture/scale-out-go-greenfield.md) §4, which was written before
 mansio-server had a control plane. Changes no code.
 
 > **Status (2026-11-06): done.** Phase 7 landed as IR-6 on `ir/06-cutover` (ADR 0013): the Deno platform is

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-11
-- **Deciders:** the plan at `docs/plans/effect-port-and-observability.md` item 31, from the accepted
+- **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 31, from the accepted
   `reflection/astra` P1 finding ("resolve or explicitly reject embedded-NUL text"); recorded by item 31
 - **Related:** [ADR 0002 — error taxonomy](0002-error-taxonomy.md)
 - **Implements:** `core/schema.ts` (`NUL`, `storable`, the enum-value check in `defineTable`),

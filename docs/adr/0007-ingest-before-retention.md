@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-11
-- **Deciders:** the plan at `docs/plans/effect-port-and-observability.md` item 36, from the accepted
+- **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md` item 36, from the accepted
   `reflection/astra` P1 finding; recorded by item 36
 - **Related:** [ADR 0004 — the event log's DuckDB file](0004-eventlog-duckdb-in-reader-only.md),
   [ADR 0006 — event identity and schema v2](0006-event-identity.md)

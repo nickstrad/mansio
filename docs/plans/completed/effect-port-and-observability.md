@@ -1783,7 +1783,7 @@ run by this planning session.
   `tests/unit/backup_test.ts`, `tests/unit/object_store_test.ts`, `docs/adr/0006-event-identity.md`.
 - **Reads:** `platform/eventlog/ingest.ts`, `core/eventlog/offsets.ts`, `platform/services.ts`,
   `scripts/duckdb/trace-timeline.sql`, `scripts/duckdb/backup-durations.sql`,
-  `docs/plans/effect-port-and-observability.md` §4.
+  `docs/plans/completed/effect-port-and-observability.md` §4.
 - **Work:**
   1. Add stable event_id to typed projections, with exactly one canonical identity per source record. Define
      duplicate/rewrite identity rules and test exact joins; timestamps/trace IDs alone are not join keys.

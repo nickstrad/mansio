@@ -8,7 +8,7 @@
  * `retentionBlock` decides, from facts the sweeper gathered, whether a file is closed, settled and
  * fully accounted for by committed ingest, and `plan`'s `pinned` set keeps every file that is not.
  *
- * On-disk layout (see docs/plans/effect-port-and-observability.md §4.2):
+ * On-disk layout (see docs/plans/completed/effect-port-and-observability.md §4.2):
  *   logs/<role>/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl
  * `role` is one of the four known roles. `YYYY-MM-DD` and `HH` are the local calendar date and
  * hour at the moment the file was opened (local time, not UTC — logs should read in the operator's

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-10-10
-- **Deciders:** the plan at `docs/plans/effect-port-and-observability.md`; recorded by plan item 02
+- **Deciders:** the plan at `docs/plans/completed/effect-port-and-observability.md`; recorded by plan item 02
 - **Supersedes / superseded by:** none
 - **Related:** [ADR 0002 — error taxonomy](0002-error-taxonomy.md)
 

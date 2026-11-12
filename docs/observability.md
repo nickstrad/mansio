@@ -14,9 +14,9 @@ each query answers, how retention works, and worked examples.
 > configuration is `eventlog/config.ts`. The data model, tables, catalog and retention rules below are
 > unchanged.
 
-Plan references: `docs/plans/effect-port-and-observability.md` §4 (data model) and items 21–24, 35, 36.
-Decisions: ADR 0004 (DuckDB only in the reader), ADR 0006 (event identity, schema v2), ADR 0007 (ingest before
-retention).
+Plan references: `docs/plans/completed/effect-port-and-observability.md` §4 (data model) and items 21–24,
+35, 36. Decisions: ADR 0004 (DuckDB only in the reader), ADR 0006 (event identity, schema v2), ADR 0007
+(ingest before retention).
 
 ```text
 server ─┐                                   ┌─> logs:query <name>   (read-only catalog)
@@ -234,7 +234,7 @@ Which schema version the file holds, one row per way it got there.
 | `detail`     | JSON      | The rebuild's evidence, when there was one. |
 
 A v2 build refuses a v1 (unversioned) file rather than reuse its tables; `upgradeEventLog`
-(`platform/eventlog/tables.ts`) rebuilds it from the retained JSONL.
+(`eventlog/tables.ts`) rebuilds it from the retained JSONL.
 
 ## Running things
 
@@ -246,9 +246,8 @@ deno task logs:query <name> [--param k=v]... [--format table|json|csv]
 deno task logs:sweep [--dry-run]      # ingest, seal torn tails, then retention
 ```
 
-- `logs:query` opens the event-log file **read-only**. DuckDB allows one writer: while the reader process or a
-  `logs:ingest` holds the file, the query fails with an `AnalysisError` that quotes the lock error. Run
-  queries between ingests, or ask the running server (`POST /admin/logs/analysis/:name`).
+- `logs:query` opens the event-log file **read-only**. DuckDB allows one writer: while a `logs:ingest` holds
+  the file, the query fails with an `AnalysisError` that quotes the lock error. Run queries between ingests.
 - `--param` is repeatable and every value is bound as a typed parameter; there is no way to supply SQL. An
   unknown parameter, or a missing required one, is an `AnalysisError` naming the accepted parameters.
 - An unknown query name exits **2** with `UnknownAnalysisQuery` and the list of valid names. Any other failure
@@ -295,7 +294,7 @@ operational log, with its log id).
 
 ## Named queries
 
-The catalog lives in `platform/analysis/catalog.ts` as a plain record of `{ sql, params, description }`. It is
+The catalog lives in `eventlog/catalog.ts` as a plain record of `{ sql, params, description }`. It is
 **extensible**: a new query is one more entry (the tenant-aware `error-rate-by-tenant`, for example, will be
 added that way). This section and the catalog are kept in step by `tests/unit/analysis_catalog_test.ts`, which
 fails if a name or parameter is documented here and absent there, or the reverse. Every entry is a single
@@ -314,9 +313,8 @@ Ingest adds the nullable `path` column to existing v2 event logs.
 **Upgrade note:** an event log ingested before FFI-06 has no `sql_events.path` column until the next ingest,
 and until then this query (only this one) fails with a DuckDB binder error
 (`Table "s" does not have a column named
-"path"`). Run `deno task logs:ingest` once after upgrading (the
-server's periodic ingest sweep or `POST /admin/logs/ingest` heals it the same way). The query is unchanged
-because no `path`-free form can still report the execution path.
+"path"`). Run `deno task logs:ingest` once after upgrading. The query
+is unchanged because no `path`-free form can still report the execution path.
 
 **Attribution limits** (pinned in `tests/unit/analysis_catalog_test.ts`): the match uses only trace, app and
 time. If two requests share a trace and overlap in time, the earliest-completing request gets the hits; if a
@@ -418,7 +416,7 @@ decompresses to exactly the bytes ingest committed, and its `_ingest_state` row 
 
 ### Ordering: `ingestThenSweep`
 
-`ingestThenSweep` in `platform/eventlog/ingest.ts` is the coordinator that enforces the gate:
+`ingestThenSweep` in `eventlog/ingest.ts` is the coordinator that enforces the gate:
 
 1. **Ingest** commits first.
 2. **Torn tails are sealed** (a closed file's last, unterminated line is moved to quarantine so the file can
@@ -430,8 +428,7 @@ An ingest failure fails the whole call before anything is swept. A sweep failure
 
 `deno task logs:sweep` runs `ingestThenSweep()`. `deno task logs:sweep --dry-run` runs
 `ingestThenSweep({ dryRun: true })`: it plans the sweep from the **already-committed** state and reports it,
-changing nothing — no ingest, no sealing, no file touched (and, when it succeeds, no event emitted). The
-reader process runs the same coordinator when `POST /admin/logs/ingest` is called.
+changing nothing — no ingest, no sealing, no file touched (and, when it succeeds, no event emitted).
 
 ### The writer's own ceiling
 
@@ -476,9 +473,8 @@ deno task logs:query trace --param traceId=demo-trace-1
 deno task logs:query trace --param traceId=demo-trace-1 --format json | jq '.[] | {ts, source, role, kind, name, outcome}'
 ```
 
-The result is the whole request in time order: the server's `http` record and handler, the SQLite `sql` and
-`tx` events of a mutation, then — for a query — the reader process's own events with `role = reader`, whose
-`parent_span_id` is the server handler's `span_id`. A rolled-back mutation shows `outcome = rollback` and its
+The result is the whole request in time order: the server's `http` record and handler, and the SQLite `sql`
+and `tx` events, all with `role = server`. A rolled-back mutation shows `outcome = rollback` and its
 `error_tag` on the `tx` row.
 
 If it returns no rows, either the event has not been ingested yet (`logs:ingest`) or the id is wrong; ids

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IR-1 differential test at scale (docs/plans/ir-protocol.md §6.2): generate a large compile corpus with the
+# IR-1 differential test at scale (docs/plans/completed/ir-protocol.md §6.2): generate a large compile corpus with the
 # TypeScript compiler (scripts/ir/gen-compile-corpus.ts, in chunks of distinct seeds so no single JS string
 # outgrows V8), then recompile every case with the Go compiler (server/internal/doccompile TestCompileCorpus)
 # and require each output line to match byte for byte.

@@ -2,9 +2,9 @@
 
 Question: how does the SDK reach a database on a cluster (controld, two durable agents, the edge), who
 authenticates which credential, and what do the system tests show? Built on `ir/05a-multinode` from `main` at
-`8124c2a` (main merged at `99c7c2f`). Plan: [`ir-protocol.md`](../../plans/ir-protocol.md) §5 IR-5, §6.5;
-[`replace-platform-with-go.md`](../../plans/replace-platform-with-go.md) §5 phase 6. DST-2/DST-3 are a later
-unit.
+`8124c2a` (main merged at `99c7c2f`). Plan: [`ir-protocol.md`](../../plans/completed/ir-protocol.md) §5 IR-5,
+§6.5; [`replace-platform-with-go.md`](../../plans/completed/replace-platform-with-go.md) §5 phase 6.
+DST-2/DST-3 are a later unit.
 
 ## The pieces
 
@@ -92,7 +92,7 @@ nobody wrote. Operations in flight across a crash are dropped (reads) or optiona
 per-crash estimate of acknowledged register writes lost. Conservation is checked across crashes (a rollback is
 to a consistent generation). Runs: 40–45 s, 2 min and 2.5 min (7 kills, 5 per database's owner; lost per owner
 crash ≈ 40, 12, 14, 35, 0): linearizable per segment, conserved; the stronger start-state rule caught nothing
-new. How long the RPO may be is an open decision (`docs/plans/ir-protocol.md` §9).
+new. How long the RPO may be is an open decision (`docs/plans/completed/ir-protocol.md` §9).
 
 ## Traps
 

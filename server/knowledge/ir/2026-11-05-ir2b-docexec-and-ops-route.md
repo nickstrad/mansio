@@ -1,6 +1,6 @@
 # 2026-11-05 — IR-2b: `internal/docexec` and `POST /v1/ops`
 
-Branch `ir/02b-docexec`. Plan: `docs/plans/ir-protocol.md` §4–§6 (IR-2). Spec: `ir/spec/v1.md` §6–§8.
+Branch `ir/02b-docexec`. Plan: `docs/plans/completed/ir-protocol.md` §4–§6 (IR-2). Spec: `ir/spec/v1.md` §6–§8.
 
 ## What was built
 

@@ -21,7 +21,7 @@ per-database full-file copies. These are the problems to deal with if we keep th
 1. **Data lost on kill -9 (RPO about 11 s).** After a kill -9, the agent serves each database from its
    last published generation, not from its local file. Writes acknowledged after that backup are lost:
    up to `write_back_every` + one tick + the time the backup takes, and longer while S3 is down.
-   Plan §9 (`docs/plans/ir-protocol.md`) earlier quoted "about 170 ms". That figure came from the Jepsen
+   Plan §9 (`docs/plans/completed/ir-protocol.md`) earlier quoted "about 170 ms". That figure came from the Jepsen
    test, which sets backups to every 200 ms. It is not the production default.
 2. **`_version` reuse after a rollback (data corruption, not only loss).** After the rollback, version
    numbers count up again from the restored generation. A write that checked `expect: {version}` before
