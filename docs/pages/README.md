@@ -18,7 +18,7 @@ inventory [`content/mansio-go-platform/inventory.md`](content/mansio-go-platform
 | Kind      | Views                                                                                                  |
 | --------- | ------------------------------------------------------------------------------------------------------ |
 | Context   | `context`                                                                                              |
-| Container | `containers` (request path), `observability` (JSONL → offline DuckDB)                                  |
+| Container | `containers` (request path), `observability` (the request log and metrics)                             |
 | Component | `caller-components` (SDK + read cache), `components` (agentd), `storage-events`, `control-plane`       |
 | Dynamic   | `query-flow` (resolve once, then the cached-ticket data path), `database-move` (fence before the flip) |
 

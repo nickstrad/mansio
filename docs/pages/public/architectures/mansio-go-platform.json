@@ -23,13 +23,14 @@
         "id": "operator",
         "kind": "person",
         "name": "Platform operator",
-        "description": "Runs lifecycle commands, including move, attest-dead and restore; inspects offline logs.",
+        "description": "Runs lifecycle commands, including move, attest-dead and restore; reads or ships the request log and scrapes metrics.",
         "status": "existing",
         "tags": [],
         "docIds": [],
         "sourceIds": [
           "src-controld",
-          "src-adr"
+          "src-adr",
+          "src-request-log"
         ]
       },
       {
@@ -237,8 +238,8 @@
       {
         "id": "jsonl",
         "kind": "container",
-        "name": "Canonical JSONL",
-        "description": "Canonical persisted events, bounded by the writer's own retention. Bounded logging reports drops; canonical does not mean lossless.",
+        "name": "Request log (JSONL)",
+        "description": "One JSON line per request, handler run, transaction and SQL statement, under the request's trace id. The writer drops records when its queue is full (counted) and deletes its oldest files past its size and age limits.",
         "status": "existing",
         "tags": [
           "external"
@@ -248,44 +249,12 @@
         ],
         "sourceIds": [
           "src-events",
-          "src-adr",
-          "src-log-adr",
+          "src-log-decision",
+          "src-request-log",
           "src-retention"
         ],
         "parentId": "platform",
         "technology": "JSON Lines files"
-      },
-      {
-        "id": "analysis",
-        "kind": "container",
-        "name": "Offline log CLI",
-        "description": "scripts/logs.ts invokes TypeScript ingest, retention and named analysis queries outside agentd.",
-        "status": "existing",
-        "tags": [],
-        "docIds": [],
-        "sourceIds": [
-          "src-adr",
-          "src-ingest"
-        ],
-        "parentId": "platform",
-        "technology": "Deno / TypeScript"
-      },
-      {
-        "id": "duckdb",
-        "kind": "container",
-        "name": "Derived DuckDB copy",
-        "description": "Offline analysis rebuilt from retained JSONL. Not application query storage.",
-        "status": "existing",
-        "tags": [],
-        "docIds": [
-          "doc-element-duckdb"
-        ],
-        "sourceIds": [
-          "src-ingest",
-          "src-log-adr"
-        ],
-        "parentId": "platform",
-        "technology": "DuckDB"
       },
       {
         "id": "admission",
@@ -585,14 +554,15 @@
         "id": "ctx-operate",
         "sourceId": "operator",
         "targetId": "platform",
-        "label": "Lifecycle commands and log analysis",
+        "label": "Lifecycle commands; request log and metrics",
         "status": "existing",
         "technology": "CLI / HTTPS",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
           "src-controld",
-          "src-adr"
+          "src-adr",
+          "src-request-log"
         ]
       },
       {
@@ -784,54 +754,29 @@
         "id": "agent-log",
         "sourceId": "agentd",
         "targetId": "jsonl",
-        "label": "Emit structured events",
+        "label": "Write request log records through a bounded queue",
         "status": "existing",
         "technology": "JSONL append",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
           "src-events",
-          "src-adr"
+          "src-observer",
+          "src-request-log"
         ]
       },
       {
-        "id": "log-ingest",
-        "sourceId": "jsonl",
-        "targetId": "analysis",
-        "label": "Read retained records and ingest offsets",
-        "status": "existing",
-        "technology": "Filesystem",
-        "plannedNotes": [],
-        "docIds": [],
-        "sourceIds": [
-          "src-ingest",
-          "src-adr"
-        ]
-      },
-      {
-        "id": "analysis-db",
-        "sourceId": "analysis",
-        "targetId": "duckdb",
-        "label": "Build derived analysis tables",
-        "status": "existing",
-        "technology": "DuckDB SQL",
-        "plannedNotes": [],
-        "docIds": [],
-        "sourceIds": [
-          "src-ingest"
-        ]
-      },
-      {
-        "id": "operator-analysis",
+        "id": "operator-log",
         "sourceId": "operator",
-        "targetId": "analysis",
-        "label": "Run logs:ingest / logs:query",
+        "targetId": "jsonl",
+        "label": "Read in place (jq, duckdb CLI) or ship with a log collector",
         "status": "existing",
-        "technology": "Deno CLI",
+        "technology": "Filesystem / JSON Lines",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
-          "src-adr"
+          "src-request-log",
+          "src-log-decision"
         ]
       },
       {
@@ -1033,13 +978,14 @@
         "id": "events-jsonl",
         "sourceId": "events",
         "targetId": "jsonl",
-        "label": "Flush bounded event queue",
+        "label": "Flush bounded queue; delete oldest files past limits",
         "status": "existing",
         "technology": "JSONL append",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
-          "src-events"
+          "src-events",
+          "src-retention"
         ]
       },
       {
@@ -1994,7 +1940,7 @@
         "src-durable",
         "src-events",
         "src-exec",
-        "src-log-adr",
+        "src-log-decision",
         "src-ops",
         "src-paused",
         "src-reqid",
@@ -2248,7 +2194,7 @@
     {
       "id": "observability",
       "kind": "container",
-      "title": "Canonical JSONL → offline DuckDB analysis",
+      "title": "Request log (JSONL) and metrics",
       "status": "existing",
       "nodes": [
         {
@@ -2261,19 +2207,7 @@
           "elementId": "jsonl"
         },
         {
-          "elementId": "analysis"
-        },
-        {
-          "elementId": "duckdb"
-        },
-        {
           "elementId": "operator"
-        },
-        {
-          "elementId": "controld",
-          "detail": {
-            "diagramId": "control-plane"
-          }
         }
       ],
       "edges": [
@@ -2282,35 +2216,19 @@
           "displayNumber": 1
         },
         {
-          "relationshipId": "log-ingest",
+          "relationshipId": "operator-log",
           "displayNumber": 2
-        },
-        {
-          "relationshipId": "analysis-db",
-          "displayNumber": 3
-        },
-        {
-          "relationshipId": "operator-analysis",
-          "displayNumber": 4
-        },
-        {
-          "relationshipId": "operator-control",
-          "displayNumber": 5
         }
       ],
       "docIds": [
         "doc-observability"
       ],
       "sourceIds": [
-        "src-adr",
         "src-agent",
-        "src-control",
-        "src-controld",
         "src-events",
-        "src-ingest",
-        "src-locator",
-        "src-log-adr",
-        "src-owner",
+        "src-observer",
+        "src-request-log",
+        "src-log-decision",
         "src-retention",
         "src-queues",
         "src-capacity"
@@ -2951,9 +2869,9 @@
     {
       "id": "doc-context",
       "title": "mansio Go platform: context",
-      "plain": "The caller runs application handlers. mansio runs Go IR execution. Operators manage lifecycle and offline analysis. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
+      "plain": "The caller runs application handlers. mansio runs Go IR execution. Operators manage lifecycle and read the request log and metrics. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
       "ste": {
-        "text": "The caller runs application handlers. mansio runs Go IR execution. Operators manage lifecycle and offline analysis. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
+        "text": "The caller runs application handlers. mansio runs Go IR execution. Operators manage the lifecycle. Operators read the request log and the metrics. S3 integration is implemented but paused by Nick on 2026-11-06 pending a LiteFS decision. Existing status denotes code at the pin, not live deployment.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -2967,7 +2885,8 @@
         "src-paused",
         "src-recording",
         "src-topics",
-        "src-transport"
+        "src-transport",
+        "src-request-log"
       ]
     },
     {
@@ -3050,9 +2969,9 @@
     {
       "id": "doc-storage-events",
       "title": "agentd: paused durability and canonical events",
-      "plain": "The event sink writes canonical JSONL through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
+      "plain": "The event sink writes the request log (JSONL) through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
       "ste": {
-        "text": "The event sink writes canonical JSONL through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
+        "text": "The event sink writes the request log (JSONL) through a bounded queue; drops and records lost at close are counted, so canonical does not mean lossless, and the writer retires its oldest files past its size and age limits. The separate durable host snapshots SQLite and publishes immutable generations. S3 work is IMPLEMENTED BUT PAUSED, not proposed. The acknowledgement is the local commit; the unpublished window is about 11 seconds with the defaults and unbounded while S3 is down, so acknowledged writes may be lost on crash. Version and sequence reuse after a rollback are closed by the incarnation floor. WAL shipping and LiteFS replacement are not built.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
@@ -3064,7 +2983,7 @@
         "src-durable",
         "src-events",
         "src-exec",
-        "src-log-adr",
+        "src-log-decision",
         "src-ops",
         "src-paused",
         "src-reqid",
@@ -3099,24 +3018,20 @@
     },
     {
       "id": "doc-observability",
-      "title": "Canonical JSONL → offline DuckDB analysis",
-      "plain": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Both the writer's own retention (by size and age) and the offline sweep can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately. Live overload signals are Prometheus metrics, not events: agentd, the edge and controld export mansio_queue_* families, and deploy/prometheus/backpressure.rules.yml ships the alert rules (no Prometheus server is part of the platform).",
+      "title": "Request log (JSONL) and metrics",
+      "plain": "agentd writes its request log: one JSON line per /v1/ops request (http), handler run, transaction (tx) and, with trace_sql, SQL statement (sql), all under the request's trace id, in <dir>/server/<date>/events-<HH>-<pid>-<seq>.jsonl. Emitting never blocks a request: a full queue drops the record, and the writer counts drops and write losses, reports drops as queue records, and deletes its oldest files past max_total_bytes and max_age. The operator reads the files in place (jq, the optional duckdb CLI) or ships them with the deployment's log collector; no log store, collector or offline analysis tool is part of the platform (ADR 0014). Health and overload are Prometheus metrics, not log records: agentd serves /metrics, /healthz, /livez and /readyz, its mansio_eventlog_* families count the request log's written, dropped and lost records and deleted files, agentd, the edge and controld export mansio_queue_* families, and deploy/prometheus/backpressure.rules.yml ships the alert rules (no Prometheus server is part of the platform).",
       "ste": {
-        "text": "agentd writes JSONL; the offline TypeScript CLI ingests it into DuckDB and runs analysis. DuckDB is a derived copy rebuilt from retained input, not the canonical record or a Go-server dependency. Both the writer's own retention (by size and age) and the offline sweep can remove source files; compressed retained files need decompression for a complete rebuild. Operator lifecycle tooling addresses controld separately. Live overload signals are Prometheus metrics, not events: agentd, the edge and controld export mansio_queue_* families, and deploy/prometheus/backpressure.rules.yml ships the alert rules (no Prometheus server is part of the platform).",
+        "text": "agentd writes a request log. The log has one JSON line for each /v1/ops request, handler run, transaction and SQL statement. Each line has the trace id of its request. The files are in <dir>/server/<date>/. agentd does not wait for the log: when the queue is full, agentd drops the record and counts it. The writer deletes the oldest files when the files are too large or too old. The operator reads the files with jq or the duckdb CLI, or sends them to a log store with a log collector. The platform does not include a log store, a log collector or an analysis tool. Metrics show health and overload: agentd serves /metrics, /healthz, /livez and /readyz. The mansio_eventlog metrics count the written, dropped and lost records. The file deploy/prometheus/backpressure.rules.yml contains the alert rules. The platform does not include a Prometheus server.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
-        "src-adr",
         "src-agent",
-        "src-control",
-        "src-controld",
         "src-events",
-        "src-ingest",
-        "src-locator",
-        "src-log-adr",
-        "src-owner",
+        "src-observer",
+        "src-request-log",
+        "src-log-decision",
         "src-retention",
         "src-queues",
         "src-capacity"
@@ -3316,34 +3231,19 @@
     },
     {
       "id": "doc-element-jsonl",
-      "title": "Canonical JSONL",
-      "plain": "Canonical emitted event record; bounded logging can drop records and reports drops. The writer deletes its oldest files past max_total_bytes (4 GiB) or max_age (45 days) and counts what it retires. DuckDB is derived, not the request-path authority.",
+      "title": "Request log (JSONL)",
+      "plain": "The request log as agentd writes it: JSON lines with a fixed envelope (eventId, ts, level, role, pid, traceId, spanId, parentSpanId, appId, kind) and per-kind keys, redacted, never with bind values. Bounded logging can drop records and reports drops. The writer deletes its oldest files past max_total_bytes (4 GiB) or max_age (45 days) and counts what it retires. It is the record a log collector ships, not the request-path authority.",
       "ste": {
-        "text": "Canonical emitted event record; bounded logging can drop records and reports drops. The writer deletes its oldest files past max_total_bytes (4 GiB) or max_age (45 days) and counts what it retires. DuckDB is derived, not the request-path authority.",
+        "text": "This is the request log that agentd writes. Each line is a JSON object. Each line has the same envelope fields and the fields of its kind. The log does not contain bind values or tokens. agentd can drop records when the queue is full, and it counts the dropped records. The writer deletes the oldest files after 4 GiB or 45 days, and it counts the deleted files. A log collector can send these files to a log store.",
         "issue": "ASD-STE100 Issue 9",
         "reviewStatus": "draft"
       },
       "termIds": [],
       "sourceIds": [
         "src-events",
-        "src-adr",
-        "src-log-adr",
+        "src-log-decision",
+        "src-request-log",
         "src-retention"
-      ]
-    },
-    {
-      "id": "doc-element-duckdb",
-      "title": "Derived DuckDB copy",
-      "plain": "Rebuildable from retained JSONL; retention and compressed-file handling limit what can be reconstructed. Not application query storage.",
-      "ste": {
-        "text": "Rebuildable from retained JSONL; retention and compressed-file handling limit what can be reconstructed. Not application query storage.",
-        "issue": "ASD-STE100 Issue 9",
-        "reviewStatus": "draft"
-      },
-      "termIds": [],
-      "sourceIds": [
-        "src-ingest",
-        "src-log-adr"
       ]
     },
     {
@@ -3540,7 +3440,7 @@
   "sources": [
     {
       "id": "src-adr",
-      "title": "Go-only backend and offline analysis",
+      "title": "Go-only backend (ADR 0013)",
       "path": "docs/adr/0013-go-server-replaces-deno-platform.md",
       "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
       "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0013-go-server-replaces-deno-platform.md",
@@ -3692,26 +3592,26 @@
     },
     {
       "id": "src-events",
-      "title": "Nonblocking structured JSONL sink",
+      "title": "Nonblocking request log writer",
       "path": "server/internal/eventlog/log.go",
       "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
       "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/server/internal/eventlog/log.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
-      "id": "src-ingest",
-      "title": "Offline DuckDB ingest",
-      "path": "eventlog/ingest.ts",
-      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
-      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/eventlog/ingest.ts",
+      "id": "src-log-decision",
+      "title": "Request log shipped, no offline tool (ADR 0014)",
+      "path": "docs/adr/0014-request-log-without-an-offline-tool.md",
+      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
+      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/adr/0014-request-log-without-an-offline-tool.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
-      "id": "src-log-adr",
-      "title": "JSONL authority and rebuildable analysis",
-      "path": "docs/adr/0004-eventlog-duckdb-in-reader-only.md",
-      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
-      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/adr/0004-eventlog-duckdb-in-reader-only.md",
+      "id": "src-request-log",
+      "title": "Request log reference: records, limits, shipping, metrics",
+      "path": "docs/observability.md",
+      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
+      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/observability.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
