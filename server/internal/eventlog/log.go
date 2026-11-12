@@ -1,8 +1,8 @@
-// Package eventlog writes mansio's event log: the JSON-lines records of core/events.ts (envelope, the kinds
-// http, handler, sql, tx, queue, backup and lifecycle, the same redaction) under
-// <dir>/<role>/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl, the layout the TS ingest reads
-// (core/eventlog/offsets.ts). The DuckDB event log and its analysis catalog are offline steps on those files
-// (deno task logs:ingest, logs:query; ADR 0004, 0007): Go only writes JSONL.
+// Package eventlog writes mansio's request log: one JSON line per event (a shared envelope plus the kinds
+// http, handler, sql, tx, queue, backup and lifecycle, with secrets redacted) under
+// <dir>/<role>/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl. This package owns the record format
+// (record.go; testdata/goldens.jsonl pins its bytes). Reading the files is left to a log collector or to ad
+// hoc tools (docs/observability.md, ADR 0014).
 //
 //	Emit ─(never blocks)─> bounded queue ─> one writer goroutine ─> buffered file, rolled on date, hour, size
 //	        full: counted                     each drain: a "queue" record for the drops, then the batch, flush
@@ -46,7 +46,7 @@ const (
 
 // Config is where and how the log writes.
 type Config struct {
-	Dir          string // LOG_DIR: the parent of the role directories (required)
+	Dir          string // the parent of the role directories (required)
 	Role         string // "server" (agentd), "reader", "restore" or "cli" (required)
 	Level        Level  // records below it are not queued; drop reports ignore it
 	Buffer       int    // queue capacity; default DefaultBuffer

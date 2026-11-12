@@ -104,7 +104,7 @@ func capacityRows() []capacity.Row {
 			Deadline:  "none (telemetry); at shutdown the writer gets 2 s and counts what it could not write as lost",
 			Metric:    "`mansio_eventlog_queue_depth`, `mansio_eventlog_records_total{result=\"dropped|lost\"}`, `mansio_eventlog_bytes`, `mansio_eventlog_retired_total`",
 			Lever:     capacity.NoLever,
-			FirstLook: "a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files go before the offline ingest took them"},
+			FirstLook: "a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files are deleted at the writer's size or age limit, before a collector shipped them"},
 	}
 }
 

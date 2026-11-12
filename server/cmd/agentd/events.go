@@ -15,9 +15,8 @@ import (
 	"github.com/nickstrad/mansio/server/internal/metrics"
 )
 
-// The event log (docs/observability.md): agentd writes mansio's event envelope as JSONL under
-// event_log.dir with role "server", so `deno task logs:ingest` / `logs:query` (LOG_DIR = event_log.dir) and the
-// analysis catalog work on it unchanged. Per /v1/ops request:
+// The request log (docs/observability.md): agentd writes one JSON line per event under event_log.dir with
+// role "server". Per /v1/ops request:
 //
 //	http     every answer: method, path, handler (X-Mansio-Handler, else "v1.ops"), status, sizes, the tag
 //	handler  a decoded request: its kind, the handler name, the pipeline's time (the server's half of the
@@ -31,7 +30,7 @@ import (
 // checkEventLog validates the event_log section.
 func checkEventLog(e *EventLogConfig, bad func(string, ...any)) {
 	if e.Dir == "" {
-		bad("event_log.dir is required (LOG_DIR for deno task logs:ingest)")
+		bad("event_log.dir is required")
 	}
 	if e.Level == "" {
 		e.Level = "info"

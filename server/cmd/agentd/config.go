@@ -137,20 +137,19 @@ type Config struct {
 	Dev bool `json:"-"`
 }
 
-// EventLogConfig is the event log: <dir>/server/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl, read by
-// `deno task logs:ingest` with LOG_DIR=<dir> (docs/observability.md).
+// EventLogConfig is the request log: JSON lines under <dir>/server/<YYYY-MM-DD>/events-<HH>-<pid>-<seq>.jsonl
+// (docs/observability.md).
 type EventLogConfig struct {
-	Dir          string `json:"dir"`            // LOG_DIR (required)
+	Dir          string `json:"dir"`            // required
 	Level        string `json:"level"`          // debug | info (default) | warn | error
-	TraceSQL     bool   `json:"trace_sql"`      // a sql record per statement (TRACE_SQL); failed statements always
+	TraceSQL     bool   `json:"trace_sql"`      // a sql record per statement; failed statements always
 	Buffer       int    `json:"buffer"`         // queued records before drops; default 8192
-	MaxFileBytes int64  `json:"max_file_bytes"` // roll size; default 64 MiB (LOG_MAX_FILE_BYTES)
+	MaxFileBytes int64  `json:"max_file_bytes"` // roll size; default 64 MiB
 	// MaxTotalBytes and MaxAge bound the files this agent keeps under <dir>/server: when a new file is opened,
 	// the oldest are deleted until the rest total at most max_total_bytes (default 4 GiB) and none is older
-	// than max_age (default 45 days = "1080h"). They are the writer's own ceiling, looser by default than the
-	// offline sweep's (`deno task logs:sweep`: 1 GiB, 30 days, ingested files only), so a tree that is ingested
-	// and swept never reaches them. A file deleted here before it was ingested is lost telemetry, counted in
-	// mansio_eventlog_retired_total. 0 = the default; negative = no limit of that kind.
+	// than max_age (default 45 days = "1080h"). They are the only retention: a log collector is expected to
+	// ship files before they reach these limits. A file deleted here before it was shipped is lost telemetry,
+	// counted in mansio_eventlog_retired_total. 0 = the default; negative = no limit of that kind.
 	MaxTotalBytes int64         `json:"max_total_bytes"`
 	MaxAge        load.Duration `json:"max_age"`
 }

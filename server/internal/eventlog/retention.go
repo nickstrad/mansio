@@ -12,19 +12,16 @@ import (
 )
 
 // Retention: the log rolls files by hour and size, and something must delete them or a busy week fills the volume:
-// everything that accumulates needs a reaper. The offline tool (deno task logs:sweep, docs/observability.md) gzips
-// and deletes files once they are ingested, on its own schedule and limits (30 days, 1 GiB); it runs only when an
-// operator runs it and never touches a file it has not ingested. The limits here are the writer's own ceiling behind
-// that: by default looser than the offline ones, so a tree that is being ingested and swept never reaches them, and
-// enforced whether or not anyone ingests. A file deleted here before it was ingested is telemetry lost; it is counted
-// (Stats.Retired) and logged.
+// everything that accumulates needs a reaper. The limits here are the only retention and are enforced whether
+// or not anything reads the files: a log collector is expected to ship them first. A file deleted here before it
+// was shipped is telemetry lost; it is counted (Stats.Retired) and logged.
 
-// Retention defaults: looser than the offline sweep's (LOG_MAX_TOTAL_BYTES 1 GiB, LOG_RETENTION_DAYS 30).
+// Retention defaults.
 const (
 	DefaultMaxTotalBytes = 4 << 30
 	DefaultMaxAge        = 45 * 24 * time.Hour
 	// retentionKeep protects files written recently: another process of the same role may hold one open, and
-	// the offline ingest may be reading the newest ones.
+	// a collector may be reading the newest ones.
 	retentionKeep = 10 * time.Minute
 )
 
@@ -93,7 +90,7 @@ func (l *Log) listFiles() ([]logFile, error) {
 			}
 			info, err := e.Info()
 			if err != nil {
-				continue // deleted meanwhile (the offline sweep)
+				continue // deleted meanwhile
 			}
 			files = append(files, logFile{filepath.Join(root, d.Name(), e.Name()), info.Size(), info.ModTime()})
 		}

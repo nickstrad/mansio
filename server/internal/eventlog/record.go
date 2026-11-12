@@ -16,7 +16,7 @@ import (
 	"github.com/nickstrad/mansio/server/internal/ir"
 )
 
-// Level is an event's level (core/events.ts Level).
+// Level is an event's level.
 type Level int8
 
 // The zero Level is Info.
@@ -150,7 +150,7 @@ func (Queue) Kind() string     { return "queue" }
 func (Backup) Kind() string    { return "backup" }
 func (Lifecycle) Kind() string { return "lifecycle" }
 
-// The kind keys are core/events.ts KIND_KEYS, in that order; absent optionals are written as null.
+// The kind keys are written in this fixed order; absent optionals are written as null.
 
 func (p HTTP) encode(e *encoder) {
 	e.str("method", p.Method)
@@ -182,7 +182,7 @@ func (p SQL) encode(e *encoder) {
 	e.opt("tableName", p.TableName)
 	e.str("sqlText", p.SQLText)
 	e.int("bindCount", int64(p.BindCount))
-	e.any("bindValues", nil) // never logged (core/events.ts: opt-in only; agentd has no opt-in)
+	e.any("bindValues", nil) // never logged: agentd has no opt-in for bind values
 	e.ms("durationMs", p.Duration)
 	e.optInt("rowCount", p.RowCount)
 	e.str("outcome", p.Outcome)
@@ -235,7 +235,7 @@ type stamp struct {
 	PID     int
 }
 
-// Line is ev as one canonical JSON line (core/events.ts toJsonLine), without the newline: envelope keys, kind,
+// Line is ev as one canonical JSON line, without the newline: envelope keys, kind,
 // then the kind's keys, in fixed order; every string redacted (Bearer tokens, X-Amz-* URL parameters) and
 // newline-free; nested object keys sorted, secret-named keys (authorization, cookie, *token, S3 keys) replaced
 // by "<redacted>", nesting past 32 levels by "<max-depth>".
@@ -311,7 +311,7 @@ func (e *encoder) any(k string, v any) {
 	writeValue(&e.b, v, 1)
 }
 
-// maxDepth matches core/events.ts MAX_SERIALIZE_DEPTH.
+// maxDepth bounds how deep a value is serialized.
 const maxDepth = 32
 
 // writeValue writes v redacted. It walks what encoding/json decodes into (map[string]any, []any, string,
@@ -424,7 +424,7 @@ func writeString(b *bytes.Buffer, s string) {
 	b.WriteByte('"')
 }
 
-// The redaction rules are core/events.ts's, with JavaScript's regexp semantics spelled out: JS `\s` is
+// The redaction rules were written first with JavaScript regexps; their semantics are spelled out here: JS `\s` is
 // Unicode white space plus U+FEFF (Go's is ASCII), and the `i` flag without `u` folds ASCII letters only
 // (Go's (?i) also folds U+017F to s and U+212A to k), so the letters are explicit ASCII classes.
 const jsSpace = `\t\n\v\f\r \x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}`

@@ -46,7 +46,7 @@ func records(t *testing.T, dir string) []map[string]any {
 }
 
 // TestEventLogEndToEnd: an agent with event_log writes, per /v1/ops request, the http, handler, tx and sql
-// records of core/events.ts under one trace, plus lifecycle startup and shutdown, with no token in the log.
+// records under one trace, plus lifecycle startup and shutdown, with no token in the log.
 func TestEventLogEndToEnd(t *testing.T) {
 	cfgPath := fixture(t, nil, `,"schemas_dir":"schemas","event_log":{"dir":"logs","trace_sql":true}`)
 	dir := filepath.Dir(cfgPath)

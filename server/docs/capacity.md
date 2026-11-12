@@ -219,7 +219,7 @@ is refused otherwise).
 - Expected full behavior: queue full: the newest record is dropped and counted, and the next write records how many; disk over its limits: the oldest files are deleted when a new one opens Work in it lives under: none (telemetry); at shutdown the writer gets 2 s and counts what it could not write as lost.
 - Primary dashboard: `mansio_eventlog_queue_depth`, `mansio_eventlog_records_total{result="dropped|lost"}`, `mansio_eventlog_bytes`, `mansio_eventlog_retired_total`
 - Rollback or feature flag: none (config, restart)
-- First look: a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files go before the offline ingest took them
+- First look: a slow or full disk under `event_log.dir`; `mansio_eventlog_retired_total` rising means files are deleted at the writer's size or age limit, before a collector shipped them
 <!-- capacity:agentd:end -->
 
 ## controld
