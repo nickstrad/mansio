@@ -17,7 +17,7 @@ func capacityRows() []capacity.Row {
 	l := c.Locator
 	q := func(queue string) string { return fmt.Sprintf("`mansio_queue_*{queue=%q}`", queue) }
 	limit := func(queue string) string {
-		return fmt.Sprintf("`controld limit -queue %s -n N` (`POST /v1/limits/%s`)", queue, queue)
+		return fmt.Sprintf("`mansioctl limits set -queue %s -n N` (`POST /v1/limits/%s`)", queue, queue)
 	}
 	return []capacity.Row{
 		{Queue: "resolve", Protects: "controld itself: every resolve, most of them answered from the placement cache",
@@ -46,7 +46,7 @@ func capacityRows() []capacity.Row {
 			Workers:  "the connections",
 			Policy:   "a caller beyond the pool waits inside pgxpool until its call timeout; the budget exists so that this does not happen",
 			Deadline: "2.5 s per call", Metric: "`controld_pg_pool_conns`, `controld_pg_pool_acquires_waited_total`, `controld_pg_pool_acquire_wait_seconds_total`",
-			Lever:     "lower the three pools above with `controld limit`; the pool size itself is config",
+			Lever:     "lower the three pools above with `mansioctl limits set`; the pool size itself is config",
 			FirstLook: "N controld instances × (`max_conns` + 1) against Postgres's `max_connections`"},
 		{Queue: "tenancy_admin", Protects: "the tenancy store (the tenant admin API, when the `tenancy` section is set)",
 			Capacity: fmt.Sprintf("%d slots, no queue (no config key)", tenancyhttp.DefaultConcurrency), Workers: "the slots",

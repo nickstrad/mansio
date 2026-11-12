@@ -31,7 +31,7 @@ func capacityRows() []capacity.Row {
 	adm, act := c.Admission.WithDefaults(), c.Actor.Actor()
 	q := func(queue string) string { return fmt.Sprintf("`mansio_queue_*{queue=%q}`", queue) }
 	limit := func(queue string) string {
-		return fmt.Sprintf("`agentctl limit %s N` (`POST /admin/limit?queue=%s&n=N`)", queue, queue)
+		return fmt.Sprintf("`mansioctl agent limit %s N` (`POST /admin/limit?queue=%s&n=N`)", queue, queue)
 	}
 	deadline := fmt.Sprintf("the request's deadline (`default_timeout` %v, at most `max_timeout` %v)", c.DefaultTimeout, c.MaxTimeout)
 	return []capacity.Row{
@@ -51,7 +51,7 @@ func capacityRows() []capacity.Row {
 			Workers: fmt.Sprintf("in flight: %d per database (`db_in_flight`), %d per tenant (`tenant_in_flight`), 4 × GOMAXPROCS × db_in_flight for the VM (`vm_in_flight`)",
 				adm.DBInFlight, adm.TenantInFlight),
 			Policy:   "queues in arrival order; `shed` 503 + `Retry-After` when a queue is full or the request would finish after its deadline; `expired` 504 if it runs out while queued",
-			Deadline: deadline, Metric: q("admission") + ", `mansio_admission`", Lever: capacity.NoLever + "; `agentctl drain` sheds everything",
+			Deadline: deadline, Metric: q("admission") + ", `mansio_admission`", Lever: capacity.NoLever + "; `mansioctl agent drain` sheds everything",
 			FirstLook: "`reason`: `would_expire` means statements are slow (check `mansio_request_latency_seconds`), `full` means a burst beyond the queue"},
 		{Queue: "mailbox", Protects: "one database's writer (its SQLite connection)",
 			Capacity: fmt.Sprintf("%d per database (`actor.mailbox_size`)", act.MailboxSize),
@@ -70,7 +70,7 @@ func capacityRows() []capacity.Row {
 			Workers:  fmt.Sprintf("%d fetches or %d GiB in flight", vactor.DefaultMaxFetches, vactor.DefaultMaxFetchBytes>>30),
 			Policy:   "`unavailable` 503 + `Retry-After` at once; a database whose last activation failed fails fast for a jittered backoff (`reason=\"failure_backoff\"`)",
 			Deadline: "the activation: 30 s plus size / 32 MiB/s", Metric: q("fetch") + ", `mansio_vactor{stat=\"fetch_*\"}`",
-			Lever:     "`agentctl fetch-limit N` (`POST /admin/fetch:limit?n=N`); `agentctl breaker s3 trip` stops fetches",
+			Lever:     "`mansioctl agent fetch-limit N` (`POST /admin/fetch:limit?n=N`); `mansioctl agent breaker s3 trip` stops fetches",
 			FirstLook: "`mansio_s3_latency_seconds` and the S3 breaker; lower the fetch limit if the disk or network is the bottleneck"},
 		{Queue: "lifecycle", Protects: "S3 (a fence writes back) and the placement authority, for controld's claim, fence and forget",
 			Capacity: fmt.Sprintf("%d slots (`lifecycle_concurrency`), no queue", c.LifecycleConcurrency), Workers: "the slots",
@@ -94,7 +94,7 @@ func capacityRows() []capacity.Row {
 			Policy:    "writes keep being acknowledged while write-back fails; the unpublished window grows (see the README's durability section)",
 			Deadline:  fmt.Sprintf("`maintenance.write_back_timeout` %v per write-back", c.Maintenance.WriteBackTimeout),
 			Metric:    "`mansio_vactor_dirty`, `mansio_vactor_oldest_dirty_age_seconds`, `mansio_vactor_events_total{event=\"writeback_failure\"}`",
-			Lever:     "`agentctl breaker s3 trip|reset`; `agentctl backup KEY` forces one",
+			Lever:     "`mansioctl agent breaker s3 trip|reset`; `mansioctl agent backup KEY` forces one",
 			FirstLook: "the S3 breaker and `mansio_s3_requests_total{class=\"5xx\"}`: the dirty age is the data a host loss would lose"},
 		{Queue: "events", Protects: "the event log's disk writer and its volume; the request path never waits on it",
 			Capacity: fmt.Sprintf("%d records (`event_log.buffer`); on disk %d GiB (`event_log.max_total_bytes`) and %d days (`event_log.max_age`)",

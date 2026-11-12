@@ -38,7 +38,7 @@ func (r *rig) handler(next http.Handler) http.Handler {
 		b, _ := io.ReadAll(req.Body)
 		req.Body = io.NopCloser(bytes.NewReader(b))
 		r.mu.Lock()
-		r.got = append(r.got, sent{req.Method, req.URL.Path, req.Header.Get("Authorization"), req.Header.Get("Content-Type"), string(b)})
+		r.got = append(r.got, sent{req.Method, req.URL.EscapedPath(), req.Header.Get("Authorization"), req.Header.Get("Content-Type"), string(b)})
 		r.mu.Unlock()
 		next.ServeHTTP(w, req)
 	})

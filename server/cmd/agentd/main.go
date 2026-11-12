@@ -14,7 +14,7 @@
 //
 // Ticket keys come from keys_file (static; dev and benches) or keys_url (controld's GET /v1/keys, refetched
 // every keys_refresh and cached in keys_file; keys.go, CP-5). An optional admin
-// listener (admin_listen, loopback only) serves the runtime controls of admin.go; cmd/agentctl is its client.
+// listener (admin_listen, loopback only) serves the runtime controls of admin.go; mansioctl agent is its client.
 //
 // Exit codes: 0 stopped cleanly after SIGINT/SIGTERM (drained), 1 failed (message and log ID on stderr; this
 // includes a shutdown that did not finish cleanly: a drain cut off at drain_timeout, or databases not closed within

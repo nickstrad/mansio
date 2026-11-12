@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // The tenants group: tenants and their API keys over the admin API's /admin/tenants routes
@@ -16,7 +17,8 @@ import (
 // show print metadata, never a key.
 
 var tenantsGroup = &group{
-	summary: "tenants and their API keys (/admin/tenants)",
+	summary: "tenants and their API keys (the admin API's /admin/tenants, on agentd or controld)",
+	target:  apiTarget, addr: agentdAddr, timeout: 30 * time.Second, tables: true,
 	commands: map[string]*command{
 		"create": {"<name> [-slug S]", "create an active tenant and its first API key, \"default\" (the key is printed once)",
 			func(fs *flag.FlagSet) func([]string) (action, error) {
