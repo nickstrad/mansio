@@ -13,7 +13,7 @@ Live at <https://nickstrad.github.io/mansio/>, deployed by `.github/workflows/pa
 
 The catalog has one entry, `mansio-go-platform` (bundle `public/architectures/mansio-go-platform.json`,
 inventory [`content/mansio-go-platform/inventory.md`](content/mansio-go-platform/inventory.md)), pinned to
-`main` `b1f9488`:
+`main` `636cc30`:
 
 | Kind      | Views                                                                                                  |
 | --------- | ------------------------------------------------------------------------------------------------------ |
@@ -154,7 +154,7 @@ c4-sdk is the oracle) plus a conversion inventory.
    fmt check covers them; without `--config` deno formats at width 80 because of `docs/pages/package.json`),
    then `npm test`, then look at the result in `npm run dev`.
 
-`mansio-go-platform` is pinned to `main` at `b1f9488`; see [Keeping main in sync](#keeping-main-in-sync).
+`mansio-go-platform` is pinned to `main` at `636cc30`; see [Keeping main in sync](#keeping-main-in-sync).
 
 Views with no Markdown source follow the same rules. A **dynamic** view reuses model relationships (its edge
 numbers are their static numbers), uses `reverse` only for a response, uses `parallel` only for things that

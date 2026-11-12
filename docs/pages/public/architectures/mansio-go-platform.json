@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "mansio-go-platform",
-  "title": "mansio on main (b1f9488; S3 work paused)",
-  "revision": "main-b1f9488-go-platform",
+  "title": "mansio on main (636cc30; S3 work paused)",
+  "revision": "main-636cc30-go-platform",
   "defaultDiagramId": "context",
   "model": {
     "elements": [
@@ -43,8 +43,7 @@
         "docIds": [],
         "sourceIds": [
           "src-adr",
-          "src-control",
-          "src-topics"
+          "src-control"
         ]
       },
       {
@@ -556,7 +555,7 @@
         "targetId": "platform",
         "label": "Lifecycle commands; request log and metrics",
         "status": "existing",
-        "technology": "CLI / HTTPS",
+        "technology": "mansioctl, dbtool / HTTPS",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
@@ -742,7 +741,7 @@
         "targetId": "controld",
         "label": "Move / attest-dead / restore",
         "status": "existing",
-        "technology": "CLI / HTTPS",
+        "technology": "mansioctl / HTTPS",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
@@ -1048,7 +1047,7 @@
         "targetId": "lifecycle",
         "label": "Request lifecycle or attest-dead recovery",
         "status": "existing",
-        "technology": "CLI / HTTPS",
+        "technology": "mansioctl / HTTPS",
         "plannedNotes": [],
         "docIds": [],
         "sourceIds": [
@@ -1296,7 +1295,6 @@
         "src-ops",
         "src-paused",
         "src-recording",
-        "src-topics",
         "src-transport"
       ],
       "layout": {
@@ -2884,7 +2882,6 @@
         "src-ops",
         "src-paused",
         "src-recording",
-        "src-topics",
         "src-transport",
         "src-request-log"
       ]
@@ -3442,312 +3439,304 @@
       "id": "src-adr",
       "title": "Go-only backend (ADR 0013)",
       "path": "docs/adr/0013-go-server-replaces-deno-platform.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/adr/0013-go-server-replaces-deno-platform.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/docs/adr/0013-go-server-replaces-deno-platform.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-recording",
       "title": "Caller-side handler recording",
       "path": "sdk/recording.ts",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/recording.ts",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/sdk/recording.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-transport",
       "title": "Cached locator routes and retries",
       "path": "sdk/transport.ts",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/transport.ts",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/sdk/transport.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-agent",
       "title": "Agent daemon and server wiring",
       "path": "server/cmd/agentd/main.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/main.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/agentd/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-edge",
       "title": "Separate TLS edge process",
       "path": "server/cmd/edge/main.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/edge/main.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/edge/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-controld",
       "title": "Control daemon and operator commands",
       "path": "server/cmd/controld/main.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/controld/main.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/controld/main.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-locator",
       "title": "Routing and signed tickets",
       "path": "server/internal/control/locator/doc.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/locator/doc.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/control/locator/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-control",
       "title": "Database lifecycle and attest-dead recovery",
       "path": "server/internal/control/controller.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/controller.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/control/controller.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-placement",
       "title": "Postgres epoch authority",
       "path": "server/internal/placement/pg/doc.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/placement/pg/doc.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/placement/pg/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-move",
       "title": "Four-step move protocol",
       "path": "server/internal/owner/move.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/owner/move.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/owner/move.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-owner",
       "title": "Admission, fencing and storage epochs",
       "path": "server/internal/owner/state.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/owner/state.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/owner/state.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-actor",
       "title": "Mailbox, single writer and group commit",
       "path": "server/internal/actor/actor.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/actor/actor.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/actor/actor.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-reqid",
       "title": "Request-id savepoint claims",
       "path": "server/internal/actor/reqid.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/actor/reqid.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/actor/reqid.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-ops",
       "title": "IR HTTP validation and actor dispatch",
       "path": "server/internal/front/ops.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/front/ops.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/front/ops.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-exec",
       "title": "IR execution on the actor connection",
       "path": "server/internal/docexec/doc.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/doc.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/docexec/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-compile",
       "title": "Document SQL compiler",
       "path": "server/internal/doccompile/doc.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/doccompile/doc.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/doccompile/doc.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-writeback",
       "title": "Snapshot write-back and epoch stamps",
       "path": "server/internal/vactor/writeback.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/vactor/writeback.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/vactor/writeback.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-durable",
       "title": "Immutable generations and conditional manifest",
       "path": "server/internal/durable/durable.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/durable/durable.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/durable/durable.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-paused",
       "title": "Built S3 work paused on 2026-11-06",
-      "path": "server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/notes/writeback/2026-11-06-backup-paused-open-issues.md",
+      "path": "server/docs/notes/writeback/backup-open-issues.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/docs/notes/writeback/backup-open-issues.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-events",
       "title": "Nonblocking request log writer",
       "path": "server/internal/eventlog/log.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/eventlog/log.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/eventlog/log.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-log-decision",
       "title": "Request log shipped, no offline tool (ADR 0014)",
       "path": "docs/adr/0014-request-log-without-an-offline-tool.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/adr/0014-request-log-without-an-offline-tool.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/docs/adr/0014-request-log-without-an-offline-tool.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-request-log",
       "title": "Request log reference: records, limits, shipping, metrics",
       "path": "docs/observability.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/observability.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/docs/observability.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
-    },
-    {
-      "id": "src-topics",
-      "title": "Current platform survey and implementation caveats",
-      "path": "docs/cache-dividend-topics.md",
-      "revision": "bffb5e9face4a4e83839f6e8fbd0819a5a503dc6",
-      "url": "https://github.com/nickstrad/mansio/blob/bffb5e9face4a4e83839f6e8fbd0819a5a503dc6/docs/cache-dividend-topics.md",
-      "notes": "Deleted from main after this pin (d71ef39); kept at bffb5e9, where it was read. Code evidence, not a deployment claim."
     },
     {
       "id": "src-observer",
       "title": "Agentd IR event observer wiring",
       "path": "server/cmd/agentd/events.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/events.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/agentd/events.go",
       "notes": "Maps completed IR requests to structured event records; emits through the bounded sink."
     },
     {
       "id": "src-agent-durable",
       "title": "Agentd durable mode: S3 host and placement authority",
       "path": "server/cmd/agentd/durable.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/cmd/agentd/durable.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/cmd/agentd/durable.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-control-ports",
       "title": "Controller ports: drop deletes database objects",
       "path": "server/internal/control/ports.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/ports.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/control/ports.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-cache",
       "title": "Version-checked client read cache",
       "path": "sdk/cache.ts",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/sdk/cache.ts",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/sdk/cache.ts",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-read-path",
       "title": "Read path after survey changes 1-4",
-      "path": "docs/notes/intermediate-representation/2026-11-10-read-path.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/notes/intermediate-representation/2026-11-10-read-path.md",
+      "path": "docs/notes/ir/read-path.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/docs/notes/ir/read-path.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-retry",
       "title": "One retry contract for both clients",
       "path": "docs/retry-contract.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/docs/retry-contract.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/docs/retry-contract.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-admission",
       "title": "Admission caps and would-expire shedding",
       "path": "server/internal/front/admission.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/front/admission.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/front/admission.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-edge-proxy",
       "title": "Edge refusals before the body is read",
       "path": "server/internal/edge/proxy.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/edge/proxy.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/edge/proxy.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-locator-gates",
       "title": "Locator resolve, load and create gates",
       "path": "server/internal/control/locator/locator.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/control/locator/locator.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/control/locator/locator.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-seq",
       "title": "Commit sequence and its floor",
       "path": "server/internal/docexec/seq.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/seq.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/docexec/seq.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-version",
       "title": "Version floor per incarnation",
       "path": "server/internal/docexec/version.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/version.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/docexec/version.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-witness",
       "title": "Conflict answers carry current state",
       "path": "server/internal/docexec/witness.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/docexec/witness.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/docexec/witness.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-version-floor",
       "title": "Version and sequence floor after rollback",
-      "path": "server/docs/notes/writeback/2026-11-10-version-floor.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/notes/writeback/2026-11-10-version-floor.md",
+      "path": "server/docs/notes/writeback/version-and-sequence-floor.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/docs/notes/writeback/version-and-sequence-floor.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-retention",
       "title": "Event-log retention in the writer",
       "path": "server/internal/eventlog/retention.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/eventlog/retention.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/eventlog/retention.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-queues",
       "title": "Per-queue metric families",
       "path": "server/internal/metrics/queue.go",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/internal/metrics/queue.go",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/internal/metrics/queue.go",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     },
     {
       "id": "src-capacity",
       "title": "Capacity table, alerts and levers",
       "path": "server/docs/capacity.md",
-      "revision": "b1f94885210e79b73b7f0beeecae5c0a8127bc95",
-      "url": "https://github.com/nickstrad/mansio/blob/b1f94885210e79b73b7f0beeecae5c0a8127bc95/server/docs/capacity.md",
+      "revision": "636cc30070cec752bb5773449f9f04d3a03c8e8a",
+      "url": "https://github.com/nickstrad/mansio/blob/636cc30070cec752bb5773449f9f04d3a03c8e8a/server/docs/capacity.md",
       "notes": "Read at the dataset baseline. Code evidence, not a deployment claim."
     }
   ],
