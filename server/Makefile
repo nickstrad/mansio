@@ -1,12 +1,14 @@
-# mansio-server Makefile. One section per workstream; add yours as a new section (edit under
-# `scripts/lock.sh Makefile ...`). `make help` lists the documented targets.
+# mansio-server Makefile: benchmarks, focused test runs and the deterministic simulation, one section per area.
+# The full Go gate is `deno task go:ci` at the repo root. `make help` lists the documented targets. Targets that
+# say "under the bench lock" hold results/.bench-lock (scripts/lock.sh) so two benchmarks never share the machine.
 
 .PHONY: help
 help:
 	@grep -hE "^#   make " Makefile | sed "s/^#   //"
 
 # ---------------------------------------------------------------------------------------------------------
-# coldload (owner: coldload agent): SQLite files in SeaweedFS → virtual actors. State (archived): ../agent-work/server/state_files/STATE-coldload.md
+# coldload: how fast a SQLite file in SeaweedFS (S3) becomes a ready virtual actor, by size and concurrency;
+# also the tests and fuzzing of the virtual-actor host and the S3 client. Results: docs/notes/coldload/.
 #
 #   make coldload-bench CONFIG=sizes     SeaweedFS up → seed → run → report → full cleanup (KEEP=1 keeps data)
 #   make coldload-smoke                  the same with configs/coldload/smoke.json (~10 s)
@@ -87,7 +89,8 @@ coldload-disk:
 	@echo "host free:        $$(df -h . | awk 'NR == 2 {print $$4}')"
 
 # ---------------------------------------------------------------------------------------------------------
-# sqlbench (owner: sqlbench agent): one goroutine (actor) per SQLite database, open-loop load. State: STATE.md
+# sqlbench: one goroutine (actor) per SQLite database under open-loop generated load; tests, fuzzing, coverage
+# and benchmark runs of the actor and its load generator. Results: docs/notes/sqlbench/.
 #
 #   make sqlbench-test                   vet + unit/integration tests, -race and -tags noassert
 #   make sqlbench-e2e                    build the binary and run it end to end (-tags e2e)
@@ -129,7 +132,8 @@ sqlbench-run:
 	scripts/run.sh configs/$(CONFIG).json
 
 # ---------------------------------------------------------------------------------------------------------
-# front (owner: front agent): tickets, admission and the agent's network front. State: ../agent-work/server/state_files/STATE-front.md
+# front: agentd's network front (tickets, admission, wire codes) and the frontbench load client.
+# Results: docs/notes/front/.
 #
 #   make front-test                      vet + tests, -race and -tags noassert
 #   make front-e2e                       build agentd + frontbench and run them together (-tags e2e)
@@ -163,10 +167,11 @@ front-bench:
 	LOCK_WHO=front scripts/lock.sh results/.bench-lock scripts/front/bench.sh
 
 # ---------------------------------------------------------------------------------------------------------
-# sim (owner: DST builder): deterministic simulation, IR protocol plan §6.4. docs/notes/determinism/
+# sim: deterministic simulation of one agent and of a cluster from a seed (internal/sim). Notes:
+# docs/notes/determinism/.
 #
-#   make sim-test                        the simulations' default seeds (DST-1 single node, DST-2 cluster)
-#   make sim-swarm SEEDS=2000            DST-3 nightly swarm: many seeds, varied fault rates, shrink failures
+#   make sim-test                        the simulations' default seeds (single node and cluster)
+#   make sim-swarm SEEDS=2000            nightly swarm: many seeds, varied fault rates, shrink failures
 
 SEEDS ?= 2000
 
