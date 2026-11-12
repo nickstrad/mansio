@@ -146,7 +146,7 @@ A new integration point is a design change: add a row here and to the defaults t
   and bad input are answers.
 - **Open means fail fast** with `ErrUnavailable` and a retry hint (the time to the probe).
 - **Breakers are visible and operable**: every transition is logged with a message code and exported as a
-  metric; `agentctl breaker s3 trip|reset` holds one open or closes it.
+  metric; `mansioctl agent breaker s3 trip|reset` holds one open or closes it.
 - **What an open breaker means for users is a decision, written down.** S3 open: cold activations answer
   `unavailable` (503 + `Retry-After`), warm traffic is unaffected, write-backs wait (the RPO grows; alert on
   `oldest_dirty_age`), and readiness stays up. An agent is not pulled from the load balancer for a remote

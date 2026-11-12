@@ -6,7 +6,7 @@ flows, and the gate results.
 Code: `cmd/controld`, `internal/control` (domain: policy + controller), `internal/control/agenthttp` (the
 agents' lifecycle client), `internal/placement/pg` (`schema/0002_registry.sql` and the registry queries),
 `cmd/agentd` (`placement_pg`). agentd's runtime controls: [admin controls](admin-controls.md)
-(`cmd/agentd/admin.go`, `cmd/agentctl`); S3 identities:
+(`cmd/agentd/admin.go`, `cmd/mansioctl`); S3 identities:
 [S3 identities and TLS](../writeback/s3-identities-and-tls.md).
 
 ## What runs

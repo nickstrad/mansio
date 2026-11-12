@@ -456,16 +456,38 @@ export async function cli(
   if (success) assert.equal(out.code, 0, `${script} ${args[0]}: ${out.stderr}`);
   return out;
 }
+/**
+ * Runs `mansioctl <args>` (the platform admin CLI, server/cmd/mansioctl) against the server's admin API with the
+ * admin token in `ADMIN_TOKEN`; a non-zero exit fails unless `success` is false.
+ */
+export async function mansioctl(
+  server: Server,
+  args: string[],
+  extra: Record<string, string> = {},
+  success = true,
+) {
+  // Imported when called: durable.ts imports this module.
+  const { goBinary } = await import("./durable.ts");
+  const out = await command(await goBinary("mansioctl"), ["-addr", server.base, ...args], {
+    ...cleanEnv(),
+    ADMIN_TOKEN: server.env.ADMIN_TOKEN,
+    ...extra,
+  });
+  if (success) assert.equal(out.code, 0, `mansioctl ${args.join(" ")}: ${out.stderr}`);
+  return out;
+}
 export async function tenant(server: Server, index: number) {
-  const out = await cli(server, "tenants", ["create", names[index], "--slug", names[index]]);
+  const out = await mansioctl(server, ["tenants", "create", names[index], "-slug", names[index]]);
   const keys = out.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
   assert.equal(keys.length, 1, "create must print the plaintext key exactly once");
-  assert.match(out.stdout, /Save this API key now/);
-  const id = out.stdout.match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/)?.[0];
-  assert.ok(id, "tenant metadata must be printed");
-  // The key row: its id (16 hex digits), then its tenant.
-  const keyId = out.stdout.match(new RegExp(`^([0-9a-f-]{16,36})\\s+${id}\\s`, "m"))?.[1];
-  assert.ok(keyId, "key metadata must be printed");
+  assert.match(out.stderr, /Save this API key now/);
+  const created = JSON.parse(out.stdout);
+  const id: string = created.tenant.id;
+  assert.match(id, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/, "tenant metadata must be printed");
+  const keyId: string = created.apiKey.id;
+  assert.match(keyId, /^[0-9a-f]{16}$/, "key metadata must be printed");
+  assert.equal(created.apiKey.tenantId, id);
+  assert.equal(created.apiKey.plaintext, keys[0]);
   return { id, keyId, key: keys[0] };
 }
 export async function play(c: Client, cells: readonly number[], suffix = "") {

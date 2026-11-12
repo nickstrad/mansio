@@ -2,7 +2,7 @@
 # Usage: scripts/platform/up.sh   (make platform-up)
 #
 # Brings the multi-node dev platform up and proves it works, unattended:
-#   1. builds agentd, controld and the edge into .platform/bin
+#   1. builds agentd, controld, the edge and mansioctl (the admin CLI) into .platform/bin
 #   2. generates a throwaway dev CA and one server certificate (127.0.0.1/localhost), the controld/agent/edge
 #      tokens and secrets files, and the ticket key ring (`controld keygen`)
 #   3. starts Postgres and SeaweedFS (scripts/platform/compose.yml, in this checkout's own Compose project,
@@ -58,8 +58,8 @@ trap 'rc=$?; if [ $rc -ne 0 ]; then log "platform-up failed (exit $rc); daemon l
   tails; "$root/scripts/platform/down.sh" >&2 || true; fi' EXIT
 
 # --- 1. Build. ---------------------------------------------------------------------------------------------
-log "building agentd, controld, edge"
-(cd "$root/server" && for c in agentd controld edge; do go build -o "$state/bin/$c" "./cmd/$c"; done)
+log "building agentd, controld, edge, mansioctl"
+(cd "$root/server" && for c in agentd controld edge mansioctl; do go build -o "$state/bin/$c" "./cmd/$c"; done)
 bin="$state/bin"
 
 # --- 2. Dev CA, certificate, ticket keys, secrets. ------------------------------------------------------------

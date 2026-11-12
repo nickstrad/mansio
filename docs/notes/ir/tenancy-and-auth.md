@@ -40,7 +40,7 @@ is in [multi-node](multi-node.md).
 
 - A bearer is tried as a ticket first; only `ErrMalformed`/`ErrVersion` (not ticket-shaped) go to the port. A
   real but expired ticket stays `ticket_invalid`.
-- Key ids are 16 hex on Go and were uuids on the Deno platform. `scripts/tenants.ts revoke-key` accepts both;
+- Key ids are 16 hex on Go and were uuids on the Deno platform. `mansioctl tenants revoke-key` accepts both;
   the harness `tenant()` reads the key id from the key table's row.
 - `/admin/` is one mux pattern on the query listener: a later `/admin/...` route must be registered as a more
   specific pattern (e.g. `POST /admin/logs/ingest`) on the same mux, or inside tenancyhttp's gate.

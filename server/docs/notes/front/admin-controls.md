@@ -1,11 +1,11 @@
-# agentd runtime admin controls and agentctl
+# agentd runtime admin controls and mansioctl agent
 
 agentd's loopback admin listener (breaker trip/reset, fetch limit, drain, passivate, log level) and the
-`agentctl` CLI that drives it.
+`mansioctl agent` CLI that drives it.
 
 Rules it follows: an operator can trip and reset breakers; control requests never queue behind queries; every
 control has a deadline; a CLI comes first; components are controlled at run time without a deploy. Code:
-`cmd/agentd/admin.go`, `cmd/agentctl`, `internal/breaker` (`Trip`, `Reset`), `internal/vactor`
+`cmd/agentd/admin.go`, `cmd/mansioctl`, `internal/breaker` (`Trip`, `Reset`), `internal/vactor`
 (`SetFetchLimit`).
 
 ## Listener
@@ -52,11 +52,11 @@ placement breaker joins with one map entry). Static mode has no breakers, fetch 
   starts until fewer than n run; raising it grants queued activations at once. Byte and queue bounds
   unchanged.
 
-## agentctl
+## mansioctl agent
 
 ```
-agentctl [-addr 127.0.0.1:7072] [-timeout 10s] breaker <dep> trip|reset
-agentctl [flags] fetch-limit <n> | drain | passivate <key> | loglevel debug|info|warn
+mansioctl [-agent 127.0.0.1:7072] [-timeout 10s] agent breaker <dep> trip|reset
+mansioctl [flags] agent fetch-limit <n> | drain | passivate <key> | loglevel debug|info|warn
 ```
 
 `-addr` defaults to `$AGENTCTL_ADDR`, else `127.0.0.1:7072`; `-timeout` is also sent as `X-Timeout-Ms`. Prints

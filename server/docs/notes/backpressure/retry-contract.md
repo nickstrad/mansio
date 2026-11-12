@@ -5,10 +5,9 @@ The single generated retry table that the Go client, the TypeScript SDK and cont
 Source: `server/internal/front/contract.go` (`Contract()`: the agent's answers from `front.Spec`, which gained
 an `Action` column, plus controld's resolve answers). Generated from it by
 `go test ./internal/front -run TestContractFiles -update`: the user document `docs/retry-contract.md` and the
-shared vectors `ir/vectors/retry.json`. Held to it: the Go client
-(`internal/client/contract_test.go`), the TypeScript SDK (`tests/unit/sdk_retry_contract_test.ts`), controld's
-resolve answers (`TestResolveAnswersMatchTheContract`), and the committed files themselves
-(`TestContractFiles`).
+shared vectors `ir/vectors/retry.json`. Held to it: the Go client (`internal/client/contract_test.go`), the
+TypeScript SDK (`tests/unit/sdk_retry_contract_test.ts`), controld's resolve answers
+(`TestResolveAnswersMatchTheContract`), and the committed files themselves (`TestContractFiles`).
 
 What changed in behaviour:
 

@@ -47,8 +47,8 @@ Every drill from Phase 3 on uses that cluster.
    There is no separate config manual: the field comments are the reference. Compare each sample with the file
    `platform-up` generated for the same process.
 
-7. Read "Authentication and tenancy" in `docs/guide.md`, then run `scripts/tenants.ts` without arguments to
-   see its commands.
+7. Read "Authentication and tenancy" in `docs/guide.md`, then build `server/cmd/mansioctl` and run
+   `mansioctl -h` to see its commands.
 
    Single-node agentd can authenticate with app tokens, tenant API keys or sessions; multi-node deployments
    authenticate at controld. This decides where tenants and keys live and which tool manages them.
@@ -66,48 +66,48 @@ Every drill from Phase 3 on uses that cluster.
 
 ## Phase 3: Day-to-day operations (practise on the platform-up cluster)
 
-10. Run controld's admin CLI:
-    `.platform/bin/controld vms -addr https://127.0.0.1:27080 -secrets .platform/controld/secrets.json -ca .platform/tls/ca.pem`,
-    then read the command table in `server/cmd/controld/cli.go`.
+10. Run the admin CLI against controld:
+    `.platform/bin/mansioctl -addr https://127.0.0.1:27080 -secrets .platform/controld/secrets.json -ca .platform/tls/ca.pem vms list`,
+    then run `.platform/bin/mansioctl -h` and read `server/cmd/mansioctl/README.md`.
 
-    Every admin action is one scriptable command over the admin API: `create`, `get`, `move`, `suspend`,
-    `resume`, `drop`, `attest-dead`, `restore`, `create-key`, `revoke-key`, `limit`, `vms`. If the flags
-    differ, the command prints its own usage. Every command needs the same `-addr`, `-secrets` and `-ca`
-    flags; the later steps leave them out for brevity.
+    Every admin action is one scriptable command, grouped by what it acts on: `tenants`, `databases`
+    (`create`, `get`, `move`, `suspend`, `resume`, `drop`), `vms` (`list`, `attest-dead`, `restore`), `keys`
+    (`create`, `revoke`), `limits set`, and `agent` for one agent's controls. If the flags differ, the command
+    prints its own usage. Every controld command needs the same `-addr`, `-secrets` and `-ca` global flags,
+    before the group; the later steps leave them out for brevity.
 
-11. Create a database and an API key with `create -tenant <tenant id> -name drill1` and
-    `create-key -tenant <tenant id> -principal <you>`, then `get -db "<tenant id>:drill1"`. The tenant id is a
-    UUID: list tenants with
-    `DENO_CERT=.platform/tls/ca.pem BASE_URL=https://127.0.0.1:27080 ADMIN_TOKEN=<admin_token from .platform/controld/secrets.json> deno run -A scripts/tenants.ts list`.
-    Then read the placement row in Postgres:
+11. Create a database and an API key with `databases create -tenant <tenant id> -name drill1` and
+    `keys create -tenant <tenant id> -principal <you>`, then `databases get -db "<tenant id>:drill1"`. The
+    tenant id is a UUID: list tenants with `mansioctl -format table tenants list` (plus the usual flags). Then
+    read the placement row in Postgres:
     `docker exec <postgres container> psql -U mansio -d mansio -c 'select database_id,owner_vm,epoch,generation,state from control.placement'`.
 
     `get` shows only the registry state (active, moving, suspended, dropped). The placement row shows which VM
     owns the database, at which epoch and generation: the three values every lifecycle operation changes.
     Always quote a database key in the shell; in zsh an unquoted `$T:name` is silently mangled.
 
-12. Move the database with `move -db <key> -to <other vm>`, read the placement row again, and open the
-    `database-move` view on the diagram site.
+12. Move the database with `databases move -db <key> -to <other vm>`, read the placement row again, and open
+    the `database-move` view on the diagram site.
 
     A move is mark moving, fence on the source (with a final write-back), epoch flip in Postgres, claim on the
     target. The epoch goes up by one, and clients re-resolve on their own. This is the operation you will run
     most for rebalancing and maintenance.
 
-13. Try `suspend`, `resume` and `drop` on a throwaway database.
+13. Try `databases suspend`, `databases resume` and `databases drop` on a throwaway database.
 
     These complete the lifecycle. Note that `drop` deletes the database's objects in S3, so it is the one
     command here that cannot be undone, and a dropped name cannot be created again.
 
-14. Run `go run ./cmd/agentctl` from `server/` to print its usage, then try `backup <key>`, `passivate <key>`
-    and `loglevel debug` against the admin listener of the agent that owns the database, for example
-    `agentctl -addr 127.0.0.1:27072 backup "<key>"` (vm-a is 27072, vm-b is 27075; `-addr` goes before the
-    command).
+14. Try `mansioctl agent backup <key>`, `agent passivate <key>` and `agent loglevel debug` against the admin
+    listener of the agent that owns the database, for example
+    `.platform/bin/mansioctl -agent 127.0.0.1:27072 agent backup "<key>"` (vm-a is 27072, vm-b is 27075;
+    `-agent` goes before the group, and the `agent` group takes no `-addr`, `-secrets` or `-ca`).
 
-    `agentctl` is the per-agent control: force a write-back, drop a warm database from local disk, trip or
-    reset a breaker, change a limit, drain before a restart. The admin listener is loopback only, which is its
-    only access control.
+    The `agent` group is the per-agent control: force a write-back, drop a warm database from local disk, trip
+    or reset a breaker, change a limit, drain before a restart. The admin listener is loopback only, which is
+    its only access control.
 
-15. Drain and restart one agent: `agentctl -addr 127.0.0.1:27075 drain`, watch
+15. Drain and restart one agent: `mansioctl -agent 127.0.0.1:27075 agent drain`, watch
     `curl http://127.0.0.1:27074/readyz` turn 503 "draining", stop it with
     `kill -TERM $(cat .platform/vm-b.pid)`, and start it again with
     `cd .platform/vm-b && ../bin/agentd -dev -config agentd.json`.
@@ -133,16 +133,16 @@ Every drill from Phase 3 on uses that cluster.
     This is the storage runbook: `inspect`, `verify`, `orphans`, `gc`, `rebuild-manifest`, `restore` and
     `import`. `restore` never overwrites a file, and `verify` checks size, checksum and SQLite integrity.
 
-19. Back up a database with `agentctl backup "<key>"`, then restore that generation to a new file and open it
-    with `sqlite3`:
+19. Back up a database with `mansioctl -agent <its agent's admin listener> agent backup "<key>"`, then restore
+    that generation to a new file and open it with `sqlite3`:
     `DBTOOL_S3_ACCESS_KEY=mansiodevkey DBTOOL_S3_SECRET_KEY=mansiodevsecret dbtool -endpoint 127.0.0.1:18333 -bucket mansio-test -root platform/ restore -gen <G> "<key>" <new file>`
     (build it with `cd server && go build -o dbtool ./cmd/dbtool`; the new file must not exist yet).
 
     A backup you have never restored is not a backup. Doing it once on the practice cluster makes the real one
     routine.
 
-20. Practise losing a VM: kill one agentd with `kill -9`, then run `attest-dead -vm <vm> -by <you>` and
-    `restore -vm <vm>`, and `get` a database it owned.
+20. Practise losing a VM: kill one agentd with `kill -9`, then run `vms attest-dead -vm <vm> -by <you>` and
+    `vms restore -vm <vm>`, and `databases get` a database it owned.
 
     When a VM is gone for good, the operator attests it dead and controld moves its databases to live agents
     from their last published generations. Attesting accepts the loss of that VM's unpublished writes, which
@@ -183,8 +183,8 @@ Every drill from Phase 3 on uses that cluster.
     Together they say what overload looks like from both sides: which process refuses, with which code, and
     what clients do next. They let you tell "the platform is protecting itself" from "the platform is broken".
 
-26. Change a limit at run time: `controld limit -queue resolve_load -n 8` (plus the usual flags) and
-    `agentctl -addr 127.0.0.1:27072 limit verify 8`.
+26. Change a limit at run time: `mansioctl limits set -queue resolve_load -n 8` (plus the usual flags) and
+    `mansioctl -agent 127.0.0.1:27072 agent limit verify 8`.
 
     Most bounds can be moved without a restart, and controld refuses a value that would break its Postgres
     connection budget. Know this before an incident; the change is not written to the config file.

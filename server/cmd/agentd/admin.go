@@ -20,7 +20,7 @@ import (
 // only on admin_listen, a third listener separate from the query and lifecycle listeners, with the lifecycle
 // listener's server-wide timeouts. admin_listen must be a loopback address: binding is their only access
 // control (whoever can reach a loopback port already has a shell on the VM and could signal the process).
-// cmd/agentctl is the scriptable client.
+// mansioctl agent (cmd/mansioctl) is the scriptable client.
 //
 //	POST /admin/breaker/{dep}:trip     force breaker dep open until reset   → {"code":"ok","dep","state","forced","changed"}
 //	POST /admin/breaker/{dep}:reset    close breaker dep                    → same

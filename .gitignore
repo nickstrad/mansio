@@ -162,7 +162,7 @@ agent-work/*
 # ---------------------------------------------------------------------------
 # Go command binaries built in place (`go build` inside server/cmd/<name>)
 # ---------------------------------------------------------------------------
-server/cmd/*/agentctl
+server/cmd/*/mansioctl
 server/cmd/*/agentd
 server/cmd/*/coldload
 server/cmd/*/controld

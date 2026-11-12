@@ -69,7 +69,7 @@ export interface Backup {
 
 /** A Go command from `server/cmd`: `<NAME>_BIN` if set (e2e-linux.sh cross-compiles them), else built once. */
 const built = new Map<string, Promise<string>>();
-export function goBinary(name: "agentd" | "dbtool" | "controld" | "edge"): Promise<string> {
+export function goBinary(name: "agentd" | "dbtool" | "controld" | "edge" | "mansioctl"): Promise<string> {
   let bin = built.get(name);
   if (!bin) {
     bin = (async () => {

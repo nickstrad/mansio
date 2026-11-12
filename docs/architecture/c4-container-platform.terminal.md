@@ -29,9 +29,9 @@ and the server is the Go server in `server/`. Both formats are generated from
 ╎                                                                      ╎
 ╎  ┌──────────────────────────────┐   ┌──────────────────────────────┐ ╎
 ╎  │ Control store                │   │ Operator CLIs                │ ╎
-╎  │ [Postgres 17]                │   │ [Go and Deno processes]      │ ╎
+╎  │ [Postgres 17]                │   │ [Go processes]               │ ╎
 ╎  │ schema control               │   │ server/cmd/dbtool;           │ ╎
-╎  │ Placement, issuer keys,      │   │ scripts/tenants.ts           │ ╎
+╎  │ Placement, issuer keys,      │   │ server/cmd/mansioctl         │ ╎
 ╎  │ tenants, API keys, users,    │   │ Restore, import, verify;     │ ╎
 ╎  │ sessions                     │   │ tenant and key admin         │ ╎
 ╎  └──────────────────────────────┘   └──────────────────────────────┘ ╎
@@ -71,5 +71,5 @@ This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs a
 file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or sessions on
 /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or placement_pg); then
 the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are acknowledged before
-write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts talks to whichever
-process mounts /admin/tenants (agentd or controld).
+write-back, so a kill -9 can lose the window (ir-protocol.md §9). mansioctl talks to whichever process mounts
+/admin/tenants (agentd or controld).

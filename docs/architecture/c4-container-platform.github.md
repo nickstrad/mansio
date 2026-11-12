@@ -12,7 +12,7 @@ flowchart TB
         files["Databases<br/>[SQLite 3 files]<br/>agentd db_dir<br/>One file per (tenant, app): tenant:app.db"]
         controld["Control plane<br/>[Go process]<br/>server/cmd/controld<br/>Resolve and tickets; create, move, attest-dead, restore; tenancy admin and auth"]
         pg["Control store<br/>[Postgres 17]<br/>schema control<br/>Placement, issuer keys, tenants, API keys, users, sessions"]
-        tools["Operator CLIs<br/>[Go and Deno processes]<br/>server/cmd/dbtool; scripts/tenants.ts<br/>Restore, import, verify; tenant and key admin"]
+        tools["Operator CLIs<br/>[Go processes]<br/>server/cmd/dbtool; server/cmd/mansioctl<br/>Restore, import, verify; tenant and key admin"]
     end
         client["Client SDK<br/>[Library in caller process]<br/>sdk/client.ts; sdk/transport.ts<br/>Runs handlers; sends IR; resolves and caches tickets"]
         objects["Object storage<br/>[External system]<br/>S3 (SeaweedFS in dev)<br/>SQLite generations and manifests"]
@@ -58,5 +58,5 @@ This is the multi-node shape (IR-5a, e2e scale_out). A single agentd also runs a
 file, minted tickets, files it finds in db_dir), with a tenancy section (app tokens, API keys or sessions on
 /v1/ops, its own control schema in Postgres) or durable (S3 generations, placement_dir or placement_pg); then
 the SDK sends /v1/ops straight to it and there is no edge or controld. Writes are acknowledged before
-write-back, so a kill -9 can lose the window (ir-protocol.md §9). scripts/tenants.ts talks to whichever
-process mounts /admin/tenants (agentd or controld).
+write-back, so a kill -9 can lose the window (ir-protocol.md §9). mansioctl talks to whichever process mounts
+/admin/tenants (agentd or controld).

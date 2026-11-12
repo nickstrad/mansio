@@ -12,7 +12,7 @@ generation holds everything so far", and a restore is "download that generation"
 
 | Deno platform (deleted)                                   | Go                                                                                                                 |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `POST /admin/backup/:appId` (admin token)                 | `POST /admin/backup?key=tenant:app` on agentd's admin listener (loopback; `agentctl backup`)                       |
+| `POST /admin/backup/:appId` (admin token)                 | `POST /admin/backup?key=tenant:app` on agentd's admin listener (loopback; `mansioctl agent backup`)                |
 | answer: `{format, appId, key, sha256, bytes, capturedAt}` | answer: the stored manifest `{key, generation, epoch, object, size, sha256, md5, written_at}` + `version`, `wrote` |
 | `latest.json` = the last backup                           | the manifest = the last write-back (periodic, passivation, shutdown, or a backup)                                  |
 | `deno task restore <app> <path>`                          | `dbtool restore [-gen G] <key> <path>`                                                                             |

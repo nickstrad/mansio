@@ -16,7 +16,7 @@ import { schemaFingerprint } from "../../../sdk/fingerprint.ts";
 import type { Functions } from "../../../sdk/functions.ts";
 import { withStorage } from "../../../sdk/schema.ts";
 import { goBinary, type S3Store, s3Store } from "./durable.ts";
-import { assert, cleanEnv, keep, layoutOf, processResource, root, stopGroup } from "./harness.ts";
+import { assert, cleanEnv, command, keep, layoutOf, processResource, root, stopGroup } from "./harness.ts";
 
 export const VMS = ["vm-a", "vm-b"] as const;
 export type VM = typeof VMS[number];
@@ -306,6 +306,23 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
       assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(r.body)}`);
       return r.body;
     };
+    /**
+     * Runs the admin CLI: `mansioctl <args>` against controld's API (`-addr`, the admin token from controld's
+     * secrets file), or, with `agent` set, `mansioctl agent <args>` against that VM's admin listener.
+     */
+    const mansioctl = async (args: string[], agent?: VM) => {
+      const bin = await goBinary("mansioctl");
+      const target = agent === undefined
+        ? ["-addr", api, "-secrets", `${cdir}/secrets.json`]
+        : ["-agent", agents.get(agent)!.admin, "-timeout", "20s", "agent"];
+      return await command(bin, [...target, ...args], cleanEnv());
+    };
+    /** `mansioctl` that must exit 0: its stdout as JSON. */
+    const mustCtl = async (args: string[], agent?: VM) => {
+      const out = await mansioctl(args, agent);
+      assert.equal(out.code, 0, `mansioctl ${args.join(" ")}: ${out.stdout} ${out.stderr}`);
+      return JSON.parse(out.stdout);
+    };
 
     return {
       api,
@@ -325,10 +342,10 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
           schema: fingerprintText(s),
         });
       },
-      /** A tenant through controld's tenancy admin API: its id and API key. */
+      /** A tenant through controld's tenancy admin API (`mansioctl tenants create`): its id and API key. */
       tenant: async (slug: string) => {
-        const out = await must("POST", "/admin/tenants", { name: slug, slug });
-        return { id: out.result.tenant.id as string, key: out.result.apiKey.plaintext as string };
+        const out = await mustCtl(["tenants", "create", slug, "-slug", slug]);
+        return { id: out.tenant.id as string, key: out.apiKey.plaintext as string };
       },
       /** The registry row of `tenant:app` (state, target). */
       database: async (key: string) => (await must("GET", `/v1/databases/${encodeURIComponent(key)}`)),
@@ -344,19 +361,10 @@ export function startCluster(dir: string, databaseUrl: string, store: S3Store = 
         assert.equal(response.status, 200, `resolve ${key}: ${JSON.stringify(out)}`);
         return { vm: out.vm as VM, epoch: out.epoch as number };
       },
-      /** Writes `key` back on its owner now (`POST /admin/backup`): the generation S3 holds. */
-      backup: async (vm: VM, key: string) => {
-        const response = await fetch(
-          `http://${agents.get(vm)!.admin}/admin/backup?key=${encodeURIComponent(key)}`,
-          {
-            method: "POST",
-            signal: AbortSignal.timeout(20_000),
-          },
-        );
-        const out = await response.json();
-        assert.equal(response.status, 200, `backup ${key} on ${vm}: ${JSON.stringify(out)}`);
-        return out;
-      },
+      mansioctl,
+      mustCtl,
+      /** Writes `key` back on its owner now (`mansioctl agent backup`): the generation S3 holds. */
+      backup: (vm: VM, key: string) => mustCtl(["backup", key], vm),
       /** An SDK client for `app` of `tenant` through the locator and the edge, creating the database on first use. */
       client: <F extends Functions>(functions: F, app: string, tenant: string, apiKey: string) =>
         createClient({

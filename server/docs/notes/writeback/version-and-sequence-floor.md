@@ -52,10 +52,9 @@ manifest is readable. `(Epoch, Generation, Seal)` still only rises.
 Rejected: packing generation or epoch beside the seal (a 2^32 stride leaves 21 bits; they do not fit, and
 without the stride an incarnation's `prev+1` walks into the next one's range); a floor kept in the database
 file (the file is what rolls back, so two restores of one generation would read the same floor); the compiled
-SQL (`max("_version" + 1, ?)`): it would change `core/compile` and
-`ir/vectors/compile.json` for a statement that runs once per document per
-incarnation. The floor is one more `UPDATE` after the compiled write, only when the compiled result is below
-the floor.
+SQL (`max("_version" + 1, ?)`): it would change `core/compile` and `ir/vectors/compile.json` for a statement
+that runs once per document per incarnation. The floor is one more `UPDATE` after the compiled write, only
+when the compiled result is below the floor.
 
 ## Limits (known, accepted)
 
@@ -139,11 +138,11 @@ stamps, after which a mutation that changes a row fails with `StorageError`, a d
 Durable mode: sequences start at 2^32 (one caller pinned `"seq":1` on a durable agent:
 `cmd/agentd/backup_test.go`, which now carries the sequence its insert answered).
 
-**Protocol**: `ir/spec/v1.md` §5.5, §6.5, §8.1 and §14 (revision 1.3). Vectors:
-`execute.json` "table assert: a sequence the database has not reached" (rule 3, both layouts; vectors run with
-floor 0, so rules 1 and 2 are Go tests, as the version floor's are). `decode.json` is unchanged: no request
-changes shape. The SDK needs no change (a conflict's `seq` and `current` already rebase its read set, and a
-table listed in `current` is read again); its test model (`tests/unit/sdk_model.ts`) has rule 3.
+**Protocol**: `ir/spec/v1.md` §5.5, §6.5, §8.1 and §14 (revision 1.3). Vectors: `execute.json` "table assert:
+a sequence the database has not reached" (rule 3, both layouts; vectors run with floor 0, so rules 1 and 2 are
+Go tests, as the version floor's are). `decode.json` is unchanged: no request changes shape. The SDK needs no
+change (a conflict's `seq` and `current` already rebase its read set, and a table listed in `current` is read
+again); its test model (`tests/unit/sdk_model.ts`) has rule 3.
 
 **The sim now exercises table preconditions** (`internal/sim/cluster_client.go`, `cluster_model.go`): every
 third operation of a client, when it is a transfer, guards its read with `assert {unchangedSince}` on

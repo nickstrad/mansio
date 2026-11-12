@@ -63,7 +63,7 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.instance }} is shedding and S3 is still slow"
-          description: "Backpressure is active but the dependency has not recovered: lower the fetch limit (agentctl fetch-limit) or trip the S3 breaker (agentctl breaker s3 trip)."
+          description: "Backpressure is active but the dependency has not recovered: lower the fetch limit (mansioctl agent fetch-limit) or trip the S3 breaker (mansioctl agent breaker s3 trip)."
       # The durability promise (README "Transaction and consistency contract"): an acknowledged write reaches S3
       # within about 11 s. While S3 is down the window grows without limit and nothing refuses the writes, so
       # this alert is the only signal.

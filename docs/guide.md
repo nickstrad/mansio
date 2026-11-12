@@ -244,16 +244,18 @@ agentd accepts two kinds of bearer credential on `/v1/ops`:
   (tenant API keys) or `session` (API keys plus email/password sessions at `/api/auth/sign-up/email` and
   `/api/auth/sign-in/email`). `api-key` and `session` keep tenants, keys and users in Postgres (`pg_dsn` in
   the secrets file); the credential decides the tenant. In those modes agentd also serves `/admin/tenants*`,
-  which `scripts/tenants.ts` drives:
+  which the admin CLI `mansioctl` (`server/cmd/mansioctl`) drives:
 
 ```sh
-BASE_URL=http://127.0.0.1:7070 ADMIN_TOKEN=… deno run -A scripts/tenants.ts list
+cd server && go build -o mansioctl ./cmd/mansioctl
+ADMIN_TOKEN=… ./mansioctl -addr http://127.0.0.1:7070 -format table tenants list
 ```
 
-Its commands are `create`, `list`, `show`, `deactivate`, `issue-key` and `revoke-key`; run it without
-arguments for usage. In `off` mode there are no tenant routes. The design is
-[ADR 0012](adr/0012-single-node-auth-port.md); `TenancyConfig` in `server/cmd/agentd/tenancy.go` documents the
-section. Multi-node deployments authenticate at controld instead; see `server/`.
+Its `tenants` commands are `create`, `list`, `show`, `deactivate`, `issue-key` and `revoke-key`; run
+`mansioctl -h` for usage. The token can also come from a file (`-token-file`, mode 0600), never from a flag.
+In `off` mode there are no tenant routes. The design is [ADR 0012](adr/0012-single-node-auth-port.md);
+`TenancyConfig` in `server/cmd/agentd/tenancy.go` documents the section. Multi-node deployments authenticate
+at controld instead; see `server/`.
 
 ## Backups and restore
 
@@ -266,8 +268,9 @@ single-node durable config; `server/configs/agentd/durable-local.json` is anothe
 
 In durable mode each database is a chain of immutable generations in S3. agentd writes a dirty database back
 every `maintenance.write_back_every` (default 10 s), when it passivates an idle database, and on clean
-shutdown. `POST /admin/backup?key=<tenant>:<app>` on the admin listener (`admin_listen`, loopback only) writes
-the database back now and answers the manifest of the generation that holds it.
+shutdown. `POST /admin/backup?key=<tenant>:<app>` on the admin listener (`admin_listen`, loopback only;
+`mansioctl agent backup <tenant>:<app>` sends it) writes the database back now and answers the manifest of the
+generation that holds it.
 
 **This is asynchronous write-back, not replication.** A mutation acknowledges the local SQLite commit; a host
 loss can lose acknowledged writes newer than the last write-back: about 11 s of them with the defaults (the 10

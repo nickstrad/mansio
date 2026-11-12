@@ -4,7 +4,7 @@ How a request reaches the actor that owns its database and what each hop costs: 
 (tickets, admission, the executor port, wire codes), agentd's durable mode and admin controls, controld
 (registries, placement, the locator and ticket issuer), the Go client and the stateless edge. Code:
 `internal/ticket` (+ `tickettest`), `internal/front` (+ `fronttest`), `internal/edge`, `internal/client`,
-`internal/control`, `cmd/agentd`, `cmd/agentctl`, `cmd/controld`, `cmd/edge`, `cmd/bench/frontbench`,
+`internal/control`, `cmd/agentd`, `cmd/mansioctl`, `cmd/controld`, `cmd/edge`, `cmd/bench/frontbench`,
 `configs/agentd/`, `scripts/front/bench.sh`.
 
 - [Wire contract](wire-contract.md): the `POST /v1/query` request and response, the eleven codes with HTTP
@@ -20,7 +20,7 @@ How a request reaches the actor that owns its database and what each hop costs: 
 - [Durable mode](durable-mode.md): agentd with vactor, the owner table and S3; lifecycle endpoints, secrets
   file, gate results.
 - [Admin controls](admin-controls.md): the loopback admin listener (breaker trip/reset, fetch limit, drain,
-  passivate, log level) and `agentctl`.
+  passivate, log level) and `mansioctl agent`.
 - [controld](controld.md): registries, the placement policy, create/move/suspend/drop/restore flows, gate
   results.
 - [Locator](locator.md): the resolve API, the notified cache, API keys, the rotating ticket key ring, agentd's

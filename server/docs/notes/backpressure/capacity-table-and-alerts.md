@@ -23,11 +23,11 @@ Where every bounded queue is listed, which alerts watch them, and the runtime le
 
 | Process  | Queues                                                                            | How                                                                                                      |
 | -------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| agentd   | `verify`, `lifecycle`, `credential_place`, `tenancy_admin`, `tenancy_auth`        | `agentctl limit QUEUE N` → `POST /admin/limit?queue=Q&n=N` on `admin_listen`                             |
-| agentd   | `fetch` (existing)                                                                | `agentctl fetch-limit N`                                                                                 |
+| agentd   | `verify`, `lifecycle`, `credential_place`, `tenancy_admin`, `tenancy_auth`        | `mansioctl agent limit QUEUE N` → `POST /admin/limit?queue=Q&n=N` on `admin_listen`                      |
+| agentd   | `fetch` (existing)                                                                | `mansioctl agent fetch-limit N`                                                                          |
 | controld | `resolve_load`, `resolve_create`, `controld_api`, `tenancy_admin`, `tenancy_auth` | `controld limit -queue Q -n N` → `POST /v1/limits/Q` (admin token); the pool budget is enforced here too |
 | edge     | `edge_agent`                                                                      | `POST /admin/agent:limit?n=N` on the new loopback-only `admin_listen` (default off)                      |
 
 No lever, on purpose: `admission`, `mailbox`, `read`, `events` and the edge's own caps protect the local
-process, not a dependency (a lever exists only where the queue protects a dependency); `agentctl drain` is the
-blunt local control.
+process, not a dependency (a lever exists only where the queue protects a dependency); `mansioctl agent drain`
+is the blunt local control.
