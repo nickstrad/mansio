@@ -3,9 +3,9 @@
 #
 # Why: the suite needs Linux (/proc process groups, setsid) and a Postgres. This starts postgres:17 as a
 # sibling container on a private network (E2E_POSTGRES_URL, so main.ts starts no Compose project),
-# cross-compiles agentd, dbtool, controld and the edge for Linux on the host (AGENTD_BIN, DBTOOL_BIN,
-# CONTROLD_BIN, EDGE_BIN; the container has no Go), starts a SeaweedFS sibling (E2E_S3_*) for the durable
-# agents of backup_restore (tests/e2e/platform/durable.ts) and scale_out's cluster
+# cross-compiles agentd, dbtool, controld, the edge and mansioctl for Linux on the host (AGENTD_BIN,
+# DBTOOL_BIN, CONTROLD_BIN, EDGE_BIN, MANSIOCTL_BIN; the container has no Go), starts a SeaweedFS sibling
+# (E2E_S3_*) for the durable agents of backup_restore (tests/e2e/platform/durable.ts) and scale_out's cluster
 # (tests/e2e/platform/cluster.ts), and runs the suite in denoland/deno:2.9.5 with the checkout and its git
 # directory mounted at their host paths (main.ts checks `git status` before and after).
 #
@@ -32,7 +32,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 case $(uname -m) in arm64 | aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
-(cd "$root/server" && for c in agentd dbtool controld edge; do
+(cd "$root/server" && for c in agentd dbtool controld edge mansioctl; do
   CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o "$bin/$c" ./cmd/$c || exit 1
 done)
 
@@ -65,7 +65,7 @@ s3env="-e E2E_S3_ENDPOINT=s3:8333 -e E2E_S3_BUCKET=e2e -e E2E_S3_ACCESS_KEY=e2e 
 docker run --rm --network "$net" -v "$root":"$root" -v "$common":"$common" \
   -v "mansio-nm-$tag":"$root/node_modules" -v mansio-deno-dir:/deno-dir -v "$bin":/e2e-bin \
   -e DENO_DIR=/deno-dir -e AGENTD_BIN=/e2e-bin/agentd -e DBTOOL_BIN=/e2e-bin/dbtool \
-  -e CONTROLD_BIN=/e2e-bin/controld -e EDGE_BIN=/e2e-bin/edge $s3env \
+  -e CONTROLD_BIN=/e2e-bin/controld -e EDGE_BIN=/e2e-bin/edge -e MANSIOCTL_BIN=/e2e-bin/mansioctl $s3env \
   -e E2E_POSTGRES_URL=postgres://mansio:mansio@pg:5432/postgres -w "$root" denoland/deno:2.9.5 \
   sh -c 'apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq git procps >/dev/null 2>&1;
     git config --global --add safe.directory "*"; deno task e2e "$@"' sh "$@"

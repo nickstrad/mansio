@@ -1,10 +1,10 @@
 import {
   apps,
   assert,
-  cli,
   client,
   delay,
   Effect,
+  mansioctl,
   OPS_PATH,
   opsQuery,
   play,
@@ -30,10 +30,10 @@ test(
         for (const [index, app] of apps.entries()) {
           const first = await tenant(server, 10 + index);
           await play(client(server, app, first.key), moves.X.slice(0, 1));
-          const issue = await cli(server, "tenants", ["issue-key", first.id]);
+          const issue = await mansioctl(server, ["tenants", "issue-key", first.id]);
           const keys = issue.stdout.match(/mansio_[A-Za-z0-9_-]+/g) ?? [];
           assert.equal(keys.length, 1);
-          assert.match(issue.stdout, /Save this API key now/);
+          assert.match(issue.stderr, /Save this API key now/);
           const second = keys[0];
           await play(client(server, app, second), moves.O.slice(0, 2));
           const status = async (key: string, app: string) =>
@@ -45,22 +45,28 @@ test(
               await delay(25);
             }
           };
-          for (const command of [["list"], ["show", first.id]]) {
-            const out = await cli(server, "tenants", command);
+          const reads = [["tenants", "list"], ["tenants", "show", first.id], [
+            "-format",
+            "table",
+            "tenants",
+            "list",
+          ]];
+          for (const command of reads) {
+            const out = await mansioctl(server, command);
             assert.ok(!out.stdout.includes(first.key) && !out.stdout.includes(second));
             assert.doesNotMatch(out.stdout + out.stderr, /mansio_[A-Za-z0-9_-]+/);
           }
-          await cli(server, "tenants", ["revoke-key", first.keyId]);
+          await mansioctl(server, ["tenants", "revoke-key", first.keyId]);
           await refused(first.key);
           assert.equal(await status(second, app), 200);
-          await cli(server, "tenants", ["deactivate", first.id]);
+          await mansioctl(server, ["tenants", "deactivate", first.id]);
           await refused(first.key);
           await refused(second);
-          const show = await cli(server, "tenants", ["show", first.id]);
+          const show = await mansioctl(server, ["-format", "table", "tenants", "show", first.id]);
           assert.match(show.stdout, /deactivated/);
           assert.doesNotMatch(show.stdout + show.stderr, /mansio_[A-Za-z0-9_-]+/);
         }
-        const wrong = await cli(server, "tenants", ["list"], { ADMIN_TOKEN: "wrong" }, false);
+        const wrong = await mansioctl(server, ["tenants", "list"], { ADMIN_TOKEN: "wrong" }, false);
         assert.notEqual(wrong.code, 0);
         assert.match(wrong.stderr, /401/);
       });

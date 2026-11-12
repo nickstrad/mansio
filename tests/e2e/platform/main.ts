@@ -96,6 +96,7 @@ try {
             "DBTOOL_BIN",
             "CONTROLD_BIN",
             "EDGE_BIN",
+            "MANSIOCTL_BIN",
             "E2E_S3_ENDPOINT",
             "E2E_S3_BUCKET",
             "E2E_S3_ACCESS_KEY",
