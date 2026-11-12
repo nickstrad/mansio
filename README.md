@@ -3,8 +3,7 @@
 **Application authors write schemas and document handlers, not SQL.** Handlers run in the caller's process, in
 the TypeScript SDK. The SDK turns their database work into requests of a small, versioned protocol (the
 intermediate representation, or IR, [`ir/spec/v1.md`](ir/spec/v1.md)) and sends them to the Go server, which
-validates them, compiles them to SQLite SQL and runs them with one goroutine per database. The server writes a
-structured request log (JSON lines) and Prometheus metrics for the deployment's own logging and metrics stack.
+validates them, compiles them to SQLite SQL and runs them with one goroutine per database.
 
 Step-by-step setup: [docs/guide.md](docs/guide.md). A tour of the Effect code:
 [docs/learning/typescript-tour.md](docs/learning/typescript-tour.md). Learning paths:
