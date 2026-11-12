@@ -154,7 +154,7 @@ type Options struct {
 	// OpTimeout + size/MinThroughput): the fetches in flight share the link, so each must still finish in
 	// time when MaxFetchBytes moves at the link's rate. At ~260 MB/s, 1 GiB in flight takes ~4.1 s, inside
 	// the 5 s OpTimeout alone; 16 × 128 MiB counted as 0 bytes did not
-	// (server/docs/notes/coldload/2026-11-05-ri02-bulkhead.md).
+	// (server/docs/notes/coldload/fetch-bulkhead.md).
 	MaxFetches    int
 	MaxFetchBytes int64
 	// MaxFetchQueue bounds activations waiting for a fetch slot. When it is full, Get fails at once with

@@ -178,7 +178,7 @@ func TestQueryTimeoutIsNotActivationTimeout(t *testing.T) {
 // A plain Fetcher that is a Sizer is bounded by bytes too, like durable mode: with 100-byte objects and
 // MaxFetchBytes 250 (on point: 2 fit, the third would make 300), only 2 of 8 cold keys fetch at once, though
 // MaxFetches would allow 16. This is what keeps many large plain fetches inside objstore's per-transfer
-// deadline (server/docs/notes/coldload/2026-11-05-ri02-bulkhead.md).
+// deadline (server/docs/notes/coldload/fetch-bulkhead.md).
 func TestFetchBulkheadBoundsPlainFetchesByBytesWithSizer(t *testing.T) {
 	const keys = 8
 	f, o := vactortest.NewFetcher(), &vactortest.Opener{}

@@ -139,7 +139,7 @@ sqlbench-run:
 #   make front-e2e                       build agentd + frontbench and run them together (-tags e2e)
 #   make front-check                     gofmt + front-test + front-e2e
 #   make front-fuzz                      every front fuzz target for FUZZTIME each, under the bench lock
-#   make front-bench                     the frontbench matrix recorded in docs/notes/front, under the bench lock
+#   make front-bench                     the frontbench matrix (results: docs/notes/front/README.md), under the bench lock
 
 FRONT_PKGS := ./internal/ticket/... ./internal/front/... ./cmd/agentd ./cmd/bench/frontbench
 FRONT_DIRS := internal/ticket internal/front cmd/agentd cmd/bench/frontbench

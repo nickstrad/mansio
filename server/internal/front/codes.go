@@ -109,7 +109,7 @@ type Wire struct {
 
 // Spec is the wire contract and its single source in code; TestSpecTable checks every row, Contract (the
 // caller contract both clients are held to, docs/retry-contract.md) is generated from it, and
-// docs/notes/front/2026-11-05-wire-contract.md documents it.
+// docs/notes/front/wire-contract.md documents it.
 var Spec = map[Code]Wire{
 	OK:            {200, 0, ActDone, "done (duplicate=true: this request_id was applied before; count is the original's)"},
 	Shed:          {503, 1, ActRetry, "nothing ran; retry after Retry-After with backoff and jitter"},

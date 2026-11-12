@@ -47,7 +47,7 @@ func (d *db) refused(when, table string, since int64) {
 	}
 }
 
-// The commit sequence has the version floor's rule (server/docs/notes/writeback/2026-11-10-version-floor.md): a
+// The commit sequence has the version floor's rule (server/docs/notes/writeback/version-and-sequence-floor.md): a
 // database rolled back by a kill -9 must not issue the lost mutations' sequences again, and a table precondition
 // taken on the lost state must not hold against the restored one. A client that ran a find before the crash holds a
 // sequence of a table that no longer exists in that form; its assert {unchangedSince} must conflict: before anything
