@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// sourcePattern is core/eventlog/offsets.ts SOURCE_PATTERN: the files the TS ingest picks up.
+// sourcePattern is the documented file layout (docs/observability.md "Files"): what log readers and collectors match.
 var sourcePattern = regexp.MustCompile(`^(server|reader|restore|cli)/(\d{4}-\d{2}-\d{2})/events-(\d{2})-(\d+)-(\d{3,})\.jsonl$`)
 
 // readAll returns every record under dir, by file (relative path) in name order.

@@ -3,17 +3,18 @@
  * text so the boundaries cannot rot silently.
  *
  * Rules:
- * - no file in `core/` imports `eventlog/`, `sdk/`, `node:*` or `npm:*`, or references `Deno.`;
- * - no `console.*` in the shipped library outside `eventlog/logger.ts` (documented degradation path);
- * - no `Deno.env` in the shipped library outside `eventlog/config.ts`;
- * - no `throw new Error` in `core/` or `eventlog/` (errors go through the tagged channel).
+ * - no file in `core/` imports `sdk/`, `node:*` or `npm:*`, or references `Deno.`;
+ * - no `console.*` in the shipped library;
+ * - no `Deno.env` in the shipped library;
+ * - no `throw new Error` in `core/` (errors go through the tagged channel).
  *
  * Until IR-6 these rules covered the Deno platform too, and a second group kept `node:sqlite`
  * out of the processes that opened files through the FFI SQLite binding (one SQLite copy per process).
- * The platform and the binding are gone, so that group went with them.
+ * The platform and the binding are gone, so that group went with them. The offline event-log tool
+ * (`eventlog/`, ADR 0014) had its own exceptions to the `console.*` and `Deno.env` rules; it is gone too.
  *
  * Scoping notes, deliberate:
- * - The `console.*` and `Deno.env` rules cover the shipped library (`core/`, `eventlog/`, `sdk/`,
+ * - The `console.*` and `Deno.env` rules cover the shipped library (`core/`, `sdk/`,
  *   `examples/tic-tac-toe/`). `tests/` is scaffolding (coverage reports, skip notices), `scripts/` are CLIs, and
  *   `agent-work/work-scripts/`/`perf/` are operator tooling — all legitimately use `console` and env.
  * - Comments are stripped before scanning, so prose about a boundary is not flagged; string literals
@@ -127,17 +128,13 @@ async function violations(
 }
 
 /** The shipped library the `console.*`/`Deno.env` rules guard. */
-const LIB = ["core", "eventlog", "sdk", "examples"];
+const LIB = ["core", "sdk", "examples"];
 
-Deno.test("boundaries: core/ imports nothing from eventlog/, sdk/, node:* or npm:* and never references Deno.", async () => {
+Deno.test("boundaries: core/ imports nothing from sdk/, node:* or npm:* and never references Deno.", async () => {
   const bad = await violations(await tsFiles("core"), (rel, code) => {
     for (const spec of importSpecifiers(code)) {
-      // Resolved, so `core/eventlog/` (core's own) is not the top-level `eventlog/`.
       const target = spec.startsWith(".") ? normalize(join(dirname(rel), spec)) : spec;
-      if (
-        target.startsWith("eventlog/") || target.startsWith("sdk/") || spec.startsWith("node:") ||
-        spec.startsWith("npm:")
-      ) {
+      if (target.startsWith("sdk/") || spec.startsWith("node:") || spec.startsWith("npm:")) {
         return `forbidden import ${JSON.stringify(spec)}`;
       }
     }
@@ -147,35 +144,28 @@ Deno.test("boundaries: core/ imports nothing from eventlog/, sdk/, node:* or npm
   assert.deepEqual(bad, []);
 });
 
-Deno.test("boundaries: no console.* in the shipped library outside eventlog/logger.ts", async () => {
+Deno.test("boundaries: no console.* in the shipped library", async () => {
   const rels: string[] = [];
   for (const dir of LIB) rels.push(...await tsFiles(dir));
-  const bad = await violations(
-    rels.filter((rel) => rel !== "eventlog/logger.ts"),
-    (_rel, code) => {
-      const line = firstMatchLine(code, /\bconsole\.\w+/);
-      return line === undefined ? undefined : `console usage: ${line}`;
-    },
-  );
-  assert.deepEqual(bad, []);
-});
-
-Deno.test("boundaries: no Deno.env in the shipped library outside eventlog/config.ts", async () => {
-  const rels: string[] = [];
-  for (const dir of LIB) rels.push(...await tsFiles(dir));
-  const bad = await violations(
-    rels.filter((rel) => rel !== "eventlog/config.ts"),
-    (_rel, code) => {
-      const line = firstMatchLine(code, /\bDeno\.env\b/);
-      return line === undefined ? undefined : `Deno.env usage: ${line}`;
-    },
-  );
-  assert.deepEqual(bad, []);
-});
-
-Deno.test("boundaries: no `throw new Error` in core/ or eventlog/ — errors go through the tagged channel", async () => {
-  const rels = [...await tsFiles("core"), ...await tsFiles("eventlog")];
   const bad = await violations(rels, (_rel, code) => {
+    const line = firstMatchLine(code, /\bconsole\.\w+/);
+    return line === undefined ? undefined : `console usage: ${line}`;
+  });
+  assert.deepEqual(bad, []);
+});
+
+Deno.test("boundaries: no Deno.env in the shipped library", async () => {
+  const rels: string[] = [];
+  for (const dir of LIB) rels.push(...await tsFiles(dir));
+  const bad = await violations(rels, (_rel, code) => {
+    const line = firstMatchLine(code, /\bDeno\.env\b/);
+    return line === undefined ? undefined : `Deno.env usage: ${line}`;
+  });
+  assert.deepEqual(bad, []);
+});
+
+Deno.test("boundaries: no `throw new Error` in core/ — errors go through the tagged channel", async () => {
+  const bad = await violations(await tsFiles("core"), (_rel, code) => {
     const line = firstMatchLine(code, /\bthrow\s+new\s+Error\b/);
     return line === undefined ? undefined : `untyped throw: ${line}`;
   });
